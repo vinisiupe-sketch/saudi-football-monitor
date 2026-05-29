@@ -1,0 +1,180 @@
+"""
+Coletor de RSS — busca posts do X (via Nitter/RSSHub) e feeds de notícias.
+Sem API paga do Twitter necessária.
+"""
+import feedparser
+import httpx
+import asyncio
+import re
+from datetime import datetime, timezone
+from typing import Optional
+from sources import (
+    TIER_A, TIER_B, TIER_C,
+    TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS
+)
+from database import make_article_id
+
+REQUEST_TIMEOUT = 15
+
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (compatible; SaudiFootballMonitor/1.0; "
+        "+https://github.com/seu-usuario/saudi-football-monitor)"
+    ),
+    "Accept": "application/rss+xml, application/xml, text/xml, */*",
+}
+
+
+def detect_language(text: str) -> str:
+    if not text:
+        return "unknown"
+    arabic_chars = len(re.findall(r'[؀-ۿ]', text))
+    total = max(len(text), 1)
+    if arabic_chars / total > 0.2:
+        return "ar"
+    pt_words = {"foi", "são", "está", "com", "por", "que", "uma", "para", "não", "dos"}
+    words = set(text.lower().split())
+    if len(words & pt_words) >= 2:
+        return "pt"
+    return "en"
+
+
+def compute_relevance(text: str, tier: str) -> float:
+    text_lower = text.lower()
+    all_keywords = [kw for lang_kws in KEYWORDS.values() for kw in lang_kws]
+    hits = sum(1 for kw in all_keywords if kw.lower() in text_lower)
+    keyword_score = min(hits / 5.0, 1.0)
+    tier_bonus = TIER_WEIGHTS.get(tier, 1) / 3.0
+    return round((keyword_score * 0.7) + (tier_bonus * 0.3), 3)
+
+
+def is_relevant(text: str) -> bool:
+    text_lower = text.lower()
+    for lang_kws in KEYWORDS.values():
+        for kw in lang_kws:
+            if kw.lower() in text_lower:
+                return True
+    return False
+
+
+async def fetch_feed(url: str, client: httpx.AsyncClient) -> Optional[feedparser.FeedParserDict]:
+    try:
+        resp = await client.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT, follow_redirects=True)
+        resp.raise_for_status()
+        feed = feedparser.parse(resp.text)
+        if feed.bozo and not feed.entries:
+            return None
+        return feed
+    except Exception as e:
+        print(f"  ⚠️  Falha ao buscar {url[:60]}... → {type(e).__name__}: {e}")
+        return None
+
+
+async def resolve_twitter_rss(username: str, client: httpx.AsyncClient) -> Optional[str]:
+    for template in TWITTER_RSS_PROVIDERS:
+        url = template.format(username=username)
+        try:
+            resp = await client.head(url, headers=HEADERS, timeout=8, follow_redirects=True)
+            if resp.status_code < 400:
+                return url
+        except Exception:
+            continue
+    return None
+
+
+def parse_entries(feed, source_name: str, source_tier: str, source_type: str) -> list[dict]:
+    articles = []
+    for entry in feed.entries[:30]:
+        title = getattr(entry, "title", "") or ""
+        summary = getattr(entry, "summary", "") or ""
+        link = getattr(entry, "link", "") or ""
+        body = re.sub(r"<[^>]+>", " ", summary).strip()
+        full_text = f"{title} {body}"
+        if not is_relevant(full_text):
+            continue
+        published = None
+        if hasattr(entry, "published_parsed") and entry.published_parsed:
+            try:
+                published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc).isoformat()
+            except Exception:
+                pass
+        article_id = make_article_id(link, title)
+        lang = detect_language(full_text)
+        score = compute_relevance(full_text, source_tier)
+        articles.append({
+            "id": article_id,
+            "source_name": source_name,
+            "source_tier": source_tier,
+            "source_type": source_type,
+            "url": link,
+            "title_orig": title[:500],
+            "title_pt": None,
+            "body_orig": body[:3000],
+            "body_pt": None,
+            "language": lang,
+            "published_at": published,
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+            "relevance_score": score,
+        })
+    return articles
+
+
+async def collect_all() -> dict:
+    all_articles = []
+    stats = {"sources_ok": 0, "sources_fail": 0}
+    limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
+    async with httpx.AsyncClient(limits=limits) as client:
+        tasks = []
+        for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]:
+            for feed_url in tier_data.get("rss_feeds", []):
+                tasks.append((tier_label, "rss", feed_url[:50], feed_url))
+            for username in tier_data.get("twitter_accounts", []):
+                tasks.append((tier_label, "twitter", f"@{username}", username))
+        BATCH_SIZE = 10
+        for i in range(0, len(tasks), BATCH_SIZE):
+            batch = tasks[i:i + BATCH_SIZE]
+            batch_coroutines = []
+            for tier, stype, name, target in batch:
+                if stype == "twitter":
+                    batch_coroutines.append(_collect_twitter(client, tier, name, target))
+                else:
+                    batch_coroutines.append(_collect_rss(client, tier, name, target))
+            results = await asyncio.gather(*batch_coroutines, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception) or result is None:
+                    stats["sources_fail"] += 1
+                else:
+                    stats["sources_ok"] += 1
+                    all_articles.extend(result)
+    seen_ids = set()
+    unique_articles = []
+    for art in all_articles:
+        if art["id"] not in seen_ids:
+            seen_ids.add(art["id"])
+            unique_articles.append(art)
+    print(f"\n📡 Coleta: {stats['sources_ok']} ok, {stats['sources_fail']} falhas")
+    print(f"   {len(unique_articles)} artigos relevantes\n")
+    return {"articles": unique_articles, **stats}
+
+
+async def _collect_rss(client, tier, name, url) -> Optional[list]:
+    print(f"  🌐 RSS [{tier}] {name[:40]}")
+    feed = await fetch_feed(url, client)
+    if feed is None:
+        return None
+    articles = parse_entries(feed, name, tier, "rss")
+    print(f"     → {len(articles)} artigos")
+    return articles
+
+
+async def _collect_twitter(client, tier, name, username) -> Optional[list]:
+    print(f"  🐦 Twitter [{tier}] {name}")
+    rss_url = await resolve_twitter_rss(username, client)
+    if rss_url is None:
+        return None
+    feed = await fetch_feed(rss_url, client)
+    if feed is None:
+        return None
+    articles = parse_entries(feed, name, tier, "twitter")
+    print(f"     → {len(articles)} posts")
+    return articles
