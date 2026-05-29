@@ -155,8 +155,7 @@ async def collect_all() -> dict:
     async with httpx.AsyncClient(limits=limits) as client:
         tasks = []
         for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]:
-            for feed_url in tier_data.get("rss_feeds", []):
-                tasks.append((tier_label, "rss", feed_url[:50], feed_url))
+            # Somente Twitter — RSS desabilitado
             for username in tier_data.get("twitter_accounts", []):
                 tasks.append((tier_label, "twitter", f"@{username}", username))
         BATCH_SIZE = 10
