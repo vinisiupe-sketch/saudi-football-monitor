@@ -40,12 +40,16 @@ async def dashboard():
     for a in articles:
         tier_color = {"A": "#22c55e", "B": "#eab308", "C": "#94a3b8"}.get(a["source_tier"], "#94a3b8")
         title = a.get("title_pt") or a.get("title_orig") or "—"
+        body = a.get("body_pt") or a.get("body_orig") or ""
         rows += f"""
         <tr>
           <td><span style="color:{tier_color};font-weight:bold">Tier {a['source_tier']}</span></td>
           <td>{a['source_name']}</td>
-          <td><a href="{a['url']}" target="_blank">{title[:100]}</a></td>
-          <td>{(a.get('collected_at') or '')[:16]}</td>
+          <td>
+            <a href="{a['url']}" target="_blank"><strong>{title}</strong></a>
+            {f'<div style="color:#94a3b8;margin-top:4px;font-size:0.85em">{body}</div>' if body else ''}
+          </td>
+          <td style="white-space:nowrap">{(a.get('collected_at') or '')[:16]}</td>
           <td>{a.get('relevance_score', 0):.2f}</td>
         </tr>"""
 
@@ -60,7 +64,7 @@ async def dashboard():
     .summary {{ background: #1e293b; border-left: 4px solid #38bdf8; padding: 16px; margin: 20px 0; white-space: pre-wrap; border-radius: 4px; }}
     table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
     th {{ background: #1e293b; padding: 10px; text-align: left; color: #94a3b8; }}
-    td {{ padding: 8px 10px; border-bottom: 1px solid #1e293b; font-size: 0.9em; }}
+    td {{ padding: 10px; border-bottom: 1px solid #1e293b; font-size: 0.9em; vertical-align: top; }}
     a {{ color: #38bdf8; text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
     .btn {{ background: #0284c7; color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; margin: 4px; }}
@@ -72,7 +76,7 @@ async def dashboard():
   <div class="summary"><strong>📝 Resumo do último ciclo</strong><br><br>{summary}</div>
   <h2>📰 Artigos recentes ({len(articles)})</h2>
   <table>
-    <tr><th>Tier</th><th>Fonte</th><th>Título</th><th>Coletado</th><th>Score</th></tr>
+    <tr><th>Tier</th><th>Fonte</th><th>Conteúdo</th><th>Coletado</th><th>Score</th></tr>
     {rows}
   </table>
 </body>

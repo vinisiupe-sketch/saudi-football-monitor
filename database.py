@@ -1,66 +1,74 @@
 """
-Banco de dados SQLite — armazena artigos coletados, resumos e logs.
+Banco de dados PostgreSQL — armazena artigos coletados, resumos e logs.
+Usa DATABASE_URL do ambiente (fornecido automaticamente pelo Railway).
 """
-import sqlite3
+import os
 import hashlib
-from datetime import datetime
-from pathlib import Path
+import json
+from contextlib import contextmanager
+import psycopg2
+import psycopg2.extras
 
-DB_PATH = Path("data/monitor.db")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 
+@contextmanager
 def get_conn():
-    DB_PATH.parent.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+    conn = psycopg2.connect(DATABASE_URL)
+    conn.autocommit = False
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def init_db():
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS articles (
-            id          TEXT PRIMARY KEY,
-            source_name TEXT NOT NULL,
-            source_tier TEXT NOT NULL,
-            source_type TEXT NOT NULL,
-            url         TEXT UNIQUE,
-            title_orig  TEXT,
-            title_pt    TEXT,
-            body_orig   TEXT,
-            body_pt     TEXT,
-            language    TEXT,
-            published_at TEXT,
-            collected_at TEXT NOT NULL,
-            is_duplicate INTEGER DEFAULT 0,
-            relevance_score REAL DEFAULT 0.0
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS summaries (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            generated_at TEXT NOT NULL,
-            period_start TEXT NOT NULL,
-            period_end   TEXT NOT NULL,
-            summary_pt   TEXT NOT NULL,
-            article_ids  TEXT NOT NULL
-        )
-    """)
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS collection_logs (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            ran_at       TEXT NOT NULL,
-            sources_ok   INTEGER DEFAULT 0,
-            sources_fail INTEGER DEFAULT 0,
-            articles_new INTEGER DEFAULT 0,
-            articles_dup INTEGER DEFAULT 0,
-            error_msg    TEXT
-        )
-    """)
-    conn.commit()
-    conn.close()
-    print("✅ Banco de dados inicializado.")
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS articles (
+                id              TEXT PRIMARY KEY,
+                source_name     TEXT NOT NULL,
+                source_tier     TEXT NOT NULL,
+                source_type     TEXT NOT NULL,
+                url             TEXT UNIQUE,
+                title_orig      TEXT,
+                title_pt        TEXT,
+                body_orig       TEXT,
+                body_pt         TEXT,
+                language        TEXT,
+                published_at    TEXT,
+                collected_at    TEXT NOT NULL,
+                is_duplicate    INTEGER DEFAULT 0,
+                relevance_score REAL DEFAULT 0.0
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS summaries (
+                id           SERIAL PRIMARY KEY,
+                generated_at TEXT NOT NULL,
+                period_start TEXT NOT NULL,
+                period_end   TEXT NOT NULL,
+                summary_pt   TEXT NOT NULL,
+                article_ids  TEXT NOT NULL
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS collection_logs (
+                id           SERIAL PRIMARY KEY,
+                ran_at       TEXT NOT NULL,
+                sources_ok   INTEGER DEFAULT 0,
+                sources_fail INTEGER DEFAULT 0,
+                articles_new INTEGER DEFAULT 0,
+                articles_dup INTEGER DEFAULT 0,
+                error_msg    TEXT
+            )
+        """)
+    print("✅ Banco de dados PostgreSQL inicializado.")
 
 
 def make_article_id(url: str, title: str) -> str:
@@ -68,86 +76,72 @@ def make_article_id(url: str, title: str) -> str:
     return hashlib.sha256(raw).hexdigest()[:16]
 
 
-def article_exists(article_id: str) -> bool:
-    conn = get_conn()
-    row = conn.execute("SELECT 1 FROM articles WHERE id=?", (article_id,)).fetchone()
-    conn.close()
-    return row is not None
-
-
 def save_article(article: dict) -> bool:
-    if article_exists(article["id"]):
-        return False
-    conn = get_conn()
-    try:
-        conn.execute("""
-            INSERT INTO articles
-              (id, source_name, source_tier, source_type, url,
-               title_orig, title_pt, body_orig, body_pt,
-               language, published_at, collected_at, relevance_score)
-            VALUES
-              (:id, :source_name, :source_tier, :source_type, :url,
-               :title_orig, :title_pt, :body_orig, :body_pt,
-               :language, :published_at, :collected_at, :relevance_score)
-        """, article)
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-    finally:
-        conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        try:
+            c.execute("""
+                INSERT INTO articles
+                  (id, source_name, source_tier, source_type, url,
+                   title_orig, title_pt, body_orig, body_pt,
+                   language, published_at, collected_at, relevance_score)
+                VALUES
+                  (%(id)s, %(source_name)s, %(source_tier)s, %(source_type)s, %(url)s,
+                   %(title_orig)s, %(title_pt)s, %(body_orig)s, %(body_pt)s,
+                   %(language)s, %(published_at)s, %(collected_at)s, %(relevance_score)s)
+                ON CONFLICT (id) DO NOTHING
+            """, article)
+            return c.rowcount > 0
+        except Exception:
+            return False
 
 
 def get_recent_articles(hours: int = 24, tier: str = None, limit: int = 100):
-    conn = get_conn()
-    query = """
-        SELECT * FROM articles
-        WHERE collected_at >= datetime('now', ?)
-          AND is_duplicate = 0
-    """
-    params = [f"-{hours} hours"]
-    if tier:
-        query += " AND source_tier = ?"
-        params.append(tier)
-    query += " ORDER BY source_tier ASC, relevance_score DESC, collected_at DESC LIMIT ?"
-    params.append(limit)
-    rows = conn.execute(query, params).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        query = """
+            SELECT * FROM articles
+            WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::TEXT
+              AND is_duplicate = 0
+        """
+        params = [hours]
+        if tier:
+            query += " AND source_tier = %s"
+            params.append(tier)
+        query += " ORDER BY source_tier ASC, relevance_score DESC, collected_at DESC LIMIT %s"
+        params.append(limit)
+        c.execute(query, params)
+        return [dict(r) for r in c.fetchall()]
 
 
 def save_summary(summary: dict):
-    import json
-    conn = get_conn()
-    conn.execute("""
-        INSERT INTO summaries (generated_at, period_start, period_end, summary_pt, article_ids)
-        VALUES (:generated_at, :period_start, :period_end, :summary_pt, :article_ids)
-    """, {**summary, "article_ids": json.dumps(summary["article_ids"])})
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO summaries (generated_at, period_start, period_end, summary_pt, article_ids)
+            VALUES (%(generated_at)s, %(period_start)s, %(period_end)s, %(summary_pt)s, %(article_ids)s)
+        """, {**summary, "article_ids": json.dumps(summary["article_ids"])})
 
 
 def get_latest_summary():
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM summaries ORDER BY generated_at DESC LIMIT 1").fetchone()
-    conn.close()
-    return dict(row) if row else None
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT * FROM summaries ORDER BY generated_at DESC LIMIT 1")
+        row = c.fetchone()
+        return dict(row) if row else None
 
 
 def log_collection(log: dict):
-    conn = get_conn()
-    conn.execute("""
-        INSERT INTO collection_logs (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
-        VALUES (:ran_at, :sources_ok, :sources_fail, :articles_new, :articles_dup, :error_msg)
-    """, log)
-    conn.commit()
-    conn.close()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO collection_logs (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
+            VALUES (%(ran_at)s, %(sources_ok)s, %(sources_fail)s, %(articles_new)s, %(articles_dup)s, %(error_msg)s)
+        """, log)
 
 
 def get_collection_logs(limit: int = 20):
-    conn = get_conn()
-    rows = conn.execute(
-        "SELECT * FROM collection_logs ORDER BY ran_at DESC LIMIT ?", (limit,)
-    ).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT * FROM collection_logs ORDER BY ran_at DESC LIMIT %s", (limit,))
+        return [dict(r) for r in c.fetchall()]
