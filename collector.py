@@ -110,6 +110,9 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
     articles = []
     for entry in feed.entries[:30]:
         title = getattr(entry, "title", "") or ""
+        # Ignora retweets
+        if title.startswith("RT ") or title.startswith("RT@"):
+            continue
         summary = getattr(entry, "summary", "") or ""
         link = getattr(entry, "link", "") or ""
         body = re.sub(r"<[^>]+>", " ", summary).strip()
