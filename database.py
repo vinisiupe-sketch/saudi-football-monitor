@@ -110,6 +110,15 @@ def save_article(article: dict) -> bool:
             return False
 
 
+def update_article_body(article_id: str, body_orig: str, body_pt: str):
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE articles SET body_orig = %s, body_pt = %s WHERE id = %s",
+            (body_orig, body_pt, article_id)
+        )
+
+
 def get_recent_articles(hours: int = 24, tier: str = None, limit: int = 100):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
