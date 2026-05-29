@@ -51,14 +51,11 @@ TIER_C = {
 }
 
 TWITTER_RSS_PROVIDERS = [
-    # RSSHub — mais confiável, tenta primeiro
+    # RSSHub próprio (self-hosted no Railway com credenciais do X) — prioridade máxima
+    "https://rsshub-production-7262.up.railway.app/twitter/user/{username}",
+    # Fallbacks públicos (podem falhar de cloud)
     "https://rsshub.app/twitter/user/{username}",
-    # Instâncias Nitter ativas (verificadas em 2025)
     "https://nitter.poast.org/{username}/rss",
-    "https://nitter.privacydev.net/{username}/rss",
-    "https://lightbrd.com/{username}/rss",
-    "https://nitter.tiekoetter.com/{username}/rss",
-    "https://nitter.1d4.us/{username}/rss",
 ]
 
 KEYWORDS = {
