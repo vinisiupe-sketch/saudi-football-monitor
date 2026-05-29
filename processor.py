@@ -137,8 +137,15 @@ NOTÍCIAS:
 
 
 async def process_and_save(raw_articles: list[dict]) -> dict:
+    import httpx
+    from scraper import enrich_with_article
     print(f"\n⚙️  Processando {len(raw_articles)} artigos...")
     articles = deduplicate(raw_articles)
+    # Enriquece com conteúdo completo dos artigos linkados
+    print(f"   🔗 Buscando artigos completos...")
+    async with httpx.AsyncClient() as client:
+        import asyncio
+        articles = list(await asyncio.gather(*[enrich_with_article(a, client) for a in articles]))
     articles = await translate_articles(articles)
     new_count = sum(1 for art in articles if save_article(art))
     dup_count = len(articles) - new_count
