@@ -6,7 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
-from database import init_db, get_recent_articles, get_latest_summary, get_collection_logs, update_article_body
+from database import init_db, get_recent_articles, get_latest_summary, get_collection_logs
 from scheduler import run_pipeline, create_scheduler
 
 scheduler = None
@@ -73,7 +73,6 @@ async def dashboard():
 <body>
   <h1>⚽ Saudi Football Monitor</h1>
   <button class="btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
-  <button class="btn" onclick="fetch('/api/reenrich',{{method:'POST'}}).then(()=>setTimeout(()=>location.reload(),15000))">📰 Buscar artigos completos</button>
   <div class="summary"><strong>📝 Resumo do último ciclo</strong><br><br>{summary}</div>
   <h2>📰 Artigos recentes ({len(articles)})</h2>
   <table>
@@ -114,44 +113,6 @@ async def api_stats():
 @app.get("/api/logs")
 async def api_logs(limit: int = 20):
     return get_collection_logs(limit=limit)
-
-
-@app.post("/api/reenrich")
-async def api_reenrich(background_tasks: BackgroundTasks):
-    """Re-enriquece artigos existentes que ainda têm só o texto do tweet."""
-    background_tasks.add_task(_reenrich_task)
-    return {"status": "started"}
-
-
-async def _reenrich_task():
-    import httpx
-    import asyncio
-    from scraper import enrich_with_article
-    from processor import call_claude
-
-    articles = get_recent_articles(hours=24, limit=100)
-    # Filtra artigos com body curto (texto de tweet) que contenham URLs
-    to_enrich = [a for a in articles if len(a.get("body_orig") or "") < 500]
-    print(f"🔗 Re-enriquecendo {len(to_enrich)} artigos...")
-
-    async with httpx.AsyncClient() as client:
-        for art in to_enrich:
-            enriched = await enrich_with_article(art, client)
-            if enriched.get("scraped_url"):
-                # Traduz o novo body
-                system = "Você é um tradutor especializado em futebol. Traduza para português brasileiro. Responda APENAS com JSON válido."
-                prompt = f'{{"title_pt": "...", "body_pt": "..."}}\n\nTítulo: {art.get("title_orig","")}\nTexto: {enriched["body_orig"][:2000]}'
-                try:
-                    import json
-                    raw = await call_claude(prompt, system, client, max_tokens=1500)
-                    raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-                    data = json.loads(raw)
-                    update_article_body(art["id"], enriched["body_orig"], data.get("body_pt", ""))
-                except Exception as e:
-                    update_article_body(art["id"], enriched["body_orig"], enriched["body_orig"])
-                    print(f"   ⚠️ Tradução falhou: {e}")
-
-    print(f"✅ Re-enriquecimento concluído")
 
 
 @app.post("/api/collect")
