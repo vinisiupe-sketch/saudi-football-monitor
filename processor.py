@@ -10,7 +10,7 @@ from difflib import SequenceMatcher
 from database import save_article, get_recent_articles, save_summary
 
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 SIMILARITY_THRESHOLD = 0.82
 
 
