@@ -114,3 +114,50 @@ async def api_logs(limit: int = 20):
 async def api_collect(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_pipeline)
     return {"status": "started"}
+
+
+@app.get("/api/twitter-test")
+async def twitter_test(username: str = "FabrizioRomano"):
+    """Testa todos os provedores RSS para uma conta do Twitter. Ex: /api/twitter-test?username=FabrizioRomano"""
+    import httpx
+    import feedparser
+    from sources import TWITTER_RSS_PROVIDERS
+
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (compatible; SaudiFootballMonitor/1.0)",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*",
+    }
+
+    results = []
+    async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+        for template in TWITTER_RSS_PROVIDERS:
+            url = template.format(username=username)
+            provider = url.split("/")[2]
+            try:
+                resp = await client.get(url, headers=HEADERS)
+                feed = feedparser.parse(resp.text)
+                entries = len(feed.entries)
+                results.append({
+                    "provider": provider,
+                    "url": url,
+                    "status": resp.status_code,
+                    "entries": entries,
+                    "ok": entries > 0,
+                    "sample": feed.entries[0].get("title", "")[:100] if entries > 0 else None,
+                })
+            except Exception as e:
+                results.append({
+                    "provider": provider,
+                    "url": url,
+                    "status": None,
+                    "entries": 0,
+                    "ok": False,
+                    "error": f"{type(e).__name__}: {e}",
+                })
+
+    working = [r for r in results if r["ok"]]
+    return {
+        "username_tested": username,
+        "working_providers": len(working),
+        "results": results,
+    }
