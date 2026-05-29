@@ -100,10 +100,11 @@ async def resolve_twitter_rss(username: str, client: httpx.AsyncClient) -> Optio
 
 
 CYCLE_HOURS = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 120)) // 60 or 2
+ARTICLE_MAX_AGE_HOURS = int(os.environ.get("ARTICLE_MAX_AGE_HOURS", 24))
 
 
 def parse_entries(feed, source_name: str, source_tier: str, source_type: str) -> list[dict]:
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=CYCLE_HOURS)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=ARTICLE_MAX_AGE_HOURS)
 
     articles = []
     for entry in feed.entries[:30]:
