@@ -52,8 +52,11 @@ async def call_claude(prompt: str, system: str, client: httpx.AsyncClient, max_t
 
 
 async def translate_articles(articles: list[dict]) -> list[dict]:
-    to_translate = [a for a in articles if a.get("language") != "pt" and not a.get("title_pt")]
+    # Traduz tudo que ainda não tem title_pt — independente do idioma detectado
+    # (a detecção automática pode errar, especialmente em textos curtos ou mistos)
+    to_translate = [a for a in articles if not a.get("title_pt")]
     if not to_translate:
+        print(f"   🌐 Todos os artigos já têm tradução")
         return articles
     print(f"   🌐 Traduzindo {len(to_translate)} artigos...")
     BATCH = 5
@@ -63,24 +66,44 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
             items_text = ""
             for idx, art in enumerate(batch):
                 items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {art.get('body_orig', '')[:500]}\n---"
-            system = "Você é um tradutor especializado em futebol. Responda APENAS com JSON válido."
-            prompt = f"""Traduza para pt-BR. Preserve nomes próprios.
-Responda SOMENTE com: {{"translations": [{{"title_pt": "...", "body_pt": "..."}}]}}
+            system = (
+                "Você é um tradutor especializado em futebol. "
+                "Se o texto já estiver em português, apenas copie-o sem alteração. "
+                "Preserve nomes próprios (jogadores, clubes, competições). "
+                "Responda APENAS com JSON válido, sem markdown."
+            )
+            prompt = f"""Traduza os artigos abaixo para português brasileiro (pt-BR).
+Responda SOMENTE com este JSON (sem texto extra):
+{{"translations": [{{"title_pt": "...", "body_pt": "..."}}]}}
 
 {items_text}"""
             try:
                 raw = await call_claude(prompt, system, client, max_tokens=2000)
-                raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
+                # Limpa possível markdown ao redor do JSON
+                raw = raw.strip()
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                raw = raw.strip()
                 translations = json.loads(raw).get("translations", [])
+                if len(translations) != len(batch):
+                    print(f"   ⚠️  Lote {i//BATCH+1}: esperava {len(batch)} traduções, recebeu {len(translations)}")
                 for idx, art in enumerate(batch):
                     if idx < len(translations):
-                        art["title_pt"] = translations[idx].get("title_pt", art["title_orig"])
-                        art["body_pt"] = translations[idx].get("body_pt", art["body_orig"])
+                        art["title_pt"] = translations[idx].get("title_pt") or art["title_orig"]
+                        art["body_pt"] = translations[idx].get("body_pt") or art["body_orig"]
                     else:
                         art["title_pt"] = art["title_orig"]
                         art["body_pt"] = art["body_orig"]
+                print(f"   ✅ Lote {i//BATCH+1}/{(len(to_translate)-1)//BATCH+1} traduzido")
+            except json.JSONDecodeError as e:
+                print(f"   ⚠️  Erro de JSON no lote {i//BATCH+1}: {e} | raw={raw[:200]}")
+                for art in batch:
+                    art["title_pt"] = art.get("title_orig", "")
+                    art["body_pt"] = art.get("body_orig", "")
             except Exception as e:
-                print(f"   ⚠️  Erro na tradução: {e}")
+                print(f"   ⚠️  Erro na tradução lote {i//BATCH+1}: {type(e).__name__}: {e}")
                 for art in batch:
                     art["title_pt"] = art.get("title_orig", "")
                     art["body_pt"] = art.get("body_orig", "")

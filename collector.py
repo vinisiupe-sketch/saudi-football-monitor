@@ -71,14 +71,30 @@ async def fetch_feed(url: str, client: httpx.AsyncClient) -> Optional[feedparser
         return None
 
 
-async def resolve_twitter_rss(username: str, client: httpx.AsyncClient) -> Optional[str]:
+async def resolve_twitter_rss(username: str, client: httpx.AsyncClient) -> Optional[tuple[str, str]]:
+    """
+    Tenta cada provedor e retorna (url, provider_name) do primeiro que funcionar.
+    Faz GET real e verifica se o feed tem entradas — HEAD não é suficiente.
+    """
     for template in TWITTER_RSS_PROVIDERS:
         url = template.format(username=username)
+        provider = url.split("/")[2]
         try:
-            resp = await client.head(url, headers=HEADERS, timeout=8, follow_redirects=True)
-            if resp.status_code < 400:
-                return url
-        except Exception:
+            resp = await client.get(url, headers=HEADERS, timeout=10, follow_redirects=True)
+            if resp.status_code >= 400:
+                print(f"       ↳ {provider}: HTTP {resp.status_code}")
+                continue
+            feed = feedparser.parse(resp.text)
+            if feed.bozo and not feed.entries:
+                print(f"       ↳ {provider}: feed inválido/vazio (bozo={feed.bozo})")
+                continue
+            if not feed.entries:
+                print(f"       ↳ {provider}: feed OK mas sem entradas")
+                continue
+            print(f"       ↳ {provider}: ✅ {len(feed.entries)} entradas")
+            return url, provider
+        except Exception as e:
+            print(f"       ↳ {provider}: ❌ {type(e).__name__}: {e}")
             continue
     return None
 
@@ -182,12 +198,12 @@ async def _collect_rss(client, tier, name, url) -> Optional[list]:
 
 async def _collect_twitter(client, tier, name, username) -> Optional[list]:
     print(f"  🐦 Twitter [{tier}] {name}")
-    rss_url = await resolve_twitter_rss(username, client)
-    if rss_url is None:
+    result = await resolve_twitter_rss(username, client)
+    if result is None:
+        print(f"     → ⛔ todos os provedores falharam para {name}")
         return None
-    feed = await fetch_feed(rss_url, client)
-    if feed is None:
-        return None
+    rss_url, provider = result
+    feed = feedparser.parse((await client.get(rss_url, headers=HEADERS, timeout=15, follow_redirects=True)).text)
     articles = parse_entries(feed, name, tier, "twitter")
-    print(f"     → {len(articles)} posts")
+    print(f"     → {len(articles)} posts relevantes via {provider}")
     return articles

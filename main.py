@@ -68,7 +68,7 @@ async def dashboard():
 <body>
   <h1>⚽ Saudi Football Monitor</h1>
   <button class="btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
-  <div class="summary"><strong>📝 Resumo das últimas 24h</strong><br><br>{summary}</div>
+  <div class="summary"><strong>📝 Resumo do último ciclo</strong><br><br>{summary}</div>
   <h2>📰 Artigos recentes ({len(articles)})</h2>
   <table>
     <tr><th>Tier</th><th>Fonte</th><th>Título</th><th>Coletado</th><th>Score</th></tr>

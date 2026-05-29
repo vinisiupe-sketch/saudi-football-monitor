@@ -3,17 +3,13 @@ Fontes monitoradas — organizadas por Tier de confiança.
 """
 
 TIER_A = {
+    # Twitter/X — prioridade máxima, sem RSS neste tier
     "twitter_accounts": [
         "saifmoalsaif", "bandar_52", "alaa_saeed88",
         "FabrizioRomano", "CLMerlo", "andrehernan",
         "venecasagrande", "MatteMoretto",
     ],
-    "rss_feeds": [
-        "https://news.google.com/rss/search?q=Saudi+Pro+League+football&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D8%A9&hl=ar&gl=SA&ceid=SA:ar",
-        "https://news.google.com/rss/search?q=futebol+Arabia+Saudita+Saudi+Pro+League&hl=pt-BR&gl=BR&ceid=BR:pt-419",
-        "https://news.google.com/rss/search?q=Saudi+Arabia+football+transfer&hl=en&gl=US&ceid=US:en",
-    ],
+    "rss_feeds": [],
 }
 
 TIER_B = {
@@ -26,11 +22,16 @@ TIER_B = {
         "FabriceHawkins", "DiMarzio", "Plettigoal", "sebsousapinto",
     ],
     "rss_feeds": [
+        # Google News — fallback confiável
+        "https://news.google.com/rss/search?q=Saudi+Pro+League+football&hl=en&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=Saudi+Arabia+football+transfer&hl=en&gl=US&ceid=US:en",
+        "https://news.google.com/rss/search?q=futebol+Arabia+Saudita+Saudi+Pro+League&hl=pt-BR&gl=BR&ceid=BR:pt-419",
+        "https://news.google.com/rss/search?q=%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D8%A9&hl=ar&gl=SA&ceid=SA:ar",
+        # Sites especializados
         "https://www.arabnews.com/taxonomy/term/305/feed",
         "https://saudigazette.com.sa/section/sports/feed",
         "https://www.goal.com/feeds/en/news",
         "http://feeds.bbci.co.uk/sport/football/rss.xml",
-        "https://www.espnfc.com/rss/news",
         "https://ge.globo.com/rss/feed.xml",
     ],
 }
@@ -50,10 +51,14 @@ TIER_C = {
 }
 
 TWITTER_RSS_PROVIDERS = [
+    # RSSHub — mais confiável, tenta primeiro
     "https://rsshub.app/twitter/user/{username}",
-    "https://nitter.net/{username}/rss",
-    "https://nitter.privacydev.net/{username}/rss",
+    # Instâncias Nitter ativas (verificadas em 2025)
     "https://nitter.poast.org/{username}/rss",
+    "https://nitter.privacydev.net/{username}/rss",
+    "https://lightbrd.com/{username}/rss",
+    "https://nitter.tiekoetter.com/{username}/rss",
+    "https://nitter.1d4.us/{username}/rss",
 ]
 
 KEYWORDS = {
