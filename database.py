@@ -9,11 +9,15 @@ from contextlib import contextmanager
 import psycopg2
 import psycopg2.extras
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+_raw_url = os.environ.get("DATABASE_URL", "")
+# Railway usa prefixo "postgres://" mas psycopg2 precisa de "postgresql://"
+DATABASE_URL = _raw_url.replace("postgres://", "postgresql://", 1) if _raw_url.startswith("postgres://") else _raw_url
 
 
 @contextmanager
 def get_conn():
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL não configurada. Adicione o PostgreSQL ao serviço no Railway.")
     conn = psycopg2.connect(DATABASE_URL)
     conn.autocommit = False
     try:
