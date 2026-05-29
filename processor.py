@@ -120,8 +120,9 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
     new_count = sum(1 for art in articles if save_article(art))
     dup_count = len(articles) - new_count
     print(f"   💾 {new_count} novos, {dup_count} já existiam")
-    recent = get_recent_articles(hours=24)
-    summary_text = await generate_summary(recent, hours=24)
+    cycle_hours = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 120)) // 60 or 2
+    recent = get_recent_articles(hours=cycle_hours)
+    summary_text = await generate_summary(recent, hours=cycle_hours)
     now = datetime.now(timezone.utc).isoformat()
     save_summary({
         "generated_at": now,
@@ -130,5 +131,5 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
         "summary_pt": summary_text,
         "article_ids": [a["id"] for a in recent],
     })
-    print(f"   📝 Resumo gerado com {len(recent)} artigos\n")
+    print(f"   📝 Resumo gerado com {len(recent)} artigos das últimas {cycle_hours}h\n")
     return {"articles_new": new_count, "articles_dup": dup_count, "summary": summary_text}

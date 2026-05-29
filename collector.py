@@ -2,11 +2,12 @@
 Coletor de RSS — busca posts do X (via Nitter/RSSHub) e feeds de notícias.
 Sem API paga do Twitter necessária.
 """
+import os
 import feedparser
 import httpx
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sources import (
     TIER_A, TIER_B, TIER_C,
@@ -82,7 +83,12 @@ async def resolve_twitter_rss(username: str, client: httpx.AsyncClient) -> Optio
     return None
 
 
+CYCLE_HOURS = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 120)) // 60 or 2
+
+
 def parse_entries(feed, source_name: str, source_tier: str, source_type: str) -> list[dict]:
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=CYCLE_HOURS)
+
     articles = []
     for entry in feed.entries[:30]:
         title = getattr(entry, "title", "") or ""
@@ -95,9 +101,16 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
         published = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             try:
-                published = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc).isoformat()
+                published_dt = datetime(*entry.published_parsed[:6], tzinfo=timezone.utc)
+                # Descarta notícias mais antigas que o ciclo atual
+                if published_dt < cutoff:
+                    continue
+                published = published_dt.isoformat()
             except Exception:
                 pass
+        else:
+            # Sem data de publicação: descarta para evitar notícias antigas sem timestamp
+            continue
         article_id = make_article_id(link, title)
         lang = detect_language(full_text)
         score = compute_relevance(full_text, source_tier)

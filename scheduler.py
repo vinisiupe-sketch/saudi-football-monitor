@@ -36,7 +36,7 @@ async def run_pipeline():
 
 
 def create_scheduler() -> AsyncIOScheduler:
-    interval = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 30))
+    interval = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 120))
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         run_pipeline,
@@ -44,5 +44,5 @@ def create_scheduler() -> AsyncIOScheduler:
         id="collect_pipeline",
         replace_existing=True,
     )
-    print(f"⏰ Scheduler: coleta a cada {interval} minutos")
+    print(f"⏰ Scheduler: coleta a cada {interval} minutos ({interval//60}h)")
     return scheduler
