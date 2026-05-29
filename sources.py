@@ -52,7 +52,7 @@ TIER_C = {
 
 TWITTER_RSS_PROVIDERS = [
     # RSSHub próprio (self-hosted no Railway com credenciais do X) — prioridade máxima
-    "https://rsshub-production-7262.up.railway.app/twitter/user/{username}",
+    "https://rsshub-production-794a.up.railway.app/twitter/user/{username}",
     # Fallbacks públicos (podem falhar de cloud)
     "https://rsshub.app/twitter/user/{username}",
     "https://nitter.poast.org/{username}/rss",
