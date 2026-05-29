@@ -51,11 +51,12 @@ def compute_relevance(text: str, tier: str) -> float:
 
 def is_relevant(text: str) -> bool:
     text_lower = text.lower()
+    hits = 0
     for lang_kws in KEYWORDS.values():
         for kw in lang_kws:
             if kw.lower() in text_lower:
-                return True
-    return False
+                hits += 1
+    return hits >= 2
 
 
 async def fetch_feed(url: str, client: httpx.AsyncClient) -> Optional[feedparser.FeedParserDict]:

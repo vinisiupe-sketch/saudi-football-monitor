@@ -65,8 +65,6 @@ KEYWORDS = {
         "al qadsiah", "al shabab", "al fateh", "al taawoun",
         "al ettifaq", "al wahda", "damac", "abha", "al fayha",
         "saudi football", "saudi league", "saudi arabia football",
-        "cristiano", "ronaldo", "neymar", "benzema", "mane", "kante",
-        "firmino", "henderson", "milinkovic", "mitrovic",
     ],
     "portuguese": [
         "arábia saudita", "liga saudita", "futebol saudita",
