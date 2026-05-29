@@ -32,6 +32,7 @@ app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     articles = get_recent_articles(hours=24, limit=50)
+    articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
     summary_row = get_latest_summary()
     summary = summary_row["summary_pt"] if summary_row else "Nenhum resumo gerado ainda."
 

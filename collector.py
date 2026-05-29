@@ -56,7 +56,7 @@ def is_relevant(text: str) -> bool:
         for kw in lang_kws:
             if kw.lower() in text_lower:
                 hits += 1
-    return hits >= 2
+    return hits >= 3
 
 
 async def fetch_feed(url: str, client: httpx.AsyncClient) -> Optional[feedparser.FeedParserDict]:
