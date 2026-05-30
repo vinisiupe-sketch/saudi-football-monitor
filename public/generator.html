@@ -327,14 +327,14 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
         </div>
 
         <div class="capbox">
-          <div class="capt">Texto do post</div>
-          <p id="captext">—</p>
+          <div class="capt">Texto do post <span style="font-weight:400;font-size:0.75rem;color:#94a3b8;">(editável)</span></div>
+          <textarea id="captext" rows="6" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:0.85rem;font-family:inherit;color:#1e293b;resize:vertical;margin-top:6px;line-height:1.5;">—</textarea>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
             <button class="cpbtn" onclick="copyCaption()" style="margin-top:0;">📋 Copiar</button>
             <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="margin-top:0;background:#000;color:#fff;border-color:#000;">𝕏 Publicar no Twitter</button>
-            <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="margin-top:0;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">📸 Publicar no Instagram</button>
+            <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="margin-top:0;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">📸 Instagram</button>
           </div>
-          <p id="ig-hint" style="display:none;font-size:0.75rem;color:#64748b;margin-top:6px;">✅ Legenda copiada e imagens baixadas! Cole a legenda e selecione as imagens no Instagram.</p>
+          <p id="ig-hint" style="display:none;font-size:0.75rem;color:#64748b;margin-top:6px;">📋 Legenda copiada! Selecione as imagens baixadas no Instagram e cole a legenda.</p>
         </div>
 
         <div class="dlbox">
@@ -457,7 +457,7 @@ function prepPreview() {
   const t=S.template, data=S.data;
   document.getElementById('etitle').value = data.titulo    || '';
   document.getElementById('esub').value   = data.subtitulo || '';
-  document.getElementById('captext').textContent = data.legenda_instagram || '—';
+  document.getElementById('captext').value = data.legenda_instagram || '—';
   if (data.nome_jogador) document.getElementById('eplayer').value  = data.nome_jogador;
   if (data.tipo_anuncio) document.getElementById('eanntype').value = data.tipo_anuncio;
   document.getElementById('grp-sub').style.display  = t==='carrossel'     ? 'flex' : 'none';
@@ -601,20 +601,20 @@ function setDs(m) { document.getElementById('dlst').textContent=m; }
 function wait(ms) { return new Promise(r=>setTimeout(r,ms)); }
 
 function copyCaption() {
-  navigator.clipboard.writeText(document.getElementById('captext').textContent).then(()=>{
+  navigator.clipboard.writeText(document.getElementById('captext').value).then(()=>{
     const b=event.target; b.textContent='✅ Copiado!'; setTimeout(()=>b.textContent='📋 Copiar',2000);
   });
 }
 
 function tweetCaption() {
-  const text = document.getElementById('captext').textContent;
+  const text = document.getElementById('captext').value;
   if (!text || text === '—') return;
   const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
   window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 async function shareInstagram() {
-  const text = document.getElementById('captext').textContent;
+  const text = document.getElementById('captext').value;
   if (!text || text === '—') { alert('Gere o post primeiro.'); return; }
 
   // Collect slide blobs
@@ -625,23 +625,26 @@ async function shareInstagram() {
   } else {
     blobs.push(await slideToBlob(S.curSlide));
   }
-  const files = blobs.map((b, i) => new File([b], `slide_${i+1}.png`, { type: 'image/png' }));
+  const files = blobs.map((b, i) => new File([b], `arabao_${i+1}.png`, { type: 'image/png' }));
 
-  // Try Web Share API (works on mobile — opens native share sheet incl. Instagram)
-  if (navigator.canShare && navigator.canShare({ files, text })) {
+  // Always copy caption first (Instagram ignores text in Web Share by design)
+  try { await navigator.clipboard.writeText(text); } catch(e) {}
+
+  // Mobile: Web Share API — opens native share sheet (Instagram, WhatsApp, etc.)
+  if (navigator.canShare && navigator.canShare({ files })) {
     try {
-      await navigator.share({ files, text });
+      await navigator.share({ files });
+      document.getElementById('ig-hint').style.display = 'block';
       return;
     } catch(e) {
       if (e.name === 'AbortError') return; // user cancelled
     }
   }
 
-  // Fallback: copy caption + download images + open Instagram
-  try { await navigator.clipboard.writeText(text); } catch(e) {}
+  // Desktop fallback: download images + open Instagram
   if (isCarrossel) { await dlAll(); } else { await dlCurrent(); }
   document.getElementById('ig-hint').style.display = 'block';
-  setTimeout(() => window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer'), 800);
+  setTimeout(() => window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer'), 600);
 }
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

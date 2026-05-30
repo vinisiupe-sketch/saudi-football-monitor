@@ -61,6 +61,7 @@ async def dashboard():
     for a in articles:
         tier_color = {"A": "#16a34a", "B": "#ca8a04", "C": "#64748b"}.get(a["source_tier"], "#64748b")
         tier_bg    = {"A": "#dcfce7", "B": "#fef9c3", "C": "#f1f5f9"}.get(a["source_tier"], "#f1f5f9")
+        moon       = {"A": "🌕", "B": "🌓", "C": "🌗"}.get(a["source_tier"], "")
         title = a.get("title_pt") or a.get("title_orig") or "—"
         body  = (a.get("body_pt") or a.get("body_orig") or "")[:280]
         if len(body) == 280:
@@ -84,9 +85,10 @@ async def dashboard():
               <span class="source">@{a['source_name'].lstrip('@')}</span>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
+            <button class="expand-btn" onclick="toggleExpand(this)" title="Expandir card">▼ ver mais</button>
             <p class="card-text">{body}</p>
             <div class="card-footer">
-              <span class="card-date">{collected}</span>
+              <span class="card-date">{collected} · {moon} @{a['source_name'].lstrip('@')}</span>
               <div class="btn-row">
                 <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
                 <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
@@ -148,6 +150,16 @@ async def dashboard():
     .flag-btn.visto-btn.on   {{ background: #6366f1; color: white; }}
     .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
     .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
+    /* ── COLLAPSE ── */
+    .card-collapsed .card-text,
+    .card-collapsed .card-footer {{ display: none; }}
+    .expand-btn {{ background: none; border: none; cursor: pointer; font-size: 0.75rem; color: #94a3b8; padding: 2px 0 0; display: none; }}
+    .card-collapsed .expand-btn {{ display: inline-block; }}
+    /* ── FILTER ── */
+    .fs-badge {{ cursor: pointer; user-select: none; }}
+    .fs-badge:hover {{ opacity: .8; }}
+    .fs-badge.active-filter {{ outline: 2px solid #0284c7; outline-offset: 2px; }}
+    .card.hidden-by-filter {{ display: none; }}
     /* ── FOOTER COLLECT BAR ── */
     .collect-bar {{
       position: sticky; bottom: 0; background: white;
@@ -187,8 +199,9 @@ async def dashboard():
       }});
     }}
 
-    // ── Flags (Visto / Publicado) — sincronizado via DB ──
+    // ── Flags — sincronizado via DB ──
     let _flags = {{}};
+    let _activeFilter = null; // null | 'none' | 'naopublicado' | 'publicado'
 
     function applyFlags() {{
       let nVisto = 0, nPub = 0, nNone = 0;
@@ -201,6 +214,8 @@ async def dashboard():
         if (f === 'naopublicado')   {{ card.classList.add('flag-visto');     nVisto++; }}
         else if (f === 'publicado') {{ card.classList.add('flag-publicado'); nPub++;   }}
         else                          nNone++;
+        // Collapse flagged cards
+        card.classList.toggle('card-collapsed', !!f);
       }});
       const total = nVisto + nPub + nNone;
       if (total > 0) {{
@@ -208,6 +223,32 @@ async def dashboard():
         document.getElementById('fc-visto').textContent = nVisto;
         document.getElementById('fc-pub').textContent   = nPub;
       }}
+      applyFilter();
+    }}
+
+    function applyFilter() {{
+      document.querySelectorAll('.card[data-id]').forEach(card => {{
+        const id = card.dataset.id;
+        const f  = _flags[id] || 'none';
+        const show = !_activeFilter || f === _activeFilter;
+        card.classList.toggle('hidden-by-filter', !show);
+      }});
+      // Update badge highlight
+      ['fs-total','fs-visto','fs-pub'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
+      if (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
+      else if (_activeFilter === 'naopublicado') document.getElementById('fs-visto').classList.add('active-filter');
+      else if (_activeFilter === 'publicado')    document.getElementById('fs-pub').classList.add('active-filter');
+    }}
+
+    function toggleFilter(type) {{
+      _activeFilter = (_activeFilter === type) ? null : type;
+      applyFilter();
+    }}
+
+    function toggleExpand(btn) {{
+      const card = btn.closest('.card');
+      card.classList.remove('card-collapsed');
+      btn.style.display = 'none';
     }}
 
     async function loadFlags() {{
@@ -305,9 +346,9 @@ async def dashboard():
   <div class="topbar">
     <span class="count">{len(articles)} notícias nas últimas 24h</span>
     <div class="flag-summary">
-      <span class="fs-badge fs-total" id="fs-total">⬜ <span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-visto"     id="fs-visto">🔖 <span id="fc-visto">—</span> não publicados</span>
-      <span class="fs-badge fs-publicado" id="fs-pub">📢 <span id="fc-pub">—</span> publicados</span>
+      <span class="fs-badge fs-total"     id="fs-total"     onclick="toggleFilter('none')"         title="Filtrar sem flag">⬜ <span id="fc-total">—</span> sem flag</span>
+      <span class="fs-badge fs-visto"     id="fs-visto"     onclick="toggleFilter('naopublicado')"  title="Filtrar não publicados">🔖 <span id="fc-visto">—</span> não publicados</span>
+      <span class="fs-badge fs-publicado" id="fs-pub"       onclick="toggleFilter('publicado')"     title="Filtrar publicados">📢 <span id="fc-pub">—</span> publicados</span>
     </div>
   </div>
   <div class="grid">
