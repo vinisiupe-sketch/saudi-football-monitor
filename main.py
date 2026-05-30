@@ -568,10 +568,10 @@ async def generate_post(request: Request):
         )
         prompt_texto = (
             "Você é um editor de texto esportivo objetivo e direto. O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
-            "TAREFA: reescreva de forma CURTA e DIRETA. Máximo de 4 frases no total. "
+            "TAREFA: reescreva de forma CURTA e DIRETA. "
             "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
-            "Mantenha apenas: quem, o quê, quando e por quanto (se aplicável). "
-            "Estilo: manchete jornalística expandida — vai direto ao ponto.\n\n"
+            "Mantenha todas as informações relevantes: quem, o quê, quando, valores e detalhes concretos. "
+            "Estilo: jornalismo esportivo objetivo — sem enrolar, sem inflar.\n\n"
             "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
             "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
             "NOMES DE CLUBES: NUNCA use hífen (Al Hilal, não Al-Hilal).\n"
@@ -586,9 +586,9 @@ async def generate_post(request: Request):
         )
         prompt_texto = (
             "Você é um editor de texto esportivo objetivo e direto.\n\n"
-            "TAREFA: traduza para o português brasileiro e reescreva de forma CURTA e DIRETA. Máximo de 4 frases no total. "
+            "TAREFA: traduza para o português brasileiro e reescreva de forma CURTA e DIRETA. "
             "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
-            "Mantenha apenas: quem, o quê, quando e por quanto (se aplicável).\n\n"
+            "Mantenha todas as informações relevantes: quem, o quê, quando, valores e detalhes concretos.\n\n"
             "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
             "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
             "NOMES DE CLUBES: NUNCA use hífen (Al Hilal, não Al-Hilal).\n"
