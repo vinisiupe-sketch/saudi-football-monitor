@@ -40,7 +40,7 @@ app.mount("/masks", StaticFiles(directory="public/masks"), name="masks")
 # ─── Dashboard ───────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
-    articles = get_recent_articles(hours=24, limit=50)
+    articles = get_recent_articles(hours=48, limit=80)
     articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 

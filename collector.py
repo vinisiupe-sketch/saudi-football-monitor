@@ -64,16 +64,27 @@ FOOTBALL_REQUIRED = [
     "دوري", "مباراة", "لاعب", "مدرب", "الفريق", "الانتقال", "عقد", "إعارة",
 ]
 
-def is_relevant(text: str, min_hits: int = 3) -> bool:
+# Arabic keywords that are also common words — don't count as Saudi hits alone
+AMBIGUOUS_ARABIC = {"الاتفاق", "التعاون", "الاتحاد", "الفتح", "الشباب"}
+
+def is_relevant(text: str, min_hits: int = 3, title: str = "") -> bool:
     text_lower = text.lower()
     # Must have at least one football-specific term
     if not any(kw in text_lower for kw in FOOTBALL_REQUIRED):
         return False
+    # Count keyword hits — ambiguous Arabic words only count if another Saudi keyword also present
     hits = 0
+    ambiguous_hits = 0
     for lang_kws in KEYWORDS.values():
         for kw in lang_kws:
             if kw.lower() in text_lower:
-                hits += 1
+                if kw in AMBIGUOUS_ARABIC:
+                    ambiguous_hits += 1
+                else:
+                    hits += 1
+    # Ambiguous hits only count if there's already a clear Saudi hit
+    if hits > 0:
+        hits += ambiguous_hits
     return hits >= min_hits
 
 
@@ -119,7 +130,7 @@ async def resolve_twitter_rss(username: str, client: httpx.AsyncClient) -> Optio
 
 
 CYCLE_HOURS = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 120)) // 60 or 2
-ARTICLE_MAX_AGE_HOURS = int(os.environ.get("ARTICLE_MAX_AGE_HOURS", 24))
+ARTICLE_MAX_AGE_HOURS = int(os.environ.get("ARTICLE_MAX_AGE_HOURS", 48))
 
 
 def parse_entries(feed, source_name: str, source_tier: str, source_type: str) -> list[dict]:
