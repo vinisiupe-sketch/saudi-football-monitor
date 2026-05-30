@@ -6,6 +6,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from urllib.parse import quote
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -58,47 +59,64 @@ async def dashboard():
         "geral":         ("📰", "#f1f5f9", "#475569"),
     }
 
+    CATEGORY_TEXT = {
+        "transferencia": "Transferência", "sondagem": "Sondagem",
+        "patrocinio": "Patrocínio",       "planejamento": "Planejamento",
+        "entrevista": "Entrevista",        "resultado": "Resultado",
+        "competicao": "Competição",        "treino": "Treino",
+        "financeiro": "Financeiro",        "lesao": "Lesão",
+        "geral": "Geral",
+    }
+    MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+    ICO_LOCK  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
+    ICO_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+    ICO_TRASH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>'
+
     cards = ""
     for a in articles:
-        tier_color = {"A": "#16a34a", "B": "#ca8a04", "C": "#64748b"}.get(a["source_tier"], "#64748b")
-        tier_bg    = {"A": "#dcfce7", "B": "#fef9c3", "C": "#f1f5f9"}.get(a["source_tier"], "#f1f5f9")
-        handle     = a.get("source_name", "").lstrip("@")
-        moon       = SOURCE_MOON.get(handle, {"A": "🌕", "B": "🌖", "C": "🌗"}.get(a["source_tier"], ""))
-        title = a.get("title_pt") or a.get("title_orig") or "—"
-        body  = (a.get("body_pt") or a.get("body_orig") or "")[:280]
+        handle        = a.get("source_name", "").lstrip("@")
+        moon          = SOURCE_MOON.get(handle, {"A": "🌕", "B": "🌖", "C": "🌗"}.get(a["source_tier"], ""))
+        title         = a.get("title_pt") or a.get("title_orig") or "—"
+        body          = (a.get("body_pt") or a.get("body_orig") or "")[:280]
         if len(body) == 280:
             body += "…"
-        image_url = a.get("image_url") or ""
-        category = a.get("category")
-        copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
-        source_handle = a.get("source_name", "").lstrip("@")
-        post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + source_handle
-        post_url = f"/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1"
-        collected = (a.get("collected_at") or "")[:16].replace("T", " ")
-        category = category or "geral"
-        emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
-        art_id = a['id']
+        category      = a.get("category") or "geral"
+        category_text = CATEGORY_TEXT.get(category, "Geral")
+        post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + handle
+        post_url      = f"/gerador?texto={quote(post_text_full)}&source={quote(handle)}&moon={quote(moon)}&translated=1"
+        art_id        = a['id']
+        # Date from published_at in Saudi time (UTC+3)
+        date_display = ""
+        pub_raw = a.get("published_at") or a.get("collected_at") or ""
+        if pub_raw:
+            try:
+                dt = datetime.fromisoformat(pub_raw.replace("Z", "+00:00"))
+                dt_local = dt.astimezone(timezone(timedelta(hours=3)))
+                date_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
+            except Exception:
+                pass
         cards += f"""
         <div class="card" data-id="{art_id}">
           <div class="card-body">
-            <div class="card-meta">
-              <span class="tier-badge" style="background:{tier_bg};color:{tier_color}">Tier {a['source_tier']}</span>
-              <span class="cat-emoji" title="{category}">{emoji}</span>
-              <span class="source">{moon} @{a['source_name'].lstrip('@')}</span>
+            <div class="card-top">
+              <span class="card-date">{date_display}</span>
+              <div class="card-flags">
+                <button class="flag-circle visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">{ICO_LOCK}</button>
+                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">{ICO_CHECK}</button>
+                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Descarte">{ICO_TRASH}</button>
+              </div>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
-            <button class="expand-btn" onclick="toggleExpand(this)">▼ ver mais</button>
-            <button class="collapse-btn" onclick="toggleCollapse(this)">▲ ver menos</button>
+            <button class="expand-btn" onclick="toggleExpand(this)">↓ ver mais</button>
+            <button class="collapse-btn" onclick="toggleCollapse(this)">↑ ver menos</button>
             <p class="card-text">{body}</p>
-            <div class="card-footer">
-              <span class="card-date">{collected}</span>
-              <div class="btn-row">
-                <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
-                <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
-                <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')">🗑️ Descarte</button>
-                <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
-                <a class="copy-btn" href="{post_url}" style="text-decoration:none;">✍️ Post</a>
+            <div class="card-bottom">
+              <div class="card-tags">
+                <span class="tag">Tier {a['source_tier']}</span>
+                <span class="tag">@{handle}</span>
+                <span class="tag">{category_text}</span>
               </div>
+              <a class="post-link" href="{post_url}">✍ Post</a>
             </div>
           </div>
         </div>"""
@@ -108,121 +126,171 @@ async def dashboard():
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>⚽ Centrão do Noticião</title>
+  <title>IARABÃO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }}
-    /* ── NAV ── */
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+
+    /* ── HEADER ── */
     header {{
-      background: white; border-bottom: 1px solid #f1f5f9;
-      padding: 0 32px; display: flex; align-items: center;
-      position: sticky; top: 0; z-index: 10;
-      box-shadow: 0 1px 12px rgba(0,0,0,.06); height: 62px;
+      background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1);
+      padding: 0 24px; display: flex; align-items: center;
+      position: sticky; top: 0; z-index: 10; height: 52px;
     }}
     .brand {{
-      font-size: 1rem; font-weight: 800; color: #0f172a;
-      text-decoration: none; white-space: nowrap; letter-spacing: -.01em;
-      display: flex; align-items: center; gap: 8px; margin-right: 40px;
+      font-family: 'Bebas Neue', sans-serif; font-size: 2rem;
+      letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none;
+      margin-right: auto; line-height: 1;
     }}
-    .brand-icon {{
-      width: 32px; height: 32px; background: #0f172a; border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1rem; flex-shrink: 0;
-    }}
-    nav {{ display: flex; gap: 2px; flex: 1; }}
+    nav {{ display: flex; align-items: center; gap: 0; }}
     .nav-link {{
-      padding: 7px 16px; border-radius: 8px; font-size: 0.875rem;
-      font-weight: 500; color: #64748b; text-decoration: none;
-      transition: all .15s; letter-spacing: -.01em;
+      padding: 6px 12px; font-size: 0.68rem; font-weight: 700;
+      color: #999; text-decoration: none; text-transform: uppercase;
+      letter-spacing: 0.07em; transition: color .15s;
     }}
-    .nav-link:hover {{ background: #f8fafc; color: #0f172a; }}
-    .nav-link.active {{ color: #0f172a; font-weight: 600; background: #f1f5f9; }}
+    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
     .nav-cta {{
-      margin-left: auto; padding: 8px 18px; border-radius: 9px;
-      background: #0f172a; color: white; font-size: 0.875rem;
-      font-weight: 600; text-decoration: none; white-space: nowrap;
-      transition: background .15s; border: none; cursor: pointer;
-      letter-spacing: -.01em;
+      margin-left: 10px; padding: 5px 15px;
+      border: 1.5px solid #1a1a1a; border-radius: 99px;
+      font-size: 0.65rem; font-weight: 700; color: #1a1a1a;
+      text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em;
+      transition: all .15s; white-space: nowrap;
     }}
-    .nav-cta:hover {{ background: #1e293b; }}
+    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+
     /* ── TOPBAR ── */
-    .topbar {{ display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 14px 24px 6px; }}
-    .count {{ color: #64748b; font-size: 0.85rem; }}
-    .flag-summary {{ display: flex; gap: 8px; flex-wrap: wrap; }}
-    .fs-badge {{ font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 20px; }}
-    .fs-total     {{ background: #f1f5f9; color: #475569; }}
-    .fs-visto     {{ background: #e0e7ff; color: #3730a3; }}
-    .fs-publicado {{ background: #bbf7d0; color: #166534; }}
-    .fs-descarte  {{ background: #ffe4e6; color: #be123c; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 24px; align-items: start; }}
-    /* ── CARDS ── */
-    .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s, background .2s; }}
-    .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
-    .card.flag-visto {{ background: #e0e7ff; border: 2px solid #6366f1; box-shadow: 0 4px 14px rgba(99,102,241,.25); }}
-    .card.flag-publicado {{ background: #bbf7d0; border: 2px solid #16a34a; box-shadow: 0 4px 14px rgba(22,163,74,.25); }}
-    .card.flag-descarte {{ background: #fff1f2; border: 2px solid #f43f5e; box-shadow: 0 4px 14px rgba(244,63,94,.2); opacity: .75; }}
-    .card-body {{ padding: 16px; display: flex; flex-direction: column; }}
-    .card-meta {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
-    .tier-badge {{ font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; }}
-    .cat-emoji {{ font-size: 1rem; line-height: 1; }}
-    .source {{ font-size: 0.8rem; color: #64748b; }}
-    .card-title {{ font-size: 0.97rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
-    .card-title:hover {{ color: #0284c7; }}
-    .card-text {{ font-size: 0.82rem; color: #475569; line-height: 1.55; }}
-    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 6px; }}
-    .card-date {{ font-size: 0.75rem; color: #94a3b8; }}
-    .btn-row {{ display: flex; gap: 5px; flex-wrap: wrap; }}
-    .copy-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; }}
-    .copy-btn:hover {{ background: #e2e8f0; }}
-    .copy-btn.copied {{ background: #dcfce7; color: #16a34a; }}
-    a.copy-btn {{ background: #f0fdf4; color: #15803d; }}
-    a.copy-btn:hover {{ background: #dcfce7; }}
-    .flag-btn {{ border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; transition: all .15s; }}
-    .flag-btn.visto-btn   {{ background: #e0e7ff; color: #3730a3; }}
-    .flag-btn.visto-btn.on   {{ background: #6366f1; color: white; }}
-    .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
-    .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
-    .flag-btn.desc-btn    {{ background: #ffe4e6; color: #be123c; }}
-    .flag-btn.desc-btn.on    {{ background: #f43f5e; color: white; }}
-    /* ── COLLAPSE ── */
-    .card-collapsed:not(.user-expanded) .card-text,
-    .card-collapsed:not(.user-expanded) .card-footer {{ display: none; }}
-    .expand-btn {{ background: none; border: none; cursor: pointer; font-size: 0.75rem; color: #94a3b8; padding: 2px 0 0; display: none; }}
-    .collapse-btn {{ background: none; border: none; cursor: pointer; font-size: 0.75rem; color: #94a3b8; padding: 2px 0 0; display: none; }}
-    .card-collapsed:not(.user-expanded) .expand-btn {{ display: inline-block; }}
-    .card-collapsed.user-expanded .collapse-btn {{ display: inline-block; }}
-    /* ── FILTER ── */
-    .fs-badge {{ cursor: pointer; user-select: none; }}
-    .fs-badge:hover {{ opacity: .8; }}
-    .fs-badge.active-filter {{ outline: 2px solid #0284c7; outline-offset: 2px; }}
+    .topbar {{
+      display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap; padding: 14px 24px 8px;
+    }}
+    .count {{ color: #999; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .flag-summary {{ display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }}
+    .fs-badge {{
+      font-size: 0.62rem; font-weight: 700; padding: 3px 10px; border-radius: 99px;
+      cursor: pointer; user-select: none; transition: all .15s;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      border: 1.5px solid transparent;
+    }}
+    .fs-total     {{ border-color: #ccc;    color: #999;    }}
+    .fs-visto     {{ border-color: #a5b4fc; color: #4338ca; }}
+    .fs-publicado {{ border-color: #86efac; color: #166534; }}
+    .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
+    .fs-badge:hover {{ opacity: .7; }}
+    .fs-badge.active-filter {{ background: #1a1a1a; color: #edeae4; border-color: #1a1a1a; }}
+
+    /* ── GRID ── */
+    .grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 10px; padding: 10px 24px 80px; align-items: start;
+    }}
+
+    /* ── CARD ── */
+    .card {{
+      background: #fafaf8; border-radius: 16px;
+      display: flex; flex-direction: column;
+      transition: background .2s;
+    }}
+    .card.flag-visto    {{ background: #ede9fe; }}
+    .card.flag-publicado {{ background: #dcfce7; }}
+    .card.flag-descarte  {{ background: #fff1f2; opacity: .75; }}
     .card.hidden-by-filter {{ display: none; }}
-    /* ── FOOTER COLLECT BAR ── */
+    .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
+
+    /* ── CARD TOP ── */
+    .card-top {{
+      display: flex; align-items: center;
+      justify-content: space-between; margin-bottom: 14px;
+    }}
+    .card-date {{
+      font-size: 0.65rem; font-weight: 700; color: #aaa;
+      text-transform: uppercase; letter-spacing: 0.07em;
+    }}
+    .card-flags {{ display: flex; gap: 7px; }}
+    .flag-circle {{
+      width: 32px; height: 32px; border-radius: 50%;
+      border: 1.5px solid #1a1a1a; background: transparent;
+      color: #1a1a1a; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: all .15s; flex-shrink: 0;
+    }}
+    .flag-circle:hover {{ background: #1a1a1a; color: white; }}
+    .flag-circle.on {{ background: #1a1a1a; color: white; }}
+    .flag-circle.visto-btn.on {{ background: #4338ca; border-color: #4338ca; }}
+    .flag-circle.pub-btn.on   {{ background: #166534; border-color: #166534; }}
+    .flag-circle.desc-btn.on  {{ background: #be123c; border-color: #be123c; }}
+
+    /* ── TITLE ── */
+    .card-title {{
+      font-size: 1rem; font-weight: 700; color: #1a1a1a;
+      text-decoration: none; line-height: 1.4;
+      display: block; margin-bottom: 10px;
+    }}
+    .card-title:hover {{ opacity: .7; }}
+
+    /* ── EXPAND ── */
+    .expand-btn, .collapse-btn {{
+      background: none; border: none; cursor: pointer;
+      font-size: 0.62rem; color: #aaa; padding: 0 0 10px;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      font-weight: 700; display: none; text-align: left;
+    }}
+    .card-collapsed:not(.user-expanded) .expand-btn {{ display: block; }}
+    .card-collapsed.user-expanded .collapse-btn {{ display: block; }}
+
+    /* ── BODY TEXT ── */
+    .card-text {{
+      font-size: 0.82rem; color: #555; line-height: 1.65;
+      margin-bottom: 16px;
+    }}
+    .card-collapsed:not(.user-expanded) .card-text,
+    .card-collapsed:not(.user-expanded) .card-bottom {{ display: none; }}
+
+    /* ── CARD BOTTOM ── */
+    .card-bottom {{
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 8px;
+      padding-top: 14px; border-top: 1px solid rgba(0,0,0,.07);
+    }}
+    .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
+    .tag {{
+      font-size: 0.6rem; font-weight: 700; color: #777;
+      border: 1px solid #ccc; border-radius: 99px;
+      padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em;
+    }}
+    .post-link {{
+      font-size: 0.62rem; font-weight: 700; color: #1a1a1a;
+      text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em;
+      border: 1.5px solid #1a1a1a; border-radius: 99px; padding: 4px 13px;
+      transition: all .15s; white-space: nowrap;
+    }}
+    .post-link:hover {{ background: #1a1a1a; color: #edeae4; }}
+
+    /* ── COLLECT BAR ── */
     .collect-bar {{
-      position: sticky; bottom: 0; background: white;
-      border-top: 1px solid #f1f5f9; padding: 12px 32px;
-      display: flex; align-items: center; gap: 16px;
-      box-shadow: 0 -4px 20px rgba(0,0,0,.07); z-index: 10;
+      position: fixed; bottom: 0; left: 0; right: 0;
+      background: #edeae4; border-top: 1px solid rgba(0,0,0,.1);
+      padding: 10px 24px; display: flex; align-items: center; gap: 14px;
+      z-index: 10;
     }}
     .collect-btn {{
-      background: #0f172a; color: white; border: none; padding: 9px 22px;
-      border-radius: 9px; cursor: pointer; font-size: 0.875rem; font-weight: 600;
-      transition: background .15s; white-space: nowrap; letter-spacing: -.01em;
+      background: #1a1a1a; color: #edeae4; border: none;
+      padding: 7px 20px; border-radius: 99px; cursor: pointer;
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; transition: opacity .15s; white-space: nowrap;
     }}
-    .collect-btn:hover:not(:disabled) {{ background: #1e293b; }}
-    .collect-btn:disabled {{ background: #94a3b8; cursor: not-allowed; }}
-    .progress-wrap {{ flex: 1; display: flex; flex-direction: column; gap: 4px; }}
-    .progress-track {{ height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; display: none; }}
-    .progress-bar {{ height: 100%; width: 0%; background: #0f172a; border-radius: 99px; transition: width .4s ease; }}
-    .progress-bar.indeterminate {{
-      width: 35%; animation: slide 1.2s ease-in-out infinite;
-    }}
-    @keyframes slide {{
-      0%   {{ transform: translateX(-100%); }}
-      100% {{ transform: translateX(350%); }}
-    }}
-    .last-collect {{ font-size: 0.8rem; color: #94a3b8; white-space: nowrap; }}
-    .progress-msg {{ font-size: 0.8rem; color: #64748b; min-height: 16px; }}
-    .progress-msg.ok  {{ color: #16a34a; }}
+    .collect-btn:hover:not(:disabled) {{ opacity: .75; }}
+    .collect-btn:disabled {{ opacity: .4; cursor: not-allowed; }}
+    .progress-wrap {{ flex: 1; display: flex; flex-direction: column; gap: 3px; }}
+    .progress-track {{ height: 3px; background: rgba(0,0,0,.1); border-radius: 99px; overflow: hidden; display: none; }}
+    .progress-bar {{ height: 100%; width: 0%; background: #1a1a1a; border-radius: 99px; transition: width .4s ease; }}
+    .progress-bar.indeterminate {{ width: 35%; animation: slide 1.2s ease-in-out infinite; }}
+    @keyframes slide {{ 0% {{ transform: translateX(-100%); }} 100% {{ transform: translateX(350%); }} }}
+    .last-collect {{ font-size: 0.65rem; color: #aaa; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .progress-msg {{ font-size: 0.68rem; color: #777; min-height: 14px; }}
+    .progress-msg.ok  {{ color: #166534; }}
     .progress-msg.err {{ color: #be123c; }}
   </style>
   <script>
@@ -384,40 +452,34 @@ async def dashboard():
 </head>
 <body>
   <header>
-    <a class="brand" href="/">
-      <span class="brand-icon">⚽</span>
-      Centrão do Noticião
-    </a>
+    <a class="brand" href="/">IARABÃO</a>
     <nav>
       <a class="nav-link active" href="/">Home</a>
       <a class="nav-link" href="/descartadas">Descartadas</a>
       <a class="nav-link" href="/fontes">Fontes</a>
     </nav>
-    <a class="nav-cta" href="/gerador">✍️ Criar Post</a>
+    <a class="nav-cta" href="/gerador">Criar Post</a>
   </header>
   <div class="topbar">
-    <span class="count">{len(articles)} notícias nas últimas 24h</span>
+    <span class="count">{len(articles)} notícias · 48h</span>
     <div class="flag-summary">
-      <span class="fs-badge fs-total"     id="fs-total"     onclick="toggleFilter('none')"         title="Filtrar sem flag">⬜ <span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-visto"     id="fs-visto"     onclick="toggleFilter('naopublicado')"  title="Filtrar não publicados">🔖 <span id="fc-visto">—</span> não publicados</span>
-      <span class="fs-badge fs-publicado" id="fs-pub"       onclick="toggleFilter('publicado')"     title="Filtrar publicados">📢 <span id="fc-pub">—</span> publicados</span>
-      <span class="fs-badge fs-descarte"  id="fs-desc"      onclick="toggleFilter('descartado')"    title="Filtrar descartados">🗑️ <span id="fc-desc">—</span> descartados</span>
+      <span class="fs-badge fs-total"     id="fs-total"     onclick="toggleFilter('none')"        title="Sem flag"><span id="fc-total">—</span> sem flag</span>
+      <span class="fs-badge fs-visto"     id="fs-visto"     onclick="toggleFilter('naopublicado')" title="Não publicados"><span id="fc-visto">—</span> salvos</span>
+      <span class="fs-badge fs-publicado" id="fs-pub"       onclick="toggleFilter('publicado')"    title="Publicados"><span id="fc-pub">—</span> publicados</span>
+      <span class="fs-badge fs-descarte"  id="fs-desc"      onclick="toggleFilter('descartado')"   title="Descartados"><span id="fc-desc">—</span> descartados</span>
     </div>
   </div>
   <div class="grid">
     {cards}
   </div>
   <div class="collect-bar">
-    <button class="collect-btn" id="cbtn" onclick="startCollect()">🔄 Coletar agora</button>
+    <button class="collect-btn" id="cbtn" onclick="startCollect()">Coletar</button>
     <span class="last-collect" id="last-collect"></span>
     <div class="progress-wrap">
       <div class="progress-track" id="ptrack"><div class="progress-bar" id="pbar"></div></div>
       <span class="progress-msg" id="pmsg"></span>
     </div>
   </div>
-  <footer style="text-align:center;padding:14px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;background:white;">
-    © {__import__('datetime').datetime.now().year} Central do Arabão — Todos os direitos reservados
-  </footer>
 </body>
 </html>"""
     return HTMLResponse(content=html)
