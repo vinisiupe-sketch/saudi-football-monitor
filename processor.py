@@ -53,7 +53,7 @@ async def call_claude(prompt: str, system: str, client: httpx.AsyncClient, max_t
 async def translate_articles(articles: list[dict]) -> list[dict]:
     from glossary import GLOSSARY_PROMPT, apply_glossary
 
-    to_translate = [a for a in articles if not a.get("title_pt")]
+    to_translate = [a for a in articles if not a.get("title_pt") and a.get("relevance_score", 0) >= 0.34]
     if not to_translate:
         print(f"   🌐 Todos os artigos já têm tradução")
         return articles

@@ -49,14 +49,14 @@ def compute_relevance(text: str, tier: str) -> float:
     return round((keyword_score * 0.7) + (tier_bonus * 0.3), 3)
 
 
-def is_relevant(text: str) -> bool:
+def is_relevant(text: str, min_hits: int = 3) -> bool:
     text_lower = text.lower()
     hits = 0
     for lang_kws in KEYWORDS.values():
         for kw in lang_kws:
             if kw.lower() in text_lower:
                 hits += 1
-    return hits >= 3
+    return hits >= min_hits
 
 
 async def fetch_feed(url: str, client: httpx.AsyncClient) -> Optional[feedparser.FeedParserDict]:
@@ -117,7 +117,7 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
         link = getattr(entry, "link", "") or ""
         body = re.sub(r"<[^>]+>", " ", summary).strip()
         full_text = f"{title} {body}"
-        if not is_relevant(full_text):
+        if not is_relevant(full_text, min_hits=1):
             continue
         published = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
