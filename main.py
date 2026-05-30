@@ -102,7 +102,7 @@ async def dashboard():
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>⚽ Saudi Football Monitor</title>
+  <title>⚽ Centrão do Noticião</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
@@ -267,7 +267,7 @@ async def dashboard():
 </head>
 <body>
   <header>
-    <a class="brand" href="/">⚽ Saudi Football Monitor</a>
+    <a class="brand" href="/">⚽ Centrão do Noticião</a>
     <nav>
       <a class="nav-link active" href="/">Home</a>
       <a class="nav-link" href="/descartadas">🗂️ Descartadas</a>
@@ -285,6 +285,9 @@ async def dashboard():
       <span class="progress-msg" id="pmsg"></span>
     </div>
   </div>
+  <footer style="text-align:center;padding:14px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;background:white;">
+    © {__import__('datetime').datetime.now().year} Central do Arabão — Todos os direitos reservados
+  </footer>
 </body>
 </html>"""
     return HTMLResponse(content=html)
@@ -411,7 +414,7 @@ async def descartadas():
 </head>
 <body>
   <header>
-    <a class="brand" href="/">⚽ Saudi Football Monitor</a>
+    <a class="brand" href="/">⚽ Centrão do Noticião</a>
     <nav>
       <a class="nav-link" href="/">Home</a>
       <a class="nav-link active" href="/descartadas">🗂️ Descartadas</a>
@@ -422,6 +425,9 @@ async def descartadas():
   <div class="grid">
     {cards if cards else '<p style="padding:40px 24px;color:#94a3b8;">Nenhuma notícia descartada nas últimas 24h.</p>'}
   </div>
+  <footer style="text-align:center;padding:14px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;background:white;">
+    © {__import__('datetime').datetime.now().year} Central do Arabão — Todos os direitos reservados
+  </footer>
 </body>
 </html>"""
     return HTMLResponse(content=html)
