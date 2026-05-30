@@ -3,9 +3,13 @@ Saudi Football Monitor — FastAPI app principal.
 """
 import os
 import asyncio
+import json
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, BackgroundTasks
+from urllib.parse import quote
+from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+import httpx
 from database import init_db, get_recent_articles, get_collection_logs
 from scheduler import run_pipeline, create_scheduler
 
@@ -26,6 +30,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
+
+# Servir fontes e máscaras para o gerador de posts
+app.mount("/fonts", StaticFiles(directory="public/fonts"), name="fonts")
+app.mount("/masks", StaticFiles(directory="public/masks"), name="masks")
 
 
 # ─── Dashboard ───────────────────────────────
@@ -59,6 +67,7 @@ async def dashboard():
         image_url = a.get("image_url") or ""
         category = a.get("category")
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
+        post_url = f"/gerador?texto={quote(title + chr(10) + chr(10) + (a.get('body_pt') or a.get('body_orig') or ''))}"
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
         category = category or "geral"
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
@@ -78,7 +87,10 @@ async def dashboard():
             <p class="card-text">{body}</p>
             <div class="card-footer">
               <span class="card-date">{collected}</span>
-              <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
+              <div style="display:flex;gap:6px;">
+                <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
+                <a class="copy-btn" href="{post_url}" target="_blank" style="text-decoration:none;">✍️ Post</a>
+              </div>
             </div>
           </div>
         </div>"""
@@ -114,6 +126,8 @@ async def dashboard():
     .copy-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 0.78rem; }}
     .copy-btn:hover {{ background: #e2e8f0; }}
     .copy-btn.copied {{ background: #dcfce7; color: #16a34a; }}
+    a.copy-btn {{ background: #f0fdf4; color: #15803d; }}
+    a.copy-btn:hover {{ background: #dcfce7; }}
   </style>
   <script>
     function copyText(btn, text) {{
@@ -171,6 +185,129 @@ async def api_collect(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_pipeline, True)  # force=True ignora período inativo
     return {"status": "started"}
 
+
+
+@app.get("/gerador", response_class=HTMLResponse)
+async def gerador():
+    with open("public/generator.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
+
+
+# ─── Gerador de posts (Central do Arabão) ────────
+CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
+CLAUDE_MODEL_POST = "claude-sonnet-4-5"
+
+
+def _tmpl_rule(tmpl: str, n: int) -> str:
+    if tmpl == "carrossel":
+        content = max(1, n - 2)
+        return (
+            f"TEMPLATE: CARROSSEL ({n} slides).\n"
+            f"- tipo_sugerido = \"carrossel\"\n"
+            f"- Gere EXATAMENTE {n} slides no array \"slides\"\n"
+            f"- slides[0] = capa: titulo em MAIÚSCULAS (3-4 palavras, máx 30 chars — NUNCA corte palavras no meio, reformule se necessário), corpo = subtítulo da notícia (1 frase)\n"
+            f"- slides[1..{n-2}] = conteúdo: divide o texto em {content} partes iguais. Cada parte: titulo curto em MAIÚSCULAS + corpo até 5 linhas em PT-BR\n"
+            f"- slides[{n-1}] = CTA: titulo=\"SIGA @CENTRALDOARABAO\", corpo=\"\"\n"
+            f"- num_slides = {n}"
+        )
+    if tmpl == "transferencia":
+        return (
+            "TEMPLATE: TRANSFERÊNCIA (1 card).\n"
+            "- tipo_sugerido = \"transferencia\"\n"
+            "- Extraia do texto o nome do jogador → nome_jogador em maiúsculas\n"
+            "- Extraia o tipo de anúncio (ex: \"Contratação definitiva\", \"Empréstimo\", \"Saída confirmada\") → tipo_anuncio\n"
+            "- slides = []"
+        )
+    return (
+        "TEMPLATE: SIMPLES (1 card).\n"
+        "- tipo_sugerido = \"simples\"\n"
+        "- Gere um título impactante em maiúsculas, máximo 60 caracteres.\n"
+        "- NUNCA corte palavras no meio. Se ultrapassar o limite, reformule com palavras mais curtas mantendo o sentido completo.\n"
+        "- slides = []"
+    )
+
+
+@app.post("/api/generate-post")
+async def generate_post(request: Request):
+    body = await request.json()
+    news = (body.get("news") or "").strip()
+    template = body.get("template", "simples")
+    if template not in ("simples", "carrossel", "transferencia"):
+        template = "simples"
+    num_slides = body.get("num_slides", 3)
+    n = min(6, max(3, int(num_slides))) if template == "carrossel" else 1
+
+    if not news:
+        return JSONResponse({"error": "Campo 'news' vazio."}, status_code=400)
+
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return JSONResponse({"error": "ANTHROPIC_API_KEY não configurada."}, status_code=500)
+
+    prompt_visual = (
+        "Você é um editor de conteúdo esportivo especializado na Saudi Pro League (Roshn Saudi League).\n\n"
+        + _tmpl_rule(template, n)
+        + "\n\nFORMATO DE SAÍDA:\nRetorne SOMENTE um objeto JSON puro, sem markdown, sem blocos de código, sem texto fora do JSON.\n\n"
+        "Estrutura exata (preencha os valores):\n"
+        '{\n  "titulo": "TÍTULO COMPLETO EM MAIÚSCULAS — não truncar, reformular se muito longo",\n'
+        '  "subtitulo": "uma frase resumindo a notícia em português",\n'
+        '  "texto_completo": "notícia em português, 2 a 4 parágrafos",\n'
+        f'  "slides": [],\n  "tipo_sugerido": "{template}",\n  "num_slides": {n},\n'
+        '  "nome_jogador": null,\n  "tipo_anuncio": null\n}'
+    )
+
+    prompt_texto = (
+        "Traduza e resuma o texto jornalístico abaixo para o português. Siga exatamente o formato do exemplo.\n\n"
+        "EXEMPLO DE INPUT: \"Ben Jacobs: Jurgen Klopp is a dream target for Al-Ittihad...\"\n\n"
+        "EXEMPLO DE OUTPUT ESPERADO: \"Jürgen Klopp é visto como o alvo dos sonhos do Al-Ittihad...\n\nFonte: Ben Jacobs\"\n\n"
+        "Regras: apenas texto corrido, sem emojis, sem hashtags, sem exclamações, sem títulos, sem negrito, "
+        "sem formatação de qualquer tipo. Somente parágrafos simples. Ao final, \"Fonte:\" seguido do autor ou veículo identificável no texto original."
+    )
+
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+
+    def make_payload(system: str, max_tokens: int):
+        return {
+            "model": CLAUDE_MODEL_POST,
+            "max_tokens": max_tokens,
+            "system": system,
+            "messages": [{"role": "user", "content": news}],
+        }
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp_visual, resp_texto = await asyncio.gather(
+                client.post(CLAUDE_API_URL, json=make_payload(prompt_visual, 2048), headers=headers),
+                client.post(CLAUDE_API_URL, json=make_payload(prompt_texto, 1024), headers=headers),
+            )
+
+        if resp_visual.status_code != 200:
+            err = resp_visual.json().get("error", {})
+            return JSONResponse({"error": err.get("message", f"Claude API: HTTP {resp_visual.status_code}")}, status_code=resp_visual.status_code)
+
+        raw = resp_visual.json()["content"][0]["text"].strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        import re
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            raw = m.group(0)
+        parsed = json.loads(raw)
+
+        texto_post = ""
+        if resp_texto.status_code == 200:
+            texto_post = (resp_texto.json()["content"][0].get("text") or "").strip()
+
+        parsed["legenda_instagram"] = texto_post or parsed.get("legenda_instagram", "")
+        return parsed
+
+    except json.JSONDecodeError:
+        return JSONResponse({"error": "Resposta inválida da API Claude."}, status_code=500)
+    except Exception as e:
+        return JSONResponse({"error": f"Erro ao chamar Claude API: {e}"}, status_code=500)
 
 
 @app.get("/api/twitter-test")

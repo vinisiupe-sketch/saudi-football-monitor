@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Central do Arabão — Gerador de Posts</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+/* ── FONTES LOCAIS ──────────────────────────────── */
+@font-face {
+  font-family: 'Antonio';
+  font-weight: 700;
+  font-style: normal;
+  src: url('/fonts/Antonio-Bold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Antonio';
+  font-weight: 600;
+  font-style: normal;
+  src: url('/fonts/Antonio-SemiBold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-weight: 400;
+  font-style: normal;
+  src: url('/fonts/Poppins-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Poppins';
+  font-weight: 500;
+  font-style: normal;
+  src: url('/fonts/Poppins-Medium.ttf') format('truetype');
+}
+
+/* ── RESET / BASE ───────────────────────────────── */
+:root {
+  --verde: #49fcb6;
+  --roxo:  #8c52ff;
+  --preto: #201322;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Poppins', sans-serif; background: #130e14; color: #fff; min-height: 100vh; }
+
+/* ── HEADER ─────────────────────────────────────── */
+.header {
+  background: #201322;
+  border-bottom: 2px solid var(--verde);
+  padding: 13px 26px;
+  display: flex; align-items: center; gap: 13px;
+}
+.hlogo { width: 46px; height: 46px; flex-shrink: 0; }
+.htitle { font-family: 'Antonio', sans-serif; font-size: 21px; color: var(--verde); letter-spacing: 3px; }
+.hback {
+  margin-left: auto;
+  font-size: 12px; color: #888; text-decoration: none;
+  border: 1px solid #333; border-radius: 6px;
+  padding: 6px 14px; transition: all .2s;
+  font-family: 'Poppins', sans-serif;
+}
+.hback:hover { border-color: var(--verde); color: var(--verde); }
+
+/* ── STEP INDICATOR ─────────────────────────────── */
+.steps {
+  background: #1a1020;
+  border-bottom: 1px solid #2a1e2e;
+  padding: 14px 0;
+  display: flex; justify-content: center; align-items: center;
+}
+.si { display: flex; align-items: center; gap: 9px; padding: 5px 20px; color: #555; font-size: 13px; }
+.si.active { color: var(--verde); }
+.si.done   { color: #999; }
+.si-num {
+  width: 25px; height: 25px; border-radius: 50%; background: #333;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; flex-shrink: 0;
+}
+.si.active .si-num { background: var(--verde); color: #000; }
+.si.done   .si-num { background: rgba(73,252,182,.2); color: var(--verde); }
+.sdiv { width: 44px; height: 1px; background: #2a1e2e; }
+
+/* ── LAYOUT ─────────────────────────────────────── */
+.container { max-width: 980px; margin: 0 auto; padding: 30px 22px; }
+.panel { display: none; }
+.panel.active { display: block; }
+
+/* ── FORM ELEMENTS ──────────────────────────────── */
+.sec { font-family: 'Antonio', sans-serif; font-size: 16px; color: var(--verde); letter-spacing: 3px; margin-bottom: 12px; text-transform: uppercase; }
+textarea {
+  width: 100%; background: #201322; border: 1px solid #2e1e34; border-radius: 8px;
+  color: #fff; padding: 15px; font-size: 14px; font-family: 'Poppins', sans-serif;
+  resize: vertical; min-height: 175px; line-height: 1.6; transition: border-color .2s;
+}
+textarea:focus { outline: none; border-color: var(--verde); }
+input[type="text"] {
+  width: 100%; background: #130e14; border: 1px solid #3a2540; border-radius: 6px;
+  color: #fff; padding: 9px 12px; font-size: 13px; font-family: 'Poppins', sans-serif; transition: border-color .2s;
+}
+input[type="text"]:focus { outline: none; border-color: var(--verde); }
+.fg { display: flex; flex-direction: column; gap: 5px; }
+.fg label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1.5px; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 10px 20px; border: none; border-radius: 7px;
+  font-family: 'Antonio', sans-serif; font-size: 15px; letter-spacing: 1px;
+  cursor: pointer; transition: all .2s;
+}
+.btn-g { background: var(--verde); color: #000; }
+.btn-g:hover:not(:disabled) { background: #3de8a0; transform: translateY(-1px); }
+.btn-g:disabled { background: #2a2a2a; color: #555; cursor: not-allowed; }
+.btn-o { background: transparent; color: var(--verde); border: 1px solid var(--verde); }
+.btn-o:hover { background: rgba(73,252,182,.08); }
+.btn-x { background: transparent; color: #888; border: 1px solid #333; }
+.btn-x:hover { border-color: #555; color: #ccc; }
+.row { display: flex; gap: 11px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
+.pst { font-size: 13px; color: #888; }
+.err { color: #ff7070; font-size: 13px; padding: 9px 13px; background: rgba(255,112,112,.08); border-radius: 6px; border: 1px solid rgba(255,112,112,.2); margin-top: 11px; }
+.spinner { display: inline-block; width: 17px; height: 17px; border: 2px solid rgba(73,252,182,.3); border-top-color: var(--verde); border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle; margin-right: 5px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── INFO BOX ───────────────────────────────────── */
+.ibox {
+  background: rgba(73,252,182,.05); border: 1px solid rgba(73,252,182,.17);
+  border-radius: 10px; padding: 16px 18px; margin-bottom: 22px; font-size: 13px; color: #ccc;
+}
+.ibox-t { font-family: 'Antonio', sans-serif; color: var(--verde); font-size: 14px; letter-spacing: 2px; margin-bottom: 9px; }
+.irow { display: flex; gap: 9px; margin-bottom: 4px; flex-wrap: wrap; }
+.ilbl { color: #666; min-width: 120px; font-size: 12px; }
+.ival { color: #ddd; font-size: 12px; }
+
+/* ── PREVIEW LAYOUT ─────────────────────────────── */
+.playout { display: grid; grid-template-columns: 540px 1fr; gap: 26px; align-items: start; }
+.cwrap { width: 540px; border-radius: 10px; overflow: hidden; box-shadow: 0 10px 44px rgba(0,0,0,.75); flex-shrink: 0; position: relative; }
+.cscale { transform-origin: top left; transform: scale(0.5); width: 1080px; height: 1350px; }
+
+/* ── SLIDE NAV ──────────────────────────────────── */
+.snav { display: flex; gap: 7px; justify-content: center; margin-top: 13px; }
+.sdot { width: 8px; height: 8px; border-radius: 50%; background: #333; cursor: pointer; transition: all .2s; }
+.sdot.on { background: var(--verde); width: 21px; border-radius: 4px; }
+
+/* ── EDIT PANEL ─────────────────────────────────── */
+.epanel { display: flex; flex-direction: column; gap: 13px; }
+.capbox { background: #201322; border: 1px solid #2e1e34; border-radius: 10px; padding: 15px; }
+.capt { font-family: 'Antonio', sans-serif; font-size: 12px; color: var(--verde); letter-spacing: 2px; margin-bottom: 7px; }
+.capbox p { font-size: 12px; color: #bbb; line-height: 1.7; white-space: pre-wrap; max-height: 110px; overflow-y: auto; }
+.cpbtn { background: none; border: 1px solid #333; color: #777; padding: 4px 11px; border-radius: 4px; font-size: 12px; cursor: pointer; margin-top: 7px; font-family: 'Poppins', sans-serif; transition: all .2s; }
+.cpbtn:hover { border-color: var(--verde); color: var(--verde); }
+.dlbox {
+  background: linear-gradient(135deg, rgba(73,252,182,.06), rgba(140,82,255,.04));
+  border: 1px solid rgba(73,252,182,.2); border-radius: 10px; padding: 18px; text-align: center;
+}
+.dlbox h3 { font-family: 'Antonio', sans-serif; color: var(--verde); font-size: 15px; letter-spacing: 2px; margin-bottom: 13px; }
+.dlrow { display: flex; gap: 9px; justify-content: center; flex-wrap: wrap; }
+.dlst { margin-top: 9px; font-size: 12px; color: #888; min-height: 16px; }
+
+/* ── IMAGE UPLOAD ───────────────────────────────── */
+.upbox { background: #201322; border: 1px solid #2e1e34; border-radius: 10px; padding: 14px; }
+.uplbl { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 9px; }
+.upthumb { width: 100%; height: 110px; object-fit: cover; border-radius: 6px; margin-top: 9px; border: 1px solid #2e1e34; display: none; }
+
+/* ══════════════════════════════════════════════════
+   INSTAGRAM CARD — 1080 × 1350 px
+   ══════════════════════════════════════════════════ */
+.igcard {
+  width: 1080px;
+  height: 1350px;
+  position: relative;
+  overflow: hidden;
+  background: #201322;
+  font-family: 'Poppins', sans-serif;
+}
+
+.igcard .layer-photo {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  background-color: #2a1e2e; background-size: cover; background-repeat: no-repeat; z-index: 1;
+}
+.igcard .layer-gradient {
+  position: absolute; inset: 0; z-index: 2;
+  background: linear-gradient(to bottom, transparent 45%, rgba(0,0,0,0.18) 58%, rgba(0,0,0,0.80) 80%, rgba(0,0,0,0.92) 100%);
+  pointer-events: none;
+}
+.igcard .layer-circle {
+  position: absolute;
+  left: calc(787px - 177.5px); top: calc(698px - 177.5px);
+  width: 355px; height: 355px; border-radius: 50%; object-fit: cover; z-index: 3;
+}
+.igcard .layer-mask {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: fill; z-index: 4; pointer-events: none;
+}
+.igcard .layer-text { position: absolute; z-index: 5; pointer-events: none; }
+
+.txt-simples-block {
+  left: 0; right: 0; top: 1012px; bottom: 135px; padding: 0 68px;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+}
+.txt-simples-block .s-title {
+  font-family: 'Antonio', sans-serif; font-weight: 700; font-size: 65px;
+  color: #49fcb6; text-transform: uppercase; line-height: 1.05; text-align: center; width: 100%;
+}
+
+.txt-carr-block {
+  left: 0; right: 0; top: 877px; bottom: 54px; padding: 0 90px;
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
+}
+.txt-carr-block .c-title {
+  font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 65px;
+  color: #ffffff; text-transform: uppercase; line-height: 1.05; text-align: center; width: 100%;
+}
+.txt-carr-block .c-sub {
+  font-family: 'Poppins', sans-serif; font-weight: 400; font-size: 28px;
+  color: #ffffff; line-height: 1.4; text-align: center; width: 100%;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+
+.txt-ci-block {
+  left: 0; right: 0; top: 810px; bottom: 54px; padding: 0 68px;
+  display: flex; flex-direction: column; justify-content: flex-end; gap: 14px;
+}
+.txt-ci-block .ci-title {
+  font-family: 'Antonio', sans-serif; font-weight: 600; font-size: 44px;
+  color: #49fcb6; text-transform: uppercase; line-height: 1.1;
+}
+.txt-ci-block .ci-body {
+  font-family: 'Poppins', sans-serif; font-weight: 400; font-size: 28px;
+  color: #ffffff; line-height: 1.3;
+  display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.txt-cta {
+  left: 0; right: 0; top: 580px;
+  font-family: 'Antonio', sans-serif; font-weight: 700; font-size: 64px;
+  color: #49fcb6; text-align: center; text-transform: uppercase; letter-spacing: 3px;
+}
+.txt-cta-sub {
+  left: 0; right: 0; top: 700px;
+  font-family: 'Poppins', sans-serif; font-weight: 400; font-size: 32px;
+  color: #fff; text-align: center; line-height: 1.6;
+}
+
+.txt-tf-name {
+  left: 0; right: 0; top: 1150px;
+  font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 52px;
+  color: #49fcb6; text-transform: uppercase; text-align: center; line-height: 1.1;
+}
+.txt-tf-announced {
+  left: 0; right: 0; top: 1225px;
+  font-family: 'Poppins', sans-serif; font-weight: 700; font-size: 82px;
+  color: #ffffff; text-transform: uppercase; text-align: center; line-height: 1;
+}
+.txt-tf-type {
+  left: 0; right: 0; top: 1320px;
+  font-family: 'Poppins', sans-serif; font-weight: 400; font-size: 28px;
+  color: #ffffff; text-align: center;
+}
+
+.badge-circle {
+  position: absolute; border-radius: 50%; overflow: hidden; z-index: 5;
+  border: 3px solid rgba(255,255,255,.15);
+}
+.badge-from { left: calc(318px - 114px); top: calc(989px - 114px); width: 228px; height: 228px; }
+.badge-to   { left: calc(744px - 114px); top: calc(989px - 114px); width: 228px; height: 228px; }
+.badge-circle img { width: 100%; height: 100%; object-fit: cover; }
+.badge-placeholder {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Poppins', sans-serif; font-size: 22px; color: #555;
+  background: #2a1e2e; flex-direction: column; gap: 8px;
+}
+
+.cta-logo { position: absolute; left: calc(50% - 75px); top: 820px; width: 150px; height: 150px; z-index: 5; }
+
+.slide-num {
+  position: absolute; right: 90px; top: 55px;
+  font-family: 'Poppins', sans-serif; font-size: 24px;
+  color: rgba(255,255,255,.25); z-index: 5;
+}
+
+.igcard.carousel-internal { background: #201322; }
+
+/* ── DRAG OVERLAY ───────────────────────────────── */
+.drag-overlay {
+  position: absolute; inset: 0; cursor: grab; z-index: 20; border-radius: 10px;
+}
+.drag-overlay.dragging { cursor: grabbing; }
+.drag-hint { text-align: center; margin-top: 8px; font-size: 11px; color: #555; letter-spacing: .5px; }
+.drag-hint span { color: #49fcb6; opacity: .7; }
+
+/* ── EXPORT CONTAINER ───────────────────────────── */
+#export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
+
+/* ── UPLOAD AREA ────────────────────────────────── */
+.upload-area {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 9px; padding: 34px 20px;
+  border: 2px dashed #2e1e34; border-radius: 10px; background: #201322;
+  cursor: pointer; transition: all .2s; text-align: center;
+}
+.upload-area:hover { border-color: rgba(73,252,182,.45); background: rgba(73,252,182,.02); }
+.upload-area.has-images { border-color: var(--verde); border-style: solid; }
+.upload-area-icon { font-size: 34px; line-height: 1; }
+.upload-area-text { font-size: 14px; color: #ccc; }
+.upload-area-sub  { font-size: 11px; color: #555; line-height: 1.6; max-width: 420px; }
+
+.detect-badge {
+  align-items: center; gap: 9px;
+  background: rgba(73,252,182,.07); border: 1px solid rgba(73,252,182,.22);
+  border-radius: 7px; padding: 9px 15px; margin-top: 11px;
+  font-size: 12px; color: #49fcb6; font-family: 'Poppins', sans-serif; line-height: 1.5;
+}
+
+.thumb-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.thumb-item {
+  position: relative; width: 80px; height: 80px;
+  border-radius: 8px; overflow: hidden; border: 2px solid #2e1e34; flex-shrink: 0;
+}
+.thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-num {
+  position: absolute; top: 4px; left: 4px;
+  background: rgba(0,0,0,.75); color: #49fcb6;
+  font-size: 11px; padding: 2px 6px; border-radius: 4px;
+  font-family: 'Antonio', sans-serif; letter-spacing: 1px;
+}
+
+/* ── STEP BLOCKS ────────────────────────────────── */
+.step-block { margin-bottom: 34px; }
+.step-header {
+  display: flex; align-items: center; gap: 11px;
+  font-family: 'Antonio', sans-serif; font-size: 15px; color: var(--verde);
+  letter-spacing: 3px; text-transform: uppercase; margin-bottom: 14px;
+}
+.step-circle {
+  width: 28px; height: 28px; border-radius: 50%;
+  background: var(--verde); color: #000;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; flex-shrink: 0;
+}
+
+@media (max-width: 820px) {
+  .playout { grid-template-columns: 1fr; }
+  .cwrap { width: 100%; max-width: 540px; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <svg class="hlogo" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="100" cy="100" r="98" fill="#201322" stroke="white" stroke-width="3.5"/>
+    <circle cx="100" cy="100" r="85" fill="none" stroke="white" stroke-width="2"/>
+    <circle cx="17"  cy="100" r="5.5" fill="white"/>
+    <circle cx="183" cy="100" r="5.5" fill="white"/>
+    <path id="ha" d="M25,100 A75,75 0,0,1 175,100" fill="none"/>
+    <text fill="white" font-weight="700" font-size="17" letter-spacing="3.5" font-family="Arial Black,Arial,sans-serif">
+      <textPath href="#ha" startOffset="50%" text-anchor="middle">CENTRAL DO</textPath>
+    </text>
+    <path id="hb" d="M25,100 A75,75 0,0,0 175,100" fill="none"/>
+    <text fill="white" font-weight="700" font-size="17" letter-spacing="3.5" font-family="Arial Black,Arial,sans-serif">
+      <textPath href="#hb" startOffset="50%" text-anchor="middle">ARABÃO</textPath>
+    </text>
+    <path d="M100,38 A47,47 0,1,0 100,132 A31,31 0,1,1 100,38Z" fill="white"/>
+    <rect x="97" y="46" width="6" height="46" rx="3" fill="#201322"/>
+    <ellipse cx="100" cy="44" rx="22" ry="7" fill="#201322" transform="rotate(-30,100,44)"/>
+    <ellipse cx="100" cy="44" rx="22" ry="7" fill="#201322" transform="rotate(30,100,44)"/>
+    <ellipse cx="100" cy="42" rx="18" ry="6" fill="#201322"/>
+    <ellipse cx="100" cy="44" rx="14" ry="5" fill="#201322" transform="rotate(-60,100,44)"/>
+    <ellipse cx="100" cy="44" rx="14" ry="5" fill="#201322" transform="rotate(60,100,44)"/>
+    <line x1="70" y1="106" x2="130" y2="131" stroke="#201322" stroke-width="4.5" stroke-linecap="round"/>
+    <line x1="130" y1="106" x2="70" y2="131" stroke="#201322" stroke-width="4.5" stroke-linecap="round"/>
+    <circle cx="70"  cy="106" r="6" fill="#201322"/>
+    <circle cx="130" cy="106" r="6" fill="#201322"/>
+  </svg>
+  <span class="htitle">CENTRAL DO ARABÃO</span>
+  <a class="hback" href="/">← Voltar ao Monitor</a>
+</header>
+
+<!-- STEP INDICATOR -->
+<nav class="steps">
+  <div class="si active" id="si1"><div class="si-num">1</div><span>Entrada</span></div>
+  <div class="sdiv"></div>
+  <div class="si" id="si2"><div class="si-num">2</div><span>Preview &amp; Download</span></div>
+</nav>
+
+<main class="container">
+
+  <!-- ═══ SCREEN 1 ═══ -->
+  <section class="panel active" id="p1">
+
+    <div class="step-block">
+      <div class="step-header"><div class="step-circle">1</div>Notícia</div>
+      <textarea id="news" style="min-height:150px;" placeholder="Cole aqui o texto completo da notícia..."></textarea>
+    </div>
+
+    <div class="step-block">
+      <div class="step-header"><div class="step-circle">2</div>Imagens</div>
+      <label class="upload-area" id="upload-area">
+        <div class="upload-area-icon">📁</div>
+        <div class="upload-area-text">Clique para selecionar imagens</div>
+        <div class="upload-area-sub">
+          1 imagem = Simples (só fundo) &nbsp;·&nbsp;
+          2 imagens = Simples com círculo &nbsp;·&nbsp;
+          3 a 6 imagens = Carrossel
+        </div>
+        <input type="file" accept="image/*" multiple id="img-input" style="display:none" onchange="handleImages(this)">
+      </label>
+      <div class="detect-badge" id="detect-badge" style="display:none;"></div>
+      <div class="thumb-grid" id="thumb-grid"></div>
+    </div>
+
+    <div class="row" style="margin-top:8px;">
+      <button class="btn btn-g" id="pbtn" style="padding:13px 32px; font-size:16px;" onclick="process()">⚡ Gerar Post</button>
+      <span class="pst" id="pst"></span>
+    </div>
+    <div class="err" id="perr" style="display:none;"></div>
+
+  </section>
+
+  <!-- ═══ SCREEN 2 ═══ -->
+  <section class="panel" id="p2">
+    <div class="playout">
+      <div>
+        <div class="cwrap" id="cwrap">
+          <div class="cscale" id="cscale"></div>
+          <div class="drag-overlay" id="drag-overlay"></div>
+        </div>
+        <div class="drag-hint">🖱 <span>Arraste</span> para reposicionar a imagem</div>
+        <div style="text-align:center; margin-top:9px;">
+          <label class="btn btn-x" style="font-size:12px; padding:7px 16px; cursor:pointer; display:inline-flex; align-items:center; gap:6px;">
+            🔄 Trocar imagem
+            <input type="file" accept="image/*" id="swap-input" style="display:none" onchange="swapImage(this)">
+          </label>
+        </div>
+        <div class="snav" id="snav" style="display:none;"></div>
+      </div>
+
+      <div class="epanel">
+        <div class="sec" style="font-size:14px; margin-bottom:2px;">Editar Texto</div>
+
+        <div class="fg" id="grp-title">
+          <label>Título</label>
+          <input type="text" id="etitle" oninput="upd()">
+        </div>
+        <div class="fg" id="grp-sub" style="display:none; flex-direction:column;">
+          <label>Subtítulo</label>
+          <textarea id="esub" style="min-height:75px;" oninput="upd()"></textarea>
+        </div>
+        <div class="fg" id="grp-body" style="display:none; flex-direction:column;">
+          <label>Corpo do slide atual</label>
+          <textarea id="ebody" style="min-height:105px;" oninput="updBody()"></textarea>
+        </div>
+        <div id="grp-tf" style="display:none; flex-direction:column; gap:13px;">
+          <div class="fg"><label>Nome do Jogador</label><input type="text" id="eplayer" oninput="upd()"></div>
+          <div class="fg"><label>Tipo de Anúncio</label><input type="text" id="eanntype" oninput="upd()"></div>
+        </div>
+
+        <div class="capbox">
+          <div class="capt">TEXTO DO POST</div>
+          <p id="captext">—</p>
+          <button class="cpbtn" onclick="copyCaption()">📋 Copiar</button>
+        </div>
+
+        <div class="dlbox">
+          <h3>BAIXAR POSTS</h3>
+          <div class="dlrow">
+            <button class="btn btn-g" id="dlbtn" onclick="dlCurrent()">⬇️ Baixar PNG</button>
+            <button class="btn btn-o" id="dlall" style="display:none;" onclick="dlAll()">📦 Baixar ZIP</button>
+          </div>
+          <div class="dlst" id="dlst"></div>
+        </div>
+
+        <button class="btn btn-x" style="width:100%; justify-content:center;" onclick="goP(1)">← Voltar</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div id="export-wrap"></div>
+
+<script>
+const S = {
+  data: null, template: 'simples', selectedCount: 1,
+  slides: [], curSlide: 0, uploadedImages: [], imgPositions: [],
+};
+
+function goP(n) {
+  if (n === 2) { if (!S.data) return; prepPreview(); }
+  document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
+  document.getElementById('p' + n).classList.add('active');
+  window.scrollTo(0, 0);
+  ['si1','si2'].forEach((id, i) => {
+    const el = document.getElementById(id);
+    el.classList.remove('active','done');
+    if (i + 1 < n) el.classList.add('done');
+    else if (i + 1 === n) el.classList.add('active');
+  });
+}
+
+function handleImages(input) {
+  const files = Array.from(input.files).slice(0, 6);
+  if (!files.length) return;
+  S.uploadedImages = new Array(files.length);
+  let loaded = 0;
+  files.forEach((f, i) => {
+    const r = new FileReader();
+    r.onload = e => {
+      S.uploadedImages[i] = e.target.result;
+      loaded++;
+      if (loaded === files.length) detectMode();
+    };
+    r.readAsDataURL(f);
+  });
+}
+
+function detectMode() {
+  const n = S.uploadedImages.filter(Boolean).length;
+  S.selectedCount = n;
+  S.template = n >= 3 ? 'carrossel' : 'simples';
+  S.imgPositions = S.uploadedImages.map(() => ({ x: 50, y: 50 }));
+  const badge = document.getElementById('detect-badge');
+  let msg;
+  if (n === 1)      msg = '📷 Modo detectado: <strong>Simples</strong> — 1 imagem de fundo';
+  else if (n === 2) msg = '👤 Modo detectado: <strong>Simples com círculo</strong> — fundo + foto em destaque';
+  else              msg = `🎠 Modo detectado: <strong>Carrossel — ${n} slides</strong>`;
+  badge.innerHTML = msg;
+  badge.style.display = 'flex';
+  document.getElementById('upload-area').classList.add('has-images');
+  renderThumbs();
+}
+
+function swapImage(input) {
+  const f = input.files[0]; if (!f) return;
+  const idx = (S.template === 'carrossel') ? bgImgIdx(S.curSlide) : 0;
+  const r = new FileReader();
+  r.onload = e => {
+    S.uploadedImages[idx] = e.target.result;
+    S.imgPositions[idx]   = { x: 50, y: 50 };
+    upd();
+    input.value = '';
+  };
+  r.readAsDataURL(f);
+}
+
+function renderThumbs() {
+  const n = S.uploadedImages.length;
+  const labels = n === 1 ? ['BG']
+    : n === 2 ? ['BG', '●']
+    : S.uploadedImages.map((_, i) => i === 0 ? 'CAPA' : i === n-1 ? 'CTA' : String(i+1));
+  document.getElementById('thumb-grid').innerHTML = S.uploadedImages.map((src, i) => `
+    <div class="thumb-item"><img src="${src}" alt=""><div class="thumb-num">${labels[i]}</div></div>`).join('');
+}
+
+async function process() {
+  const news = document.getElementById('news').value.trim();
+  if (!news)                { showErr('Cole o texto da notícia (Etapa 1).'); return; }
+  if (!S.uploadedImages[0]) { showErr('Selecione ao menos 1 imagem (Etapa 2).'); return; }
+
+  const btn = document.getElementById('pbtn');
+  btn.disabled = true;
+  document.getElementById('pst').innerHTML = '<span class="spinner"></span> Gerando post...';
+  document.getElementById('perr').style.display = 'none';
+
+  try {
+    const res = await fetch('/api/generate-post', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ news, template: S.template, num_slides: S.selectedCount }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
+    S.data = data;
+    document.getElementById('pst').textContent = '✅ Pronto!';
+    btn.disabled = false;
+    setTimeout(() => goP(2), 300);
+  } catch (err) {
+    showErr('Erro: ' + err.message);
+    btn.disabled = false;
+    document.getElementById('pst').textContent = '';
+  }
+}
+
+function showErr(m) {
+  const el = document.getElementById('perr');
+  el.textContent = m; el.style.display = 'block';
+}
+
+function prepPreview() {
+  const t = S.template, data = S.data;
+  document.getElementById('etitle').value = data.titulo    || '';
+  document.getElementById('esub').value   = data.subtitulo || '';
+  document.getElementById('captext').textContent = data.legenda_instagram || '—';
+  if (data.nome_jogador) document.getElementById('eplayer').value  = data.nome_jogador;
+  if (data.tipo_anuncio) document.getElementById('eanntype').value = data.tipo_anuncio;
+  document.getElementById('grp-sub').style.display  = t === 'carrossel'     ? 'flex' : 'none';
+  document.getElementById('grp-body').style.display = t === 'carrossel'     ? 'flex' : 'none';
+  document.getElementById('grp-tf').style.display   = t === 'transferencia' ? 'flex' : 'none';
+  document.getElementById('dlbtn').style.display    = t !== 'carrossel'     ? 'inline-flex' : 'none';
+  document.getElementById('dlall').style.display    = t === 'carrossel'     ? 'inline-flex' : 'none';
+  if (t === 'carrossel' && data.slides?.length) S.slides = data.slides;
+  else S.slides = [];
+  S.curSlide = 0;
+  buildSlideNav();
+  upd();
+}
+
+function buildSlideNav() {
+  const nav = document.getElementById('snav');
+  if (S.template !== 'carrossel' || !S.slides.length) { nav.style.display = 'none'; return; }
+  nav.style.display = 'flex';
+  nav.innerHTML = S.slides.map((_, i) =>
+    `<div class="sdot ${i===0?'on':''}" onclick="goslide(${i})"></div>`).join('');
+}
+
+function goslide(idx) {
+  S.curSlide = idx;
+  document.querySelectorAll('.sdot').forEach((d, i) => d.classList.toggle('on', i === idx));
+  if (S.slides[idx]) document.getElementById('ebody').value = S.slides[idx].corpo || '';
+  upd();
+}
+
+function updBody() {
+  const v = document.getElementById('ebody').value;
+  if (S.slides[S.curSlide]) S.slides[S.curSlide].corpo = v;
+  upd();
+}
+
+function logoSVG(sz) {
+  const id = 'L' + sz + Math.random().toString(36).slice(2,5);
+  return `<svg width="${sz}" height="${sz}" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="100" cy="100" r="98" fill="#201322" stroke="white" stroke-width="4"/>
+    <circle cx="100" cy="100" r="85" fill="none" stroke="white" stroke-width="2.5"/>
+    <circle cx="17" cy="100" r="6" fill="white"/><circle cx="183" cy="100" r="6" fill="white"/>
+    <path id="${id}a" d="M26,100 A74,74 0,0,1 174,100" fill="none"/>
+    <text fill="white" font-weight="700" font-size="17" letter-spacing="3" font-family="Arial Black,Arial,sans-serif">
+      <textPath href="#${id}a" startOffset="50%" text-anchor="middle">CENTRAL DO</textPath></text>
+    <path id="${id}b" d="M26,100 A74,74 0,0,0 174,100" fill="none"/>
+    <text fill="white" font-weight="700" font-size="17" letter-spacing="3" font-family="Arial Black,Arial,sans-serif">
+      <textPath href="#${id}b" startOffset="50%" text-anchor="middle">ARABÃO</textPath></text>
+    <path d="M100,38 A47,47 0,1,0 100,132 A31,31 0,1,1 100,38Z" fill="white"/>
+    <rect x="97" y="46" width="6" height="46" rx="3" fill="#201322"/>
+    <ellipse cx="100" cy="44" rx="21" ry="7" fill="#201322" transform="rotate(-30,100,44)"/>
+    <ellipse cx="100" cy="44" rx="21" ry="7" fill="#201322" transform="rotate(30,100,44)"/>
+    <ellipse cx="100" cy="42" rx="18" ry="6" fill="#201322"/>
+    <ellipse cx="100" cy="44" rx="13" ry="5" fill="#201322" transform="rotate(-60,100,44)"/>
+    <ellipse cx="100" cy="44" rx="13" ry="5" fill="#201322" transform="rotate(60,100,44)"/>
+    <line x1="70" y1="106" x2="130" y2="131" stroke="#201322" stroke-width="5" stroke-linecap="round"/>
+    <line x1="130" y1="106" x2="70" y2="131" stroke="#201322" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="70" cy="106" r="6.5" fill="#201322"/><circle cx="130" cy="106" r="6.5" fill="#201322"/>
+  </svg>`;
+}
+
+function bgPhotoTag(cls = '', src = null, imgIdx = 0) {
+  const img = src || S.uploadedImages[0] || '';
+  const p   = S.imgPositions[imgIdx] || { x: 50, y: 50 };
+  const bg  = img ? `background-image:url('${img}');background-position:${p.x}% ${p.y}%;` : '';
+  return `<div class="layer-photo ${cls}" style="${bg}"></div>`;
+}
+
+function bgImgIdx(slideIdx) {
+  return (S.template === 'carrossel' && S.uploadedImages[slideIdx]) ? slideIdx : 0;
+}
+
+function maskTag(file) {
+  return `<img class="layer-mask" src="/masks/${file}" alt="" onerror="this.style.display='none'" onload="this.style.display='block'">`;
+}
+
+function cardSimples() {
+  const title = esc(document.getElementById('etitle').value || 'TÍTULO CURTO E GRANDE');
+  const circleEl = S.uploadedImages[1] ? `<img class="layer-circle" src="${S.uploadedImages[1]}" alt="">` : '';
+  return `<div class="igcard">
+    ${bgPhotoTag('', null, 0)}
+    <div class="layer-gradient"></div>
+    ${circleEl}
+    ${maskTag('simples_mask.png')}
+    <div class="layer-text txt-simples-block"><div class="s-title">${title}</div></div>
+  </div>`;
+}
+
+function cardCarousel(idx) {
+  const total = S.slides.length;
+  if (!total) return cardSimples();
+  const bi = bgImgIdx(idx);
+  const slideSrc = S.uploadedImages[bi] || '';
+
+  if (idx === 0) {
+    const title = esc(document.getElementById('etitle').value || S.slides[0]?.titulo || 'TÍTULO');
+    const sub   = esc(document.getElementById('esub').value || S.slides[0]?.corpo || '');
+    return `<div class="igcard">
+      ${bgPhotoTag('', slideSrc, bi)}
+      <div class="layer-gradient"></div>
+      ${maskTag('carrossel_mask.png')}
+      <div class="layer-text txt-carr-block">
+        <div class="c-title">${title}</div>
+        ${sub ? `<div class="c-sub">${sub}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  if (idx === total - 1) {
+    return `<div class="igcard carousel-internal">
+      ${bgPhotoTag('', slideSrc, bi)}
+      ${maskTag('carrossel_interno_mask.png')}
+      <div class="layer-text txt-cta">SIGA @CENTRALDOARABAO</div>
+      <div class="layer-text txt-cta-sub">Mais notícias da<br>Saudi Pro League</div>
+      <div class="cta-logo">${logoSVG(150)}</div>
+    </div>`;
+  }
+
+  const sl = S.slides[idx] || { titulo: 'SLIDE ' + idx, corpo: '' };
+  const stitle = esc(sl.titulo || '');
+  const sbody  = esc(
+    (idx === S.curSlide && document.getElementById('ebody').value)
+      ? document.getElementById('ebody').value : (sl.corpo || ''));
+
+  return `<div class="igcard carousel-internal">
+    ${bgPhotoTag('', slideSrc, bi)}
+    ${maskTag('carrossel_interno_mask.png')}
+    <div class="slide-num">${idx}/${total - 1}</div>
+    <div class="layer-text txt-ci-block">
+      <div class="ci-title">${stitle}</div>
+      <div class="ci-body">${sbody}</div>
+    </div>
+  </div>`;
+}
+
+function renderCard(t, idx) {
+  if (t === 'carrossel') return cardCarousel(idx);
+  return cardSimples();
+}
+
+function upd() {
+  const scaler  = document.getElementById('cscale');
+  const wrapper = document.getElementById('cwrap');
+  if (!scaler || !wrapper) return;
+  scaler.innerHTML = renderCard(S.template, S.curSlide);
+  const scale = (wrapper.offsetWidth || 540) / 1080;
+  scaler.style.transform       = `scale(${scale})`;
+  scaler.style.transformOrigin = 'top left';
+  scaler.style.width           = '1080px';
+  scaler.style.height          = '1350px';
+  wrapper.style.height         = 1350 * scale + 'px';
+}
+
+async function dlCurrent() {
+  const btn = document.getElementById('dlbtn');
+  btn.disabled = true; setDs('Gerando PNG…');
+  try { await dlSlide(S.curSlide, `arabao-${S.template}-${S.curSlide + 1}.png`); setDs('✅ Download concluído!'); }
+  catch(e) { setDs('Erro: ' + e.message); }
+  btn.disabled = false;
+  setTimeout(() => setDs(''), 4000);
+}
+
+async function dlAll() {
+  const total = S.slides.length; if (!total) return;
+  const btn = document.getElementById('dlall'); btn.disabled = true;
+  try {
+    const zip = new JSZip();
+    for (let i = 0; i < total; i++) {
+      setDs(`Gerando slide ${i + 1}/${total}…`);
+      const blob = await slideToBlob(i);
+      const label = i === 0 ? '01-capa' : i === total-1 ? `${String(i+1).padStart(2,'0')}-cta` : `${String(i+1).padStart(2,'0')}-slide`;
+      zip.file(`arabao-${label}.png`, blob);
+    }
+    setDs('Comprimindo ZIP…');
+    const content = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a'); a.download = 'arabao-carrossel.zip';
+    a.href = URL.createObjectURL(content); a.click(); URL.revokeObjectURL(a.href);
+    setDs('✅ ZIP baixado!');
+  } catch(e) { setDs('Erro: ' + e.message); }
+  btn.disabled = false;
+  setTimeout(() => setDs(''), 5000);
+}
+
+async function slideToBlob(idx) {
+  const wrap = document.getElementById('export-wrap');
+  wrap.style.cssText = 'position:fixed;left:-1200px;top:0;width:1080px;height:1350px;overflow:hidden;z-index:-1;';
+  wrap.innerHTML = renderCard(S.template, idx);
+  await wait(400);
+  const card = wrap.querySelector('.igcard');
+  const canvas = await html2canvas(card, {
+    width: 1080, height: 1350, scale: 1,
+    useCORS: true, allowTaint: true, backgroundColor: '#201322', logging: false, imageTimeout: 0,
+  });
+  wrap.innerHTML = '';
+  wrap.style.cssText = 'position:fixed;left:-9999px;top:0;z-index:-1;pointer-events:none;';
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+}
+
+async function dlSlide(idx, filename) {
+  const blob = await slideToBlob(idx);
+  const a = document.createElement('a'); a.download = filename;
+  a.href = URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href);
+}
+
+function setDs(m) { document.getElementById('dlst').textContent = m; }
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function copyCaption() {
+  navigator.clipboard.writeText(document.getElementById('captext').textContent).then(() => {
+    const b = event.target; b.textContent = '✅ Copiado!';
+    setTimeout(() => b.textContent = '📋 Copiar', 2000);
+  });
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── DRAG ────────────────────────────────────────
+(function () {
+  let dragging = false, startX, startY, startPos, activeIdx;
+  function getActiveImgIdx() { return S.template !== 'carrossel' ? 0 : bgImgIdx(S.curSlide); }
+  function onDown(e) {
+    if (!S.data) return; dragging = true;
+    startX = e.clientX ?? e.touches[0].clientX;
+    startY = e.clientY ?? e.touches[0].clientY;
+    activeIdx = getActiveImgIdx();
+    startPos = { ...(S.imgPositions[activeIdx] || { x: 50, y: 50 }) };
+    document.getElementById('drag-overlay').classList.add('dragging');
+    e.preventDefault();
+  }
+  function onMove(e) {
+    if (!dragging) return;
+    const cx = e.clientX ?? e.touches[0].clientX;
+    const cy = e.clientY ?? e.touches[0].clientY;
+    const wrap = document.getElementById('cwrap');
+    const w = wrap.offsetWidth || 540, h = wrap.offsetHeight || 675;
+    const nx = Math.min(100, Math.max(0, startPos.x - (cx - startX) / w * 100));
+    const ny = Math.min(100, Math.max(0, startPos.y - (cy - startY) / h * 100));
+    S.imgPositions[activeIdx] = { x: nx, y: ny }; upd();
+  }
+  function onUp() { dragging = false; document.getElementById('drag-overlay')?.classList.remove('dragging'); }
+  document.addEventListener('DOMContentLoaded', () => {
+    const ov = document.getElementById('drag-overlay');
+    ov.addEventListener('mousedown',  onDown, { passive: false });
+    ov.addEventListener('touchstart', onDown, { passive: false });
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('touchmove', onMove, { passive: true });
+    document.addEventListener('mouseup',   onUp);
+    document.addEventListener('touchend',  onUp);
+  });
+})();
+
+// ── PRÉ-PREENCHER via URL param ─────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const params = new URLSearchParams(window.location.search);
+  const texto = params.get('texto');
+  if (texto) document.getElementById('news').value = texto;
+});
+
+window.addEventListener('resize', upd);
+</script>
+</body>
+</html>
