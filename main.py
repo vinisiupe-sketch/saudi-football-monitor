@@ -236,7 +236,9 @@ async def dashboard():
 
     function applyFlags() {{
       let nVisto = 0, nPub = 0, nNone = 0;
-      document.querySelectorAll('.card[data-id]').forEach(card => {{
+      const grid = document.querySelector('.grid');
+      const cards = Array.from(document.querySelectorAll('.card[data-id]'));
+      cards.forEach(card => {{
         const id = card.dataset.id;
         const f  = _flags[id];
         card.classList.remove('flag-visto', 'flag-publicado');
@@ -249,6 +251,10 @@ async def dashboard():
         if (!f) card.classList.remove('user-expanded');
         card.classList.toggle('card-collapsed', !!f);
       }});
+      // Reorder: sem flag → publicado → não publicado
+      const order = {{ undefined: 0, 'publicado': 1, 'naopublicado': 2 }};
+      cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
+      cards.forEach(c => grid.appendChild(c));
       const total = nVisto + nPub + nNone;
       if (total > 0) {{
         document.getElementById('fc-total').textContent = nNone;
