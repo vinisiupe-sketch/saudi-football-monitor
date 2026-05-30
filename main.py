@@ -73,12 +73,12 @@ async def dashboard():
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
         source_handle = a.get("source_name", "").lstrip("@")
         post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + source_handle
+        post_url = f"/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1"
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
         category = category or "geral"
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
         art_id = a['id']
         cards += f"""
-        <div class="card-slot" data-id="{art_id}">
         <div class="card" data-id="{art_id}">
           <div class="card-body">
             <div class="card-meta">
@@ -86,21 +86,21 @@ async def dashboard():
               <span class="cat-emoji" title="{category}">{emoji}</span>
               <span class="source">{moon} @{a['source_name'].lstrip('@')}</span>
             </div>
-            <div class="card-flags">
-              <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">🔒<span class="flag-label">Não pub.</span></button>
-              <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">✅<span class="flag-label">Publicado</span></button>
-              <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Descarte">🗑️<span class="flag-label">Descarte</span></button>
-            </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
             <button class="expand-btn" onclick="toggleExpand(this)">▼ ver mais</button>
             <button class="collapse-btn" onclick="toggleCollapse(this)">▲ ver menos</button>
             <p class="card-text">{body}</p>
             <div class="card-footer">
               <span class="card-date">{collected}</span>
-              <button class="post-btn" data-url="/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1&embedded=1" onclick="openGenerator(this)">🎨 Criar Post</button>
+              <div class="btn-row">
+                <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
+                <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
+                <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')">🗑️ Descarte</button>
+                <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
+                <a class="copy-btn" href="{post_url}" style="text-decoration:none;">✍️ Post</a>
+              </div>
             </div>
           </div>
-        </div>
         </div>"""
 
     html = f"""<!DOCTYPE html>
@@ -169,22 +169,21 @@ async def dashboard():
     .card-title {{ font-size: 0.97rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
     .card-title:hover {{ color: #0284c7; }}
     .card-text {{ font-size: 0.82rem; color: #475569; line-height: 1.55; }}
-    .card-flags {{ display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }}
-    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; }}
+    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 6px; }}
     .card-date {{ font-size: 0.75rem; color: #94a3b8; }}
-    .flag-btn {{
-      border: none; padding: 5px 9px; border-radius: 6px; cursor: pointer;
-      font-size: 0.8rem; transition: all .15s; display: inline-flex;
-      align-items: center; gap: 4px; white-space: nowrap;
-    }}
+    .btn-row {{ display: flex; gap: 5px; flex-wrap: wrap; }}
+    .copy-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; }}
+    .copy-btn:hover {{ background: #e2e8f0; }}
+    .copy-btn.copied {{ background: #dcfce7; color: #16a34a; }}
+    a.copy-btn {{ background: #f0fdf4; color: #15803d; }}
+    a.copy-btn:hover {{ background: #dcfce7; }}
+    .flag-btn {{ border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; transition: all .15s; }}
     .flag-btn.visto-btn   {{ background: #e0e7ff; color: #3730a3; }}
     .flag-btn.visto-btn.on   {{ background: #6366f1; color: white; }}
     .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
     .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
     .flag-btn.desc-btn    {{ background: #ffe4e6; color: #be123c; }}
     .flag-btn.desc-btn.on    {{ background: #f43f5e; color: white; }}
-    .flag-btn .flag-label {{ font-size: 0.7rem; font-weight: 600; display: none; }}
-    .flag-btn.on .flag-label {{ display: inline; }}
     /* ── COLLAPSE ── */
     .card-collapsed:not(.user-expanded) .card-text,
     .card-collapsed:not(.user-expanded) .card-footer {{ display: none; }}
@@ -225,30 +224,6 @@ async def dashboard():
     .progress-msg {{ font-size: 0.8rem; color: #64748b; min-height: 16px; }}
     .progress-msg.ok  {{ color: #16a34a; }}
     .progress-msg.err {{ color: #be123c; }}
-    /* ── POST BUTTON ── */
-    .post-btn {{
-      background: #0f172a; color: white; border: none;
-      padding: 7px 16px; border-radius: 8px; cursor: pointer;
-      font-size: 0.78rem; font-weight: 600; white-space: nowrap;
-      transition: background .15s; letter-spacing: -.01em;
-    }}
-    .post-btn:hover {{ background: #1e293b; }}
-    .post-btn.active-gen {{ background: #0284c7; }}
-    /* ── CARD SLOT — wraps card + inline generator ── */
-    .card-slot {{ display: contents; }}
-    .card-slot.gen-open {{
-      display: flex; flex-direction: row; align-items: flex-start;
-      grid-column: 1 / -1; gap: 14px;
-    }}
-    .card-slot.gen-open > .card {{ width: 320px; flex-shrink: 0; }}
-    .card-slot.hidden-by-filter {{ display: none !important; }}
-    /* ── INLINE GENERATOR ── */
-    .gen-inline {{
-      flex: 1; border-radius: 12px; overflow: hidden; min-width: 0;
-      box-shadow: 0 4px 24px rgba(0,0,0,.2);
-      height: 420px; background: #8c8c8c;
-    }}
-    .gen-inline iframe {{ width: 100%; height: 100%; border: none; display: block; }}
   </style>
   <script>
     // ── Copiar ──
@@ -282,11 +257,10 @@ async def dashboard():
         if (!f) card.classList.remove('user-expanded');
         card.classList.toggle('card-collapsed', !!f);
       }});
-      // Reorder by card-slot
+      // Reorder: sem flag → publicado → não publicado → descartado
       const order = {{ undefined: 0, 'publicado': 1, 'naopublicado': 2, 'descartado': 3 }};
-      const slots = Array.from(document.querySelectorAll('.card-slot[data-id]'));
-      slots.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
-      slots.forEach(s => grid.appendChild(s));
+      cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
+      cards.forEach(c => grid.appendChild(c));
       const total = nVisto + nPub + nNone + nDesc;
       if (total > 0) {{
         document.getElementById('fc-total').textContent = nNone;
@@ -298,11 +272,11 @@ async def dashboard():
     }}
 
     function applyFilter() {{
-      document.querySelectorAll('.card-slot[data-id]').forEach(slot => {{
-        const id = slot.dataset.id;
+      document.querySelectorAll('.card[data-id]').forEach(card => {{
+        const id = card.dataset.id;
         const f  = _flags[id] || 'none';
         const show = !_activeFilter || f === _activeFilter;
-        slot.classList.toggle('hidden-by-filter', !show);
+        card.classList.toggle('hidden-by-filter', !show);
       }});
       ['fs-total','fs-visto','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
       if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
@@ -332,37 +306,6 @@ async def dashboard():
         applyFlags();
       }} catch(e) {{}}
     }}
-
-    // ── Inline Generator ──
-    function closeAllGenerators() {{
-      document.querySelectorAll('.card-slot.gen-open').forEach(slot => {{
-        slot.classList.remove('gen-open');
-        const g = slot.querySelector('.gen-inline');
-        if (g) g.remove();
-      }});
-      document.querySelectorAll('.post-btn.active-gen').forEach(b => b.classList.remove('active-gen'));
-    }}
-
-    function openGenerator(btn) {{
-      const cardEl = btn.closest('.card');
-      const slotEl = btn.closest('.card-slot');
-      const id = cardEl.dataset.id;
-      const url = btn.dataset.url;
-      const alreadyOpen = slotEl.classList.contains('gen-open');
-      closeAllGenerators();
-      if (alreadyOpen) return; // toggle off
-      const wrap = document.createElement('div');
-      wrap.className = 'gen-inline';
-      wrap.innerHTML = `<iframe src="${{url}}" allow="clipboard-write" scrolling="no"></iframe>`;
-      slotEl.appendChild(wrap);
-      slotEl.classList.add('gen-open');
-      btn.classList.add('active-gen');
-      setTimeout(() => slotEl.scrollIntoView({{ behavior: 'smooth', block: 'nearest' }}), 80);
-    }}
-
-    window.addEventListener('message', e => {{
-      if (e.data === 'close-generator') closeAllGenerators();
-    }});
 
     async function toggleFlag(id, type) {{
       const current = _flags[id];

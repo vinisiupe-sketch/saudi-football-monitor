@@ -203,44 +203,6 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
 .drag-overlay.dragging { cursor: grabbing; }
 .drag-hint { text-align: center; margin-top: 6px; font-size: 0.75rem; color: #94a3b8; }
 
-/* ── EMBEDDED MODE ──────────────────────────────── */
-body.embedded { background: #8c8c8c; margin: 0; padding: 0; overflow: hidden; height: 100vh; }
-body.embedded #emb-view { height: 100vh; overflow: hidden; }
-.embed-close {
-  position: fixed; top: 10px; right: 12px; z-index: 200;
-  background: rgba(0,0,0,.2); color: rgba(255,255,255,.6);
-  border: 1px solid rgba(255,255,255,.2); width: 26px; height: 26px;
-  border-radius: 50%; font-size: 0.8rem; font-weight: 700;
-  cursor: pointer; display: flex; align-items: center;
-  justify-content: center; transition: all .15s; line-height: 1;
-}
-.embed-close:hover { background: rgba(0,0,0,.4); color: white; }
-/* Embedded button set */
-.emb-btn-primary {
-  background: #0284c7; color: white; border: none;
-  padding: 8px 16px; border-radius: 7px; font-size: 0.82rem;
-  font-weight: 700; cursor: pointer; display: inline-flex;
-  align-items: center; gap: 5px; transition: background .15s; white-space: nowrap;
-}
-.emb-btn-primary:hover:not(:disabled) { background: #0369a1; }
-.emb-btn-primary:disabled { background: #1e293b; color: #334155; cursor: not-allowed; }
-.emb-btn-sec {
-  background: rgba(0,0,0,.2); color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.2);
-  padding: 7px 12px; border-radius: 7px; font-size: 0.78rem;
-  font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap;
-}
-.emb-btn-sec:hover { background: rgba(0,0,0,.35); color: white; }
-.emb-btn-back {
-  background: none; color: rgba(255,255,255,.4); border: none; padding: 7px 8px;
-  font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: color .15s;
-}
-.emb-btn-back:hover { color: rgba(255,255,255,.7); }
-.emb-sdot {
-  width: 6px; height: 6px; border-radius: 50%; background: #334155;
-  cursor: pointer; transition: all .2s; display: inline-block; flex-shrink: 0;
-}
-.emb-sdot.on { background: #49fcb6; width: 16px; border-radius: 3px; }
-
 /* ── EXPORT ─────────────────────────────────────── */
 #export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
 
@@ -397,74 +359,6 @@ body.embedded #emb-view { height: 100vh; overflow: hidden; }
 
 </div><!-- /container -->
 
-<!-- ══ EMBEDDED COMPACT VIEW ══════════════════════════════ -->
-<div id="emb-view" style="display:none;">
-  <div style="display:flex; height:100%; min-height:400px;">
-
-    <!-- Left: mini preview -->
-    <div style="width:220px;flex-shrink:0;background:#767676;border-right:1px solid #6b6b6b;padding:16px 14px;display:flex;flex-direction:column;align-items:center;gap:10px;">
-      <div id="emb-cwrap" style="width:192px;border-radius:8px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.6);position:relative;flex-shrink:0;">
-        <div id="emb-cscale" style="transform-origin:top left;width:1080px;height:1350px;"></div>
-        <div id="emb-drag" style="position:absolute;inset:0;cursor:grab;z-index:20;border-radius:8px;"></div>
-      </div>
-      <div id="emb-snav" style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;"></div>
-      <label style="font-size:0.72rem;color:rgba(255,255,255,.5);cursor:pointer;background:rgba(0,0,0,.2);border:none;padding:5px 10px;border-radius:6px;display:flex;align-items:center;gap:4px;transition:background .15s;margin-top:auto;">
-        🔄 Trocar imagem
-        <input type="file" accept="image/*" style="display:none" onchange="swapImage(this)">
-      </label>
-      <div style="font-size:0.65rem;color:rgba(255,255,255,.25);text-align:center;line-height:1.4;">🖱 Arraste para<br>reposicionar</div>
-    </div>
-
-    <!-- Right: controls -->
-    <div style="flex:1;padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;background:#8c8c8c;">
-
-      <!-- PRE state -->
-      <div id="emb-pre" style="display:flex;flex-direction:column;gap:10px;">
-        <div>
-          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Notícia</div>
-          <textarea id="emb-news" rows="4" style="width:100%;background:#707070;border:1px solid #5a5a5a;border-radius:7px;color:#fff;padding:9px 12px;font-size:0.8rem;font-family:inherit;resize:none;line-height:1.5;transition:border-color .2s;" placeholder="Texto pré-carregado da notícia..."></textarea>
-        </div>
-        <div>
-          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Imagens</div>
-          <label id="emb-upload-label" style="display:flex;align-items:center;gap:7px;background:rgba(0,0,0,.15);border:1px dashed rgba(255,255,255,.3);border-radius:7px;color:rgba(255,255,255,.6);padding:8px 12px;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all .2s;">
-            📁 <span id="emb-upload-txt">Selecionar imagens</span>
-            <input type="file" accept="image/*" multiple style="display:none" onchange="handleImages(this)">
-          </label>
-          <div id="emb-thumbs" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:6px;"></div>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-          <button id="emb-gbtn" class="emb-btn-primary" onclick="embGenerate()">⚡ Gerar Post</button>
-          <span id="emb-pst" style="font-size:0.78rem;color:rgba(255,255,255,.5);"></span>
-        </div>
-        <div id="emb-err" style="display:none;color:#fca5a5;font-size:0.78rem;background:rgba(0,0,0,.3);border:1px solid rgba(252,165,165,.3);padding:7px 10px;border-radius:6px;"></div>
-      </div>
-
-      <!-- POST state -->
-      <div id="emb-post" style="display:none;flex-direction:column;gap:10px;">
-        <div>
-          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Título do card</div>
-          <input type="text" id="emb-title" style="width:100%;background:#707070;border:1px solid #5a5a5a;border-radius:7px;color:#e2e8f0;padding:8px 12px;font-size:0.82rem;font-family:inherit;transition:border-color .2s;" oninput="document.getElementById('etitle').value=this.value; upd();">
-        </div>
-        <div style="flex:1;">
-          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Legenda <span style="font-weight:400;opacity:.6">(editável)</span></div>
-          <textarea id="emb-caption" rows="5" style="width:100%;background:#707070;border:1px solid #5a5a5a;border-radius:7px;color:#fff;padding:9px 12px;font-size:0.78rem;font-family:inherit;resize:none;line-height:1.55;transition:border-color .2s;"></textarea>
-        </div>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-          <button class="emb-btn-primary" id="emb-dlbtn" onclick="embDownload()">⬇️ PNG</button>
-          <button class="emb-btn-primary" id="emb-dlallbtn" style="display:none;" onclick="embDownloadAll()">📦 ZIP</button>
-          <button class="emb-btn-sec" onclick="embTweet()">𝕏 Tweet</button>
-          <button class="emb-btn-sec" onclick="embInstagram()">📸 Insta</button>
-          <button class="emb-btn-sec" onclick="embCopy()">📋 Copiar</button>
-          <button class="emb-btn-back" onclick="embReset()">← Editar</button>
-        </div>
-        <div id="emb-dlst" style="font-size:0.72rem;color:rgba(255,255,255,.5);min-height:14px;"></div>
-        <p id="emb-ig-hint" style="display:none;font-size:0.72rem;color:rgba(255,255,255,.5);line-height:1.5;">📋 Legenda copiada! Selecione as imagens no Instagram e cole.</p>
-      </div>
-
-    </div><!-- /right -->
-  </div>
-</div>
-
 <footer style="text-align:center;padding:14px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;background:white;margin-top:24px;">
   © 2025 Central do Arabão — Todos os direitos reservados
 </footer>
@@ -514,7 +408,6 @@ function detectMode() {
   badge.style.display = 'flex';
   document.getElementById('upload-area').classList.add('has-images');
   renderThumbs();
-  embSyncImages();
 }
 
 function swapImage(input) {
@@ -585,22 +478,14 @@ function prepPreview() {
 
 function buildSlideNav() {
   const nav = document.getElementById('snav');
-  if (S.template!=='carrossel'||!S.slides.length) { nav.style.display='none'; } else {
-    nav.style.display='flex';
-    nav.innerHTML = S.slides.map((_,i)=>`<div class="sdot ${i===0?'on':''}" onclick="goslide(${i})"></div>`).join('');
-  }
-  const enav = document.getElementById('emb-snav');
-  if (enav) {
-    if (S.template!=='carrossel'||!S.slides.length) { enav.innerHTML=''; } else {
-      enav.innerHTML = S.slides.map((_,i)=>`<div class="emb-sdot ${i===0?'on':''}" onclick="goslide(${i})"></div>`).join('');
-    }
-  }
+  if (S.template!=='carrossel'||!S.slides.length) { nav.style.display='none'; return; }
+  nav.style.display='flex';
+  nav.innerHTML = S.slides.map((_,i)=>`<div class="sdot ${i===0?'on':''}" onclick="goslide(${i})"></div>`).join('');
 }
 
 function goslide(idx) {
   S.curSlide=idx;
   document.querySelectorAll('.sdot').forEach((d,i)=>d.classList.toggle('on',i===idx));
-  document.querySelectorAll('.emb-sdot').forEach((d,i)=>d.classList.toggle('on',i===idx));
   if (S.slides[idx]) document.getElementById('ebody').value=S.slides[idx].corpo||'';
   upd();
 }
@@ -666,24 +551,13 @@ function renderCard(t, idx) { return t==='carrossel' ? cardCarousel(idx) : cardS
 
 function upd() {
   const scaler=document.getElementById('cscale'), wrapper=document.getElementById('cwrap');
-  if (scaler&&wrapper) {
-    scaler.innerHTML=renderCard(S.template,S.curSlide);
-    const scale=(wrapper.offsetWidth||540)/1080;
-    scaler.style.transform=`scale(${scale})`;
-    scaler.style.transformOrigin='top left';
-    scaler.style.width='1080px'; scaler.style.height='1350px';
-    wrapper.style.height=1350*scale+'px';
-  }
-  // Embedded mini preview
-  const eScaler=document.getElementById('emb-cscale'), eWrap=document.getElementById('emb-cwrap');
-  if (eScaler&&eWrap&&eWrap.offsetWidth>0) {
-    eScaler.innerHTML=renderCard(S.template,S.curSlide);
-    const es=(eWrap.offsetWidth||192)/1080;
-    eScaler.style.transform=`scale(${es})`;
-    eScaler.style.transformOrigin='top left';
-    eScaler.style.width='1080px'; eScaler.style.height='1350px';
-    eWrap.style.height=1350*es+'px';
-  }
+  if (!scaler||!wrapper) return;
+  scaler.innerHTML=renderCard(S.template,S.curSlide);
+  const scale=(wrapper.offsetWidth||540)/1080;
+  scaler.style.transform=`scale(${scale})`;
+  scaler.style.transformOrigin='top left';
+  scaler.style.width='1080px'; scaler.style.height='1350px';
+  wrapper.style.height=1350*scale+'px';
 }
 
 async function dlCurrent() {
@@ -819,11 +693,6 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
     const ov=document.getElementById('drag-overlay');
     ov.addEventListener('mousedown',onDown,{passive:false});
     ov.addEventListener('touchstart',onDown,{passive:false});
-    const eov=document.getElementById('emb-drag');
-    if (eov) {
-      eov.addEventListener('mousedown',onDown,{passive:false});
-      eov.addEventListener('touchstart',onDown,{passive:false});
-    }
     document.addEventListener('mousemove',onMove);
     document.addEventListener('touchmove',onMove,{passive:true});
     document.addEventListener('mouseup',onUp);
@@ -833,170 +702,9 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 /* ── Pré-preencher via URL ── */
 document.addEventListener('DOMContentLoaded',()=>{
-  const params = new URLSearchParams(window.location.search);
-  const texto = params.get('texto');
-  if (texto) document.getElementById('news').value = texto;
-
-  if (params.get('embedded') === '1') {
-    // Hide normal UI
-    document.querySelector('header').style.display = 'none';
-    document.querySelector('footer').style.display = 'none';
-    document.querySelector('.container').style.display = 'none';
-    document.body.classList.add('embedded');
-
-    // Show embedded view
-    const ev = document.getElementById('emb-view');
-    ev.style.display = 'block';
-
-    // Pre-fill text
-    if (texto) document.getElementById('emb-news').value = texto;
-
-    // Close button
-    const closeBtn = document.createElement('button');
-    closeBtn.className = 'embed-close';
-    closeBtn.textContent = '✕';
-    closeBtn.title = 'Fechar gerador';
-    closeBtn.onclick = () => window.parent.postMessage('close-generator', '*');
-    document.body.appendChild(closeBtn);
-
-    // Trigger initial upd after layout settles
-    setTimeout(upd, 80);
-  }
+  const texto=new URLSearchParams(window.location.search).get('texto');
+  if (texto) document.getElementById('news').value=texto;
 });
-
-/* ── Embedded helpers ── */
-function embSyncImages() {
-  const n = S.uploadedImages.filter(Boolean).length;
-  const label = document.getElementById('emb-upload-label');
-  const txt = document.getElementById('emb-upload-txt');
-  if (txt) txt.textContent = n === 0 ? 'Selecionar imagens'
-    : n === 1 ? '📷 1 imagem' : n === 2 ? '👤 2 imagens (círculo)' : `🎠 ${n} slides`;
-  if (label) label.style.borderColor = n > 0 ? '#0284c7' : '';
-  const thumbs = document.getElementById('emb-thumbs');
-  if (!thumbs || !S.uploadedImages.length) return;
-  const labels = S.uploadedImages.length===1?['BG']:S.uploadedImages.length===2?['BG','●']:S.uploadedImages.map((_,i)=>i===0?'CAPA':i===S.uploadedImages.length-1?'CTA':String(i+1));
-  thumbs.innerHTML = S.uploadedImages.map((src,i)=>`<div style="position:relative;width:44px;height:44px;border-radius:5px;overflow:hidden;border:1px solid #1e3a5f;flex-shrink:0;"><img src="${src}" style="width:100%;height:100%;object-fit:cover;" alt=""><div style="position:absolute;top:2px;left:2px;background:rgba(0,0,0,.7);color:white;font-size:9px;padding:1px 4px;border-radius:2px;font-weight:700;">${labels[i]}</div></div>`).join('');
-}
-
-async function embGenerate() {
-  const news = document.getElementById('emb-news').value.trim();
-  const errEl = document.getElementById('emb-err');
-  errEl.style.display = 'none';
-  if (!news) { errEl.textContent = 'Cole o texto da notícia.'; errEl.style.display = 'block'; return; }
-  if (!S.uploadedImages[0]) { errEl.textContent = 'Selecione ao menos 1 imagem.'; errEl.style.display = 'block'; return; }
-  const btn = document.getElementById('emb-gbtn');
-  const pst = document.getElementById('emb-pst');
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Gerando...';
-  pst.textContent = '';
-  try {
-    const _urlP = new URLSearchParams(window.location.search);
-    const res = await fetch('/api/generate-post', {
-      method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({
-        news, template: S.template, num_slides: S.selectedCount,
-        already_translated: _urlP.get('translated') === '1',
-        source: _urlP.get('source') || '',
-        moon: _urlP.get('moon') || '',
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
-    S.data = data;
-    prepPreview();
-    embShowPost();
-  } catch(err) {
-    errEl.textContent = 'Erro: ' + err.message;
-    errEl.style.display = 'block';
-  }
-  btn.disabled = false;
-  btn.innerHTML = '⚡ Gerar Post';
-}
-
-function embShowPost() {
-  document.getElementById('emb-pre').style.display = 'none';
-  const post = document.getElementById('emb-post');
-  post.style.display = 'flex';
-  document.getElementById('emb-title').value = document.getElementById('etitle').value || '';
-  document.getElementById('emb-caption').value = document.getElementById('captext').value || '';
-  const isCarr = S.template === 'carrossel';
-  document.getElementById('emb-dlbtn').style.display = isCarr ? 'none' : 'inline-flex';
-  document.getElementById('emb-dlallbtn').style.display = isCarr ? 'inline-flex' : 'none';
-  upd();
-}
-
-function embReset() {
-  document.getElementById('emb-post').style.display = 'none';
-  document.getElementById('emb-pre').style.display = 'flex';
-  document.getElementById('emb-err').style.display = 'none';
-}
-
-function embCopy() {
-  const text = document.getElementById('emb-caption').value;
-  copyToClipboard(text).then(ok => {
-    const b = event.target;
-    b.textContent = ok ? '✅ Copiado' : '❌ Erro';
-    setTimeout(() => b.textContent = '📋 Copiar', 2000);
-  });
-}
-
-function embTweet() {
-  const text = document.getElementById('emb-caption').value;
-  if (!text || text === '—') return;
-  window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text), '_blank', 'noopener,noreferrer');
-}
-
-async function embInstagram() {
-  const text = document.getElementById('emb-caption').value;
-  if (!text || text === '—') { alert('Gere o post primeiro.'); return; }
-  document.getElementById('emb-ig-hint').style.display = 'none';
-  const isCarrossel = S.template === 'carrossel' && S.selectedCount > 1;
-  const blobs = [];
-  if (isCarrossel) { for (let i=0;i<S.selectedCount;i++) blobs.push(await slideToBlob(i)); }
-  else blobs.push(await slideToBlob(S.curSlide));
-  const files = blobs.map((b,i) => new File([b], `arabao_${i+1}.png`, {type:'image/png'}));
-  await copyToClipboard(text);
-  if (navigator.canShare && navigator.canShare({files})) {
-    try { await navigator.share({files}); document.getElementById('emb-ig-hint').style.display='block'; return; }
-    catch(e) { if (e.name==='AbortError') return; }
-  }
-  if (isCarrossel) await dlAll(); else await dlCurrent();
-  document.getElementById('emb-ig-hint').style.display = 'block';
-  setTimeout(() => window.open('https://www.instagram.com/','_blank','noopener,noreferrer'), 600);
-}
-
-async function embDownload() {
-  const btn = document.getElementById('emb-dlbtn');
-  btn.disabled = true;
-  document.getElementById('emb-dlst').textContent = 'Gerando PNG…';
-  try { await dlSlide(S.curSlide, `arabao-${S.template}.png`); document.getElementById('emb-dlst').textContent = '✅ Download!'; }
-  catch(e) { document.getElementById('emb-dlst').textContent = 'Erro: ' + e.message; }
-  btn.disabled = false;
-  setTimeout(() => document.getElementById('emb-dlst').textContent = '', 3000);
-}
-
-async function embDownloadAll() {
-  const btn = document.getElementById('emb-dlallbtn');
-  btn.disabled = true;
-  const dst = document.getElementById('emb-dlst');
-  const total = S.slides.length; if (!total) return;
-  try {
-    const zip = new JSZip();
-    for (let i=0;i<total;i++) {
-      dst.textContent = `Slide ${i+1}/${total}…`;
-      const blob = await slideToBlob(i);
-      const label = i===0?'01-capa':i===total-1?`${String(i+1).padStart(2,'0')}-cta`:`${String(i+1).padStart(2,'0')}-slide`;
-      zip.file(`arabao-${label}.png`, blob);
-    }
-    dst.textContent = 'Comprimindo…';
-    const content = await zip.generateAsync({type:'blob'});
-    const a = document.createElement('a'); a.download='arabao-carrossel.zip';
-    a.href = URL.createObjectURL(content); a.click(); URL.revokeObjectURL(a.href);
-    dst.textContent = '✅ ZIP baixado!';
-  } catch(e) { dst.textContent = 'Erro: ' + e.message; }
-  btn.disabled = false;
-  setTimeout(() => dst.textContent = '', 4000);
-}
 
 window.addEventListener('resize',upd);
 </script>
