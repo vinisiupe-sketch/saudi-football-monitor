@@ -67,7 +67,9 @@ async def dashboard():
         image_url = a.get("image_url") or ""
         category = a.get("category")
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
-        post_url = f"/gerador?texto={quote(title + chr(10) + chr(10) + (a.get('body_pt') or a.get('body_orig') or ''))}"
+        source_handle = "@" + a.get("source_name", "").lstrip("@")
+        post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ " + source_handle
+        post_url = f"/gerador?texto={quote(post_text_full)}"
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
         category = category or "geral"
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
