@@ -84,10 +84,39 @@ def init_db():
                 error_msg    TEXT
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS article_flags (
+                article_id  TEXT PRIMARY KEY,
+                flag        TEXT NOT NULL,
+                updated_at  TEXT NOT NULL
+            )
+        """)
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
     print("✅ Banco de dados PostgreSQL inicializado.")
+
+
+def set_flag(article_id: str, flag: str | None):
+    """flag = 'visto' | 'publicado' | None (remove)"""
+    with get_conn() as conn:
+        c = conn.cursor()
+        if flag:
+            c.execute("""
+                INSERT INTO article_flags (article_id, flag, updated_at)
+                VALUES (%s, %s, NOW()::TEXT)
+                ON CONFLICT (article_id) DO UPDATE SET flag = EXCLUDED.flag, updated_at = EXCLUDED.updated_at
+            """, (article_id, flag))
+        else:
+            c.execute("DELETE FROM article_flags WHERE article_id = %s", (article_id,))
+
+
+def get_all_flags() -> dict:
+    """Retorna {article_id: flag}"""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT article_id, flag FROM article_flags")
+        return {row[0]: row[1] for row in c.fetchall()}
 
 
 def make_article_id(url: str, title: str) -> str:

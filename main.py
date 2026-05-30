@@ -10,7 +10,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags
 from scheduler import run_pipeline, create_scheduler
 
 scheduler = None
@@ -185,16 +185,13 @@ async def dashboard():
       }});
     }}
 
-    // ── Flags (Visto / Publicado) ──
-    const FLAGS_KEY = 'sfm_flags';
-    function getFlags() {{ return JSON.parse(localStorage.getItem(FLAGS_KEY) || '{{}}'); }}
-    function saveFlags(f) {{ localStorage.setItem(FLAGS_KEY, JSON.stringify(f)); }}
+    // ── Flags (Visto / Publicado) — sincronizado via DB ──
+    let _flags = {{}};
 
     function applyFlags() {{
-      const flags = getFlags();
       document.querySelectorAll('.card[data-id]').forEach(card => {{
         const id = card.dataset.id;
-        const f  = flags[id];
+        const f  = _flags[id];
         card.classList.remove('flag-visto', 'flag-publicado');
         card.querySelector('.visto-btn').classList.toggle('on', f === 'visto');
         card.querySelector('.pub-btn').classList.toggle('on', f === 'publicado');
@@ -203,15 +200,31 @@ async def dashboard():
       }});
     }}
 
-    function toggleFlag(id, type) {{
-      const flags = getFlags();
-      flags[id] = (flags[id] === type) ? null : type;
-      if (!flags[id]) delete flags[id];
-      saveFlags(flags);
-      applyFlags();
+    async function loadFlags() {{
+      try {{
+        const r = await fetch('/api/flags');
+        _flags = await r.json();
+        applyFlags();
+      }} catch(e) {{}}
     }}
 
-    document.addEventListener('DOMContentLoaded', applyFlags);
+    async function toggleFlag(id, type) {{
+      const current = _flags[id];
+      const newFlag = (current === type) ? null : type;
+      // Atualiza local imediatamente (feedback instantâneo)
+      if (newFlag) _flags[id] = newFlag; else delete _flags[id];
+      applyFlags();
+      // Persiste no banco
+      try {{
+        await fetch('/api/flag', {{
+          method: 'POST',
+          headers: {{'content-type': 'application/json'}},
+          body: JSON.stringify({{ id, flag: newFlag }}),
+        }});
+      }} catch(e) {{}}
+    }}
+
+    document.addEventListener('DOMContentLoaded', loadFlags);
 
     // ── Coletar ──
     async function startCollect() {{
@@ -414,6 +427,24 @@ async def descartadas():
 </body>
 </html>"""
     return HTMLResponse(content=html)
+
+
+@app.get("/api/flags")
+async def api_get_flags():
+    return get_all_flags()
+
+
+@app.post("/api/flag")
+async def api_set_flag(request: Request):
+    body = await request.json()
+    article_id = body.get("id", "").strip()
+    flag = body.get("flag") or None  # None = remover
+    if not article_id:
+        return JSONResponse({"error": "id obrigatório"}, status_code=400)
+    if flag and flag not in ("visto", "publicado"):
+        return JSONResponse({"error": "flag inválida"}, status_code=400)
+    set_flag(article_id, flag)
+    return {"ok": True, "id": article_id, "flag": flag}
 
 
 @app.get("/gerador", response_class=HTMLResponse)
