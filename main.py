@@ -109,14 +109,40 @@ async def dashboard():
   <title>⚽ Centrão do Noticião</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }}
     /* ── NAV ── */
-    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 0 24px; display: flex; align-items: center; gap: 32px; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); height: 56px; }}
-    .brand {{ font-size: 1.1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; }}
-    nav {{ display: flex; gap: 4px; }}
-    .nav-link {{ padding: 8px 14px; border-radius: 7px; font-size: 0.88rem; font-weight: 600; color: #64748b; text-decoration: none; transition: all .15s; }}
-    .nav-link:hover {{ background: #f1f5f9; color: #0f172a; }}
-    .nav-link.active {{ background: #eff6ff; color: #0284c7; }}
+    header {{
+      background: white; border-bottom: 1px solid #f1f5f9;
+      padding: 0 32px; display: flex; align-items: center;
+      position: sticky; top: 0; z-index: 10;
+      box-shadow: 0 1px 12px rgba(0,0,0,.06); height: 62px;
+    }}
+    .brand {{
+      font-size: 1rem; font-weight: 800; color: #0f172a;
+      text-decoration: none; white-space: nowrap; letter-spacing: -.01em;
+      display: flex; align-items: center; gap: 8px; margin-right: 40px;
+    }}
+    .brand-icon {{
+      width: 32px; height: 32px; background: #0f172a; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; flex-shrink: 0;
+    }}
+    nav {{ display: flex; gap: 2px; flex: 1; }}
+    .nav-link {{
+      padding: 7px 16px; border-radius: 8px; font-size: 0.875rem;
+      font-weight: 500; color: #64748b; text-decoration: none;
+      transition: all .15s; letter-spacing: -.01em;
+    }}
+    .nav-link:hover {{ background: #f8fafc; color: #0f172a; }}
+    .nav-link.active {{ color: #0f172a; font-weight: 600; background: #f1f5f9; }}
+    .nav-cta {{
+      margin-left: auto; padding: 8px 18px; border-radius: 9px;
+      background: #0f172a; color: white; font-size: 0.875rem;
+      font-weight: 600; text-decoration: none; white-space: nowrap;
+      transition: background .15s; border: none; cursor: pointer;
+      letter-spacing: -.01em;
+    }}
+    .nav-cta:hover {{ background: #1e293b; }}
     /* ── TOPBAR ── */
     .topbar {{ display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 14px 24px 6px; }}
     .count {{ color: #64748b; font-size: 0.85rem; }}
@@ -165,20 +191,20 @@ async def dashboard():
     /* ── FOOTER COLLECT BAR ── */
     .collect-bar {{
       position: sticky; bottom: 0; background: white;
-      border-top: 1px solid #e2e8f0; padding: 12px 24px;
+      border-top: 1px solid #f1f5f9; padding: 12px 32px;
       display: flex; align-items: center; gap: 16px;
-      box-shadow: 0 -2px 8px rgba(0,0,0,.06); z-index: 10;
+      box-shadow: 0 -4px 20px rgba(0,0,0,.07); z-index: 10;
     }}
     .collect-btn {{
-      background: #0284c7; color: white; border: none; padding: 9px 22px;
-      border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 700;
-      transition: background .15s; white-space: nowrap;
+      background: #0f172a; color: white; border: none; padding: 9px 22px;
+      border-radius: 9px; cursor: pointer; font-size: 0.875rem; font-weight: 600;
+      transition: background .15s; white-space: nowrap; letter-spacing: -.01em;
     }}
-    .collect-btn:hover:not(:disabled) {{ background: #0369a1; }}
+    .collect-btn:hover:not(:disabled) {{ background: #1e293b; }}
     .collect-btn:disabled {{ background: #94a3b8; cursor: not-allowed; }}
     .progress-wrap {{ flex: 1; display: flex; flex-direction: column; gap: 4px; }}
     .progress-track {{ height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; display: none; }}
-    .progress-bar {{ height: 100%; width: 0%; background: #0284c7; border-radius: 99px; transition: width .4s ease; }}
+    .progress-bar {{ height: 100%; width: 0%; background: #0f172a; border-radius: 99px; transition: width .4s ease; }}
     .progress-bar.indeterminate {{
       width: 35%; animation: slide 1.2s ease-in-out infinite;
     }}
@@ -338,12 +364,15 @@ async def dashboard():
 </head>
 <body>
   <header>
-    <a class="brand" href="/">⚽ Centrão do Noticião</a>
+    <a class="brand" href="/">
+      <span class="brand-icon">⚽</span>
+      Centrão do Noticião
+    </a>
     <nav>
       <a class="nav-link active" href="/">Home</a>
-      <a class="nav-link" href="/descartadas">🗂️ Descartadas</a>
-      <a class="nav-link" href="/gerador">✍️ Criar Post</a>
+      <a class="nav-link" href="/descartadas">Descartadas</a>
     </nav>
+    <a class="nav-cta" href="/gerador">✍️ Criar Post</a>
   </header>
   <div class="topbar">
     <span class="count">{len(articles)} notícias nas últimas 24h</span>
@@ -466,13 +495,16 @@ async def descartadas():
   <title>🗂️ Descartadas — Saudi Football Monitor</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
-    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 0 24px; display: flex; align-items: center; gap: 32px; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); height: 56px; }}
-    .brand {{ font-size: 1.1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; }}
-    nav {{ display: flex; gap: 4px; }}
-    .nav-link {{ padding: 8px 14px; border-radius: 7px; font-size: 0.88rem; font-weight: 600; color: #64748b; text-decoration: none; transition: all .15s; }}
-    .nav-link:hover {{ background: #f1f5f9; color: #0f172a; }}
-    .nav-link.active {{ background: #eff6ff; color: #0284c7; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }}
+    header {{ background: white; border-bottom: 1px solid #f1f5f9; padding: 0 32px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 12px rgba(0,0,0,.06); height: 62px; }}
+    .brand {{ font-size: 1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; margin-right: 40px; }}
+    .brand-icon {{ width: 32px; height: 32px; background: #0f172a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }}
+    nav {{ display: flex; gap: 2px; flex: 1; }}
+    .nav-link {{ padding: 7px 16px; border-radius: 8px; font-size: 0.875rem; font-weight: 500; color: #64748b; text-decoration: none; transition: all .15s; letter-spacing: -.01em; }}
+    .nav-link:hover {{ background: #f8fafc; color: #0f172a; }}
+    .nav-link.active {{ color: #0f172a; font-weight: 600; background: #f1f5f9; }}
+    .nav-cta {{ margin-left: auto; padding: 8px 18px; border-radius: 9px; background: #0f172a; color: white; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background .15s; border: none; cursor: pointer; letter-spacing: -.01em; }}
+    .nav-cta:hover {{ background: #1e293b; }}
     .info {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
     .info strong {{ color: #0f172a; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 40px; }}
@@ -493,12 +525,15 @@ async def descartadas():
 </head>
 <body>
   <header>
-    <a class="brand" href="/">⚽ Centrão do Noticião</a>
+    <a class="brand" href="/">
+      <span class="brand-icon">⚽</span>
+      Centrão do Noticião
+    </a>
     <nav>
       <a class="nav-link" href="/">Home</a>
-      <a class="nav-link active" href="/descartadas">🗂️ Descartadas</a>
-      <a class="nav-link" href="/gerador">✍️ Criar Post</a>
+      <a class="nav-link active" href="/descartadas">Descartadas</a>
     </nav>
+    <a class="nav-cta" href="/gerador">✍️ Criar Post</a>
   </header>
   <p class="info">{len(articles)} notícias com score abaixo de 0.34 nas últimas 24h &nbsp;·&nbsp; <strong>Textos originais, sem tradução</strong></p>
   <div class="grid">
