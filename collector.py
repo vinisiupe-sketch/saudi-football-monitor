@@ -60,7 +60,8 @@ FOOTBALL_REQUIRED = [
     "al ettifaq", "al qadsiah", "al fayha", "al taawoun", "al wahda", "damac",
     "al-hilal", "al-nassr", "al-ittihad", "al-ahli", "al-shabab",
     "الهلال", "النصر", "الاتحاد", "الأهلي", "الشباب", "الفتح", "التعاون",
-    "دوري", "مباراة", "لاعب", "مدرب",
+    "الخلود", "القادسية", "الفيحاء", "الحزم", "الخليج", "الأخدود", "ضمك",
+    "دوري", "مباراة", "لاعب", "مدرب", "الفريق", "الانتقال", "عقد", "إعارة",
 ]
 
 def is_relevant(text: str, min_hits: int = 3) -> bool:
@@ -177,12 +178,30 @@ async def collect_all(hours: int = None) -> dict:
     all_articles = []
     stats = {"sources_ok": 0, "sources_fail": 0}
     limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
+    # Load override sources (added via /fontes page)
+    override_file = "sources_override.json"
+    override_extra: dict[str, str] = {}  # handle -> tier
+    try:
+        import json as _json
+        with open(override_file) as _f:
+            for h, ov in _json.load(_f).items():
+                override_extra[h] = ov.get("tier", "C")
+    except Exception:
+        pass
+
     async with httpx.AsyncClient(limits=limits) as client:
         tasks = []
+        seen_handles: set[str] = set()
         for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]:
             # Somente Twitter — RSS desabilitado
             for username in tier_data.get("twitter_accounts", []):
                 tasks.append((tier_label, "twitter", f"@{username}", username))
+                seen_handles.add(username.lower())
+        # Add sources from override that aren't already in sources.py
+        for handle, tier_label in override_extra.items():
+            if handle.lower() not in seen_handles:
+                tasks.append((tier_label, "twitter", f"@{handle}", handle))
+                seen_handles.add(handle.lower())
         BATCH_SIZE = 10
         for i in range(0, len(tasks), BATCH_SIZE):
             batch = tasks[i:i + BATCH_SIZE]
