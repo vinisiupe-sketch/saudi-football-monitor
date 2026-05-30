@@ -172,6 +172,7 @@ async def dashboard():
       0%   {{ transform: translateX(-100%); }}
       100% {{ transform: translateX(350%); }}
     }}
+    .last-collect {{ font-size: 0.8rem; color: #94a3b8; white-space: nowrap; }}
     .progress-msg {{ font-size: 0.8rem; color: #64748b; min-height: 16px; }}
     .progress-msg.ok  {{ color: #16a34a; }}
     .progress-msg.err {{ color: #be123c; }}
@@ -233,8 +234,20 @@ async def dashboard():
       }} catch(e) {{}}
     }}
 
+    async function loadLastCollect() {{
+      try {{
+        const r = await fetch('/api/logs?limit=1');
+        const l = await r.json();
+        if (!l.length) return;
+        const dt = new Date(l[0].ran_at.replace(' ', 'T') + 'Z');
+        const fmt = dt.toLocaleString('pt-BR', {{ timeZone: 'America/Sao_Paulo', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }});
+        document.getElementById('last-collect').textContent = 'Última coleta: ' + fmt;
+      }} catch(e) {{}}
+    }}
+
     document.addEventListener('DOMContentLoaded', () => {{
       loadFlags();
+      loadLastCollect();
       setInterval(loadFlags, 10000);
     }});
 
@@ -301,6 +314,7 @@ async def dashboard():
   </div>
   <div class="collect-bar">
     <button class="collect-btn" id="cbtn" onclick="startCollect()">🔄 Coletar agora</button>
+    <span class="last-collect" id="last-collect"></span>
     <div class="progress-wrap">
       <div class="progress-track" id="ptrack"><div class="progress-bar" id="pbar"></div></div>
       <span class="progress-msg" id="pmsg"></span>
