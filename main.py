@@ -41,6 +41,7 @@ app.mount("/masks", StaticFiles(directory="public/masks"), name="masks")
 async def dashboard():
     articles = get_recent_articles(hours=24, limit=50)
     articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
+    articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
     CATEGORY_EMOJI = {
         "transferencia": ("🔄", "#dbeafe", "#1d4ed8"),
@@ -77,8 +78,9 @@ async def dashboard():
             img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>'
         else:
             img_html = f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
+        art_id = a['id']
         cards += f"""
-        <div class="card">
+        <div class="card" data-id="{art_id}">
           {img_html}
           <div class="card-body">
             <div class="card-meta">
@@ -89,7 +91,9 @@ async def dashboard():
             <p class="card-text">{body}</p>
             <div class="card-footer">
               <span class="card-date">{collected}</span>
-              <div style="display:flex;gap:6px;">
+              <div class="btn-row">
+                <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','visto')">👁️ Visto</button>
+                <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
                 <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
                 <a class="copy-btn" href="{post_url}" style="text-decoration:none;">✍️ Post</a>
               </div>
@@ -105,7 +109,7 @@ async def dashboard():
   <title>⚽ Saudi Football Monitor</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; display: flex; flex-direction: column; min-height: 100vh; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
     /* ── NAV ── */
     header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 0 24px; display: flex; align-items: center; gap: 32px; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); height: 56px; }}
     .brand {{ font-size: 1.1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; }}
@@ -115,26 +119,34 @@ async def dashboard():
     .nav-link.active {{ background: #eff6ff; color: #0284c7; }}
     /* ── CONTENT ── */
     .count {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px; flex: 1; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 24px; align-items: start; }}
     /* ── CARDS ── */
-    .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s; }}
+    .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s, background .2s; }}
     .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
+    .card.flag-visto {{ background: #fffbeb; box-shadow: 0 2px 8px rgba(245,158,11,.15); }}
+    .card.flag-publicado {{ background: #f0fdf4; box-shadow: 0 2px 8px rgba(34,197,94,.15); }}
     .card-img {{ height: 180px; background-size: cover; background-position: center; background-color: #e2e8f0; }}
     .card-img.no-img {{ display: flex; align-items: center; justify-content: center; font-size: 3rem; background: #e2e8f0; }}
-    .card-body {{ padding: 16px; display: flex; flex-direction: column; flex: 1; }}
+    .card-body {{ padding: 16px; display: flex; flex-direction: column; }}
     .card-meta {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
     .tier-badge {{ font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; }}
     .source {{ font-size: 0.8rem; color: #64748b; }}
     .card-title {{ font-size: 0.97rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
     .card-title:hover {{ color: #0284c7; }}
-    .card-text {{ font-size: 0.82rem; color: #475569; line-height: 1.55; flex: 1; }}
-    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #f1f5f9; }}
+    .card-text {{ font-size: 0.82rem; color: #475569; line-height: 1.55; }}
+    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 6px; }}
     .card-date {{ font-size: 0.75rem; color: #94a3b8; }}
-    .copy-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 0.78rem; }}
+    .btn-row {{ display: flex; gap: 5px; flex-wrap: wrap; }}
+    .copy-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; }}
     .copy-btn:hover {{ background: #e2e8f0; }}
     .copy-btn.copied {{ background: #dcfce7; color: #16a34a; }}
     a.copy-btn {{ background: #f0fdf4; color: #15803d; }}
     a.copy-btn:hover {{ background: #dcfce7; }}
+    .flag-btn {{ border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; transition: all .15s; }}
+    .flag-btn.visto-btn   {{ background: #fef3c7; color: #92400e; }}
+    .flag-btn.visto-btn.on   {{ background: #f59e0b; color: white; }}
+    .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
+    .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
     /* ── FOOTER COLLECT BAR ── */
     .collect-bar {{
       position: sticky; bottom: 0; background: white;
@@ -164,6 +176,7 @@ async def dashboard():
     .progress-msg.err {{ color: #be123c; }}
   </style>
   <script>
+    // ── Copiar ──
     function copyText(btn, text) {{
       navigator.clipboard.writeText(text).then(() => {{
         btn.textContent = '✅ Copiado';
@@ -172,11 +185,40 @@ async def dashboard():
       }});
     }}
 
+    // ── Flags (Visto / Publicado) ──
+    const FLAGS_KEY = 'sfm_flags';
+    function getFlags() {{ return JSON.parse(localStorage.getItem(FLAGS_KEY) || '{{}}'); }}
+    function saveFlags(f) {{ localStorage.setItem(FLAGS_KEY, JSON.stringify(f)); }}
+
+    function applyFlags() {{
+      const flags = getFlags();
+      document.querySelectorAll('.card[data-id]').forEach(card => {{
+        const id = card.dataset.id;
+        const f  = flags[id];
+        card.classList.remove('flag-visto', 'flag-publicado');
+        card.querySelector('.visto-btn').classList.toggle('on', f === 'visto');
+        card.querySelector('.pub-btn').classList.toggle('on', f === 'publicado');
+        if (f === 'visto')     card.classList.add('flag-visto');
+        if (f === 'publicado') card.classList.add('flag-publicado');
+      }});
+    }}
+
+    function toggleFlag(id, type) {{
+      const flags = getFlags();
+      flags[id] = (flags[id] === type) ? null : type;
+      if (!flags[id]) delete flags[id];
+      saveFlags(flags);
+      applyFlags();
+    }}
+
+    document.addEventListener('DOMContentLoaded', applyFlags);
+
+    // ── Coletar ──
     async function startCollect() {{
-      const btn  = document.getElementById('cbtn');
-      const bar  = document.getElementById('pbar');
+      const btn   = document.getElementById('cbtn');
+      const bar   = document.getElementById('pbar');
       const track = document.getElementById('ptrack');
-      const msg  = document.getElementById('pmsg');
+      const msg   = document.getElementById('pmsg');
 
       btn.disabled = true;
       track.style.display = 'block';
@@ -184,37 +226,31 @@ async def dashboard():
       msg.textContent = 'Coletando notícias...';
       msg.className = 'progress-msg';
 
-      const startedAt = new Date().toISOString();
-
+      // Guarda o ID do último log antes de coletar
+      let lastId = -1;
       try {{
-        await fetch('/api/collect', {{ method: 'POST' }});
+        const r = await fetch('/api/logs?limit=1');
+        const l = await r.json();
+        if (l.length) lastId = l[0].id;
       }} catch(e) {{}}
 
-      // Poll até o log registrar uma coleta posterior ao clique
-      let done = false;
-      for (let i = 0; i < 60; i++) {{
+      try {{ await fetch('/api/collect', {{ method: 'POST' }}); }} catch(e) {{}}
+
+      // Poll até aparecer um log novo (ID diferente)
+      for (let i = 0; i < 45; i++) {{
         await new Promise(r => setTimeout(r, 2000));
         try {{
-          const res = await fetch('/api/logs?limit=1');
-          const logs = await res.json();
-          if (logs.length && logs[0].ran_at >= startedAt) {{
-            done = true; break;
-          }}
+          const r = await fetch('/api/logs?limit=1');
+          const l = await r.json();
+          if (l.length && l[0].id !== lastId) {{ break; }}
         }} catch(e) {{}}
       }}
 
       bar.classList.remove('indeterminate');
       bar.style.width = '100%';
-
-      if (done) {{
-        msg.textContent = '✅ Coleta concluída! Recarregando...';
-        msg.className = 'progress-msg ok';
-        setTimeout(() => location.reload(), 1200);
-      }} else {{
-        msg.textContent = '⚠️ Tempo esgotado — recarregue manualmente.';
-        msg.className = 'progress-msg err';
-        btn.disabled = false;
-      }}
+      msg.textContent = '✅ Concluído! Recarregando...';
+      msg.className = 'progress-msg ok';
+      setTimeout(() => location.reload(), 1000);
     }}
   </script>
 </head>
