@@ -82,7 +82,18 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
                 items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {art.get('body_orig', '')[:1200]}\n---"
 
             prompt = f"""Adapte os artigos abaixo para português brasileiro com estilo jornalístico esportivo.
-Classifique cada artigo em UMA categoria: transferencia, patrocinio, planejamento, entrevista, resultado, competicao, treino, financeiro, lesao, geral.
+Classifique cada artigo em UMA categoria: transferencia, patrocinio, planejamento, entrevista, resultado, competicao, treino, financeiro, lesao, sondagem, geral.
+- transferencia: confirmação de compra/venda/empréstimo de jogador
+- sondagem: interesse, negociação em andamento, rumor de transferência
+- patrocinio: acordos comerciais, patrocinadores, naming rights
+- planejamento: decisões sobre elenco, renovações, dispensas, estratégia
+- entrevista: declarações de jogadores, técnicos ou dirigentes
+- resultado: placar de jogos, desempenho em partidas
+- competicao: Copa, torneio, classificação, chaveamento
+- treino: sessões de treino, preparação física
+- financeiro: salários, receitas, fair play financeiro
+- lesao: machucados, recuperação, ausências médicas
+- geral: qualquer outro assunto
 Responda SOMENTE com este JSON (sem texto extra):
 {{"translations": [{{"title_pt": "...", "body_pt": "...", "category": "..."}}]}}
 

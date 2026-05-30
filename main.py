@@ -36,8 +36,9 @@ async def dashboard():
 
     CATEGORY_EMOJI = {
         "transferencia": ("🔄", "#dbeafe", "#1d4ed8"),
+        "sondagem":      ("🔎", "#e0f2fe", "#0369a1"),
         "patrocinio":    ("🤝", "#ede9fe", "#6d28d9"),
-        "planejamento":  ("📋", "#e0f2fe", "#0369a1"),
+        "planejamento":  ("📋", "#f0fdf4", "#166534"),
         "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
         "resultado":     ("⚽", "#dcfce7", "#15803d"),
         "competicao":    ("🏆", "#fef9c3", "#a16207"),
@@ -56,15 +57,16 @@ async def dashboard():
         if len(body) == 280:
             body += "…"
         image_url = a.get("image_url") or ""
-        category = a.get("category") or "geral"
-        emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
+        category = a.get("category")
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
-        img_html = (
-            f'<div class="card-img" style="background-image:url({image_url})"></div>'
-            if image_url else
-            f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
-        )
+        if image_url:
+            img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>'
+        elif category and category in CATEGORY_EMOJI:
+            emoji, emoji_bg, emoji_color = CATEGORY_EMOJI[category]
+            img_html = f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
+        else:
+            img_html = '<div class="card-img no-img" style="background:#f1f5f9;color:#cbd5e1">⚽</div>'
         cards += f"""
         <div class="card">
           {img_html}
