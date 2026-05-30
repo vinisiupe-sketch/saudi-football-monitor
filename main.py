@@ -87,7 +87,8 @@ async def dashboard():
               <span class="source">@{a['source_name'].lstrip('@')}</span>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
-            <button class="expand-btn" onclick="toggleExpand(this)" title="Expandir card">▼ ver mais</button>
+            <button class="expand-btn" onclick="toggleExpand(this)">▼ ver mais</button>
+            <button class="collapse-btn" onclick="toggleCollapse(this)">▲ ver menos</button>
             <p class="card-text">{body}</p>
             <div class="card-footer">
               <span class="card-date">{collected} · {moon} @{a['source_name'].lstrip('@')}</span>
@@ -179,10 +180,12 @@ async def dashboard():
     .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
     .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
     /* ── COLLAPSE ── */
-    .card-collapsed .card-text,
-    .card-collapsed .card-footer {{ display: none; }}
+    .card-collapsed:not(.user-expanded) .card-text,
+    .card-collapsed:not(.user-expanded) .card-footer {{ display: none; }}
     .expand-btn {{ background: none; border: none; cursor: pointer; font-size: 0.75rem; color: #94a3b8; padding: 2px 0 0; display: none; }}
-    .card-collapsed .expand-btn {{ display: inline-block; }}
+    .collapse-btn {{ background: none; border: none; cursor: pointer; font-size: 0.75rem; color: #94a3b8; padding: 2px 0 0; display: none; }}
+    .card-collapsed:not(.user-expanded) .expand-btn {{ display: inline-block; }}
+    .card-collapsed.user-expanded .collapse-btn {{ display: inline-block; }}
     /* ── FILTER ── */
     .fs-badge {{ cursor: pointer; user-select: none; }}
     .fs-badge:hover {{ opacity: .8; }}
@@ -242,7 +245,8 @@ async def dashboard():
         if (f === 'naopublicado')   {{ card.classList.add('flag-visto');     nVisto++; }}
         else if (f === 'publicado') {{ card.classList.add('flag-publicado'); nPub++;   }}
         else                          nNone++;
-        // Collapse flagged cards
+        // Collapse flagged cards (preserve manual expansion)
+        if (!f) card.classList.remove('user-expanded');
         card.classList.toggle('card-collapsed', !!f);
       }});
       const total = nVisto + nPub + nNone;
@@ -275,8 +279,11 @@ async def dashboard():
 
     function toggleExpand(btn) {{
       const card = btn.closest('.card');
-      card.classList.remove('card-collapsed');
-      btn.style.display = 'none';
+      card.classList.add('user-expanded');
+    }}
+    function toggleCollapse(btn) {{
+      const card = btn.closest('.card');
+      card.classList.remove('user-expanded');
     }}
 
     async function loadFlags() {{
