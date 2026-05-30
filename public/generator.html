@@ -3,7 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>⚽ Gerador de Posts — Saudi Football Monitor</title>
+<title>IARABÃO — Criar Post</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
@@ -13,46 +15,58 @@
 @font-face { font-family:'Poppins';  font-weight:400; src:url('/fonts/Poppins-Regular.ttf') format('truetype'); }
 @font-face { font-family:'Poppins';  font-weight:500; src:url('/fonts/Poppins-Medium.ttf') format('truetype'); }
 
-/* ── BASE — mesmo estilo do Monitor ────────────── */
+/* ── BASE ───────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }
 
 header {
-  background: white; border-bottom: 1px solid #f1f5f9;
-  padding: 0 32px; display: flex; align-items: center;
-  position: sticky; top: 0; z-index: 10;
-  box-shadow: 0 1px 12px rgba(0,0,0,.06); height: 62px;
+  background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1);
+  padding: 0 24px; display: flex; align-items: center;
+  position: sticky; top: 0; z-index: 10; height: 52px;
 }
-.brand { font-size: 1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; margin-right: 40px; }
-.brand-icon { width: 32px; height: 32px; background: #0f172a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }
-nav { display: flex; gap: 2px; flex: 1; }
-.nav-link { padding: 7px 16px; border-radius: 8px; font-size: 0.875rem; font-weight: 500; color: #64748b; text-decoration: none; transition: all .15s; letter-spacing: -.01em; }
-.nav-link:hover { background: #f8fafc; color: #0f172a; }
-.nav-link.active { color: #0f172a; font-weight: 600; background: #f1f5f9; }
-.nav-cta { margin-left: auto; padding: 8px 18px; border-radius: 9px; background: #0f172a; color: white; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background .15s; }
+.brand {
+  font-family: 'Bebas Neue', sans-serif; font-size: 2rem;
+  letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none;
+  margin-right: auto; line-height: 1;
+}
+nav { display: flex; align-items: center; gap: 0; }
+.nav-link {
+  padding: 6px 12px; font-size: 0.68rem; font-weight: 700;
+  color: #999; text-decoration: none; text-transform: uppercase;
+  letter-spacing: 0.07em; transition: color .15s;
+}
+.nav-link:hover, .nav-link.active { color: #1a1a1a; }
+.nav-cta {
+  margin-left: 10px; padding: 5px 15px;
+  border: 1.5px solid #1a1a1a; border-radius: 99px;
+  font-size: 0.65rem; font-weight: 700; color: #1a1a1a;
+  text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em;
+  transition: all .15s; white-space: nowrap;
+}
+.nav-cta:hover { background: #1a1a1a; color: #edeae4; }
 
-.container { max-width: 960px; margin: 0 auto; padding: 24px; }
+.container { max-width: 960px; margin: 0 auto; padding: 24px 24px 60px; }
 
 /* ── STEP TABS ──────────────────────────────────── */
 .steps {
-  display: flex; gap: 0; margin-bottom: 24px;
-  background: white; border-radius: 10px; overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,.07);
+  display: flex; gap: 0; margin-bottom: 20px;
+  background: #fafaf8; border-radius: 16px; overflow: hidden;
 }
 .step-tab {
   flex: 1; padding: 14px 20px; display: flex; align-items: center; gap: 10px;
-  font-size: 0.88rem; font-weight: 600; color: #94a3b8;
-  border-bottom: 3px solid transparent; transition: all .2s;
+  font-size: 0.72rem; font-weight: 700; color: #bbb;
+  border-bottom: 2px solid transparent; transition: all .2s;
+  text-transform: uppercase; letter-spacing: 0.07em;
 }
-.step-tab.active { color: #0284c7; border-bottom-color: #0284c7; }
-.step-tab.done   { color: #64748b; }
+.step-tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
+.step-tab.done   { color: #666; }
 .step-num {
-  width: 24px; height: 24px; border-radius: 50%; background: #e2e8f0;
+  width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,.08);
   display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700; flex-shrink: 0;
+  font-size: 10px; font-weight: 700; flex-shrink: 0;
 }
-.step-tab.active .step-num { background: #0284c7; color: white; }
-.step-tab.done   .step-num { background: #dcfce7; color: #16a34a; }
+.step-tab.active .step-num { background: #1a1a1a; color: white; }
+.step-tab.done   .step-num { background: #dcfce7; color: #166534; }
 
 /* ── PANELS ─────────────────────────────────────── */
 .panel { display: none; }
@@ -60,61 +74,61 @@ nav { display: flex; gap: 2px; flex: 1; }
 
 /* ── CARDS / SECTIONS ───────────────────────────── */
 .section-card {
-  background: white; border-radius: 12px; padding: 20px 24px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.07); margin-bottom: 16px;
+  background: #fafaf8; border-radius: 16px; padding: 20px 24px;
+  margin-bottom: 10px;
 }
 .section-label {
-  font-size: 0.75rem; font-weight: 700; color: #64748b;
-  text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;
+  font-size: 0.62rem; font-weight: 700; color: #999;
+  text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px;
   display: flex; align-items: center; gap: 8px;
 }
 .section-num {
-  width: 22px; height: 22px; border-radius: 50%; background: #0284c7;
+  width: 20px; height: 20px; border-radius: 50%; background: #1a1a1a;
   color: white; display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 700; flex-shrink: 0;
+  font-size: 10px; font-weight: 700; flex-shrink: 0;
 }
 
 /* ── FORM ELEMENTS ──────────────────────────────── */
 textarea {
-  width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
-  color: #1e293b; padding: 12px 14px; font-size: 0.9rem;
+  width: 100%; background: rgba(0,0,0,.04); border: 1px solid rgba(0,0,0,.1); border-radius: 10px;
+  color: #1a1a1a; padding: 12px 14px; font-size: 0.9rem;
   font-family: inherit; resize: vertical; min-height: 140px; line-height: 1.6;
   transition: border-color .2s;
 }
-textarea:focus { outline: none; border-color: #0284c7; }
+textarea:focus { outline: none; border-color: #1a1a1a; }
 input[type="text"] {
-  width: 100%; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
-  color: #1e293b; padding: 9px 12px; font-size: 0.88rem; font-family: inherit;
+  width: 100%; background: rgba(0,0,0,.04); border: 1px solid rgba(0,0,0,.1); border-radius: 10px;
+  color: #1a1a1a; padding: 9px 12px; font-size: 0.88rem; font-family: inherit;
   transition: border-color .2s;
 }
-input[type="text"]:focus { outline: none; border-color: #0284c7; }
+input[type="text"]:focus { outline: none; border-color: #1a1a1a; }
 .fg { display: flex; flex-direction: column; gap: 5px; }
-.fg label { font-size: 0.75rem; font-weight: 600; color: #64748b; }
+.fg label { font-size: 0.62rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.07em; }
 
 /* ── UPLOAD ─────────────────────────────────────── */
 .upload-area {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; padding: 28px 20px;
-  border: 2px dashed #cbd5e1; border-radius: 10px; background: #f8fafc;
+  border: 2px dashed rgba(0,0,0,.15); border-radius: 12px; background: rgba(0,0,0,.03);
   cursor: pointer; transition: all .2s; text-align: center;
 }
-.upload-area:hover { border-color: #0284c7; background: #f0f9ff; }
-.upload-area.has-images { border-color: #0284c7; border-style: solid; background: #f0f9ff; }
+.upload-area:hover { border-color: #1a1a1a; background: rgba(0,0,0,.06); }
+.upload-area.has-images { border-color: #1a1a1a; border-style: solid; background: rgba(0,0,0,.04); }
 .upload-area-icon { font-size: 28px; }
-.upload-area-text { font-size: 0.9rem; color: #475569; font-weight: 600; }
-.upload-area-sub  { font-size: 0.78rem; color: #94a3b8; line-height: 1.5; max-width: 380px; }
+.upload-area-text { font-size: 0.88rem; color: #555; font-weight: 600; }
+.upload-area-sub  { font-size: 0.72rem; color: #aaa; line-height: 1.5; max-width: 380px; }
 
 .detect-badge {
   display: flex; align-items: center; gap: 8px;
-  background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 8px;
+  background: rgba(0,0,0,.05); border: 1px solid rgba(0,0,0,.1); border-radius: 8px;
   padding: 9px 14px; margin-top: 10px;
-  font-size: 0.82rem; color: #0369a1; line-height: 1.5;
+  font-size: 0.78rem; color: #555; line-height: 1.5; font-weight: 600;
 }
 
 .thumb-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
 .thumb-item {
   position: relative; width: 72px; height: 72px;
-  border-radius: 8px; overflow: hidden; border: 2px solid #e2e8f0;
+  border-radius: 10px; overflow: hidden; border: 2px solid rgba(0,0,0,.1);
 }
 .thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .thumb-num {
@@ -125,83 +139,86 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
 
 /* ── BUTTONS ────────────────────────────────────── */
 .btn-primary {
-  background: #0284c7; color: white; border: none; padding: 11px 28px;
-  border-radius: 8px; font-size: 0.95rem; font-weight: 700; cursor: pointer;
-  transition: background .15s; display: inline-flex; align-items: center; gap: 7px;
+  background: #1a1a1a; color: #edeae4; border: none; padding: 10px 26px;
+  border-radius: 99px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  transition: opacity .15s; display: inline-flex; align-items: center; gap: 7px;
+  text-transform: uppercase; letter-spacing: 0.07em;
 }
-.btn-primary:hover:not(:disabled) { background: #0369a1; }
-.btn-primary:disabled { background: #cbd5e1; cursor: not-allowed; }
+.btn-primary:hover:not(:disabled) { opacity: .75; }
+.btn-primary:disabled { opacity: .35; cursor: not-allowed; }
 .btn-secondary {
-  background: #f1f5f9; color: #475569; border: none; padding: 9px 20px;
-  border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer;
-  transition: background .15s; display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; color: #777; border: 1.5px solid #ccc; padding: 9px 20px;
+  border-radius: 99px; font-size: 0.68rem; font-weight: 700; cursor: pointer;
+  transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+  text-transform: uppercase; letter-spacing: 0.07em;
 }
-.btn-secondary:hover { background: #e2e8f0; }
+.btn-secondary:hover { border-color: #1a1a1a; color: #1a1a1a; }
 .btn-outline {
-  background: transparent; color: #0284c7; border: 1px solid #0284c7;
-  padding: 9px 20px; border-radius: 8px; font-size: 0.88rem; font-weight: 600;
+  background: transparent; color: #1a1a1a; border: 1.5px solid #1a1a1a;
+  padding: 9px 20px; border-radius: 99px; font-size: 0.68rem; font-weight: 700;
   cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
+  text-transform: uppercase; letter-spacing: 0.07em;
 }
-.btn-outline:hover { background: #f0f9ff; }
+.btn-outline:hover { background: #1a1a1a; color: #edeae4; }
 .row { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
 .spinner {
-  display: inline-block; width: 16px; height: 16px;
+  display: inline-block; width: 14px; height: 14px;
   border: 2px solid rgba(255,255,255,.4); border-top-color: white;
   border-radius: 50%; animation: spin .7s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-.pst { font-size: 0.85rem; color: #64748b; }
+.pst { font-size: 0.78rem; color: #888; }
 .err {
-  color: #be123c; font-size: 0.85rem; padding: 10px 14px;
-  background: #fff1f2; border-radius: 8px; border: 1px solid #fecdd3; margin-top: 12px;
+  color: #be123c; font-size: 0.82rem; padding: 10px 14px;
+  background: #fff1f2; border-radius: 10px; border: 1px solid #fecdd3; margin-top: 12px;
 }
 
 /* ── PREVIEW LAYOUT ─────────────────────────────── */
-.playout { display: grid; grid-template-columns: 540px 1fr; gap: 24px; align-items: start; }
+.playout { display: grid; grid-template-columns: 540px 1fr; gap: 20px; align-items: start; }
 .cwrap {
-  width: 540px; border-radius: 12px; overflow: hidden;
+  width: 540px; border-radius: 16px; overflow: hidden;
   box-shadow: 0 8px 32px rgba(0,0,0,.15); flex-shrink: 0; position: relative;
 }
 .cscale { transform-origin: top left; width: 1080px; height: 1350px; }
 
 .snav { display: flex; gap: 6px; justify-content: center; margin-top: 12px; }
-.sdot { width: 8px; height: 8px; border-radius: 50%; background: #cbd5e1; cursor: pointer; transition: all .2s; }
-.sdot.on { background: #0284c7; width: 20px; border-radius: 4px; }
+.sdot { width: 7px; height: 7px; border-radius: 50%; background: rgba(0,0,0,.2); cursor: pointer; transition: all .2s; }
+.sdot.on { background: #1a1a1a; width: 18px; border-radius: 4px; }
 
-.epanel { display: flex; flex-direction: column; gap: 12px; }
+.epanel { display: flex; flex-direction: column; gap: 10px; }
 
 .capbox {
-  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 14px;
+  background: #fafaf8; border-radius: 16px; padding: 16px;
 }
-.capt { font-size: 0.72rem; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
-.capbox p { font-size: 0.82rem; color: #475569; line-height: 1.7; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
+.capt { font-size: 0.62rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+.capbox p { font-size: 0.82rem; color: #555; line-height: 1.7; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
 .cpbtn {
-  background: none; border: 1px solid #e2e8f0; color: #64748b;
-  padding: 4px 11px; border-radius: 6px; font-size: 0.78rem;
+  background: none; border: 1.5px solid rgba(0,0,0,.15); color: #777;
+  padding: 5px 13px; border-radius: 99px; font-size: 0.65rem; font-weight: 700;
   cursor: pointer; margin-top: 8px; transition: all .2s;
+  text-transform: uppercase; letter-spacing: 0.06em;
 }
-.cpbtn:hover { border-color: #0284c7; color: #0284c7; }
+.cpbtn:hover { border-color: #1a1a1a; color: #1a1a1a; }
 
 .dlbox {
-  background: white; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; text-align: center;
-  box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  background: #fafaf8; border-radius: 16px; padding: 16px; text-align: center;
 }
-.dlbox h3 { font-size: 0.85rem; font-weight: 700; color: #0f172a; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 1px; }
+.dlbox h3 { font-size: 0.62rem; font-weight: 700; color: #999; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .dlrow { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.dlst { margin-top: 8px; font-size: 0.78rem; color: #64748b; min-height: 14px; }
+.dlst { margin-top: 8px; font-size: 0.72rem; color: #888; min-height: 14px; }
 
 .swap-label {
   display: inline-flex; align-items: center; gap: 6px;
-  background: #f1f5f9; color: #475569; border: none; padding: 7px 14px;
-  border-radius: 7px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
-  margin-top: 8px; transition: background .15s;
+  background: transparent; color: #777; border: 1.5px solid rgba(0,0,0,.15); padding: 6px 14px;
+  border-radius: 99px; font-size: 0.65rem; font-weight: 700; cursor: pointer;
+  margin-top: 8px; transition: all .15s; text-transform: uppercase; letter-spacing: 0.06em;
 }
-.swap-label:hover { background: #e2e8f0; }
+.swap-label:hover { border-color: #1a1a1a; color: #1a1a1a; }
 
 /* ── DRAG OVERLAY ───────────────────────────────── */
-.drag-overlay { position: absolute; inset: 0; cursor: grab; z-index: 20; border-radius: 12px; }
+.drag-overlay { position: absolute; inset: 0; cursor: grab; z-index: 20; border-radius: 16px; }
 .drag-overlay.dragging { cursor: grabbing; }
-.drag-hint { text-align: center; margin-top: 6px; font-size: 0.75rem; color: #94a3b8; }
+.drag-hint { text-align: center; margin-top: 6px; font-size: 0.65rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
 
 /* ── EXPORT ─────────────────────────────────────── */
 #export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
@@ -238,10 +255,7 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
 <body>
 
 <header>
-  <a class="brand" href="/">
-    <span class="brand-icon">⚽</span>
-    Centrão do Noticião
-  </a>
+  <a class="brand" href="/">IARABÃO</a>
   <nav>
     <a class="nav-link" href="/">Home</a>
     <a class="nav-link" href="/descartadas">Descartadas</a>
@@ -281,7 +295,7 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
     </div>
 
     <div class="row">
-      <button class="btn-primary" id="pbtn" onclick="process()">⚡ Gerar Post</button>
+      <button class="btn-primary" id="pbtn" onclick="process()">Gerar Post</button>
       <span class="pst" id="pst"></span>
     </div>
     <div class="err" id="perr" style="display:none;"></div>
@@ -298,10 +312,10 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
           <div class="cscale" id="cscale"></div>
           <div class="drag-overlay" id="drag-overlay"></div>
         </div>
-        <div class="drag-hint">🖱 Arraste para reposicionar a imagem</div>
+        <div class="drag-hint">Arraste para reposicionar a imagem</div>
         <div style="text-align:center;">
           <label class="swap-label">
-            🔄 Trocar imagem
+            Trocar imagem
             <input type="file" accept="image/*" id="swap-input" style="display:none" onchange="swapImage(this)">
           </label>
         </div>
@@ -336,32 +350,30 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
           <div class="capt">Texto do post <span style="font-weight:400;font-size:0.75rem;color:#94a3b8;">(editável)</span></div>
           <textarea id="captext" rows="6" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:0.85rem;font-family:inherit;color:#1e293b;resize:vertical;margin-top:6px;line-height:1.5;">—</textarea>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-            <button class="cpbtn" onclick="copyCaption()" style="margin-top:0;">📋 Copiar</button>
-            <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="margin-top:0;background:#000;color:#fff;border-color:#000;">𝕏 Publicar no Twitter</button>
-            <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="margin-top:0;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">📸 Instagram</button>
+            <button class="cpbtn" onclick="copyCaption()" style="margin-top:0;">Copiar</button>
+            <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="margin-top:0;background:#1a1a1a;color:#edeae4;border-color:#1a1a1a;">X · Twitter</button>
+            <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="margin-top:0;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">Instagram</button>
           </div>
-          <p id="ig-hint" style="display:none;font-size:0.75rem;color:#64748b;margin-top:6px;">📋 Legenda copiada! Selecione as imagens baixadas no Instagram e cole a legenda.</p>
+          <p id="ig-hint" style="display:none;font-size:0.72rem;color:#888;margin-top:6px;">Legenda copiada — selecione as imagens baixadas no Instagram e cole.</p>
         </div>
 
         <div class="dlbox">
           <h3>Baixar posts</h3>
           <div class="dlrow">
-            <button class="btn-primary" id="dlbtn" onclick="dlCurrent()">⬇️ Baixar PNG</button>
-            <button class="btn-outline" id="dlall" style="display:none;" onclick="dlAll()">📦 Baixar ZIP</button>
+            <button class="btn-primary" id="dlbtn" onclick="dlCurrent()">Baixar PNG</button>
+            <button class="btn-outline" id="dlall" style="display:none;" onclick="dlAll()">Baixar ZIP</button>
           </div>
           <div class="dlst" id="dlst"></div>
         </div>
 
         <button class="btn-secondary" style="width:100%; justify-content:center;" onclick="goP(1)">← Voltar</button>
+
       </div>
     </div>
   </section>
 
 </div><!-- /container -->
 
-<footer style="text-align:center;padding:14px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;background:white;margin-top:24px;">
-  © 2025 Central do Arabão — Todos os direitos reservados
-</footer>
 
 <div id="export-wrap"></div>
 
