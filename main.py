@@ -123,8 +123,8 @@ async def dashboard():
     /* ── CARDS ── */
     .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s, background .2s; }}
     .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
-    .card.flag-visto {{ background: #fffbeb; box-shadow: 0 2px 8px rgba(245,158,11,.15); }}
-    .card.flag-publicado {{ background: #f0fdf4; box-shadow: 0 2px 8px rgba(34,197,94,.15); }}
+    .card.flag-visto {{ background: #fef9c3; border: 2px solid #f59e0b; box-shadow: 0 4px 14px rgba(245,158,11,.25); }}
+    .card.flag-publicado {{ background: #bbf7d0; border: 2px solid #16a34a; box-shadow: 0 4px 14px rgba(22,163,74,.25); }}
     .card-img {{ height: 180px; background-size: cover; background-position: center; background-color: #e2e8f0; }}
     .card-img.no-img {{ display: flex; align-items: center; justify-content: center; font-size: 3rem; background: #e2e8f0; }}
     .card-body {{ padding: 16px; display: flex; flex-direction: column; }}
