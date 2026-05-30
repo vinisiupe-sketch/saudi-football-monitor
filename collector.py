@@ -153,7 +153,10 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
     return articles
 
 
-async def collect_all() -> dict:
+async def collect_all(hours: int = None) -> dict:
+    global ARTICLE_MAX_AGE_HOURS
+    if hours:
+        ARTICLE_MAX_AGE_HOURS = hours
     all_articles = []
     stats = {"sources_ok": 0, "sources_fail": 0}
     limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)

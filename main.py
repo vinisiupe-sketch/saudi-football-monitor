@@ -123,7 +123,7 @@ async def api_logs(limit: int = 20):
 
 @app.post("/api/collect")
 async def api_collect(background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_pipeline)
+    background_tasks.add_task(run_pipeline, True)  # force=True ignora período inativo
     return {"status": "started"}
 
 
