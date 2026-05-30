@@ -523,45 +523,22 @@ async def api_collect(background_tasks: BackgroundTasks):
 async def descartadas():
     articles = get_low_score_articles(hours=24, limit=200)
 
-    CATEGORY_EMOJI = {
-        "transferencia": ("🔄", "#dbeafe", "#1d4ed8"),
-        "sondagem":      ("🔎", "#e0f2fe", "#0369a1"),
-        "patrocinio":    ("🤝", "#ede9fe", "#6d28d9"),
-        "planejamento":  ("📋", "#f0fdf4", "#166534"),
-        "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
-        "resultado":     ("⚽", "#dcfce7", "#15803d"),
-        "competicao":    ("🏆", "#fef9c3", "#a16207"),
-        "treino":        ("🏋️", "#f0fdf4", "#166534"),
-        "financeiro":    ("💰", "#fdf4ff", "#7e22ce"),
-        "lesao":         ("🩺", "#fff1f2", "#be123c"),
-        "geral":         ("📰", "#f1f5f9", "#475569"),
-    }
-
     cards = ""
     for a in articles:
-        tier_color = {"A": "#16a34a", "B": "#ca8a04", "C": "#64748b"}.get(a["source_tier"], "#64748b")
-        tier_bg    = {"A": "#dcfce7", "B": "#fef9c3", "C": "#f1f5f9"}.get(a["source_tier"], "#f1f5f9")
         title = a.get("title_orig") or "—"
         body  = (a.get("body_orig") or "")[:280]
         if len(body) == 280:
             body += "…"
-        image_url = a.get("image_url") or ""
-        category = a.get("category") or "geral"
         score = a.get("relevance_score", 0)
+        handle = a.get("source_name", "").lstrip("@")
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
-        emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
-        if image_url:
-            img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>'
-        else:
-            img_html = f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
         cards += f"""
         <div class="card">
-          {img_html}
           <div class="card-body">
             <div class="card-meta">
-              <span class="tier-badge" style="background:{tier_bg};color:{tier_color}">Tier {a['source_tier']}</span>
-              <span class="source">@{a['source_name'].lstrip('@')}</span>
-              <span class="score-badge">score {score:.2f}</span>
+              <span class="tag">Tier {a['source_tier']}</span>
+              <span class="tag">@{handle}</span>
+              <span class="score-tag">score {score:.2f}</span>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
             <p class="card-text">{body}</p>
@@ -576,57 +553,47 @@ async def descartadas():
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>🗂️ Descartadas — Saudi Football Monitor</title>
+  <title>IARABÃO — Descartadas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }}
-    header {{ background: white; border-bottom: 1px solid #f1f5f9; padding: 0 32px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 12px rgba(0,0,0,.06); height: 62px; }}
-    .brand {{ font-size: 1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; margin-right: 40px; }}
-    .brand-icon {{ width: 32px; height: 32px; background: #0f172a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }}
-    nav {{ display: flex; gap: 2px; flex: 1; }}
-    .nav-link {{ padding: 7px 16px; border-radius: 8px; font-size: 0.875rem; font-weight: 500; color: #64748b; text-decoration: none; transition: all .15s; letter-spacing: -.01em; }}
-    .nav-link:hover {{ background: #f8fafc; color: #0f172a; }}
-    .nav-link.active {{ color: #0f172a; font-weight: 600; background: #f1f5f9; }}
-    .nav-cta {{ margin-left: auto; padding: 8px 18px; border-radius: 9px; background: #0f172a; color: white; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background .15s; border: none; cursor: pointer; letter-spacing: -.01em; }}
-    .nav-cta:hover {{ background: #1e293b; }}
-    .info {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
-    .info strong {{ color: #0f172a; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 40px; }}
-    .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; opacity: 0.88; }}
-    .card-img {{ height: 160px; background-size: cover; background-position: center; background-color: #e2e8f0; }}
-    .card-img.no-img {{ display: flex; align-items: center; justify-content: center; font-size: 2.5rem; }}
-    .card-body {{ padding: 14px; display: flex; flex-direction: column; flex: 1; }}
-    .card-meta {{ display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }}
-    .tier-badge {{ font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; }}
-    .source {{ font-size: 0.78rem; color: #64748b; }}
-    .score-badge {{ font-size: 0.7rem; background: #fff7ed; color: #c2410c; padding: 2px 7px; border-radius: 20px; font-weight: 700; margin-left: auto; }}
-    .card-title {{ font-size: 0.9rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 6px; }}
-    .card-title:hover {{ color: #0284c7; }}
-    .card-text {{ font-size: 0.8rem; color: #64748b; line-height: 1.55; flex: 1; }}
-    .card-footer {{ display: flex; align-items: center; justify-content: flex-end; margin-top: 12px; padding-top: 8px; border-top: 1px solid #f1f5f9; }}
-    .card-date {{ font-size: 0.72rem; color: #94a3b8; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    header {{ background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 24px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; }}
+    .brand {{ font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }}
+    nav {{ display: flex; align-items: center; gap: 0; }}
+    .nav-link {{ padding: 6px 12px; font-size: 0.68rem; font-weight: 700; color: #999; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: color .15s; }}
+    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
+    .nav-cta {{ margin-left: 10px; padding: 5px 15px; border: 1.5px solid #1a1a1a; border-radius: 99px; font-size: 0.65rem; font-weight: 700; color: #1a1a1a; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; white-space: nowrap; }}
+    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+    .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
+    .card {{ background: #fafaf8; border-radius: 16px; display: flex; flex-direction: column; opacity: 0.82; }}
+    .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
+    .card-meta {{ display: flex; align-items: center; gap: 5px; margin-bottom: 12px; flex-wrap: wrap; }}
+    .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .score-tag {{ font-size: 0.6rem; font-weight: 700; color: #be123c; border: 1px solid #fca5a5; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: auto; }}
+    .card-title {{ font-size: 0.95rem; font-weight: 700; color: #1a1a1a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
+    .card-title:hover {{ opacity: .7; }}
+    .card-text {{ font-size: 0.8rem; color: #666; line-height: 1.6; }}
+    .card-footer {{ display: flex; align-items: center; justify-content: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
+    .card-date {{ font-size: 0.6rem; font-weight: 700; color: #bbb; text-transform: uppercase; letter-spacing: 0.05em; }}
   </style>
 </head>
 <body>
   <header>
-    <a class="brand" href="/">
-      <span class="brand-icon">⚽</span>
-      Centrão do Noticião
-    </a>
+    <a class="brand" href="/">IARABÃO</a>
     <nav>
       <a class="nav-link" href="/">Home</a>
       <a class="nav-link active" href="/descartadas">Descartadas</a>
       <a class="nav-link" href="/fontes">Fontes</a>
     </nav>
-    <a class="nav-cta" href="/gerador">✍️ Criar Post</a>
+    <a class="nav-cta" href="/gerador">Criar Post</a>
   </header>
-  <p class="info">{len(articles)} notícias com score abaixo de 0.34 nas últimas 24h &nbsp;·&nbsp; <strong>Textos originais, sem tradução</strong></p>
+  <p class="info">{len(articles)} descartadas · 24h · Texto original sem tradução</p>
   <div class="grid">
-    {cards if cards else '<p style="padding:40px 24px;color:#94a3b8;">Nenhuma notícia descartada nas últimas 24h.</p>'}
+    {cards if cards else '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Nenhuma notícia descartada nas últimas 24h.</p>'}
   </div>
-  <footer style="text-align:center;padding:14px;font-size:0.75rem;color:#94a3b8;border-top:1px solid #e2e8f0;background:white;">
-    © {__import__('datetime').datetime.now().year} Central do Arabão — Todos os direitos reservados
-  </footer>
 </body>
 </html>"""
     return HTMLResponse(content=html)
@@ -903,62 +870,67 @@ async def fontes_page():
           <td><code>@{s['handle']}</code></td>
           <td><select class="sel-tier" onchange="markDirty(this)">{tier_opts}</select></td>
           <td><select class="sel-moon" onchange="markDirty(this)">{moon_opts}</select></td>
-          <td><button class="btn-save" onclick="saveSingle(this)">💾 Salvar</button>
-              <button class="btn-del" onclick="delSource(this)">🗑️</button></td>
+          <td>
+            <button class="btn-save" onclick="saveSingle(this)">Salvar</button>
+            <button class="btn-del" onclick="delSource(this)">×</button>
+          </td>
         </tr>"""
 
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Gestão de Fontes</title>
+  <title>IARABÃO — Fontes</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }}
-    header {{ background: white; border-bottom: 1px solid #f1f5f9; padding: 0 32px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 12px rgba(0,0,0,.06); height: 62px; }}
-    .brand {{ font-size: 1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; letter-spacing: -.01em; display: flex; align-items: center; gap: 8px; margin-right: 40px; }}
-    .brand-icon {{ width: 32px; height: 32px; background: #0f172a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 1rem; flex-shrink: 0; }}
-    nav {{ display: flex; gap: 2px; flex: 1; }}
-    .nav-link {{ padding: 7px 16px; border-radius: 8px; font-size: 0.875rem; font-weight: 500; color: #64748b; text-decoration: none; transition: all .15s; }}
-    .nav-link:hover {{ background: #f8fafc; color: #0f172a; }}
-    .nav-link.active {{ color: #0f172a; font-weight: 600; background: #f1f5f9; }}
-    .nav-cta {{ margin-left: auto; padding: 8px 18px; border-radius: 9px; background: #0f172a; color: white; font-size: 0.875rem; font-weight: 600; text-decoration: none; white-space: nowrap; transition: background .15s; }}
-    .nav-cta:hover {{ background: #1e293b; }}
-    .page {{ max-width: 700px; margin: 32px auto; padding: 0 24px 80px; }}
-    h1 {{ font-size: 1.3rem; font-weight: 800; margin-bottom: 4px; }}
-    .sub {{ font-size: 0.85rem; color: #64748b; margin-bottom: 24px; }}
-    .add-box {{ background: white; border-radius: 12px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,.07); margin-bottom: 24px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }}
-    .add-box label {{ font-size: 0.78rem; font-weight: 600; color: #475569; display: block; margin-bottom: 4px; }}
-    .add-box input, .add-box select {{ border: 1px solid #e2e8f0; border-radius: 8px; padding: 7px 10px; font-size: 0.875rem; background: #f8fafc; color: #0f172a; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    header {{ background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 24px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; }}
+    .brand {{ font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }}
+    nav {{ display: flex; align-items: center; gap: 0; }}
+    .nav-link {{ padding: 6px 12px; font-size: 0.68rem; font-weight: 700; color: #999; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: color .15s; }}
+    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
+    .nav-cta {{ margin-left: 10px; padding: 5px 15px; border: 1.5px solid #1a1a1a; border-radius: 99px; font-size: 0.65rem; font-weight: 700; color: #1a1a1a; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; white-space: nowrap; }}
+    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+    .page {{ max-width: 680px; margin: 28px auto; padding: 0 24px 80px; }}
+    .page-title {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }}
+    .page-sub {{ font-size: 0.75rem; color: #999; margin-bottom: 20px; }}
+    .add-box {{ background: #fafaf8; border-radius: 16px; padding: 20px; margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }}
+    .add-box label {{ font-size: 0.62rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.07em; display: block; margin-bottom: 5px; }}
+    .add-box input, .add-box select {{ border: 1px solid rgba(0,0,0,.12); border-radius: 10px; padding: 7px 10px; font-size: 0.85rem; background: rgba(0,0,0,.04); color: #1a1a1a; font-family: inherit; }}
+    .add-box input:focus, .add-box select:focus {{ outline: none; border-color: #1a1a1a; }}
     .add-box input {{ width: 180px; }}
-    .btn-primary {{ background: #0f172a; color: white; border: none; padding: 8px 18px; border-radius: 9px; font-size: 0.875rem; font-weight: 600; cursor: pointer; }}
-    .btn-primary:hover {{ background: #1e293b; }}
-    table {{ width: 100%; border-collapse: collapse; background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.07); }}
-    th {{ text-align: left; font-size: 0.78rem; font-weight: 600; color: #64748b; padding: 12px 16px; border-bottom: 1px solid #f1f5f9; background: #f8fafc; }}
-    td {{ padding: 10px 16px; border-bottom: 1px solid #f8fafc; font-size: 0.875rem; }}
+    .btn-primary {{ background: #1a1a1a; color: #edeae4; border: none; padding: 8px 20px; border-radius: 99px; font-size: 0.65rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: opacity .15s; }}
+    .btn-primary:hover {{ opacity: .75; }}
+    table {{ width: 100%; border-collapse: collapse; background: #fafaf8; border-radius: 16px; overflow: hidden; }}
+    th {{ text-align: left; font-size: 0.62rem; font-weight: 700; color: #aaa; padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,.06); text-transform: uppercase; letter-spacing: 0.07em; }}
+    td {{ padding: 10px 16px; border-bottom: 1px solid rgba(0,0,0,.04); font-size: 0.85rem; }}
     tr:last-child td {{ border-bottom: none; }}
-    tr.dirty {{ background: #fffbeb; }}
-    code {{ font-size: 0.82rem; background: #f1f5f9; padding: 2px 6px; border-radius: 4px; }}
-    select {{ border: 1px solid #e2e8f0; border-radius: 6px; padding: 4px 6px; font-size: 0.85rem; background: white; cursor: pointer; }}
-    .btn-save {{ background: #0f172a; color: white; border: none; padding: 4px 12px; border-radius: 6px; font-size: 0.78rem; cursor: pointer; margin-right: 4px; }}
-    .btn-del {{ background: #fff1f2; color: #be123c; border: none; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; cursor: pointer; }}
-    .toast {{ position: fixed; bottom: 24px; right: 24px; background: #0f172a; color: white; padding: 10px 18px; border-radius: 10px; font-size: 0.875rem; font-weight: 600; opacity: 0; transition: opacity .3s; pointer-events: none; }}
+    tr.dirty {{ background: rgba(234,179,8,.08); }}
+    code {{ font-size: 0.8rem; background: rgba(0,0,0,.06); padding: 2px 7px; border-radius: 5px; }}
+    select {{ border: 1px solid rgba(0,0,0,.12); border-radius: 8px; padding: 4px 8px; font-size: 0.82rem; background: rgba(0,0,0,.04); cursor: pointer; font-family: inherit; }}
+    .btn-save {{ background: #1a1a1a; color: #edeae4; border: none; padding: 4px 14px; border-radius: 99px; font-size: 0.62rem; font-weight: 700; cursor: pointer; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em; transition: opacity .15s; }}
+    .btn-save:hover {{ opacity: .75; }}
+    .btn-del {{ background: transparent; color: #be123c; border: 1.5px solid #fca5a5; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all .15s; }}
+    .btn-del:hover {{ background: #fff1f2; }}
+    .toast {{ position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; color: #edeae4; padding: 10px 20px; border-radius: 99px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0; transition: opacity .3s; pointer-events: none; }}
     .toast.show {{ opacity: 1; }}
   </style>
 </head>
 <body>
 <header>
-  <a class="brand" href="/"><span class="brand-icon">⚽</span>Centrão do Noticião</a>
+  <a class="brand" href="/">IARABÃO</a>
   <nav>
     <a class="nav-link" href="/">Home</a>
     <a class="nav-link" href="/descartadas">Descartadas</a>
     <a class="nav-link active" href="/fontes">Fontes</a>
   </nav>
-  <a class="nav-cta" href="/gerador">✍️ Criar Post</a>
+  <a class="nav-cta" href="/gerador">Criar Post</a>
 </header>
 <div class="page">
-  <h1>Gestão de Fontes</h1>
-  <p class="sub">{len(sources)} fontes monitoradas · Alterações entram em vigor na próxima coleta</p>
+  <p class="page-title">Fontes monitoradas</p>
+  <p class="page-sub">{len(sources)} fontes · Alterações entram em vigor na próxima coleta</p>
   <div class="add-box">
     <div><label>Handle (sem @)</label><input id="new-handle" placeholder="ex: FabrizioRomano"></div>
     <div><label>Tier</label><select id="new-tier"><option>A</option><option selected>B</option><option>C</option></select></div>
@@ -986,7 +958,7 @@ async def fontes_page():
     const moon = tr.querySelector('.sel-moon').value;
     const r = await fetch('/api/fontes', {{ method: 'POST', headers: {{'content-type':'application/json'}},
       body: JSON.stringify({{ action: 'upsert', handle, tier, moon }}) }});
-    if (r.ok) {{ tr.classList.remove('dirty'); showToast('✅ Salvo!'); }}
+    if (r.ok) {{ tr.classList.remove('dirty'); showToast('Salvo'); }}
   }}
 
   async function delSource(btn) {{
@@ -995,7 +967,7 @@ async def fontes_page():
     if (!confirm(`Remover @${{handle}}?`)) return;
     const r = await fetch('/api/fontes', {{ method: 'POST', headers: {{'content-type':'application/json'}},
       body: JSON.stringify({{ action: 'delete', handle }}) }});
-    if (r.ok) {{ tr.remove(); showToast('🗑️ Removido'); }}
+    if (r.ok) {{ tr.remove(); showToast('Removido'); }}
   }}
 
   async function addSource() {{
@@ -1005,7 +977,7 @@ async def fontes_page():
     if (!handle) {{ alert('Informe o handle'); return; }}
     const r = await fetch('/api/fontes', {{ method: 'POST', headers: {{'content-type':'application/json'}},
       body: JSON.stringify({{ action: 'upsert', handle, tier, moon }}) }});
-    if (r.ok) {{ showToast('✅ Adicionado! Recarregando...'); setTimeout(() => location.reload(), 1000); }}
+    if (r.ok) {{ showToast('Adicionado!'); setTimeout(() => location.reload(), 1000); }}
   }}
 </script>
 </body></html>""")
