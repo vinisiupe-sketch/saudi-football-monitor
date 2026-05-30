@@ -41,7 +41,7 @@ TIER_C = {
         "ariyadhiah", "khaled_alhussan", "A_Ragab", "AHADI4",
         "OKAZ_online", "AlArabiya_spt", "ahmed_aljadi68",
         "SultanALotaibi0", "samialqadi800", "k7aled_otb",
-        "lequipe", "NicoSchira", "Glongari", "yagosabuncuoglu",
+        "lequipe", "NicoSchira", "Glongari", "yagosabuncuoglu", "ahmad2man",
     ],
     "rss_feeds": [
         "https://www.lequipe.fr/rss/actu_rss_Football.xml",
@@ -131,4 +131,5 @@ SOURCE_MOON = {
     "NicoSchira":      "🌗",
     "Glongari":        "🌗",
     "yagosabuncuoglu": "🌗",
+    "ahmad2man":       "🌗",
 }
