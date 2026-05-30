@@ -60,13 +60,12 @@ async def dashboard():
         category = a.get("category")
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
+        category = category or "geral"
+        emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
         if image_url:
             img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>'
-        elif category and category in CATEGORY_EMOJI:
-            emoji, emoji_bg, emoji_color = CATEGORY_EMOJI[category]
-            img_html = f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
         else:
-            img_html = '<div class="card-img no-img" style="background:#f1f5f9;color:#cbd5e1">⚽</div>'
+            img_html = f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
         cards += f"""
         <div class="card">
           {img_html}
