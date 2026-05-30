@@ -66,11 +66,13 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
             items_text = ""
             for idx, art in enumerate(batch):
                 items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {art.get('body_orig', '')[:500]}\n---"
+            from glossary import GLOSSARY_PROMPT, apply_glossary
             system = (
-                "Você é um tradutor especializado em futebol. "
+                "Você é um tradutor especializado em futebol saudita. "
                 "Se o texto já estiver em português, apenas copie-o sem alteração. "
-                "Preserve nomes próprios (jogadores, clubes, competições). "
-                "Responda APENAS com JSON válido, sem markdown."
+                "Preserve nomes próprios de jogadores. "
+                "Responda APENAS com JSON válido, sem markdown.\n"
+                + GLOSSARY_PROMPT
             )
             prompt = f"""Traduza os artigos abaixo para português brasileiro (pt-BR).
 Responda SOMENTE com este JSON (sem texto extra):
@@ -91,8 +93,8 @@ Responda SOMENTE com este JSON (sem texto extra):
                     print(f"   ⚠️  Lote {i//BATCH+1}: esperava {len(batch)} traduções, recebeu {len(translations)}")
                 for idx, art in enumerate(batch):
                     if idx < len(translations):
-                        art["title_pt"] = translations[idx].get("title_pt") or art["title_orig"]
-                        art["body_pt"] = translations[idx].get("body_pt") or art["body_orig"]
+                        art["title_pt"] = apply_glossary(translations[idx].get("title_pt") or art["title_orig"])
+                        art["body_pt"] = apply_glossary(translations[idx].get("body_pt") or art["body_orig"])
                     else:
                         art["title_pt"] = art["title_orig"]
                         art["body_pt"] = art["body_orig"]
