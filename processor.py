@@ -65,22 +65,25 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
             batch = to_translate[i:i + BATCH]
             items_text = ""
             for idx, art in enumerate(batch):
-                items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {art.get('body_orig', '')[:500]}\n---"
+                items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {art.get('body_orig', '')[:2000]}\n---"
             from glossary import GLOSSARY_PROMPT, apply_glossary
             system = (
-                "Você é um tradutor especializado em futebol saudita. "
-                "Se o texto já estiver em português, apenas copie-o sem alteração. "
-                "Preserve nomes próprios de jogadores. "
+                "Você é um redator esportivo brasileiro especializado em futebol saudita. "
+                "Sua tarefa é adaptar textos para o português brasileiro com o estilo natural de sites como ge.globo.com ou ESPN Brasil — fluido, direto, jornalístico. "
+                "NÃO faça tradução literal: reescreva as frases para soar natural em português. "
+                "Use termos corretos do futebol: 'meio-campista' (não 'meia'), 'zagueiro', 'lateral', 'atacante', 'volante', 'emprestar' (não 'ceder'), 'janela de transferências'. "
+                "Se o texto já estiver em português, reescreva-o apenas para melhorar o estilo se necessário. "
+                "Preserve nomes próprios de jogadores e técnicos exatamente como estão no original (transliteração do árabe). "
                 "Responda APENAS com JSON válido, sem markdown.\n"
                 + GLOSSARY_PROMPT
             )
-            prompt = f"""Traduza os artigos abaixo para português brasileiro (pt-BR).
+            prompt = f"""Adapte os artigos abaixo para português brasileiro com estilo jornalístico esportivo.
 Responda SOMENTE com este JSON (sem texto extra):
 {{"translations": [{{"title_pt": "...", "body_pt": "..."}}]}}
 
 {items_text}"""
             try:
-                raw = await call_claude(prompt, system, client, max_tokens=2000)
+                raw = await call_claude(prompt, system, client, max_tokens=4000)
                 # Limpa possível markdown ao redor do JSON
                 raw = raw.strip()
                 if raw.startswith("```"):
