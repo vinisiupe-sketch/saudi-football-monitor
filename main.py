@@ -73,7 +73,6 @@ async def dashboard():
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
         source_handle = a.get("source_name", "").lstrip("@")
         post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + source_handle
-        post_url = f"/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1"
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
         category = category or "geral"
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
@@ -97,7 +96,7 @@ async def dashboard():
                 <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
                 <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')">🗑️ Descarte</button>
                 <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
-                <a class="copy-btn" href="{post_url}" style="text-decoration:none;">✍️ Post</a>
+                <button class="copy-btn post-btn" data-url="/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1&embedded=1" onclick="openGenerator(this)">🎨 Criar Post</button>
               </div>
             </div>
           </div>
@@ -224,6 +223,19 @@ async def dashboard():
     .progress-msg {{ font-size: 0.8rem; color: #64748b; min-height: 16px; }}
     .progress-msg.ok  {{ color: #16a34a; }}
     .progress-msg.err {{ color: #be123c; }}
+    /* ── INLINE GENERATOR ── */
+    .gen-inline {{
+      grid-column: 1 / -1;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,.15);
+      height: 840px;
+      background: white;
+    }}
+    .gen-inline iframe {{ width: 100%; height: 100%; border: none; display: block; }}
+    .post-btn {{ background: #f0fdf4; color: #15803d; }}
+    .post-btn:hover {{ background: #dcfce7; }}
+    .post-btn.active-gen {{ background: #0284c7 !important; color: white !important; }}
   </style>
   <script>
     // ── Copiar ──
@@ -306,6 +318,38 @@ async def dashboard():
         applyFlags();
       }} catch(e) {{}}
     }}
+
+    // ── Inline Generator ──
+    function openGenerator(btn) {{
+      const cardEl = btn.closest('.card');
+      const id = cardEl.dataset.id;
+      const url = btn.dataset.url;
+      const existing = document.getElementById('gen-inline-wrap');
+      if (existing) {{
+        const prevBtn = document.querySelector('.post-btn.active-gen');
+        if (prevBtn) prevBtn.classList.remove('active-gen');
+        const sameCard = existing.dataset.cardId === id;
+        existing.remove();
+        if (sameCard) return; // toggle off
+      }}
+      const wrap = document.createElement('div');
+      wrap.id = 'gen-inline-wrap';
+      wrap.dataset.cardId = id;
+      wrap.className = 'gen-inline';
+      wrap.innerHTML = `<iframe src="${{url}}" allow="clipboard-write"></iframe>`;
+      cardEl.insertAdjacentElement('afterend', wrap);
+      btn.classList.add('active-gen');
+      setTimeout(() => wrap.scrollIntoView({{ behavior: 'smooth', block: 'nearest' }}), 50);
+    }}
+
+    window.addEventListener('message', e => {{
+      if (e.data === 'close-generator') {{
+        const wrap = document.getElementById('gen-inline-wrap');
+        if (wrap) wrap.remove();
+        const btn = document.querySelector('.post-btn.active-gen');
+        if (btn) btn.classList.remove('active-gen');
+      }}
+    }});
 
     async function toggleFlag(id, type) {{
       const current = _flags[id];

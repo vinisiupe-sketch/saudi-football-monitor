@@ -203,6 +203,18 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
 .drag-overlay.dragging { cursor: grabbing; }
 .drag-hint { text-align: center; margin-top: 6px; font-size: 0.75rem; color: #94a3b8; }
 
+/* ── EMBEDDED MODE ──────────────────────────────── */
+body.embedded { padding-top: 0; }
+body.embedded .container { padding-top: 12px; }
+.embed-close {
+  position: fixed; top: 12px; right: 16px; z-index: 100;
+  background: #0f172a; color: white; border: none;
+  padding: 7px 14px; border-radius: 8px; font-size: 0.85rem;
+  font-weight: 600; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.2);
+  transition: background .15s;
+}
+.embed-close:hover { background: #1e293b; }
+
 /* ── EXPORT ─────────────────────────────────────── */
 #export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
 
@@ -702,8 +714,21 @@ function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 
 /* ── Pré-preencher via URL ── */
 document.addEventListener('DOMContentLoaded',()=>{
-  const texto=new URLSearchParams(window.location.search).get('texto');
-  if (texto) document.getElementById('news').value=texto;
+  const params = new URLSearchParams(window.location.search);
+  const texto = params.get('texto');
+  if (texto) document.getElementById('news').value = texto;
+
+  // ── Embedded mode (inline no Monitor) ──
+  if (params.get('embedded') === '1') {
+    document.querySelector('header').style.display = 'none';
+    document.querySelector('footer').style.display = 'none';
+    document.body.classList.add('embedded');
+    const btn = document.createElement('button');
+    btn.className = 'embed-close';
+    btn.textContent = '✕ Fechar';
+    btn.onclick = () => window.parent.postMessage('close-generator', '*');
+    document.body.appendChild(btn);
+  }
 });
 
 window.addEventListener('resize',upd);
