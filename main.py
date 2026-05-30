@@ -6,7 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
-from database import init_db, get_recent_articles, get_collection_logs
+from database import init_db, get_recent_articles, get_collection_logs, update_article_body
 from scheduler import run_pipeline, create_scheduler
 
 scheduler = None
@@ -35,10 +35,11 @@ async def dashboard():
     articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
 
     rows = ""
-    for a in articles:
+    for idx, a in enumerate(articles):
         tier_color = {"A": "#22c55e", "B": "#eab308", "C": "#94a3b8"}.get(a["source_tier"], "#94a3b8")
         title = a.get("title_pt") or a.get("title_orig") or "—"
         body = a.get("body_pt") or a.get("body_orig") or ""
+        copy_text = f"{title}\\n\\n{body}".replace("`", "'").replace('"', '&quot;')
         rows += f"""
         <tr>
           <td><span style="color:{tier_color};font-weight:bold">Tier {a['source_tier']}</span></td>
@@ -46,6 +47,7 @@ async def dashboard():
           <td>
             <a href="{a['url']}" target="_blank"><strong>{title}</strong></a>
             {f'<div style="color:#94a3b8;margin-top:4px;font-size:0.85em">{body}</div>' if body else ''}
+            <button class="copy-btn" onclick="copyText(this, `{copy_text}`)" style="margin-top:6px">📋 Copiar</button>
           </td>
           <td style="white-space:nowrap">{(a.get('collected_at') or '')[:16]}</td>
           <td>{a.get('relevance_score', 0):.2f}</td>
@@ -59,17 +61,30 @@ async def dashboard():
   <style>
     body {{ font-family: sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 20px; }}
     h1 {{ color: #38bdf8; }}
-table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
     th {{ background: #1e293b; padding: 10px; text-align: left; color: #94a3b8; }}
     td {{ padding: 10px; border-bottom: 1px solid #1e293b; font-size: 0.9em; vertical-align: top; }}
     a {{ color: #38bdf8; text-decoration: none; }}
     a:hover {{ text-decoration: underline; }}
     .btn {{ background: #0284c7; color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; margin: 4px; }}
+    .copy-btn {{ background: #334155; color: #94a3b8; border: none; padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 0.8em; }}
+    .copy-btn:hover {{ background: #475569; color: #e2e8f0; }}
+    .copy-btn.copied {{ background: #166534; color: #86efac; }}
   </style>
+  <script>
+    function copyText(btn, text) {{
+      navigator.clipboard.writeText(text).then(() => {{
+        btn.textContent = '✅ Copiado';
+        btn.classList.add('copied');
+        setTimeout(() => {{ btn.textContent = '📋 Copiar'; btn.classList.remove('copied'); }}, 2000);
+      }});
+    }}
+  </script>
 </head>
 <body>
   <h1>⚽ Saudi Football Monitor</h1>
   <button class="btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
+  <button class="btn" onclick="fetch('/api/reenrich',{{method:'POST'}}).then(()=>setTimeout(()=>location.reload(),30000))">🔁 Reprocessar traduções</button>
   <h2>📰 Artigos recentes ({len(articles)})</h2>
   <table>
     <tr><th>Tier</th><th>Fonte</th><th>Conteúdo</th><th>Coletado</th><th>Score</th></tr>
@@ -111,6 +126,33 @@ async def api_logs(limit: int = 20):
 async def api_collect(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_pipeline)
     return {"status": "started"}
+
+
+@app.post("/api/reenrich")
+async def api_reenrich(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_reenrich_task)
+    return {"status": "started"}
+
+
+async def _reenrich_task():
+    import httpx
+    from scraper import enrich_with_article
+    from processor import call_claude, translate_articles
+    from glossary import apply_glossary
+    import json
+
+    articles = get_recent_articles(hours=24, limit=100)
+    print(f"🔁 Reprocessando traduções de {len(articles)} artigos...")
+    # Força re-tradução zerando title_pt
+    for a in articles:
+        a["title_pt"] = None
+    articles = await translate_articles(articles)
+    for art in articles:
+        update_article_body(art["id"], art.get("body_orig", ""), art.get("body_pt", ""))
+        # Atualiza também o título traduzido
+        from database import update_article_title
+        update_article_title(art["id"], art.get("title_pt", ""))
+    print(f"✅ Reprocessamento concluído")
 
 
 @app.get("/api/twitter-test")

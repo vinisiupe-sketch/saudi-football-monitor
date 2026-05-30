@@ -119,6 +119,15 @@ def update_article_body(article_id: str, body_orig: str, body_pt: str):
         )
 
 
+def update_article_title(article_id: str, title_pt: str):
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE articles SET title_pt = %s WHERE id = %s",
+            (title_pt, article_id)
+        )
+
+
 def get_recent_articles(hours: int = 24, tier: str = None, limit: int = 100):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
