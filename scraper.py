@@ -69,21 +69,32 @@ def parse_article_text(html: str, url: str) -> str:
     return text[:4000] if len(text) > 200 else ""
 
 
-async def fetch_article_content(url: str, client: httpx.AsyncClient) -> str:
-    """Busca e extrai o conteúdo de um artigo. Retorna string vazia se falhar."""
+def parse_og_image(html: str) -> str:
+    """Extrai a imagem principal via og:image ou twitter:image."""
+    soup = BeautifulSoup(html, "html.parser")
+    for attr in [("property", "og:image"), ("name", "twitter:image"), ("property", "og:image:url")]:
+        tag = soup.find("meta", {attr[0]: attr[1]})
+        if tag and tag.get("content"):
+            return tag["content"]
+    return ""
+
+
+async def fetch_article_content(url: str, client: httpx.AsyncClient) -> tuple[str, str]:
+    """Busca e extrai conteúdo e imagem de um artigo. Retorna (texto, image_url)."""
     if should_skip(url):
-        return ""
+        return "", ""
     try:
         resp = await client.get(url, headers=HEADERS, timeout=10, follow_redirects=True)
         if resp.status_code != 200:
-            return ""
+            return "", ""
         content_type = resp.headers.get("content-type", "")
         if "html" not in content_type:
-            return ""
-        return parse_article_text(resp.text, str(resp.url))
+            return "", ""
+        html = resp.text
+        return parse_article_text(html, str(resp.url)), parse_og_image(html)
     except Exception as e:
         print(f"     ↳ scraper: falha em {url[:60]}... → {type(e).__name__}")
-        return ""
+        return "", ""
 
 
 async def enrich_with_article(article: dict, client: httpx.AsyncClient) -> dict:
@@ -102,11 +113,13 @@ async def enrich_with_article(article: dict, client: httpx.AsyncClient) -> dict:
     for url in urls:
         if should_skip(url):
             continue
-        content = await fetch_article_content(url, client)
+        content, image_url = await fetch_article_content(url, client)
         if content:
             print(f"     ↳ scraper: ✅ {len(content)} chars de {url[:60]}")
             article["body_orig"] = content
             article["scraped_url"] = url
+            if image_url:
+                article["image_url"] = image_url
             return article
 
     return article

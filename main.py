@@ -34,42 +34,66 @@ async def dashboard():
     articles = get_recent_articles(hours=24, limit=50)
     articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
 
-    rows = ""
-    for idx, a in enumerate(articles):
-        tier_color = {"A": "#22c55e", "B": "#eab308", "C": "#94a3b8"}.get(a["source_tier"], "#94a3b8")
+    cards = ""
+    for a in articles:
+        tier_color = {"A": "#16a34a", "B": "#ca8a04", "C": "#64748b"}.get(a["source_tier"], "#64748b")
+        tier_bg    = {"A": "#dcfce7", "B": "#fef9c3", "C": "#f1f5f9"}.get(a["source_tier"], "#f1f5f9")
         title = a.get("title_pt") or a.get("title_orig") or "—"
-        body = a.get("body_pt") or a.get("body_orig") or ""
-        copy_text = f"{title}\\n\\n{body}".replace("`", "'").replace('"', '&quot;')
-        rows += f"""
-        <tr>
-          <td><span style="color:{tier_color};font-weight:bold">Tier {a['source_tier']}</span></td>
-          <td>{a['source_name']}</td>
-          <td>
-            <a href="{a['url']}" target="_blank"><strong>{title}</strong></a>
-            {f'<div style="color:#94a3b8;margin-top:4px;font-size:0.85em">{body}</div>' if body else ''}
-            <button class="copy-btn" onclick="copyText(this, `{copy_text}`)" style="margin-top:6px">📋 Copiar</button>
-          </td>
-          <td style="white-space:nowrap">{(a.get('collected_at') or '')[:16]}</td>
-          <td>{a.get('relevance_score', 0):.2f}</td>
-        </tr>"""
+        body  = (a.get("body_pt") or a.get("body_orig") or "")[:280]
+        if len(body) == 280:
+            body += "…"
+        image_url = a.get("image_url") or ""
+        copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
+        collected = (a.get("collected_at") or "")[:16].replace("T", " ")
+        img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>' if image_url else '<div class="card-img no-img">⚽</div>'
+        cards += f"""
+        <div class="card">
+          {img_html}
+          <div class="card-body">
+            <div class="card-meta">
+              <span class="tier-badge" style="background:{tier_bg};color:{tier_color}">Tier {a['source_tier']}</span>
+              <span class="source">@{a['source_name'].lstrip('@')}</span>
+            </div>
+            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
+            <p class="card-text">{body}</p>
+            <div class="card-footer">
+              <span class="card-date">{collected}</span>
+              <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
+            </div>
+          </div>
+        </div>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>⚽ Saudi Football Monitor</title>
   <style>
-    body {{ font-family: sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 20px; }}
-    h1 {{ color: #38bdf8; }}
-    table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-    th {{ background: #1e293b; padding: 10px; text-align: left; color: #94a3b8; }}
-    td {{ padding: 10px; border-bottom: 1px solid #1e293b; font-size: 0.9em; vertical-align: top; }}
-    a {{ color: #38bdf8; text-decoration: none; }}
-    a:hover {{ text-decoration: underline; }}
-    .btn {{ background: #0284c7; color: white; border: none; padding: 8px 16px; cursor: pointer; border-radius: 4px; margin: 4px; }}
-    .copy-btn {{ background: #334155; color: #94a3b8; border: none; padding: 4px 10px; cursor: pointer; border-radius: 4px; font-size: 0.8em; }}
-    .copy-btn:hover {{ background: #475569; color: #e2e8f0; }}
-    .copy-btn.copied {{ background: #166534; color: #86efac; }}
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
+    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); }}
+    header h1 {{ font-size: 1.2rem; font-weight: 700; color: #0f172a; }}
+    .collect-btn {{ background: #0284c7; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; }}
+    .collect-btn:hover {{ background: #0369a1; }}
+    .count {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 40px; }}
+    .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s; }}
+    .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
+    .card-img {{ height: 180px; background-size: cover; background-position: center; background-color: #e2e8f0; }}
+    .card-img.no-img {{ display: flex; align-items: center; justify-content: center; font-size: 3rem; background: #e2e8f0; }}
+    .card-body {{ padding: 16px; display: flex; flex-direction: column; flex: 1; }}
+    .card-meta {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
+    .tier-badge {{ font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; }}
+    .source {{ font-size: 0.8rem; color: #64748b; }}
+    .card-title {{ font-size: 0.97rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
+    .card-title:hover {{ color: #0284c7; }}
+    .card-text {{ font-size: 0.82rem; color: #475569; line-height: 1.55; flex: 1; }}
+    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #f1f5f9; }}
+    .card-date {{ font-size: 0.75rem; color: #94a3b8; }}
+    .copy-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 0.78rem; }}
+    .copy-btn:hover {{ background: #e2e8f0; }}
+    .copy-btn.copied {{ background: #dcfce7; color: #16a34a; }}
   </style>
   <script>
     function copyText(btn, text) {{
@@ -82,13 +106,14 @@ async def dashboard():
   </script>
 </head>
 <body>
-  <h1>⚽ Saudi Football Monitor</h1>
-  <button class="btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
-  <h2>📰 Artigos recentes ({len(articles)})</h2>
-  <table>
-    <tr><th>Tier</th><th>Fonte</th><th>Conteúdo</th><th>Coletado</th><th>Score</th></tr>
-    {rows}
-  </table>
+  <header>
+    <h1>⚽ Saudi Football Monitor</h1>
+    <button class="collect-btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
+  </header>
+  <p class="count">{len(articles)} notícias nas últimas 24h</p>
+  <div class="grid">
+    {cards}
+  </div>
 </body>
 </html>"""
     return HTMLResponse(content=html)
