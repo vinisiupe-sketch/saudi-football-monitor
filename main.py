@@ -88,7 +88,7 @@ async def dashboard():
             <div class="card-footer">
               <span class="card-date">{collected}</span>
               <div class="btn-row">
-                <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','visto')">👁️ Visto</button>
+                <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
                 <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
                 <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
                 <a class="copy-btn" href="{post_url}" style="text-decoration:none;">✍️ Post</a>
@@ -119,13 +119,13 @@ async def dashboard():
     .flag-summary {{ display: flex; gap: 8px; flex-wrap: wrap; }}
     .fs-badge {{ font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 20px; }}
     .fs-total     {{ background: #f1f5f9; color: #475569; }}
-    .fs-visto     {{ background: #fef9c3; color: #92400e; }}
+    .fs-visto     {{ background: #e0e7ff; color: #3730a3; }}
     .fs-publicado {{ background: #bbf7d0; color: #166534; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 24px; align-items: start; }}
     /* ── CARDS ── */
     .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s, background .2s; }}
     .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
-    .card.flag-visto {{ background: #fef9c3; border: 2px solid #f59e0b; box-shadow: 0 4px 14px rgba(245,158,11,.25); }}
+    .card.flag-visto {{ background: #e0e7ff; border: 2px solid #6366f1; box-shadow: 0 4px 14px rgba(99,102,241,.25); }}
     .card.flag-publicado {{ background: #bbf7d0; border: 2px solid #16a34a; box-shadow: 0 4px 14px rgba(22,163,74,.25); }}
     .card-body {{ padding: 16px; display: flex; flex-direction: column; }}
     .card-meta {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
@@ -144,8 +144,8 @@ async def dashboard():
     a.copy-btn {{ background: #f0fdf4; color: #15803d; }}
     a.copy-btn:hover {{ background: #dcfce7; }}
     .flag-btn {{ border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; transition: all .15s; }}
-    .flag-btn.visto-btn   {{ background: #fef3c7; color: #92400e; }}
-    .flag-btn.visto-btn.on   {{ background: #f59e0b; color: white; }}
+    .flag-btn.visto-btn   {{ background: #e0e7ff; color: #3730a3; }}
+    .flag-btn.visto-btn.on   {{ background: #6366f1; color: white; }}
     .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
     .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
     /* ── FOOTER COLLECT BAR ── */
@@ -196,9 +196,9 @@ async def dashboard():
         const id = card.dataset.id;
         const f  = _flags[id];
         card.classList.remove('flag-visto', 'flag-publicado');
-        card.querySelector('.visto-btn').classList.toggle('on', f === 'visto');
+        card.querySelector('.visto-btn').classList.toggle('on', f === 'naopublicado');
         card.querySelector('.pub-btn').classList.toggle('on', f === 'publicado');
-        if (f === 'visto')          {{ card.classList.add('flag-visto');     nVisto++; }}
+        if (f === 'naopublicado')   {{ card.classList.add('flag-visto');     nVisto++; }}
         else if (f === 'publicado') {{ card.classList.add('flag-publicado'); nPub++;   }}
         else                          nNone++;
       }});
@@ -306,7 +306,7 @@ async def dashboard():
     <span class="count">{len(articles)} notícias nas últimas 24h</span>
     <div class="flag-summary">
       <span class="fs-badge fs-total" id="fs-total">⬜ <span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-visto"     id="fs-visto">👁️ <span id="fc-visto">—</span> vistos</span>
+      <span class="fs-badge fs-visto"     id="fs-visto">🔖 <span id="fc-visto">—</span> não publicados</span>
       <span class="fs-badge fs-publicado" id="fs-pub">📢 <span id="fc-pub">—</span> publicados</span>
     </div>
   </div>
@@ -481,7 +481,7 @@ async def api_set_flag(request: Request):
     flag = body.get("flag") or None  # None = remover
     if not article_id:
         return JSONResponse({"error": "id obrigatório"}, status_code=400)
-    if flag and flag not in ("visto", "publicado"):
+    if flag and flag not in ("naopublicado", "publicado"):
         return JSONResponse({"error": "flag inválida"}, status_code=400)
     set_flag(article_id, flag)
     return {"ok": True, "id": article_id, "flag": flag}
@@ -568,9 +568,9 @@ async def generate_post(request: Request):
         )
         prompt_texto = (
             "Você é um editor de texto esportivo objetivo e direto. O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
-            "TAREFA: reescreva de forma CURTA e DIRETA. "
+            "TAREFA: reescreva de forma CURTA e DIRETA. Máximo 4 frases. "
             "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
-            "Mantenha todas as informações relevantes: quem, o quê, quando, valores e detalhes concretos. "
+            "Mantenha as informações concretas essenciais: quem, o quê, quando, valores. "
             "Estilo: jornalismo esportivo objetivo — sem enrolar, sem inflar.\n\n"
             "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
             "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
@@ -586,9 +586,9 @@ async def generate_post(request: Request):
         )
         prompt_texto = (
             "Você é um editor de texto esportivo objetivo e direto.\n\n"
-            "TAREFA: traduza para o português brasileiro e reescreva de forma CURTA e DIRETA. "
+            "TAREFA: traduza para o português brasileiro e reescreva de forma CURTA e DIRETA. Máximo 4 frases. "
             "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
-            "Mantenha todas as informações relevantes: quem, o quê, quando, valores e detalhes concretos.\n\n"
+            "Mantenha as informações concretas essenciais: quem, o quê, quando, valores.\n\n"
             "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
             "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
             "NOMES DE CLUBES: NUNCA use hífen (Al Hilal, não Al-Hilal).\n"

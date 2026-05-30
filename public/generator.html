@@ -616,15 +616,30 @@ function tweetCaption() {
 async function shareInstagram() {
   const text = document.getElementById('captext').textContent;
   if (!text || text === '—') { alert('Gere o post primeiro.'); return; }
-  // 1. Copy caption
-  try { await navigator.clipboard.writeText(text); } catch(e) {}
-  // 2. Download all slides
-  if (S.template === 'carrossel' && S.selectedCount > 1) {
-    await dlAll();
+
+  // Collect slide blobs
+  const isCarrossel = S.template === 'carrossel' && S.selectedCount > 1;
+  const blobs = [];
+  if (isCarrossel) {
+    for (let i = 0; i < S.selectedCount; i++) blobs.push(await slideToBlob(i));
   } else {
-    await dlCurrent();
+    blobs.push(await slideToBlob(S.curSlide));
   }
-  // 3. Show hint and open Instagram
+  const files = blobs.map((b, i) => new File([b], `slide_${i+1}.png`, { type: 'image/png' }));
+
+  // Try Web Share API (works on mobile — opens native share sheet incl. Instagram)
+  if (navigator.canShare && navigator.canShare({ files, text })) {
+    try {
+      await navigator.share({ files, text });
+      return;
+    } catch(e) {
+      if (e.name === 'AbortError') return; // user cancelled
+    }
+  }
+
+  // Fallback: copy caption + download images + open Instagram
+  try { await navigator.clipboard.writeText(text); } catch(e) {}
+  if (isCarrossel) { await dlAll(); } else { await dlCurrent(); }
   document.getElementById('ig-hint').style.display = 'block';
   setTimeout(() => window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer'), 800);
 }
