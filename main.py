@@ -89,7 +89,7 @@ async def dashboard():
               <span class="card-date">{collected}</span>
               <div style="display:flex;gap:6px;">
                 <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
-                <a class="copy-btn" href="{post_url}" target="_blank" style="text-decoration:none;">✍️ Post</a>
+                <a class="copy-btn" href="{post_url}" style="text-decoration:none;">✍️ Post</a>
               </div>
             </div>
           </div>
