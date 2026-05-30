@@ -65,7 +65,10 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
         "NÃO faça tradução literal: reescreva as frases para soar natural em português. "
         "Use termos corretos do futebol: 'meio-campista', 'zagueiro', 'lateral', 'atacante', 'volante', 'emprestar', 'janela de transferências'. "
         "Se o texto já estiver em português, melhore o estilo apenas se necessário. "
-        "Preserve nomes próprios de jogadores e técnicos. "
+        "REGRA CRÍTICA PARA NOMES DE JOGADORES: JAMAIS invente ou deduza nomes de jogadores. "
+        "Para nomes em árabe que você não conhece com certeza, aplique transliteração direta letra por letra (ex: م=M, ح=H, م=M, د=D → Mohammed). "
+        "Nunca substitua um nome árabe por um nome latino inventado que soe parecido. "
+        "Prefira uma transliteração simples e fiel ao original a qualquer suposição criativa. "
         "Responda APENAS com JSON válido, sem markdown.\n"
         + GLOSSARY_PROMPT
     )
