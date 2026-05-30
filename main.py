@@ -113,8 +113,14 @@ async def dashboard():
     .nav-link {{ padding: 8px 14px; border-radius: 7px; font-size: 0.88rem; font-weight: 600; color: #64748b; text-decoration: none; transition: all .15s; }}
     .nav-link:hover {{ background: #f1f5f9; color: #0f172a; }}
     .nav-link.active {{ background: #eff6ff; color: #0284c7; }}
-    /* ── CONTENT ── */
-    .count {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
+    /* ── TOPBAR ── */
+    .topbar {{ display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin: 14px 24px 6px; }}
+    .count {{ color: #64748b; font-size: 0.85rem; }}
+    .flag-summary {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+    .fs-badge {{ font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 20px; }}
+    .fs-total     {{ background: #f1f5f9; color: #475569; }}
+    .fs-visto     {{ background: #fef9c3; color: #92400e; }}
+    .fs-publicado {{ background: #bbf7d0; color: #166534; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 24px; align-items: start; }}
     /* ── CARDS ── */
     .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s, background .2s; }}
@@ -184,15 +190,23 @@ async def dashboard():
     let _flags = {{}};
 
     function applyFlags() {{
+      let nVisto = 0, nPub = 0, nNone = 0;
       document.querySelectorAll('.card[data-id]').forEach(card => {{
         const id = card.dataset.id;
         const f  = _flags[id];
         card.classList.remove('flag-visto', 'flag-publicado');
         card.querySelector('.visto-btn').classList.toggle('on', f === 'visto');
         card.querySelector('.pub-btn').classList.toggle('on', f === 'publicado');
-        if (f === 'visto')     card.classList.add('flag-visto');
-        if (f === 'publicado') card.classList.add('flag-publicado');
+        if (f === 'visto')          {{ card.classList.add('flag-visto');     nVisto++; }}
+        else if (f === 'publicado') {{ card.classList.add('flag-publicado'); nPub++;   }}
+        else                          nNone++;
       }});
+      const total = nVisto + nPub + nNone;
+      if (total > 0) {{
+        document.getElementById('fc-total').textContent = nNone;
+        document.getElementById('fc-visto').textContent = nVisto;
+        document.getElementById('fc-pub').textContent   = nPub;
+      }}
     }}
 
     async function loadFlags() {{
@@ -274,7 +288,14 @@ async def dashboard():
       <a class="nav-link" href="/gerador">✍️ Criar Post</a>
     </nav>
   </header>
-  <p class="count">{len(articles)} notícias nas últimas 24h</p>
+  <div class="topbar">
+    <span class="count">{len(articles)} notícias nas últimas 24h</span>
+    <div class="flag-summary">
+      <span class="fs-badge fs-total" id="fs-total">⬜ <span id="fc-total">—</span> sem flag</span>
+      <span class="fs-badge fs-visto"     id="fs-visto">👁️ <span id="fc-visto">—</span> vistos</span>
+      <span class="fs-badge fs-publicado" id="fs-pub">📢 <span id="fc-pub">—</span> publicados</span>
+    </div>
+  </div>
   <div class="grid">
     {cards}
   </div>
