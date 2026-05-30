@@ -74,17 +74,13 @@ async def dashboard():
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
         category = category or "geral"
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
-        if image_url:
-            img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>'
-        else:
-            img_html = f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
         art_id = a['id']
         cards += f"""
         <div class="card" data-id="{art_id}">
-          {img_html}
           <div class="card-body">
             <div class="card-meta">
               <span class="tier-badge" style="background:{tier_bg};color:{tier_color}">Tier {a['source_tier']}</span>
+              <span class="cat-emoji" title="{category}">{emoji}</span>
               <span class="source">@{a['source_name'].lstrip('@')}</span>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
@@ -125,11 +121,10 @@ async def dashboard():
     .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
     .card.flag-visto {{ background: #fef9c3; border: 2px solid #f59e0b; box-shadow: 0 4px 14px rgba(245,158,11,.25); }}
     .card.flag-publicado {{ background: #bbf7d0; border: 2px solid #16a34a; box-shadow: 0 4px 14px rgba(22,163,74,.25); }}
-    .card-img {{ height: 180px; background-size: cover; background-position: center; background-color: #e2e8f0; }}
-    .card-img.no-img {{ display: flex; align-items: center; justify-content: center; font-size: 3rem; background: #e2e8f0; }}
     .card-body {{ padding: 16px; display: flex; flex-direction: column; }}
     .card-meta {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
     .tier-badge {{ font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; }}
+    .cat-emoji {{ font-size: 1rem; line-height: 1; }}
     .source {{ font-size: 0.8rem; color: #64748b; }}
     .card-title {{ font-size: 0.97rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
     .card-title:hover {{ color: #0284c7; }}
