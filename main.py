@@ -85,19 +85,18 @@ async def dashboard():
               <span class="cat-emoji" title="{category}">{emoji}</span>
               <span class="source">{moon} @{a['source_name'].lstrip('@')}</span>
             </div>
+            <div class="card-flags">
+              <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
+              <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
+              <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')">🗑️ Descarte</button>
+            </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
             <button class="expand-btn" onclick="toggleExpand(this)">▼ ver mais</button>
             <button class="collapse-btn" onclick="toggleCollapse(this)">▲ ver menos</button>
             <p class="card-text">{body}</p>
             <div class="card-footer">
               <span class="card-date">{collected}</span>
-              <div class="btn-row">
-                <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
-                <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
-                <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')">🗑️ Descarte</button>
-                <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
-                <button class="copy-btn post-btn" data-url="/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1&embedded=1" onclick="openGenerator(this)">🎨 Criar Post</button>
-              </div>
+              <button class="post-btn" data-url="/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1&embedded=1" onclick="openGenerator(this)">🎨 Criar Post</button>
             </div>
           </div>
         </div>"""
@@ -168,14 +167,9 @@ async def dashboard():
     .card-title {{ font-size: 0.97rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
     .card-title:hover {{ color: #0284c7; }}
     .card-text {{ font-size: 0.82rem; color: #475569; line-height: 1.55; }}
-    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; flex-wrap: wrap; gap: 6px; }}
+    .card-flags {{ display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }}
+    .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; }}
     .card-date {{ font-size: 0.75rem; color: #94a3b8; }}
-    .btn-row {{ display: flex; gap: 5px; flex-wrap: wrap; }}
-    .copy-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; }}
-    .copy-btn:hover {{ background: #e2e8f0; }}
-    .copy-btn.copied {{ background: #dcfce7; color: #16a34a; }}
-    a.copy-btn {{ background: #f0fdf4; color: #15803d; }}
-    a.copy-btn:hover {{ background: #dcfce7; }}
     .flag-btn {{ border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; transition: all .15s; }}
     .flag-btn.visto-btn   {{ background: #e0e7ff; color: #3730a3; }}
     .flag-btn.visto-btn.on   {{ background: #6366f1; color: white; }}
@@ -223,19 +217,25 @@ async def dashboard():
     .progress-msg {{ font-size: 0.8rem; color: #64748b; min-height: 16px; }}
     .progress-msg.ok  {{ color: #16a34a; }}
     .progress-msg.err {{ color: #be123c; }}
+    /* ── POST BUTTON ── */
+    .post-btn {{
+      background: #0f172a; color: white; border: none;
+      padding: 7px 16px; border-radius: 8px; cursor: pointer;
+      font-size: 0.78rem; font-weight: 600; white-space: nowrap;
+      transition: background .15s; letter-spacing: -.01em;
+    }}
+    .post-btn:hover {{ background: #1e293b; }}
+    .post-btn.active-gen {{ background: #0284c7; }}
     /* ── INLINE GENERATOR ── */
     .gen-inline {{
       grid-column: 1 / -1;
       border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0,0,0,.3);
+      box-shadow: 0 4px 24px rgba(0,0,0,.25);
       height: 420px;
-      background: #070d1a;
+      background: #1e2436;
     }}
     .gen-inline iframe {{ width: 100%; height: 100%; border: none; display: block; }}
-    .post-btn {{ background: #f0fdf4; color: #15803d; }}
-    .post-btn:hover {{ background: #dcfce7; }}
-    .post-btn.active-gen {{ background: #0284c7 !important; color: white !important; }}
   </style>
   <script>
     // ── Copiar ──

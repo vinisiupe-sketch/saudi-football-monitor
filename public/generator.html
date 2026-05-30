@@ -204,7 +204,8 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
 .drag-hint { text-align: center; margin-top: 6px; font-size: 0.75rem; color: #94a3b8; }
 
 /* ── EMBEDDED MODE ──────────────────────────────── */
-body.embedded { background: #070d1a; }
+body.embedded { background: #1e2436; margin: 0; padding: 0; overflow: hidden; height: 100vh; }
+body.embedded #emb-view { height: 100vh; overflow: hidden; }
 .embed-close {
   position: fixed; top: 10px; right: 12px; z-index: 200;
   background: rgba(255,255,255,.07); color: #475569;
@@ -401,7 +402,7 @@ body.embedded { background: #070d1a; }
   <div style="display:flex; height:100%; min-height:400px;">
 
     <!-- Left: mini preview -->
-    <div style="width:220px;flex-shrink:0;background:#04080f;border-right:1px solid #0f1f35;padding:16px 14px;display:flex;flex-direction:column;align-items:center;gap:10px;">
+    <div style="width:220px;flex-shrink:0;background:#151c2e;border-right:1px solid #2a3452;padding:16px 14px;display:flex;flex-direction:column;align-items:center;gap:10px;">
       <div id="emb-cwrap" style="width:192px;border-radius:8px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.6);position:relative;flex-shrink:0;">
         <div id="emb-cscale" style="transform-origin:top left;width:1080px;height:1350px;"></div>
         <div id="emb-drag" style="position:absolute;inset:0;cursor:grab;z-index:20;border-radius:8px;"></div>
@@ -415,13 +416,13 @@ body.embedded { background: #070d1a; }
     </div>
 
     <!-- Right: controls -->
-    <div style="flex:1;padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;background:#070d1a;">
+    <div style="flex:1;padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;background:#1e2436;">
 
       <!-- PRE state -->
       <div id="emb-pre" style="display:flex;flex-direction:column;gap:10px;">
         <div>
           <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Notícia</div>
-          <textarea id="emb-news" rows="4" style="width:100%;background:#0a1628;border:1px solid #1e3a5f;border-radius:7px;color:#cbd5e1;padding:9px 12px;font-size:0.8rem;font-family:inherit;resize:none;line-height:1.5;transition:border-color .2s;" placeholder="Texto pré-carregado da notícia..."></textarea>
+          <textarea id="emb-news" rows="4" style="width:100%;background:#151c2e;border:1px solid #2a3452;border-radius:7px;color:#cbd5e1;padding:9px 12px;font-size:0.8rem;font-family:inherit;resize:none;line-height:1.5;transition:border-color .2s;" placeholder="Texto pré-carregado da notícia..."></textarea>
         </div>
         <div>
           <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Imagens</div>
@@ -442,11 +443,11 @@ body.embedded { background: #070d1a; }
       <div id="emb-post" style="display:none;flex-direction:column;gap:10px;">
         <div>
           <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Título do card</div>
-          <input type="text" id="emb-title" style="width:100%;background:#0a1628;border:1px solid #1e3a5f;border-radius:7px;color:#e2e8f0;padding:8px 12px;font-size:0.82rem;font-family:inherit;transition:border-color .2s;" oninput="document.getElementById('etitle').value=this.value; upd();">
+          <input type="text" id="emb-title" style="width:100%;background:#151c2e;border:1px solid #2a3452;border-radius:7px;color:#e2e8f0;padding:8px 12px;font-size:0.82rem;font-family:inherit;transition:border-color .2s;" oninput="document.getElementById('etitle').value=this.value; upd();">
         </div>
         <div style="flex:1;">
           <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Legenda <span style="font-weight:400;opacity:.6">(editável)</span></div>
-          <textarea id="emb-caption" rows="5" style="width:100%;background:#0a1628;border:1px solid #1e3a5f;border-radius:7px;color:#cbd5e1;padding:9px 12px;font-size:0.78rem;font-family:inherit;resize:none;line-height:1.55;transition:border-color .2s;"></textarea>
+          <textarea id="emb-caption" rows="5" style="width:100%;background:#151c2e;border:1px solid #2a3452;border-radius:7px;color:#cbd5e1;padding:9px 12px;font-size:0.78rem;font-family:inherit;resize:none;line-height:1.55;transition:border-color .2s;"></textarea>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
           <button class="emb-btn-primary" id="emb-dlbtn" onclick="embDownload()">⬇️ PNG</button>
