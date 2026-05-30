@@ -435,7 +435,7 @@ async function process() {
         news, template: S.template, num_slides: S.selectedCount,
         already_translated: _urlP.get('translated') === '1',
         source: _urlP.get('source') || '',
-        tier: _urlP.get('tier') || '',
+        moon: _urlP.get('moon') || '',
       }),
     });
     const data = await res.json();
@@ -600,9 +600,25 @@ async function dlSlide(idx,filename) {
 function setDs(m) { document.getElementById('dlst').textContent=m; }
 function wait(ms) { return new Promise(r=>setTimeout(r,ms)); }
 
+async function copyToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try { await navigator.clipboard.writeText(text); return true; } catch(e) {}
+  }
+  // Fallback for older/restricted browsers
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  const ok = document.execCommand('copy');
+  document.body.removeChild(ta);
+  return ok;
+}
+
 function copyCaption() {
-  navigator.clipboard.writeText(document.getElementById('captext').value).then(()=>{
-    const b=event.target; b.textContent='✅ Copiado!'; setTimeout(()=>b.textContent='📋 Copiar',2000);
+  const text = document.getElementById('captext').value;
+  copyToClipboard(text).then(ok => {
+    const b = event.target;
+    b.textContent = ok ? '✅ Copiado!' : '❌ Erro';
+    setTimeout(() => b.textContent = '📋 Copiar', 2000);
   });
 }
 
@@ -628,7 +644,7 @@ async function shareInstagram() {
   const files = blobs.map((b, i) => new File([b], `arabao_${i+1}.png`, { type: 'image/png' }));
 
   // Always copy caption first (Instagram ignores text in Web Share by design)
-  try { await navigator.clipboard.writeText(text); } catch(e) {}
+  await copyToClipboard(text);
 
   // Mobile: Web Share API — opens native share sheet (Instagram, WhatsApp, etc.)
   if (navigator.canShare && navigator.canShare({ files })) {

@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 import httpx
 from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags
 from scheduler import run_pipeline, create_scheduler
+from sources import SOURCE_MOON
 
 scheduler = None
 
@@ -61,7 +62,8 @@ async def dashboard():
     for a in articles:
         tier_color = {"A": "#16a34a", "B": "#ca8a04", "C": "#64748b"}.get(a["source_tier"], "#64748b")
         tier_bg    = {"A": "#dcfce7", "B": "#fef9c3", "C": "#f1f5f9"}.get(a["source_tier"], "#f1f5f9")
-        moon       = {"A": "🌕", "B": "🌓", "C": "🌗"}.get(a["source_tier"], "")
+        handle     = a.get("source_name", "").lstrip("@")
+        moon       = SOURCE_MOON.get(handle, {"A": "🌕", "B": "🌖", "C": "🌗"}.get(a["source_tier"], ""))
         title = a.get("title_pt") or a.get("title_orig") or "—"
         body  = (a.get("body_pt") or a.get("body_orig") or "")[:280]
         if len(body) == 280:
@@ -71,7 +73,7 @@ async def dashboard():
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
         source_handle = a.get("source_name", "").lstrip("@")
         post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + source_handle
-        post_url = f"/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&tier={quote(a.get('source_tier',''))}&translated=1"
+        post_url = f"/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1"
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
         category = category or "geral"
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
@@ -579,8 +581,7 @@ async def generate_post(request: Request):
     n = min(6, max(3, int(num_slides))) if template == "carrossel" else 1
     already_translated = bool(body.get("already_translated", False))
     source = (body.get("source") or "").strip().lstrip("@")
-    tier = (body.get("tier") or "").strip().upper()
-    moon = {"A": "🌕", "B": "🌓", "C": "🌗"}.get(tier, "")
+    moon = (body.get("moon") or "").strip()
     source_footer = f"🗞️ @{source} {moon}".strip() if source else ""
 
     if not news:

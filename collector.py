@@ -49,8 +49,25 @@ def compute_relevance(text: str, tier: str) -> float:
     return round((keyword_score * 0.7) + (tier_bonus * 0.3), 3)
 
 
+FOOTBALL_REQUIRED = [
+    # must match at least one of these to be considered football content
+    "football", "futebol", "soccer", "league", "liga", "clube", "club", "transfer",
+    "contrato", "jogador", "player", "técnico", "coach", "treinador", "gol", "goal",
+    "partida", "jogo", "match", "game", "temporada", "season", "copa", "cup",
+    "campeonato", "championship", "torneio", "tournament", "escalação", "lineup",
+    "pro league", "saudi pro", "roshn", "dls", "spl",
+    "al hilal", "al nassr", "al ittihad", "al ahli", "al shabab", "al fateh",
+    "al ettifaq", "al qadsiah", "al fayha", "al taawoun", "al wahda", "damac",
+    "al-hilal", "al-nassr", "al-ittihad", "al-ahli", "al-shabab",
+    "الهلال", "النصر", "الاتحاد", "الأهلي", "الشباب", "الفتح", "التعاون",
+    "دوري", "مباراة", "لاعب", "مدرب",
+]
+
 def is_relevant(text: str, min_hits: int = 3) -> bool:
     text_lower = text.lower()
+    # Must have at least one football-specific term
+    if not any(kw in text_lower for kw in FOOTBALL_REQUIRED):
+        return False
     hits = 0
     for lang_kws in KEYWORDS.values():
         for kw in lang_kws:
