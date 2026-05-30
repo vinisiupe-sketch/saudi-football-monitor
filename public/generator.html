@@ -204,17 +204,17 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
 .drag-hint { text-align: center; margin-top: 6px; font-size: 0.75rem; color: #94a3b8; }
 
 /* ── EMBEDDED MODE ──────────────────────────────── */
-body.embedded { background: #1e2436; margin: 0; padding: 0; overflow: hidden; height: 100vh; }
+body.embedded { background: #8c8c8c; margin: 0; padding: 0; overflow: hidden; height: 100vh; }
 body.embedded #emb-view { height: 100vh; overflow: hidden; }
 .embed-close {
   position: fixed; top: 10px; right: 12px; z-index: 200;
-  background: rgba(255,255,255,.07); color: #475569;
-  border: 1px solid #1e293b; width: 26px; height: 26px;
+  background: rgba(0,0,0,.2); color: rgba(255,255,255,.6);
+  border: 1px solid rgba(255,255,255,.2); width: 26px; height: 26px;
   border-radius: 50%; font-size: 0.8rem; font-weight: 700;
   cursor: pointer; display: flex; align-items: center;
   justify-content: center; transition: all .15s; line-height: 1;
 }
-.embed-close:hover { background: rgba(255,255,255,.15); color: #e2e8f0; }
+.embed-close:hover { background: rgba(0,0,0,.4); color: white; }
 /* Embedded button set */
 .emb-btn-primary {
   background: #0284c7; color: white; border: none;
@@ -225,16 +225,16 @@ body.embedded #emb-view { height: 100vh; overflow: hidden; }
 .emb-btn-primary:hover:not(:disabled) { background: #0369a1; }
 .emb-btn-primary:disabled { background: #1e293b; color: #334155; cursor: not-allowed; }
 .emb-btn-sec {
-  background: #1e293b; color: #64748b; border: 1px solid #1e3a5f;
+  background: rgba(0,0,0,.2); color: rgba(255,255,255,.8); border: 1px solid rgba(255,255,255,.2);
   padding: 7px 12px; border-radius: 7px; font-size: 0.78rem;
   font-weight: 600; cursor: pointer; transition: all .15s; white-space: nowrap;
 }
-.emb-btn-sec:hover { background: #0f2744; color: #94a3b8; }
+.emb-btn-sec:hover { background: rgba(0,0,0,.35); color: white; }
 .emb-btn-back {
-  background: none; color: #334155; border: none; padding: 7px 8px;
+  background: none; color: rgba(255,255,255,.4); border: none; padding: 7px 8px;
   font-size: 0.78rem; font-weight: 600; cursor: pointer; transition: color .15s;
 }
-.emb-btn-back:hover { color: #475569; }
+.emb-btn-back:hover { color: rgba(255,255,255,.7); }
 .emb-sdot {
   width: 6px; height: 6px; border-radius: 50%; background: #334155;
   cursor: pointer; transition: all .2s; display: inline-block; flex-shrink: 0;
@@ -402,31 +402,31 @@ body.embedded #emb-view { height: 100vh; overflow: hidden; }
   <div style="display:flex; height:100%; min-height:400px;">
 
     <!-- Left: mini preview -->
-    <div style="width:220px;flex-shrink:0;background:#151c2e;border-right:1px solid #2a3452;padding:16px 14px;display:flex;flex-direction:column;align-items:center;gap:10px;">
+    <div style="width:220px;flex-shrink:0;background:#767676;border-right:1px solid #6b6b6b;padding:16px 14px;display:flex;flex-direction:column;align-items:center;gap:10px;">
       <div id="emb-cwrap" style="width:192px;border-radius:8px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.6);position:relative;flex-shrink:0;">
         <div id="emb-cscale" style="transform-origin:top left;width:1080px;height:1350px;"></div>
         <div id="emb-drag" style="position:absolute;inset:0;cursor:grab;z-index:20;border-radius:8px;"></div>
       </div>
       <div id="emb-snav" style="display:flex;gap:4px;justify-content:center;flex-wrap:wrap;"></div>
-      <label style="font-size:0.72rem;color:#334155;cursor:pointer;background:#0f1f35;border:none;padding:5px 10px;border-radius:6px;display:flex;align-items:center;gap:4px;transition:background .15s;margin-top:auto;">
+      <label style="font-size:0.72rem;color:rgba(255,255,255,.5);cursor:pointer;background:rgba(0,0,0,.2);border:none;padding:5px 10px;border-radius:6px;display:flex;align-items:center;gap:4px;transition:background .15s;margin-top:auto;">
         🔄 Trocar imagem
         <input type="file" accept="image/*" style="display:none" onchange="swapImage(this)">
       </label>
-      <div style="font-size:0.65rem;color:#1e3a5f;text-align:center;line-height:1.4;">🖱 Arraste para<br>reposicionar</div>
+      <div style="font-size:0.65rem;color:rgba(255,255,255,.25);text-align:center;line-height:1.4;">🖱 Arraste para<br>reposicionar</div>
     </div>
 
     <!-- Right: controls -->
-    <div style="flex:1;padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;background:#1e2436;">
+    <div style="flex:1;padding:16px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:12px;background:#8c8c8c;">
 
       <!-- PRE state -->
       <div id="emb-pre" style="display:flex;flex-direction:column;gap:10px;">
         <div>
-          <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Notícia</div>
-          <textarea id="emb-news" rows="4" style="width:100%;background:#151c2e;border:1px solid #2a3452;border-radius:7px;color:#cbd5e1;padding:9px 12px;font-size:0.8rem;font-family:inherit;resize:none;line-height:1.5;transition:border-color .2s;" placeholder="Texto pré-carregado da notícia..."></textarea>
+          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Notícia</div>
+          <textarea id="emb-news" rows="4" style="width:100%;background:#707070;border:1px solid #5a5a5a;border-radius:7px;color:#fff;padding:9px 12px;font-size:0.8rem;font-family:inherit;resize:none;line-height:1.5;transition:border-color .2s;" placeholder="Texto pré-carregado da notícia..."></textarea>
         </div>
         <div>
-          <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Imagens</div>
-          <label id="emb-upload-label" style="display:flex;align-items:center;gap:7px;background:#0a1628;border:1px dashed #1e3a5f;border-radius:7px;color:#334155;padding:8px 12px;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all .2s;">
+          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Imagens</div>
+          <label id="emb-upload-label" style="display:flex;align-items:center;gap:7px;background:rgba(0,0,0,.15);border:1px dashed rgba(255,255,255,.3);border-radius:7px;color:rgba(255,255,255,.6);padding:8px 12px;font-size:0.78rem;font-weight:600;cursor:pointer;transition:all .2s;">
             📁 <span id="emb-upload-txt">Selecionar imagens</span>
             <input type="file" accept="image/*" multiple style="display:none" onchange="handleImages(this)">
           </label>
@@ -434,20 +434,20 @@ body.embedded #emb-view { height: 100vh; overflow: hidden; }
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
           <button id="emb-gbtn" class="emb-btn-primary" onclick="embGenerate()">⚡ Gerar Post</button>
-          <span id="emb-pst" style="font-size:0.78rem;color:#334155;"></span>
+          <span id="emb-pst" style="font-size:0.78rem;color:rgba(255,255,255,.5);"></span>
         </div>
-        <div id="emb-err" style="display:none;color:#f87171;font-size:0.78rem;background:#1c0808;border:1px solid #3f1010;padding:7px 10px;border-radius:6px;"></div>
+        <div id="emb-err" style="display:none;color:#fca5a5;font-size:0.78rem;background:rgba(0,0,0,.3);border:1px solid rgba(252,165,165,.3);padding:7px 10px;border-radius:6px;"></div>
       </div>
 
       <!-- POST state -->
       <div id="emb-post" style="display:none;flex-direction:column;gap:10px;">
         <div>
-          <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Título do card</div>
-          <input type="text" id="emb-title" style="width:100%;background:#151c2e;border:1px solid #2a3452;border-radius:7px;color:#e2e8f0;padding:8px 12px;font-size:0.82rem;font-family:inherit;transition:border-color .2s;" oninput="document.getElementById('etitle').value=this.value; upd();">
+          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Título do card</div>
+          <input type="text" id="emb-title" style="width:100%;background:#707070;border:1px solid #5a5a5a;border-radius:7px;color:#e2e8f0;padding:8px 12px;font-size:0.82rem;font-family:inherit;transition:border-color .2s;" oninput="document.getElementById('etitle').value=this.value; upd();">
         </div>
         <div style="flex:1;">
-          <div style="font-size:0.65rem;font-weight:700;color:#334155;text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Legenda <span style="font-weight:400;opacity:.6">(editável)</span></div>
-          <textarea id="emb-caption" rows="5" style="width:100%;background:#151c2e;border:1px solid #2a3452;border-radius:7px;color:#cbd5e1;padding:9px 12px;font-size:0.78rem;font-family:inherit;resize:none;line-height:1.55;transition:border-color .2s;"></textarea>
+          <div style="font-size:0.65rem;font-weight:700;color:rgba(255,255,255,.55);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;">Legenda <span style="font-weight:400;opacity:.6">(editável)</span></div>
+          <textarea id="emb-caption" rows="5" style="width:100%;background:#707070;border:1px solid #5a5a5a;border-radius:7px;color:#fff;padding:9px 12px;font-size:0.78rem;font-family:inherit;resize:none;line-height:1.55;transition:border-color .2s;"></textarea>
         </div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
           <button class="emb-btn-primary" id="emb-dlbtn" onclick="embDownload()">⬇️ PNG</button>
@@ -457,8 +457,8 @@ body.embedded #emb-view { height: 100vh; overflow: hidden; }
           <button class="emb-btn-sec" onclick="embCopy()">📋 Copiar</button>
           <button class="emb-btn-back" onclick="embReset()">← Editar</button>
         </div>
-        <div id="emb-dlst" style="font-size:0.72rem;color:#334155;min-height:14px;"></div>
-        <p id="emb-ig-hint" style="display:none;font-size:0.72rem;color:#475569;line-height:1.5;">📋 Legenda copiada! Selecione as imagens no Instagram e cole.</p>
+        <div id="emb-dlst" style="font-size:0.72rem;color:rgba(255,255,255,.5);min-height:14px;"></div>
+        <p id="emb-ig-hint" style="display:none;font-size:0.72rem;color:rgba(255,255,255,.5);line-height:1.5;">📋 Legenda copiada! Selecione as imagens no Instagram e cole.</p>
       </div>
 
     </div><!-- /right -->

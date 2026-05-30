@@ -78,6 +78,7 @@ async def dashboard():
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
         art_id = a['id']
         cards += f"""
+        <div class="card-slot" data-id="{art_id}">
         <div class="card" data-id="{art_id}">
           <div class="card-body">
             <div class="card-meta">
@@ -86,9 +87,9 @@ async def dashboard():
               <span class="source">{moon} @{a['source_name'].lstrip('@')}</span>
             </div>
             <div class="card-flags">
-              <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
-              <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
-              <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')">🗑️ Descarte</button>
+              <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">🔒<span class="flag-label">Não pub.</span></button>
+              <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">✅<span class="flag-label">Publicado</span></button>
+              <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Descarte">🗑️<span class="flag-label">Descarte</span></button>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
             <button class="expand-btn" onclick="toggleExpand(this)">▼ ver mais</button>
@@ -99,6 +100,7 @@ async def dashboard():
               <button class="post-btn" data-url="/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&moon={quote(moon)}&translated=1&embedded=1" onclick="openGenerator(this)">🎨 Criar Post</button>
             </div>
           </div>
+        </div>
         </div>"""
 
     html = f"""<!DOCTYPE html>
@@ -170,13 +172,19 @@ async def dashboard():
     .card-flags {{ display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }}
     .card-footer {{ display: flex; align-items: center; justify-content: space-between; margin-top: 14px; padding-top: 10px; border-top: 1px solid #e2e8f0; }}
     .card-date {{ font-size: 0.75rem; color: #94a3b8; }}
-    .flag-btn {{ border: none; padding: 5px 10px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; white-space: nowrap; transition: all .15s; }}
+    .flag-btn {{
+      border: none; padding: 5px 9px; border-radius: 6px; cursor: pointer;
+      font-size: 0.8rem; transition: all .15s; display: inline-flex;
+      align-items: center; gap: 4px; white-space: nowrap;
+    }}
     .flag-btn.visto-btn   {{ background: #e0e7ff; color: #3730a3; }}
     .flag-btn.visto-btn.on   {{ background: #6366f1; color: white; }}
     .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
     .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
     .flag-btn.desc-btn    {{ background: #ffe4e6; color: #be123c; }}
     .flag-btn.desc-btn.on    {{ background: #f43f5e; color: white; }}
+    .flag-btn .flag-label {{ font-size: 0.7rem; font-weight: 600; display: none; }}
+    .flag-btn.on .flag-label {{ display: inline; }}
     /* ── COLLAPSE ── */
     .card-collapsed:not(.user-expanded) .card-text,
     .card-collapsed:not(.user-expanded) .card-footer {{ display: none; }}
@@ -226,14 +234,19 @@ async def dashboard():
     }}
     .post-btn:hover {{ background: #1e293b; }}
     .post-btn.active-gen {{ background: #0284c7; }}
+    /* ── CARD SLOT — wraps card + inline generator ── */
+    .card-slot {{ display: contents; }}
+    .card-slot.gen-open {{
+      display: flex; flex-direction: row; align-items: flex-start;
+      grid-column: 1 / -1; gap: 14px;
+    }}
+    .card-slot.gen-open > .card {{ width: 320px; flex-shrink: 0; }}
+    .card-slot.hidden-by-filter {{ display: none !important; }}
     /* ── INLINE GENERATOR ── */
     .gen-inline {{
-      grid-column: 1 / -1;
-      border-radius: 12px;
-      overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0,0,0,.25);
-      height: 420px;
-      background: #1e2436;
+      flex: 1; border-radius: 12px; overflow: hidden; min-width: 0;
+      box-shadow: 0 4px 24px rgba(0,0,0,.2);
+      height: 420px; background: #8c8c8c;
     }}
     .gen-inline iframe {{ width: 100%; height: 100%; border: none; display: block; }}
   </style>
@@ -269,10 +282,11 @@ async def dashboard():
         if (!f) card.classList.remove('user-expanded');
         card.classList.toggle('card-collapsed', !!f);
       }});
-      // Reorder: sem flag → publicado → não publicado → descartado
+      // Reorder by card-slot
       const order = {{ undefined: 0, 'publicado': 1, 'naopublicado': 2, 'descartado': 3 }};
-      cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
-      cards.forEach(c => grid.appendChild(c));
+      const slots = Array.from(document.querySelectorAll('.card-slot[data-id]'));
+      slots.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
+      slots.forEach(s => grid.appendChild(s));
       const total = nVisto + nPub + nNone + nDesc;
       if (total > 0) {{
         document.getElementById('fc-total').textContent = nNone;
@@ -284,11 +298,11 @@ async def dashboard():
     }}
 
     function applyFilter() {{
-      document.querySelectorAll('.card[data-id]').forEach(card => {{
-        const id = card.dataset.id;
+      document.querySelectorAll('.card-slot[data-id]').forEach(slot => {{
+        const id = slot.dataset.id;
         const f  = _flags[id] || 'none';
         const show = !_activeFilter || f === _activeFilter;
-        card.classList.toggle('hidden-by-filter', !show);
+        slot.classList.toggle('hidden-by-filter', !show);
       }});
       ['fs-total','fs-visto','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
       if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
@@ -320,35 +334,34 @@ async def dashboard():
     }}
 
     // ── Inline Generator ──
+    function closeAllGenerators() {{
+      document.querySelectorAll('.card-slot.gen-open').forEach(slot => {{
+        slot.classList.remove('gen-open');
+        const g = slot.querySelector('.gen-inline');
+        if (g) g.remove();
+      }});
+      document.querySelectorAll('.post-btn.active-gen').forEach(b => b.classList.remove('active-gen'));
+    }}
+
     function openGenerator(btn) {{
       const cardEl = btn.closest('.card');
+      const slotEl = btn.closest('.card-slot');
       const id = cardEl.dataset.id;
       const url = btn.dataset.url;
-      const existing = document.getElementById('gen-inline-wrap');
-      if (existing) {{
-        const prevBtn = document.querySelector('.post-btn.active-gen');
-        if (prevBtn) prevBtn.classList.remove('active-gen');
-        const sameCard = existing.dataset.cardId === id;
-        existing.remove();
-        if (sameCard) return; // toggle off
-      }}
+      const alreadyOpen = slotEl.classList.contains('gen-open');
+      closeAllGenerators();
+      if (alreadyOpen) return; // toggle off
       const wrap = document.createElement('div');
-      wrap.id = 'gen-inline-wrap';
-      wrap.dataset.cardId = id;
       wrap.className = 'gen-inline';
-      wrap.innerHTML = `<iframe src="${{url}}" allow="clipboard-write"></iframe>`;
-      cardEl.insertAdjacentElement('afterend', wrap);
+      wrap.innerHTML = `<iframe src="${{url}}" allow="clipboard-write" scrolling="no"></iframe>`;
+      slotEl.appendChild(wrap);
+      slotEl.classList.add('gen-open');
       btn.classList.add('active-gen');
-      setTimeout(() => wrap.scrollIntoView({{ behavior: 'smooth', block: 'nearest' }}), 50);
+      setTimeout(() => slotEl.scrollIntoView({{ behavior: 'smooth', block: 'nearest' }}), 80);
     }}
 
     window.addEventListener('message', e => {{
-      if (e.data === 'close-generator') {{
-        const wrap = document.getElementById('gen-inline-wrap');
-        if (wrap) wrap.remove();
-        const btn = document.querySelector('.post-btn.active-gen');
-        if (btn) btn.classList.remove('active-gen');
-      }}
+      if (e.data === 'close-generator') closeAllGenerators();
     }});
 
     async function toggleFlag(id, type) {{
