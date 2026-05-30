@@ -228,9 +228,9 @@ async def dashboard():
       grid-column: 1 / -1;
       border-radius: 12px;
       overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0,0,0,.15);
-      height: 840px;
-      background: white;
+      box-shadow: 0 4px 24px rgba(0,0,0,.3);
+      height: 420px;
+      background: #070d1a;
     }}
     .gen-inline iframe {{ width: 100%; height: 100%; border: none; display: block; }}
     .post-btn {{ background: #f0fdf4; color: #15803d; }}
