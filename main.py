@@ -10,7 +10,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_collection_logs
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs
 from scheduler import run_pipeline, create_scheduler
 
 scheduler = None
@@ -144,7 +144,10 @@ async def dashboard():
 <body>
   <header>
     <h1>⚽ Saudi Football Monitor</h1>
-    <button class="collect-btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
+    <div style="display:flex;gap:8px;">
+      <a href="/descartadas" class="collect-btn" style="text-decoration:none;background:#64748b;">🗂️ Descartadas</a>
+      <button class="collect-btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
+    </div>
   </header>
   <p class="count">{len(articles)} notícias nas últimas 24h</p>
   <div class="grid">
@@ -187,6 +190,103 @@ async def api_collect(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_pipeline, True)  # force=True ignora período inativo
     return {"status": "started"}
 
+
+
+@app.get("/descartadas", response_class=HTMLResponse)
+async def descartadas():
+    articles = get_low_score_articles(hours=24, limit=200)
+
+    CATEGORY_EMOJI = {
+        "transferencia": ("🔄", "#dbeafe", "#1d4ed8"),
+        "sondagem":      ("🔎", "#e0f2fe", "#0369a1"),
+        "patrocinio":    ("🤝", "#ede9fe", "#6d28d9"),
+        "planejamento":  ("📋", "#f0fdf4", "#166534"),
+        "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
+        "resultado":     ("⚽", "#dcfce7", "#15803d"),
+        "competicao":    ("🏆", "#fef9c3", "#a16207"),
+        "treino":        ("🏋️", "#f0fdf4", "#166534"),
+        "financeiro":    ("💰", "#fdf4ff", "#7e22ce"),
+        "lesao":         ("🩺", "#fff1f2", "#be123c"),
+        "geral":         ("📰", "#f1f5f9", "#475569"),
+    }
+
+    cards = ""
+    for a in articles:
+        tier_color = {"A": "#16a34a", "B": "#ca8a04", "C": "#64748b"}.get(a["source_tier"], "#64748b")
+        tier_bg    = {"A": "#dcfce7", "B": "#fef9c3", "C": "#f1f5f9"}.get(a["source_tier"], "#f1f5f9")
+        title = a.get("title_orig") or "—"
+        body  = (a.get("body_orig") or "")[:280]
+        if len(body) == 280:
+            body += "…"
+        image_url = a.get("image_url") or ""
+        category = a.get("category") or "geral"
+        score = a.get("relevance_score", 0)
+        collected = (a.get("collected_at") or "")[:16].replace("T", " ")
+        emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
+        if image_url:
+            img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>'
+        else:
+            img_html = f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
+        cards += f"""
+        <div class="card">
+          {img_html}
+          <div class="card-body">
+            <div class="card-meta">
+              <span class="tier-badge" style="background:{tier_bg};color:{tier_color}">Tier {a['source_tier']}</span>
+              <span class="source">@{a['source_name'].lstrip('@')}</span>
+              <span class="score-badge">score {score:.2f}</span>
+            </div>
+            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
+            <p class="card-text">{body}</p>
+            <div class="card-footer">
+              <span class="card-date">{collected}</span>
+            </div>
+          </div>
+        </div>"""
+
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>🗂️ Descartadas — Saudi Football Monitor</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
+    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); }}
+    header h1 {{ font-size: 1.2rem; font-weight: 700; color: #0f172a; }}
+    .back-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; text-decoration: none; }}
+    .back-btn:hover {{ background: #e2e8f0; }}
+    .info {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
+    .info strong {{ color: #0f172a; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 40px; }}
+    .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; opacity: 0.88; }}
+    .card-img {{ height: 160px; background-size: cover; background-position: center; background-color: #e2e8f0; }}
+    .card-img.no-img {{ display: flex; align-items: center; justify-content: center; font-size: 2.5rem; }}
+    .card-body {{ padding: 14px; display: flex; flex-direction: column; flex: 1; }}
+    .card-meta {{ display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }}
+    .tier-badge {{ font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; }}
+    .source {{ font-size: 0.78rem; color: #64748b; }}
+    .score-badge {{ font-size: 0.7rem; background: #fff7ed; color: #c2410c; padding: 2px 7px; border-radius: 20px; font-weight: 700; margin-left: auto; }}
+    .card-title {{ font-size: 0.9rem; font-weight: 700; color: #0f172a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 6px; }}
+    .card-title:hover {{ color: #0284c7; }}
+    .card-text {{ font-size: 0.8rem; color: #64748b; line-height: 1.55; flex: 1; }}
+    .card-footer {{ display: flex; align-items: center; justify-content: flex-end; margin-top: 12px; padding-top: 8px; border-top: 1px solid #f1f5f9; }}
+    .card-date {{ font-size: 0.72rem; color: #94a3b8; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🗂️ Notícias Descartadas</h1>
+    <a href="/" class="back-btn">← Voltar ao Monitor</a>
+  </header>
+  <p class="info">{len(articles)} notícias com score abaixo de 0.34 nas últimas 24h &nbsp;·&nbsp; <strong>Textos originais, sem tradução</strong></p>
+  <div class="grid">
+    {cards if cards else '<p style="padding:40px 24px;color:#94a3b8;">Nenhuma notícia descartada nas últimas 24h.</p>'}
+  </div>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
 
 
 @app.get("/gerador", response_class=HTMLResponse)

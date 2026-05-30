@@ -135,6 +135,19 @@ def update_article_title(article_id: str, title_pt: str):
         )
 
 
+def get_low_score_articles(hours: int = 24, limit: int = 200):
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT * FROM articles
+            WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::TEXT
+              AND is_duplicate = 0
+              AND relevance_score < 0.34
+            ORDER BY relevance_score DESC, collected_at DESC LIMIT %s
+        """, (hours, limit))
+        return [dict(r) for r in c.fetchall()]
+
+
 def get_recent_articles(hours: int = 24, tier: str = None, limit: int = 100):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
