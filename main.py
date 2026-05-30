@@ -105,13 +105,18 @@ async def dashboard():
   <title>⚽ Saudi Football Monitor</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
-    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); }}
-    header h1 {{ font-size: 1.2rem; font-weight: 700; color: #0f172a; }}
-    .collect-btn {{ background: #0284c7; color: white; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; }}
-    .collect-btn:hover {{ background: #0369a1; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; display: flex; flex-direction: column; min-height: 100vh; }}
+    /* ── NAV ── */
+    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 0 24px; display: flex; align-items: center; gap: 32px; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); height: 56px; }}
+    .brand {{ font-size: 1.1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; }}
+    nav {{ display: flex; gap: 4px; }}
+    .nav-link {{ padding: 8px 14px; border-radius: 7px; font-size: 0.88rem; font-weight: 600; color: #64748b; text-decoration: none; transition: all .15s; }}
+    .nav-link:hover {{ background: #f1f5f9; color: #0f172a; }}
+    .nav-link.active {{ background: #eff6ff; color: #0284c7; }}
+    /* ── CONTENT ── */
     .count {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 40px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px; flex: 1; }}
+    /* ── CARDS ── */
     .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s; }}
     .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
     .card-img {{ height: 180px; background-size: cover; background-position: center; background-color: #e2e8f0; }}
@@ -130,6 +135,33 @@ async def dashboard():
     .copy-btn.copied {{ background: #dcfce7; color: #16a34a; }}
     a.copy-btn {{ background: #f0fdf4; color: #15803d; }}
     a.copy-btn:hover {{ background: #dcfce7; }}
+    /* ── FOOTER COLLECT BAR ── */
+    .collect-bar {{
+      position: sticky; bottom: 0; background: white;
+      border-top: 1px solid #e2e8f0; padding: 12px 24px;
+      display: flex; align-items: center; gap: 16px;
+      box-shadow: 0 -2px 8px rgba(0,0,0,.06); z-index: 10;
+    }}
+    .collect-btn {{
+      background: #0284c7; color: white; border: none; padding: 9px 22px;
+      border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 700;
+      transition: background .15s; white-space: nowrap;
+    }}
+    .collect-btn:hover:not(:disabled) {{ background: #0369a1; }}
+    .collect-btn:disabled {{ background: #94a3b8; cursor: not-allowed; }}
+    .progress-wrap {{ flex: 1; display: flex; flex-direction: column; gap: 4px; }}
+    .progress-track {{ height: 6px; background: #e2e8f0; border-radius: 99px; overflow: hidden; display: none; }}
+    .progress-bar {{ height: 100%; width: 0%; background: #0284c7; border-radius: 99px; transition: width .4s ease; }}
+    .progress-bar.indeterminate {{
+      width: 35%; animation: slide 1.2s ease-in-out infinite;
+    }}
+    @keyframes slide {{
+      0%   {{ transform: translateX(-100%); }}
+      100% {{ transform: translateX(350%); }}
+    }}
+    .progress-msg {{ font-size: 0.8rem; color: #64748b; min-height: 16px; }}
+    .progress-msg.ok  {{ color: #16a34a; }}
+    .progress-msg.err {{ color: #be123c; }}
   </style>
   <script>
     function copyText(btn, text) {{
@@ -139,19 +171,72 @@ async def dashboard():
         setTimeout(() => {{ btn.textContent = '📋 Copiar'; btn.classList.remove('copied'); }}, 2000);
       }});
     }}
+
+    async function startCollect() {{
+      const btn  = document.getElementById('cbtn');
+      const bar  = document.getElementById('pbar');
+      const track = document.getElementById('ptrack');
+      const msg  = document.getElementById('pmsg');
+
+      btn.disabled = true;
+      track.style.display = 'block';
+      bar.classList.add('indeterminate');
+      msg.textContent = 'Coletando notícias...';
+      msg.className = 'progress-msg';
+
+      const startedAt = new Date().toISOString();
+
+      try {{
+        await fetch('/api/collect', {{ method: 'POST' }});
+      }} catch(e) {{}}
+
+      // Poll até o log registrar uma coleta posterior ao clique
+      let done = false;
+      for (let i = 0; i < 60; i++) {{
+        await new Promise(r => setTimeout(r, 2000));
+        try {{
+          const res = await fetch('/api/logs?limit=1');
+          const logs = await res.json();
+          if (logs.length && logs[0].ran_at >= startedAt) {{
+            done = true; break;
+          }}
+        }} catch(e) {{}}
+      }}
+
+      bar.classList.remove('indeterminate');
+      bar.style.width = '100%';
+
+      if (done) {{
+        msg.textContent = '✅ Coleta concluída! Recarregando...';
+        msg.className = 'progress-msg ok';
+        setTimeout(() => location.reload(), 1200);
+      }} else {{
+        msg.textContent = '⚠️ Tempo esgotado — recarregue manualmente.';
+        msg.className = 'progress-msg err';
+        btn.disabled = false;
+      }}
+    }}
   </script>
 </head>
 <body>
   <header>
-    <h1>⚽ Saudi Football Monitor</h1>
-    <div style="display:flex;gap:8px;">
-      <a href="/descartadas" class="collect-btn" style="text-decoration:none;background:#64748b;">🗂️ Descartadas</a>
-      <button class="collect-btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
-    </div>
+    <a class="brand" href="/">⚽ Saudi Football Monitor</a>
+    <nav>
+      <a class="nav-link active" href="/">Home</a>
+      <a class="nav-link" href="/descartadas">🗂️ Descartadas</a>
+      <a class="nav-link" href="/gerador">✍️ Criar Post</a>
+    </nav>
   </header>
   <p class="count">{len(articles)} notícias nas últimas 24h</p>
   <div class="grid">
     {cards}
+  </div>
+  <div class="collect-bar">
+    <button class="collect-btn" id="cbtn" onclick="startCollect()">🔄 Coletar agora</button>
+    <div class="progress-wrap">
+      <div class="progress-track" id="ptrack"><div class="progress-bar" id="pbar"></div></div>
+      <span class="progress-msg" id="pmsg"></span>
+    </div>
   </div>
 </body>
 </html>"""
@@ -253,10 +338,12 @@ async def descartadas():
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f1f5f9; color: #1e293b; }}
-    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); }}
-    header h1 {{ font-size: 1.2rem; font-weight: 700; color: #0f172a; }}
-    .back-btn {{ background: #f1f5f9; color: #475569; border: none; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; font-weight: 600; text-decoration: none; }}
-    .back-btn:hover {{ background: #e2e8f0; }}
+    header {{ background: white; border-bottom: 1px solid #e2e8f0; padding: 0 24px; display: flex; align-items: center; gap: 32px; position: sticky; top: 0; z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,.06); height: 56px; }}
+    .brand {{ font-size: 1.1rem; font-weight: 800; color: #0f172a; text-decoration: none; white-space: nowrap; }}
+    nav {{ display: flex; gap: 4px; }}
+    .nav-link {{ padding: 8px 14px; border-radius: 7px; font-size: 0.88rem; font-weight: 600; color: #64748b; text-decoration: none; transition: all .15s; }}
+    .nav-link:hover {{ background: #f1f5f9; color: #0f172a; }}
+    .nav-link.active {{ background: #eff6ff; color: #0284c7; }}
     .info {{ color: #64748b; font-size: 0.85rem; margin: 16px 24px 8px; }}
     .info strong {{ color: #0f172a; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 40px; }}
@@ -277,8 +364,12 @@ async def descartadas():
 </head>
 <body>
   <header>
-    <h1>🗂️ Notícias Descartadas</h1>
-    <a href="/" class="back-btn">← Voltar ao Monitor</a>
+    <a class="brand" href="/">⚽ Saudi Football Monitor</a>
+    <nav>
+      <a class="nav-link" href="/">Home</a>
+      <a class="nav-link active" href="/descartadas">🗂️ Descartadas</a>
+      <a class="nav-link" href="/gerador">✍️ Criar Post</a>
+    </nav>
   </header>
   <p class="info">{len(articles)} notícias com score abaixo de 0.34 nas últimas 24h &nbsp;·&nbsp; <strong>Textos originais, sem tradução</strong></p>
   <div class="grid">
