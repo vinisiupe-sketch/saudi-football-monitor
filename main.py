@@ -6,7 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
-from database import init_db, get_recent_articles, get_collection_logs, update_article_body
+from database import init_db, get_recent_articles, get_collection_logs
 from scheduler import run_pipeline, create_scheduler
 
 scheduler = None
@@ -84,7 +84,6 @@ async def dashboard():
 <body>
   <h1>⚽ Saudi Football Monitor</h1>
   <button class="btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
-  <button class="btn" onclick="fetch('/api/reenrich',{{method:'POST'}}).then(()=>setTimeout(()=>location.reload(),30000))">🔁 Reprocessar traduções</button>
   <h2>📰 Artigos recentes ({len(articles)})</h2>
   <table>
     <tr><th>Tier</th><th>Fonte</th><th>Conteúdo</th><th>Coletado</th><th>Score</th></tr>
@@ -127,32 +126,6 @@ async def api_collect(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_pipeline)
     return {"status": "started"}
 
-
-@app.post("/api/reenrich")
-async def api_reenrich(background_tasks: BackgroundTasks):
-    background_tasks.add_task(_reenrich_task)
-    return {"status": "started"}
-
-
-async def _reenrich_task():
-    import httpx
-    from scraper import enrich_with_article
-    from processor import call_claude, translate_articles
-    from glossary import apply_glossary
-    import json
-
-    articles = get_recent_articles(hours=24, limit=100)
-    print(f"🔁 Reprocessando traduções de {len(articles)} artigos...")
-    # Força re-tradução zerando title_pt
-    for a in articles:
-        a["title_pt"] = None
-    articles = await translate_articles(articles)
-    for art in articles:
-        update_article_body(art["id"], art.get("body_orig", ""), art.get("body_pt", ""))
-        # Atualiza também o título traduzido
-        from database import update_article_title
-        update_article_title(art["id"], art.get("title_pt", ""))
-    print(f"✅ Reprocessamento concluído")
 
 
 @app.get("/api/twitter-test")
