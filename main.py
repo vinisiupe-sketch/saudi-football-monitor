@@ -6,7 +6,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
-from database import init_db, get_recent_articles, get_latest_summary, get_collection_logs
+from database import init_db, get_recent_articles, get_collection_logs
 from scheduler import run_pipeline, create_scheduler
 
 scheduler = None
@@ -33,8 +33,6 @@ app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
 async def dashboard():
     articles = get_recent_articles(hours=24, limit=50)
     articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
-    summary_row = get_latest_summary()
-    summary = summary_row["summary_pt"] if summary_row else "Nenhum resumo gerado ainda."
 
     rows = ""
     for a in articles:
@@ -61,8 +59,7 @@ async def dashboard():
   <style>
     body {{ font-family: sans-serif; background: #0f172a; color: #e2e8f0; margin: 0; padding: 20px; }}
     h1 {{ color: #38bdf8; }}
-    .summary {{ background: #1e293b; border-left: 4px solid #38bdf8; padding: 16px; margin: 20px 0; white-space: pre-wrap; border-radius: 4px; }}
-    table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
     th {{ background: #1e293b; padding: 10px; text-align: left; color: #94a3b8; }}
     td {{ padding: 10px; border-bottom: 1px solid #1e293b; font-size: 0.9em; vertical-align: top; }}
     a {{ color: #38bdf8; text-decoration: none; }}
@@ -73,7 +70,6 @@ async def dashboard():
 <body>
   <h1>⚽ Saudi Football Monitor</h1>
   <button class="btn" onclick="fetch('/api/collect',{{method:'POST'}}).then(()=>location.reload())">🔄 Coletar agora</button>
-  <div class="summary"><strong>📝 Resumo do último ciclo</strong><br><br>{summary}</div>
   <h2>📰 Artigos recentes ({len(articles)})</h2>
   <table>
     <tr><th>Tier</th><th>Fonte</th><th>Conteúdo</th><th>Coletado</th><th>Score</th></tr>
@@ -89,10 +85,6 @@ async def dashboard():
 async def api_articles(hours: int = 24, tier: str = None, limit: int = 100):
     return get_recent_articles(hours=hours, tier=tier, limit=limit)
 
-
-@app.get("/api/summary")
-async def api_summary():
-    return get_latest_summary() or {"summary_pt": "Nenhum resumo disponível."}
 
 
 @app.get("/api/stats")
