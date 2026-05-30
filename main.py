@@ -224,7 +224,10 @@ async def dashboard():
       }} catch(e) {{}}
     }}
 
-    document.addEventListener('DOMContentLoaded', loadFlags);
+    document.addEventListener('DOMContentLoaded', () => {{
+      loadFlags();
+      setInterval(loadFlags, 10000);
+    }});
 
     // ── Coletar ──
     async function startCollect() {{
