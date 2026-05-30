@@ -68,9 +68,9 @@ async def dashboard():
         image_url = a.get("image_url") or ""
         category = a.get("category")
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
-        source_handle = "@" + a.get("source_name", "").lstrip("@")
-        post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ " + source_handle
-        post_url = f"/gerador?texto={quote(post_text_full)}"
+        source_handle = a.get("source_name", "").lstrip("@")
+        post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + source_handle
+        post_url = f"/gerador?texto={quote(post_text_full)}&source={quote(source_handle)}&tier={quote(a.get('source_tier',''))}&translated=1"
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
         category = category or "geral"
         emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
@@ -535,6 +535,11 @@ async def generate_post(request: Request):
         template = "simples"
     num_slides = body.get("num_slides", 3)
     n = min(6, max(3, int(num_slides))) if template == "carrossel" else 1
+    already_translated = bool(body.get("already_translated", False))
+    source = (body.get("source") or "").strip().lstrip("@")
+    tier = (body.get("tier") or "").strip().upper()
+    moon = {"A": "🌕", "B": "🌓", "C": "🌗"}.get(tier, "")
+    source_footer = f"🗞️ @{source} {moon}".strip() if source else ""
 
     if not news:
         return JSONResponse({"error": "Campo 'news' vazio."}, status_code=400)
@@ -555,13 +560,32 @@ async def generate_post(request: Request):
         '  "nome_jogador": null,\n  "tipo_anuncio": null\n}'
     )
 
-    prompt_texto = (
-        "Traduza e resuma o texto jornalístico abaixo para o português. Siga exatamente o formato do exemplo.\n\n"
-        "EXEMPLO DE INPUT: \"Ben Jacobs: Jurgen Klopp is a dream target for Al-Ittihad...\"\n\n"
-        "EXEMPLO DE OUTPUT ESPERADO: \"Jürgen Klopp é visto como o alvo dos sonhos do Al-Ittihad...\n\nFonte: Ben Jacobs\"\n\n"
-        "Regras: apenas texto corrido, sem emojis, sem hashtags, sem exclamações, sem títulos, sem negrito, "
-        "sem formatação de qualquer tipo. Somente parágrafos simples. Ao final, \"Fonte:\" seguido do autor ou veículo identificável no texto original."
-    )
+    if already_translated:
+        footer_instruction = (
+            f"Ao final do texto, adicione exatamente esta linha: \"{source_footer}\""
+            if source_footer else ""
+        )
+        prompt_texto = (
+            "Você é um redator esportivo brasileiro. O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n"
+            "Sua tarefa: resumir e reescrever para leitura fluida e clara, eliminando redundâncias e "
+            "linguagem de agência, mantendo todas as informações importantes.\n"
+            "Regras: apenas texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, sem títulos, sem negrito, "
+            "sem formatação de qualquer tipo. Somente parágrafos simples.\n"
+            + (footer_instruction + "\n" if footer_instruction else "")
+            + "Responda apenas com o texto final, nada mais."
+        )
+    else:
+        footer_instruction = (
+            f"Ao final, adicione exatamente esta linha: \"{source_footer}\""
+            if source_footer else
+            "Ao final, \"Fonte:\" seguido do autor ou veículo identificável no texto original."
+        )
+        prompt_texto = (
+            "Traduza e resuma o texto jornalístico abaixo para o português brasileiro com estilo jornalístico esportivo.\n\n"
+            "Regras: apenas texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, sem títulos, sem negrito, "
+            "sem formatação de qualquer tipo. Somente parágrafos simples. "
+            + footer_instruction
+        )
 
     headers = {
         "x-api-key": api_key,

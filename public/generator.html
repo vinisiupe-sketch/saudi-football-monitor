@@ -329,7 +329,10 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
         <div class="capbox">
           <div class="capt">Texto do post</div>
           <p id="captext">—</p>
-          <button class="cpbtn" onclick="copyCaption()">📋 Copiar</button>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+            <button class="cpbtn" onclick="copyCaption()" style="margin-top:0;">📋 Copiar</button>
+            <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="margin-top:0;background:#000;color:#fff;border-color:#000;">𝕏 Publicar no Twitter</button>
+          </div>
         </div>
 
         <div class="dlbox">
@@ -423,9 +426,15 @@ async function process() {
   document.getElementById('pst').innerHTML = '<span class="spinner"></span> Gerando post...';
   document.getElementById('perr').style.display = 'none';
   try {
+    const _urlP = new URLSearchParams(window.location.search);
     const res = await fetch('/api/generate-post', {
       method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({ news, template: S.template, num_slides: S.selectedCount }),
+      body: JSON.stringify({
+        news, template: S.template, num_slides: S.selectedCount,
+        already_translated: _urlP.get('translated') === '1',
+        source: _urlP.get('source') || '',
+        tier: _urlP.get('tier') || '',
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
@@ -593,6 +602,13 @@ function copyCaption() {
   navigator.clipboard.writeText(document.getElementById('captext').textContent).then(()=>{
     const b=event.target; b.textContent='✅ Copiado!'; setTimeout(()=>b.textContent='📋 Copiar',2000);
   });
+}
+
+function tweetCaption() {
+  const text = document.getElementById('captext').textContent;
+  if (!text || text === '—') return;
+  const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
+  window.open(url, '_blank', 'noopener,noreferrer');
 }
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
