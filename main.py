@@ -34,6 +34,19 @@ async def dashboard():
     articles = get_recent_articles(hours=24, limit=50)
     articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
 
+    CATEGORY_EMOJI = {
+        "transferencia": ("🔄", "#dbeafe", "#1d4ed8"),
+        "patrocinio":    ("🤝", "#ede9fe", "#6d28d9"),
+        "planejamento":  ("📋", "#e0f2fe", "#0369a1"),
+        "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
+        "resultado":     ("⚽", "#dcfce7", "#15803d"),
+        "competicao":    ("🏆", "#fef9c3", "#a16207"),
+        "treino":        ("🏋️", "#f0fdf4", "#166534"),
+        "financeiro":    ("💰", "#fdf4ff", "#7e22ce"),
+        "lesao":         ("🩺", "#fff1f2", "#be123c"),
+        "geral":         ("📰", "#f1f5f9", "#475569"),
+    }
+
     cards = ""
     for a in articles:
         tier_color = {"A": "#16a34a", "B": "#ca8a04", "C": "#64748b"}.get(a["source_tier"], "#64748b")
@@ -43,9 +56,15 @@ async def dashboard():
         if len(body) == 280:
             body += "…"
         image_url = a.get("image_url") or ""
+        category = a.get("category") or "geral"
+        emoji, emoji_bg, emoji_color = CATEGORY_EMOJI.get(category, CATEGORY_EMOJI["geral"])
         copy_text = f"{title}\\n\\n{a.get('body_pt') or a.get('body_orig') or ''}".replace("`", "'")
         collected = (a.get("collected_at") or "")[:16].replace("T", " ")
-        img_html = f'<div class="card-img" style="background-image:url({image_url})"></div>' if image_url else '<div class="card-img no-img">⚽</div>'
+        img_html = (
+            f'<div class="card-img" style="background-image:url({image_url})"></div>'
+            if image_url else
+            f'<div class="card-img no-img" style="background:{emoji_bg};color:{emoji_color}">{emoji}</div>'
+        )
         cards += f"""
         <div class="card">
           {img_html}

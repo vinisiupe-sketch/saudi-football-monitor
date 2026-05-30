@@ -55,6 +55,7 @@ def init_db():
                 body_orig       TEXT,
                 body_pt         TEXT,
                 image_url       TEXT,
+                category        TEXT,
                 language        TEXT,
                 published_at    TEXT,
                 collected_at    TEXT NOT NULL,
@@ -83,10 +84,9 @@ def init_db():
                 error_msg    TEXT
             )
         """)
-        # Migração: adiciona image_url se não existir
-        c.execute("""
-            ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT
-        """)
+        # Migrações
+        c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
+        c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
@@ -100,15 +100,16 @@ def save_article(article: dict) -> bool:
         c = conn.cursor()
         try:
             article.setdefault("image_url", None)
+            article.setdefault("category", None)
             c.execute("""
                 INSERT INTO articles
                   (id, source_name, source_tier, source_type, url,
                    title_orig, title_pt, body_orig, body_pt,
-                   language, published_at, collected_at, relevance_score, image_url)
+                   language, published_at, collected_at, relevance_score, image_url, category)
                 VALUES
                   (%(id)s, %(source_name)s, %(source_tier)s, %(source_type)s, %(url)s,
                    %(title_orig)s, %(title_pt)s, %(body_orig)s, %(body_pt)s,
-                   %(language)s, %(published_at)s, %(collected_at)s, %(relevance_score)s, %(image_url)s)
+                   %(language)s, %(published_at)s, %(collected_at)s, %(relevance_score)s, %(image_url)s, %(category)s)
                 ON CONFLICT (id) DO NOTHING
             """, article)
             return c.rowcount > 0

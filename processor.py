@@ -82,8 +82,9 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
                 items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {art.get('body_orig', '')[:1200]}\n---"
 
             prompt = f"""Adapte os artigos abaixo para português brasileiro com estilo jornalístico esportivo.
+Classifique cada artigo em UMA categoria: transferencia, patrocinio, planejamento, entrevista, resultado, competicao, treino, financeiro, lesao, geral.
 Responda SOMENTE com este JSON (sem texto extra):
-{{"translations": [{{"title_pt": "...", "body_pt": "..."}}]}}
+{{"translations": [{{"title_pt": "...", "body_pt": "...", "category": "..."}}]}}
 
 {items_text}"""
             try:
@@ -99,9 +100,11 @@ Responda SOMENTE com este JSON (sem texto extra):
                     if idx < len(translations):
                         art["title_pt"] = apply_glossary(translations[idx].get("title_pt") or art["title_orig"])
                         art["body_pt"] = apply_glossary(translations[idx].get("body_pt") or art["body_orig"])
+                        art["category"] = translations[idx].get("category", "geral")
                     else:
                         art["title_pt"] = art["title_orig"]
                         art["body_pt"] = art["body_orig"]
+                        art["category"] = "geral"
                 print(f"   ✅ Lote {i//BATCH+1}/{(len(to_translate)-1)//BATCH+1} traduzido")
             except Exception as e:
                 print(f"   ⚠️  Erro no lote {i//BATCH+1}: {type(e).__name__}: {e}")
