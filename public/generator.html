@@ -332,7 +332,9 @@ input[type="text"]:focus { outline: none; border-color: #0284c7; }
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
             <button class="cpbtn" onclick="copyCaption()" style="margin-top:0;">📋 Copiar</button>
             <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="margin-top:0;background:#000;color:#fff;border-color:#000;">𝕏 Publicar no Twitter</button>
+            <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="margin-top:0;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">📸 Publicar no Instagram</button>
           </div>
+          <p id="ig-hint" style="display:none;font-size:0.75rem;color:#64748b;margin-top:6px;">✅ Legenda copiada e imagens baixadas! Cole a legenda e selecione as imagens no Instagram.</p>
         </div>
 
         <div class="dlbox">
@@ -609,6 +611,22 @@ function tweetCaption() {
   if (!text || text === '—') return;
   const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
   window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+async function shareInstagram() {
+  const text = document.getElementById('captext').textContent;
+  if (!text || text === '—') { alert('Gere o post primeiro.'); return; }
+  // 1. Copy caption
+  try { await navigator.clipboard.writeText(text); } catch(e) {}
+  // 2. Download all slides
+  if (S.template === 'carrossel' && S.selectedCount > 1) {
+    await dlAll();
+  } else {
+    await dlCurrent();
+  }
+  // 3. Show hint and open Instagram
+  document.getElementById('ig-hint').style.display = 'block';
+  setTimeout(() => window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer'), 800);
 }
 
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

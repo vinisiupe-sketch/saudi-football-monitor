@@ -239,7 +239,8 @@ async def dashboard():
         const r = await fetch('/api/logs?limit=1');
         const l = await r.json();
         if (!l.length) return;
-        const dt = new Date(l[0].ran_at.replace(' ', 'T') + 'Z');
+        const raw = l[0].ran_at.replace(' ', 'T');
+        const dt = new Date(raw.includes('+') || raw.endsWith('Z') ? raw : raw + 'Z');
         const fmt = dt.toLocaleString('pt-BR', {{ timeZone: 'America/Sao_Paulo', day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }});
         document.getElementById('last-collect').textContent = 'Última coleta: ' + fmt;
       }} catch(e) {{}}
@@ -562,28 +563,35 @@ async def generate_post(request: Request):
 
     if already_translated:
         footer_instruction = (
-            f"Ao final do texto, adicione exatamente esta linha: \"{source_footer}\""
+            f"Ao final do texto, adicione exatamente esta linha (sem alterar): \"{source_footer}\""
             if source_footer else ""
         )
         prompt_texto = (
-            "Você é um redator esportivo brasileiro. O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n"
-            "Sua tarefa: resumir e reescrever para leitura fluida e clara, eliminando redundâncias e "
-            "linguagem de agência, mantendo todas as informações importantes.\n"
-            "Regras: apenas texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, sem títulos, sem negrito, "
-            "sem formatação de qualquer tipo. Somente parágrafos simples.\n"
+            "Você é um editor de texto esportivo objetivo e direto. O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
+            "TAREFA: reescreva de forma CURTA e DIRETA. Máximo de 4 frases no total. "
+            "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
+            "Mantenha apenas: quem, o quê, quando e por quanto (se aplicável). "
+            "Estilo: manchete jornalística expandida — vai direto ao ponto.\n\n"
+            "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
+            "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
+            "NOMES DE CLUBES: NUNCA use hífen (Al Hilal, não Al-Hilal).\n"
             + (footer_instruction + "\n" if footer_instruction else "")
-            + "Responda apenas com o texto final, nada mais."
+            + "Responda SOMENTE com o texto final reescrito, sem comentários nem explicações."
         )
     else:
         footer_instruction = (
-            f"Ao final, adicione exatamente esta linha: \"{source_footer}\""
+            f"Ao final, adicione exatamente esta linha (sem alterar): \"{source_footer}\""
             if source_footer else
             "Ao final, \"Fonte:\" seguido do autor ou veículo identificável no texto original."
         )
         prompt_texto = (
-            "Traduza e resuma o texto jornalístico abaixo para o português brasileiro com estilo jornalístico esportivo.\n\n"
-            "Regras: apenas texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, sem títulos, sem negrito, "
-            "sem formatação de qualquer tipo. Somente parágrafos simples. "
+            "Você é um editor de texto esportivo objetivo e direto.\n\n"
+            "TAREFA: traduza para o português brasileiro e reescreva de forma CURTA e DIRETA. Máximo de 4 frases no total. "
+            "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
+            "Mantenha apenas: quem, o quê, quando e por quanto (se aplicável).\n\n"
+            "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
+            "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
+            "NOMES DE CLUBES: NUNCA use hífen (Al Hilal, não Al-Hilal).\n"
             + footer_instruction
         )
 
