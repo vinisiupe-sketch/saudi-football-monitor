@@ -95,6 +95,7 @@ async def dashboard():
               <div class="btn-row">
                 <button class="flag-btn visto-btn" onclick="toggleFlag('{art_id}','naopublicado')">🔖 Não publicado</button>
                 <button class="flag-btn pub-btn"   onclick="toggleFlag('{art_id}','publicado')">📢 Publicado</button>
+                <button class="flag-btn desc-btn"  onclick="toggleFlag('{art_id}','descartado')">🗑️ Descarte</button>
                 <button class="copy-btn" onclick="copyText(this, `{copy_text}`)">📋 Copiar</button>
                 <a class="copy-btn" href="{post_url}" style="text-decoration:none;">✍️ Post</a>
               </div>
@@ -152,12 +153,14 @@ async def dashboard():
     .fs-total     {{ background: #f1f5f9; color: #475569; }}
     .fs-visto     {{ background: #e0e7ff; color: #3730a3; }}
     .fs-publicado {{ background: #bbf7d0; color: #166534; }}
+    .fs-descarte  {{ background: #ffe4e6; color: #be123c; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; padding: 16px 24px 24px; align-items: start; }}
     /* ── CARDS ── */
     .card {{ background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,.08); display: flex; flex-direction: column; transition: box-shadow .2s, background .2s; }}
     .card:hover {{ box-shadow: 0 6px 20px rgba(0,0,0,.13); }}
     .card.flag-visto {{ background: #e0e7ff; border: 2px solid #6366f1; box-shadow: 0 4px 14px rgba(99,102,241,.25); }}
     .card.flag-publicado {{ background: #bbf7d0; border: 2px solid #16a34a; box-shadow: 0 4px 14px rgba(22,163,74,.25); }}
+    .card.flag-descarte {{ background: #fff1f2; border: 2px solid #f43f5e; box-shadow: 0 4px 14px rgba(244,63,94,.2); opacity: .75; }}
     .card-body {{ padding: 16px; display: flex; flex-direction: column; }}
     .card-meta {{ display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }}
     .tier-badge {{ font-size: 0.72rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; }}
@@ -179,6 +182,8 @@ async def dashboard():
     .flag-btn.visto-btn.on   {{ background: #6366f1; color: white; }}
     .flag-btn.pub-btn     {{ background: #dcfce7; color: #166534; }}
     .flag-btn.pub-btn.on     {{ background: #16a34a; color: white; }}
+    .flag-btn.desc-btn    {{ background: #ffe4e6; color: #be123c; }}
+    .flag-btn.desc-btn.on    {{ background: #f43f5e; color: white; }}
     /* ── COLLAPSE ── */
     .card-collapsed:not(.user-expanded) .card-text,
     .card-collapsed:not(.user-expanded) .card-footer {{ display: none; }}
@@ -232,34 +237,36 @@ async def dashboard():
 
     // ── Flags — sincronizado via DB ──
     let _flags = {{}};
-    let _activeFilter = null; // null | 'none' | 'naopublicado' | 'publicado'
+    let _activeFilter = null;
 
     function applyFlags() {{
-      let nVisto = 0, nPub = 0, nNone = 0;
+      let nVisto = 0, nPub = 0, nNone = 0, nDesc = 0;
       const grid = document.querySelector('.grid');
       const cards = Array.from(document.querySelectorAll('.card[data-id]'));
       cards.forEach(card => {{
         const id = card.dataset.id;
         const f  = _flags[id];
-        card.classList.remove('flag-visto', 'flag-publicado');
+        card.classList.remove('flag-visto', 'flag-publicado', 'flag-descarte');
         card.querySelector('.visto-btn').classList.toggle('on', f === 'naopublicado');
-        card.querySelector('.pub-btn').classList.toggle('on', f === 'publicado');
-        if (f === 'naopublicado')   {{ card.classList.add('flag-visto');     nVisto++; }}
-        else if (f === 'publicado') {{ card.classList.add('flag-publicado'); nPub++;   }}
-        else                          nNone++;
-        // Collapse flagged cards (preserve manual expansion)
+        card.querySelector('.pub-btn').classList.toggle('on',   f === 'publicado');
+        card.querySelector('.desc-btn').classList.toggle('on',  f === 'descartado');
+        if      (f === 'naopublicado') {{ card.classList.add('flag-visto');     nVisto++; }}
+        else if (f === 'publicado')    {{ card.classList.add('flag-publicado'); nPub++;   }}
+        else if (f === 'descartado')   {{ card.classList.add('flag-descarte');  nDesc++;  }}
+        else                             nNone++;
         if (!f) card.classList.remove('user-expanded');
         card.classList.toggle('card-collapsed', !!f);
       }});
-      // Reorder: sem flag → publicado → não publicado
-      const order = {{ undefined: 0, 'publicado': 1, 'naopublicado': 2 }};
+      // Reorder: sem flag → publicado → não publicado → descartado
+      const order = {{ undefined: 0, 'publicado': 1, 'naopublicado': 2, 'descartado': 3 }};
       cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
       cards.forEach(c => grid.appendChild(c));
-      const total = nVisto + nPub + nNone;
+      const total = nVisto + nPub + nNone + nDesc;
       if (total > 0) {{
         document.getElementById('fc-total').textContent = nNone;
         document.getElementById('fc-visto').textContent = nVisto;
         document.getElementById('fc-pub').textContent   = nPub;
+        document.getElementById('fc-desc').textContent  = nDesc;
       }}
       applyFilter();
     }}
@@ -271,11 +278,11 @@ async def dashboard():
         const show = !_activeFilter || f === _activeFilter;
         card.classList.toggle('hidden-by-filter', !show);
       }});
-      // Update badge highlight
-      ['fs-total','fs-visto','fs-pub'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
-      if (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
-      else if (_activeFilter === 'naopublicado') document.getElementById('fs-visto').classList.add('active-filter');
-      else if (_activeFilter === 'publicado')    document.getElementById('fs-pub').classList.add('active-filter');
+      ['fs-total','fs-visto','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
+      if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
+      else if (_activeFilter === 'naopublicado')  document.getElementById('fs-visto').classList.add('active-filter');
+      else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
+      else if (_activeFilter === 'descartado')    document.getElementById('fs-desc').classList.add('active-filter');
     }}
 
     function toggleFilter(type) {{
@@ -394,6 +401,7 @@ async def dashboard():
       <span class="fs-badge fs-total"     id="fs-total"     onclick="toggleFilter('none')"         title="Filtrar sem flag">⬜ <span id="fc-total">—</span> sem flag</span>
       <span class="fs-badge fs-visto"     id="fs-visto"     onclick="toggleFilter('naopublicado')"  title="Filtrar não publicados">🔖 <span id="fc-visto">—</span> não publicados</span>
       <span class="fs-badge fs-publicado" id="fs-pub"       onclick="toggleFilter('publicado')"     title="Filtrar publicados">📢 <span id="fc-pub">—</span> publicados</span>
+      <span class="fs-badge fs-descarte"  id="fs-desc"      onclick="toggleFilter('descartado')"    title="Filtrar descartados">🗑️ <span id="fc-desc">—</span> descartados</span>
     </div>
   </div>
   <div class="grid">
@@ -574,7 +582,7 @@ async def api_set_flag(request: Request):
     flag = body.get("flag") or None  # None = remover
     if not article_id:
         return JSONResponse({"error": "id obrigatório"}, status_code=400)
-    if flag and flag not in ("naopublicado", "publicado"):
+    if flag and flag not in ("naopublicado", "publicado", "descartado"):
         return JSONResponse({"error": "flag inválida"}, status_code=400)
     set_flag(article_id, flag)
     return {"ok": True, "id": article_id, "flag": flag}

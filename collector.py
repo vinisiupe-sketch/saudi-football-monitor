@@ -65,7 +65,7 @@ FOOTBALL_REQUIRED = [
 ]
 
 # Arabic keywords that are also common words — don't count as Saudi hits alone
-AMBIGUOUS_ARABIC = {"الاتفاق", "التعاون", "الاتحاد", "الفتح", "الشباب"}
+AMBIGUOUS_ARABIC = {"الاتفاق", "التعاون", "الاتحاد", "الفتح", "الشباب", "دوري"}
 
 def is_relevant(text: str, min_hits: int = 3, title: str = "") -> bool:
     text_lower = text.lower()
