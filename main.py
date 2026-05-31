@@ -113,7 +113,7 @@ async def dashboard():
             <p class="card-text">{body}</p>
             <div class="card-bottom">
               <div class="card-tags">
-                <span class="tag">Tier {a['source_tier']}</span>
+                <span class="tag">{moon}</span>
                 <span class="tag">@{handle}</span>
                 <span class="tag">{category_text}</span>
               </div>
