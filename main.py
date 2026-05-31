@@ -109,6 +109,7 @@ async def dashboard():
               </div>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
+            <button class="flag-expand-btn" onclick="toggleFlagExpand(this)">↓ ver mais</button>
             <p class="card-text">
               <span class="text-short">{body_short}</span>
               <span class="text-full" style="display:none">{body_full}</span>
@@ -239,24 +240,37 @@ async def dashboard():
     }}
     .card-title:hover {{ opacity: .7; }}
 
-    /* ── EXPAND TEXT ── */
+    /* ── EXPAND FLAGADO ── */
+    .flag-expand-btn {{
+      background: none; border: none; cursor: pointer;
+      font-size: 0.62rem; color: #aaa; padding: 0 0 10px;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      font-weight: 700; display: none; text-align: left; transition: color .15s;
+    }}
+    .flag-expand-btn:hover {{ color: #1a1a1a; }}
+    .card-collapsed .flag-expand-btn {{ display: block; }}
+    .card-collapsed .card-text,
+    .card-collapsed .card-bottom,
+    .card-collapsed .expand-text-btn {{ display: none; }}
+    .card-collapsed.flag-open .card-text,
+    .card-collapsed.flag-open .card-bottom {{ display: flex; }}
+    .card-collapsed.flag-open .card-text {{ display: block; }}
+    .card-collapsed.flag-open .expand-text-btn {{ display: block; }}
+
+    /* ── EXPAND TEXTO LONGO ── */
     .expand-text-btn {{
       background: none; border: none; cursor: pointer;
       font-size: 0.62rem; color: #aaa; padding: 0 0 10px;
       text-transform: uppercase; letter-spacing: 0.07em;
-      font-weight: 700; display: block; text-align: left;
-      transition: color .15s;
+      font-weight: 700; display: block; text-align: left; transition: color .15s;
     }}
     .expand-text-btn:hover {{ color: #1a1a1a; }}
-    .expand-text-btn.expanded {{ color: #999; }}
 
     /* ── BODY TEXT ── */
     .card-text {{
       font-size: 0.82rem; color: #555; line-height: 1.65;
       margin-bottom: 16px;
     }}
-    .card-collapsed .card-text,
-    .card-collapsed .card-bottom {{ display: none; }}
 
     /* ── CARD BOTTOM ── */
     .card-bottom {{
@@ -358,6 +372,12 @@ async def dashboard():
     function toggleFilter(type) {{
       _activeFilter = (_activeFilter === type) ? null : type;
       applyFilter();
+    }}
+
+    function toggleFlagExpand(btn) {{
+      const card = btn.closest('.card');
+      const open = card.classList.toggle('flag-open');
+      btn.textContent = open ? '↑ ver menos' : '↓ ver mais';
     }}
 
     function expandText(btn) {{

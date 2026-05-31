@@ -155,7 +155,7 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
         link = getattr(entry, "link", "") or ""
         body = re.sub(r"<[^>]+>", " ", summary).strip()
         full_text = f"{title} {body}"
-        if not is_relevant(full_text, min_hits=1):
+        if not is_relevant(full_text, min_hits=2):
             continue
         published = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
