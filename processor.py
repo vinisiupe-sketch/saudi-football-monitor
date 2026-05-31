@@ -60,15 +60,18 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
     print(f"   🌐 Traduzindo {len(to_translate)} artigos...")
 
     system = (
-        "Você é um redator esportivo brasileiro especializado em futebol saudita. "
+        "Você é um redator esportivo brasileiro especializado na Saudi Pro League. "
         "Adapte o texto para o português brasileiro com o estilo natural de sites como ge.globo.com ou ESPN Brasil — fluido, direto, jornalístico. "
         "NÃO faça tradução literal: reescreva as frases para soar natural em português. "
         "Use termos corretos do futebol: 'meio-campista', 'zagueiro', 'lateral', 'atacante', 'volante', 'emprestar', 'janela de transferências'. "
         "Se o texto já estiver em português, melhore o estilo apenas se necessário. "
+        "PONTO DE VISTA — FUTEBOL SAUDITA: quando a notícia envolver um clube saudita e um europeu, "
+        "o título e o corpo devem ter o clube saudita como sujeito principal da ação "
+        "(ex: 'Al Ittihad se movimenta por Konaté', não 'Konaté deixa o Liverpool'). "
+        "Contexto europeu vai no corpo, não no título. "
         "REGRA CRÍTICA PARA NOMES DE JOGADORES: JAMAIS invente ou deduza nomes de jogadores. "
-        "Para nomes em árabe que você não conhece com certeza, aplique transliteração direta letra por letra (ex: م=M, ح=H, م=M, د=D → Mohammed). "
+        "Para nomes em árabe que você não conhece com certeza, aplique transliteração direta letra por letra. "
         "Nunca substitua um nome árabe por um nome latino inventado que soe parecido. "
-        "Prefira uma transliteração simples e fiel ao original a qualquer suposição criativa. "
         "Responda APENAS com JSON válido, sem markdown.\n"
         + GLOSSARY_PROMPT
     )
