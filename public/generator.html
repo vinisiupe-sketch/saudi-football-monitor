@@ -55,6 +55,21 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
 }
+.tmpl-switcher {
+  display: flex; gap: 4px; background: #fafaf8; border-radius: 99px; padding: 3px;
+  border: 1.5px solid rgba(0,0,0,.12);
+}
+.tmpl-sw-btn {
+  padding: 5px 13px; border-radius: 99px; border: none; background: transparent;
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+  color: #999; cursor: pointer; transition: all .15s; white-space: nowrap;
+}
+.tmpl-sw-btn:hover { color: #1a1a1a; }
+.tmpl-sw-btn.active { background: #1a1a1a; color: #49fcb6; }
+.tmpl-sw-regen {
+  font-size: 0.6rem; color: #aaa; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; display: none; align-items: center; gap: 6px;
+}
 .tmpl-pill {
   font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
   padding: 4px 12px; border-radius: 99px; border: 1.5px solid #1a1a1a;
@@ -102,13 +117,7 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 .drag-overlay.dragging { cursor: grabbing; }
 .drag-hint { text-align: center; margin-top: 6px; font-size: 0.62rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
 
-.swap-label {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-  background: transparent; color: #777; border: 1.5px solid rgba(0,0,0,.15); padding: 7px 16px;
-  border-radius: 99px; font-size: 0.62rem; font-weight: 700; cursor: pointer;
-  transition: all .15s; text-transform: uppercase; letter-spacing: 0.06em; width: 100%;
-}
-.swap-label:hover { border-color: #1a1a1a; color: #1a1a1a; }
+
 
 .snav { display: flex; gap: 6px; justify-content: center; }
 .sdot { width: 7px; height: 7px; border-radius: 50%; background: rgba(0,0,0,.2); cursor: pointer; transition: all .2s; }
@@ -209,9 +218,13 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 <!-- Main -->
 <div class="container" id="main-container">
   <div class="top-bar">
-    <div style="display:flex;align-items:center;gap:10px;">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <button class="btn-back" onclick="history.back()">← Voltar</button>
-      <span class="tmpl-pill" id="tmpl-pill">Simples</span>
+      <div class="tmpl-switcher">
+        <button class="tmpl-sw-btn" id="sw-simples"       onclick="switchTemplate('simples')">Simples</button>
+        <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="switchTemplate('carrossel')">Carrossel</button>
+        <button class="tmpl-sw-btn" id="sw-transferencia" onclick="switchTemplate('transferencia')">Transferência</button>
+      </div>
     </div>
     <div id="slide-counter" style="font-size:0.62rem;color:#aaa;font-weight:700;text-transform:uppercase;letter-spacing:.07em;display:none;"></div>
   </div>
@@ -237,10 +250,7 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
           <div class="drag-overlay" id="drag-overlay"></div>
         </div>
         <div class="drag-hint">Arraste para reposicionar a imagem</div>
-        <label class="swap-label" style="margin-top:8px;">
-          Trocar imagem
-          <input type="file" accept="image/*" id="swap-input" style="display:none" onchange="swapImage(this)">
-        </label>
+
         <div class="snav" id="snav" style="display:none;margin-top:10px;"></div>
       </div>
 
@@ -313,8 +323,9 @@ S.numSlides = Math.min(6, Math.max(3, parseInt(_P.get('slides') || '3')));
 /* ── Init ── */
 document.addEventListener('DOMContentLoaded', async () => {
   // Update pill label
-  const labels = { simples: 'Simples', carrossel: 'Carrossel', transferencia: 'Transferência' };
-  document.getElementById('tmpl-pill').textContent = labels[S.template] || S.template;
+  // Mark active template button
+  document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sw-' + S.template)?.classList.add('active');
 
   // Update upload hint
   if (S.template === 'carrossel') {
@@ -348,6 +359,40 @@ function showErr(msg) {
   document.getElementById('loading-screen').style.display = 'none';
   document.getElementById('err-msg').textContent = msg;
   document.getElementById('err-screen').style.display = 'flex';
+}
+
+
+async function switchTemplate(newTmpl) {
+  if (newTmpl === S.template) return;
+  // Update active button immediately
+  document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sw-' + newTmpl)?.classList.add('active');
+  S.template = newTmpl;
+  // Show loading in slide counter area
+  const ctr = document.getElementById('slide-counter');
+  ctr.style.display = 'block';
+  ctr.textContent = 'Gerando...';
+  // Re-call API
+  try {
+    const res = await fetch('/api/generate-post', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        news: _news, template: S.template, num_slides: S.numSlides,
+        already_translated: _translated, source: _source, moon: _moon,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
+    S.data = data;
+    prepPreview();
+    upd();
+    ctr.textContent = '';
+    ctr.style.display = 'none';
+  } catch(e) {
+    ctr.textContent = 'Erro: ' + e.message;
+    setTimeout(() => { ctr.style.display = 'none'; }, 3000);
+  }
 }
 
 function prepPreview() {
@@ -401,13 +446,7 @@ function onImagesReady() {
   upd();
 }
 
-function swapImage(input) {
-  const f = input.files[0]; if (!f) return;
-  const idx = S.template === 'carrossel' ? bgImgIdx(S.curSlide) : 0;
-  const r = new FileReader();
-  r.onload = e => { S.uploadedImages[idx] = e.target.result; S.imgPositions[idx] = {x:50,y:50}; upd(); input.value = ''; };
-  r.readAsDataURL(f);
-}
+
 
 /* ── Slide nav ── */
 function buildSlideNav() {
