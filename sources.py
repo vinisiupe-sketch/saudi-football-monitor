@@ -22,17 +22,14 @@ TIER_B = {
         "FabriceHawkins", "DiMarzio", "Plettigoal", "sebsousapinto",
     ],
     "rss_feeds": [
-        # Google News — fallback confiável
+        # Google News Saudi-específico — query restrita, filtra bem
         "https://news.google.com/rss/search?q=Saudi+Pro+League+football&hl=en&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=Saudi+Arabia+football+transfer&hl=en&gl=US&ceid=US:en",
         "https://news.google.com/rss/search?q=futebol+Arabia+Saudita+Saudi+Pro+League&hl=pt-BR&gl=BR&ceid=BR:pt-419",
         "https://news.google.com/rss/search?q=%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D8%A9&hl=ar&gl=SA&ceid=SA:ar",
-        # Sites especializados
+        # Sites Saudi-específicos (sem BBC/Goal/Globo — cobrem futebol global)
         "https://www.arabnews.com/taxonomy/term/305/feed",
         "https://saudigazette.com.sa/section/sports/feed",
-        "https://www.goal.com/feeds/en/news",
-        "http://feeds.bbci.co.uk/sport/football/rss.xml",
-        "https://ge.globo.com/rss/feed.xml",
     ],
 }
 
@@ -44,8 +41,7 @@ TIER_C = {
         "lequipe", "NicoSchira", "Glongari", "yagosabuncuoglu", "ahmad2man",
     ],
     "rss_feeds": [
-        "https://www.lequipe.fr/rss/actu_rss_Football.xml",
-        "https://theathletic.com/rss",
+        # Apenas RSS Saudi-específico; lequipe/athletic têm futebol global
         "https://news.google.com/rss/search?q=Saudi+Pro+League+rumor+transfer+2025&hl=en&gl=US&ceid=US:en",
     ],
 }
@@ -75,14 +71,23 @@ KEYWORDS = {
         # Termos exclusivamente sauditas
         "السعودي", "الدوري السعودي", "كرة القدم السعودية", "روشن", "دوري روشن",
         "دوري روشن السعودي للمحترفين",
-        # Clubes sauditas (nomes próprios)
+        # Clubes sauditas (nomes próprios — não ambíguos)
         "الهلال", "النصر", "الأهلي", "الخلود", "القادسية",
         "الفيحاء", "الحزم", "الخليج", "النجمة", "الأخدود", "ضمك",
-        # Ambíguos mas mantidos (são nomes de clubes, não palavras comuns)
-        "الاتفاق", "التعاون", "الشباب", "الفتح",
-        # REMOVIDOS por serem genéricos demais:
-        # "الاتحاد" (= união/federação em geral), "الفريق", "اللاعب",
-        # "المدرب", "الانتقال", "الصفقة", "عقد", "إعارة"
+        "الاتفاق",  # Al Ettifaq — nome de clube saudita
+        "التعاون",  # Al Taawoun
+        "الشباب",   # Al Shabab
+        "الفتح",    # Al Fateh
+        # Termos de transferência/futebol em árabe — alto sinal quando combinados com clube
+        "مدرب",     # treinador/coach
+        "لاعب",     # jogador
+        "صفقة", "صفقات",  # contratação/transferências
+        "انتقال", "انتقالات",  # transferência
+        "إعارة",    # empréstimo
+        "رحيل",     # saída/partida
+        "عقد",      # contrato
+        "تعاقد",    # assinar contrato
+        "تجديد",    # renovação
     ],
     "spanish": ["arabia saudita", "liga saudi", "al hilal", "al nassr"],
     "french": ["arabie saoudite", "championnat saoudien", "ligue saoudienne"],

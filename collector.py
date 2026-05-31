@@ -50,22 +50,31 @@ def compute_relevance(text: str, tier: str) -> float:
 
 
 FOOTBALL_REQUIRED = [
-    # must match at least one of these to be considered football content
+    # Termos gerais de futebol (qualquer idioma)
     "football", "futebol", "soccer", "league", "liga", "clube", "club", "transfer",
     "contrato", "jogador", "player", "técnico", "coach", "treinador", "gol", "goal",
     "partida", "jogo", "match", "game", "temporada", "season", "copa", "cup",
     "campeonato", "championship", "torneio", "tournament", "escalação", "lineup",
     "pro league", "saudi pro", "roshn", "dls", "spl",
+    # Clubes sauditas em inglês
     "al hilal", "al nassr", "al ittihad", "al ahli", "al shabab", "al fateh",
-    "al ettifaq", "al qadsiah", "al fayha", "al taawoun", "al wahda", "damac",
-    "al-hilal", "al-nassr", "al-ittihad", "al-ahli", "al-shabab",
-    "الهلال", "النصر", "الاتحاد", "الأهلي", "الشباب", "الفتح", "التعاون",
-    "الخلود", "القادسية", "الفيحاء", "الحزم", "الخليج", "الأخدود", "ضمك",
-    "دوري", "مباراة", "لاعب", "مدرب", "الفريق", "الانتقال", "عقد", "إعارة",
+    "al ettifaq", "al ettifak", "al qadsiah", "al fayha", "al taawoun", "al wahda", "damac",
+    "al-hilal", "al-nassr", "al-ittihad", "al-ahli", "al-shabab", "al-ettifaq",
+    # Clubes sauditas em árabe (nomes próprios — não ambíguos)
+    "الهلال", "النصر", "الأهلي", "الخلود", "القادسية",
+    "الفيحاء", "الحزم", "الخليج", "الأخدود", "ضمك",
+    # Nomes de clube árabes que eram ambíguos — mantidos pois são suficientemente específicos
+    "الاتفاق",  # Al Ettifaq
+    "التعاون",  # Al Taawoun
+    "الشباب",   # Al Shabab
+    "الفتح",    # Al Fateh
+    # Termos árabes de futebol — qualificam o contexto
+    "مدرب", "لاعب", "مباراة", "دوري", "انتقال", "صفقة", "رحيل", "عقد", "إعارة",
 ]
 
-# Arabic keywords that are also common words — don't count as Saudi hits alone
-AMBIGUOUS_ARABIC = {"الاتفاق", "التعاون", "الاتحاد", "الفتح", "الشباب", "دوري"}
+# Palavras árabes genéricas — só contam se outro keyword Saudi não-ambíguo também presente
+# Nota: removemos الاتفاق/التعاون/الشباب/الفتح daqui pois são nomes de clubes sauditas
+AMBIGUOUS_ARABIC = {"الاتحاد", "دوري", "الفريق", "اللاعب", "المدرب"}
 
 def is_relevant(text: str, min_hits: int = 3, title: str = "") -> bool:
     text_lower = text.lower()

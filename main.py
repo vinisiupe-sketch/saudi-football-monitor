@@ -690,20 +690,37 @@ async def generate_post(request: Request):
         '  "nome_jogador": null,\n  "tipo_anuncio": null\n}'
     )
 
+    ANGULO_SAUDITA = (
+        "PONTO DE VISTA OBRIGATÓRIO — FUTEBOL SAUDITA:\n"
+        "Este é um canal sobre a Saudi Pro League. O texto DEVE ser escrito sob a perspectiva do futebol saudita, "
+        "não do futebol europeu. Siga esta ordem de prioridade:\n"
+        "1. ABRA com a ação ou interesse do clube saudita (ex: 'O Al Ittihad se movimenta por...', 'O Al Hilal negocia...').\n"
+        "2. Apresente o jogador/notícia brevemente como contexto — não como protagonista principal.\n"
+        "3. Mencione concorrência europeia apenas como segundo parágrafo, se relevante.\n"
+        "NUNCA abra com a trajetória do jogador no clube europeu. NUNCA coloque o clube europeu como sujeito principal.\n"
+        "Se a notícia não envolver clube saudita diretamente, foque no impacto para a liga saudita.\n"
+    )
+    CLUBE_NAMES_RULE = (
+        "NOMES DE CLUBES: NUNCA use hífen. Grafias OBRIGATÓRIAS: Al Hilal, Al Nassr, Al Ahli, Al Ittihad, "
+        "Al Ettifaq, Al Shabab, Al Fateh, Al Taawoun, Al Qadsiah, Al Fayha, Al Wahda, Al Hazm, Damac. "
+        "ATENÇÃO: الاتفاق = Al Ettifaq (NÃO Al Ittihad); الاتحاد = Al Ittihad. São clubes diferentes.\n"
+    )
+
     if already_translated:
         footer_instruction = (
             f"Ao final do texto, adicione exatamente esta linha (sem alterar): \"{source_footer}\""
             if source_footer else ""
         )
         prompt_texto = (
-            "Você é um editor de texto esportivo objetivo e direto. O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
-            "TAREFA: reescreva de forma CURTA e DIRETA. Máximo 4 frases. "
-            "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
-            "Mantenha as informações concretas essenciais: quem, o quê, quando, valores. "
-            "Estilo: jornalismo esportivo objetivo — sem enrolar, sem inflar.\n\n"
+            "Você é um editor de conteúdo especializado na Saudi Pro League. O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
+            + ANGULO_SAUDITA
+            + "\nTAREFA: reescreva o texto aplicando o ponto de vista saudita acima. Máximo 4 frases. "
+            "Elimine contexto europeu excessivo, carreira do jogador fora da Saudi Pro League e adjetivos vagos. "
+            "Mantenha fatos concretos: quem, o quê, valores, datas. "
+            "Estilo: jornalismo esportivo direto.\n\n"
             "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
             "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
-            "NOMES DE CLUBES: NUNCA use hífen (Al Hilal, não Al-Hilal).\n"
+            + CLUBE_NAMES_RULE
             + (footer_instruction + "\n" if footer_instruction else "")
             + "Responda SOMENTE com o texto final reescrito, sem comentários nem explicações."
         )
@@ -714,13 +731,14 @@ async def generate_post(request: Request):
             "Ao final, \"Fonte:\" seguido do autor ou veículo identificável no texto original."
         )
         prompt_texto = (
-            "Você é um editor de texto esportivo objetivo e direto.\n\n"
-            "TAREFA: traduza para o português brasileiro e reescreva de forma CURTA e DIRETA. Máximo 4 frases. "
-            "Elimine qualquer repetição, contexto desnecessário, adjetivos vagos e encheção de linguiça. "
-            "Mantenha as informações concretas essenciais: quem, o quê, quando, valores.\n\n"
+            "Você é um editor de conteúdo especializado na Saudi Pro League.\n\n"
+            + ANGULO_SAUDITA
+            + "\nTAREFA: traduza para o português brasileiro e reescreva aplicando o ponto de vista saudita acima. Máximo 4 frases. "
+            "Elimine contexto europeu excessivo e adjetivos vagos. "
+            "Mantenha fatos concretos: quem, o quê, valores, datas.\n\n"
             "REGRAS DE FORMATO: texto corrido, sem emojis no corpo, sem hashtags, sem exclamações, "
             "sem títulos, sem negrito, sem listas, somente parágrafos simples.\n"
-            "NOMES DE CLUBES: NUNCA use hífen (Al Hilal, não Al-Hilal).\n"
+            + CLUBE_NAMES_RULE
             + footer_instruction
         )
 

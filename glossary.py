@@ -66,6 +66,10 @@ Al Qadsiah, Al Fayha, Al Hazem, Al Khaleej, Al Kholood, Al Najma, Al Okhdood, Al
 Al Diriyah, Al Ula, Damac, Neom S.C.
 Competição: sempre "Saudi Pro League" (nunca "Liga Saudita" ou "Campeonato Saudita").
 NUNCA use hífen nos nomes dos clubes (Al Hilal, não Al-Hilal).
+DISTINÇÃO CRÍTICA — dois clubes diferentes:
+  الاتفاق = Al Ettifaq (clube de Dammam)
+  الاتحاد = Al Ittihad (clube de Jeddah)
+Nunca confunda os dois. "Jack Hendry zagueiro do Al Ittihad" refere-se ao الاتحاد de Jeddah.
 """
 
 
