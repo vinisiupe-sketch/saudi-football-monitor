@@ -1200,7 +1200,7 @@ async def lixeira_page():
 </head>
 <body>
 {_header("/lixeira")}
-<p class="info">{len(articles)} na lixeira · removidos nas últimas 24h · após isso são apagados</p>
+<p class="info">{len(articles)} na lixeira · descartados nos últimos 7 dias</p>
 <div class="grid">
   {cards if cards else empty}
 </div>

@@ -113,13 +113,13 @@ def get_trashed_articles() -> list[dict]:
 
 
 def cleanup_old_trash():
-    """Remove flags 'descartado' com mais de 24h."""
+    """Remove flags 'descartado' com mais de 7 dias (muito além da janela de 48h do dashboard)."""
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("""
             DELETE FROM article_flags
             WHERE flag = 'descartado'
-              AND updated_at::TIMESTAMPTZ < (NOW() AT TIME ZONE 'UTC' - INTERVAL '24 hours')
+              AND updated_at::TIMESTAMPTZ < (NOW() AT TIME ZONE 'UTC' - INTERVAL '7 days')
         """)
         return c.rowcount
 
