@@ -105,7 +105,6 @@ async def dashboard():
                 <button class="flag-circle visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">{ICO_LOCK}</button>
                 <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">{ICO_CHECK}</button>
                 <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Descarte">{ICO_TRASH}</button>
-                <a class="flag-circle post-btn" href="{post_url}" title="Criar post">{ICO_PEN}</a>
               </div>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
@@ -118,6 +117,7 @@ async def dashboard():
                 <span class="tag">@{handle}</span>
                 <span class="tag">{category_text}</span>
               </div>
+              <a class="flag-circle post-btn" href="{post_url}" title="Criar post">{ICO_PEN}</a>
             </div>
           </div>
         </div>"""
@@ -219,11 +219,14 @@ async def dashboard():
     }}
     .flag-circle:hover {{ background: #1a1a1a; color: white; }}
     .flag-circle.on {{ background: #1a1a1a; color: white; }}
-    .flag-circle.visto-btn.on {{ background: #4338ca; border-color: #4338ca; }}
-    .flag-circle.pub-btn.on   {{ background: #166534; border-color: #166534; }}
-    .flag-circle.desc-btn.on  {{ background: #be123c; border-color: #be123c; }}
-    .flag-circle.post-btn     {{ background: #1a1a1a; border-color: #1a1a1a; color: white; text-decoration: none; }}
-    .flag-circle.post-btn:hover {{ background: #444; border-color: #444; color: white; }}
+    .flag-circle.visto-btn:hover {{ background: #4338ca; border-color: #4338ca; color: white; }}
+    .flag-circle.visto-btn.on    {{ background: #4338ca; border-color: #4338ca; color: white; }}
+    .flag-circle.pub-btn:hover   {{ background: #166534; border-color: #166534; color: white; }}
+    .flag-circle.pub-btn.on      {{ background: #166534; border-color: #166534; color: white; }}
+    .flag-circle.desc-btn:hover  {{ background: #be123c; border-color: #be123c; color: white; }}
+    .flag-circle.desc-btn.on     {{ background: #be123c; border-color: #be123c; color: white; }}
+    .flag-circle.post-btn        {{ background: #1a1a1a; border-color: #1a1a1a; color: white; text-decoration: none; }}
+    .flag-circle.post-btn:hover  {{ background: #444; border-color: #444; color: white; }}
 
     /* ── TITLE ── */
     .card-title {{
