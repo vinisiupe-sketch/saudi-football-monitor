@@ -610,15 +610,12 @@ async def dashboard():
       <div class="tmpl-title">Escolher formato</div>
       <button class="tmpl-opt active" data-t="simples" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Simples</div>
-        <div class="tmpl-opt-sub">1 card</div>
       </button>
       <button class="tmpl-opt" data-t="carrossel" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Carrossel</div>
-        <div class="tmpl-opt-sub">múltiplos slides</div>
       </button>
       <button class="tmpl-opt" data-t="transferencia" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Transferência</div>
-        <div class="tmpl-opt-sub">card especial</div>
       </button>
       <div class="tmpl-slides-row" id="tmpl-slides-row">
         <button class="tmpl-slide-opt active" data-n="3" onclick="selectSlides(this)">3</button>
