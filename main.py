@@ -78,9 +78,10 @@ async def dashboard():
         handle        = a.get("source_name", "").lstrip("@")
         moon          = SOURCE_MOON.get(handle, {"A": "🌕", "B": "🌖", "C": "🌗"}.get(a["source_tier"], ""))
         title         = a.get("title_pt") or a.get("title_orig") or "—"
-        body          = (a.get("body_pt") or a.get("body_orig") or "")[:280]
-        if len(body) == 280:
-            body += "…"
+        body_raw      = a.get("body_pt") or a.get("body_orig") or ""
+        body_short    = body_raw[:280] + ("…" if len(body_raw) > 280 else "")
+        body_full     = body_raw
+        has_more      = len(body_raw) > 280
         category      = a.get("category") or "geral"
         category_text = CATEGORY_TEXT.get(category, "Geral")
         post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + handle
@@ -108,9 +109,11 @@ async def dashboard():
               </div>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
-            <button class="expand-btn" onclick="toggleExpand(this)">↓ ver mais</button>
-            <button class="collapse-btn" onclick="toggleCollapse(this)">↑ ver menos</button>
-            <p class="card-text">{body}</p>
+            <p class="card-text">
+              <span class="text-short">{body_short}</span>
+              <span class="text-full" style="display:none">{body_full}</span>
+            </p>
+            {'<button class="expand-text-btn" onclick="expandText(this)">↓ ver mais</button>' if has_more else ''}
             <div class="card-bottom">
               <div class="card-tags">
                 <span class="tag">{moon}</span>
@@ -236,23 +239,24 @@ async def dashboard():
     }}
     .card-title:hover {{ opacity: .7; }}
 
-    /* ── EXPAND ── */
-    .expand-btn, .collapse-btn {{
+    /* ── EXPAND TEXT ── */
+    .expand-text-btn {{
       background: none; border: none; cursor: pointer;
       font-size: 0.62rem; color: #aaa; padding: 0 0 10px;
       text-transform: uppercase; letter-spacing: 0.07em;
-      font-weight: 700; display: none; text-align: left;
+      font-weight: 700; display: block; text-align: left;
+      transition: color .15s;
     }}
-    .card-collapsed:not(.user-expanded) .expand-btn {{ display: block; }}
-    .card-collapsed.user-expanded .collapse-btn {{ display: block; }}
+    .expand-text-btn:hover {{ color: #1a1a1a; }}
+    .expand-text-btn.expanded {{ color: #999; }}
 
     /* ── BODY TEXT ── */
     .card-text {{
       font-size: 0.82rem; color: #555; line-height: 1.65;
       margin-bottom: 16px;
     }}
-    .card-collapsed:not(.user-expanded) .card-text,
-    .card-collapsed:not(.user-expanded) .card-bottom {{ display: none; }}
+    .card-collapsed .card-text,
+    .card-collapsed .card-bottom {{ display: none; }}
 
     /* ── CARD BOTTOM ── */
     .card-bottom {{
@@ -321,7 +325,6 @@ async def dashboard():
         else if (f === 'publicado')    {{ card.classList.add('flag-publicado'); nPub++;   }}
         else if (f === 'descartado')   {{ card.classList.add('flag-descarte');  nDesc++;  }}
         else                             nNone++;
-        if (!f) card.classList.remove('user-expanded');
         card.classList.toggle('card-collapsed', !!f);
       }});
       // Reorder: sem flag → publicado → não publicado → descartado
@@ -357,13 +360,14 @@ async def dashboard():
       applyFilter();
     }}
 
-    function toggleExpand(btn) {{
-      const card = btn.closest('.card');
-      card.classList.add('user-expanded');
-    }}
-    function toggleCollapse(btn) {{
-      const card = btn.closest('.card');
-      card.classList.remove('user-expanded');
+    function expandText(btn) {{
+      const p = btn.previousElementSibling;
+      const short = p.querySelector('.text-short');
+      const full  = p.querySelector('.text-full');
+      const expanded = btn.classList.toggle('expanded');
+      short.style.display = expanded ? 'none' : 'inline';
+      full.style.display  = expanded ? 'inline' : 'none';
+      btn.textContent = expanded ? '↑ ver menos' : '↓ ver mais';
     }}
 
     async function loadFlags() {{
