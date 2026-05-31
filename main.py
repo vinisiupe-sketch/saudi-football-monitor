@@ -255,7 +255,8 @@ async def dashboard():
     .card-collapsed.flag-open .card-text,
     .card-collapsed.flag-open .card-bottom {{ display: flex; }}
     .card-collapsed.flag-open .card-text {{ display: block; }}
-    .card-collapsed.flag-open .expand-text-btn {{ display: block; }}
+    .card-collapsed.flag-open .text-short {{ display: none; }}
+    .card-collapsed.flag-open .text-full  {{ display: inline !important; }}
 
     /* ── EXPAND TEXTO LONGO ── */
     .expand-text-btn {{
