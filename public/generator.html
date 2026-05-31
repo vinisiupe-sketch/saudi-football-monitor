@@ -190,6 +190,10 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 .cta-logo { position:absolute; left:calc(50% - 75px); top:820px; width:150px; height:150px; z-index:5; }
 .slide-num { position:absolute; right:90px; top:55px; font-family:'Poppins',sans-serif; font-size:24px; color:rgba(255,255,255,.25); z-index:5; }
 .igcard.carousel-internal { background:#201322; }
+.txt-chamativo-block { left:0; right:0; top:950px; bottom:100px; padding:0 68px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:20px; }
+.txt-chamativo-block .ch-word { font-family:'Antonio',sans-serif; font-weight:700; font-size:140px; color:#49fcb6; text-transform:uppercase; line-height:1; text-align:center; width:100%; }
+.txt-chamativo-block .ch-sub { font-family:'Poppins',sans-serif; font-weight:500; font-size:36px; color:#fff; line-height:1.4; text-align:center; width:100%; }
+
 </style>
 </head>
 <body>
@@ -224,6 +228,7 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
         <button class="tmpl-sw-btn" id="sw-simples"       onclick="switchTemplate('simples')">Simples</button>
         <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="switchTemplate('carrossel')">Carrossel</button>
         <button class="tmpl-sw-btn" id="sw-transferencia" onclick="switchTemplate('transferencia')">Transferência</button>
+        <button class="tmpl-sw-btn" id="sw-chamativo"     onclick="switchTemplate('chamativo')">Chamativo</button>
       </div>
     </div>
     <div id="slide-counter" style="font-size:0.62rem;color:#aaa;font-weight:700;text-transform:uppercase;letter-spacing:.07em;display:none;"></div>
@@ -326,6 +331,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Mark active template button
   document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('sw-' + S.template)?.classList.add('active');
+  if (S.template === 'chamativo') document.getElementById('sw-chamativo')?.classList.add('active');
 
   // Update upload hint
   if (S.template === 'carrossel') {
@@ -362,36 +368,47 @@ function showErr(msg) {
 }
 
 
+// Templates that reuse existing data (no new API call needed)
+const INSTANT_TEMPLATES = new Set(['simples', 'transferencia', 'chamativo']);
+
 async function switchTemplate(newTmpl) {
   if (newTmpl === S.template) return;
-  // Update active button immediately
+
+  // Mark active button
   document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('sw-' + newTmpl)?.classList.add('active');
   S.template = newTmpl;
-  // Show loading in slide counter area
-  const ctr = document.getElementById('slide-counter');
-  ctr.style.display = 'block';
-  ctr.textContent = 'Gerando...';
-  // Re-call API
-  try {
-    const res = await fetch('/api/generate-post', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        news: _news, template: S.template, num_slides: S.numSlides,
-        already_translated: _translated, source: _source, moon: _moon,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
-    S.data = data;
+  S.curSlide = 0;
+
+  if (INSTANT_TEMPLATES.has(newTmpl)) {
+    // Instant switch — data already available
     prepPreview();
     upd();
-    ctr.textContent = '';
-    ctr.style.display = 'none';
-  } catch(e) {
-    ctr.textContent = 'Erro: ' + e.message;
-    setTimeout(() => { ctr.style.display = 'none'; }, 3000);
+  } else {
+    // Carrossel — needs new API call
+    const ov = document.getElementById('switch-overlay');
+    ov.style.display = 'flex';
+    try {
+      const res = await fetch('/api/generate-post', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          news: _news, template: S.template, num_slides: S.numSlides,
+          already_translated: _translated, source: _source, moon: _moon,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
+      S.data = data;
+      prepPreview();
+      upd();
+    } catch(e) {
+      document.getElementById('slide-counter').textContent = 'Erro: ' + e.message;
+      document.getElementById('slide-counter').style.display = 'block';
+      setTimeout(() => { document.getElementById('slide-counter').style.display = 'none'; }, 3000);
+    } finally {
+      ov.style.display = 'none';
+    }
   }
 }
 
@@ -403,7 +420,7 @@ function prepPreview() {
   if (data.nome_jogador) document.getElementById('eplayer').value  = data.nome_jogador;
   if (data.tipo_anuncio) document.getElementById('eanntype').value = data.tipo_anuncio;
 
-  document.getElementById('grp-sub').style.display   = t === 'carrossel'     ? 'flex' : 'none';
+  document.getElementById('grp-sub').style.display   = (t === 'carrossel' || t === 'chamativo') ? 'flex' : 'none';
   document.getElementById('grp-body').style.display  = t === 'carrossel'     ? 'flex' : 'none';
   document.getElementById('grp-tf').style.display    = t === 'transferencia' ? 'flex' : 'none';
   document.getElementById('dlbtn').style.display     = t !== 'carrossel'     ? 'inline-flex' : 'none';
@@ -530,7 +547,13 @@ function cardCarousel(idx) {
   return `<div class="igcard carousel-internal">${bgPhotoTag(slideSrc, bi)}${maskTag('carrossel_interno_mask.png')}<div class="slide-num">${idx}/${total-1}</div><div class="layer-text txt-ci-block"><div class="ci-title">${esc(sl.titulo || '')}</div><div class="ci-body">${sbody}</div></div></div>`;
 }
 
-function renderCard(t, idx) { return t === 'carrossel' ? cardCarousel(idx) : cardSimples(); }
+function cardChamativo() {
+  const word = esc(document.getElementById('etitle').value || 'BOMBA');
+  const sub  = esc(document.getElementById('esub').value || '').replace(/\n/g, '<br>');
+  return `<div class="igcard">${bgPhotoTag(null, 0)}<div class="layer-gradient"></div>${maskTag('simples_mask.png')}<div class="layer-text txt-chamativo-block"><div class="ch-word">${word}</div><div class="ch-sub">${sub}</div></div></div>`;
+}
+
+function renderCard(t, idx) { return t === 'carrossel' ? cardCarousel(idx) : t === 'chamativo' ? cardChamativo() : cardSimples(); }
 
 function upd() {
   const scaler  = document.getElementById('cscale');
@@ -683,5 +706,11 @@ function esc(s) {
 
 window.addEventListener('resize', upd);
 </script>
+
+<!-- Template switch loading overlay -->
+<div id="switch-overlay" style="display:none;position:fixed;inset:0;background:rgba(237,234,228,.85);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:14px;backdrop-filter:blur(4px);">
+  <div class="loading-ring"></div>
+  <div class="loading-label">Gerando carrossel...</div>
+</div>
 </body>
 </html>

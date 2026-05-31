@@ -780,6 +780,14 @@ def _tmpl_rule(tmpl: str, n: int) -> str:
             "- Extraia o tipo de anúncio (ex: \"Contratação definitiva\", \"Empréstimo\", \"Saída confirmada\") → tipo_anuncio\n"
             "- slides = []"
         )
+    if tmpl == "chamativo":
+        return (
+            "TEMPLATE: CHAMATIVO (1 card).\n"
+            "- tipo_sugerido = \"chamativo\"\n"
+            "- titulo = UMA ÚNICA PALAVRA em maiúsculas que sintetize o assunto com impacto máximo (ex: CONFIRMADO, BOMBA, OFICIAL, CHEGOU, SAIU, RENOVAÇÃO)\n"
+            "- subtitulo = exatamente 2 linhas separadas por \\n resumindo a notícia de forma direta e impactante\n"
+            "- slides = []"
+        )
     return (
         "TEMPLATE: SIMPLES (1 card).\n"
         "- tipo_sugerido = \"simples\"\n"
@@ -794,7 +802,7 @@ async def generate_post(request: Request):
     body = await request.json()
     news = (body.get("news") or "").strip()
     template = body.get("template", "simples")
-    if template not in ("simples", "carrossel", "transferencia"):
+    if template not in ("simples", "carrossel", "transferencia", "chamativo"):
         template = "simples"
     num_slides = body.get("num_slides", 3)
     n = min(6, max(3, int(num_slides))) if template == "carrossel" else 1
