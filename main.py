@@ -38,6 +38,43 @@ app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
 app.mount("/fonts", StaticFiles(directory="public/fonts"), name="fonts")
 app.mount("/masks", StaticFiles(directory="public/masks"), name="masks")
 
+# ─── Header compartilhado ────────────────────
+_ICO_HOME    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 3l9 6.5V20a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V9.5z"/><polyline points="9 21 9 12 15 12 15 21"/></svg>'
+_ICO_ARCHIVE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg>'
+_ICO_SOURCES = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/><line x1="6.5" y1="10.8" x2="10.5" y2="6.2"/><line x1="13.5" y1="6.2" x2="17.5" y2="10.8"/><line x1="17.5" y1="13.2" x2="13.5" y2="17.8"/><line x1="10.5" y1="17.8" x2="6.5" y2="13.2"/></svg>'
+_ICO_TRASH2  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>'
+_ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
+
+_HEADER_CSS = (
+    "    header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 20px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; gap: 6px; }\n"
+    "    .brand { font-family: \'Bebas Neue\', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }\n"
+    "    .nav-icon { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.18); background: transparent; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all .15s; flex-shrink: 0; position: relative; }\n"
+    "    .nav-icon:hover { border-color: #1a1a1a; color: #1a1a1a; background: rgba(0,0,0,.04); }\n"
+    "    .nav-icon.active { background: #1a1a1a; border-color: #1a1a1a; color: white; }\n"
+    "    .nav-icon.cta { background: #1a1a1a; border-color: #1a1a1a; color: white; }\n"
+    "    .nav-icon.cta:hover { background: #444; border-color: #444; }\n"
+    "    .nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: white; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; }"
+)
+
+def _header(active: str) -> str:
+    pages = [
+        ("/",           _ICO_HOME,    "Home"),
+        ("/descartadas",_ICO_ARCHIVE, "Descartadas"),
+        ("/fontes",     _ICO_SOURCES, "Fontes"),
+        ("/lixeira",    _ICO_TRASH2,  "Lixeira"),
+        ("/gerador",    _ICO_PEN2,    "Criar Post"),
+    ]
+    items = ""
+    for href, ico, label in pages:
+        cls = "nav-icon"
+        if href == active:
+            cls += " active"
+        elif href == "/gerador":
+            cls += " cta"
+        items += f'<a class="{cls}" href="{href}" title="{label}">{ico}</a>'
+    return f'<header><a class="brand" href="/">IARABÃO</a>{items}</header>'
+
+
 
 # ─── Dashboard ───────────────────────────────
 @app.get("/", response_class=HTMLResponse)
@@ -141,32 +178,7 @@ async def dashboard():
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
 
-    /* ── HEADER ── */
-    header {{
-      background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1);
-      padding: 0 24px; display: flex; align-items: center;
-      position: sticky; top: 0; z-index: 10; height: 52px;
-    }}
-    .brand {{
-      font-family: 'Bebas Neue', sans-serif; font-size: 2rem;
-      letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none;
-      margin-right: auto; line-height: 1;
-    }}
-    nav {{ display: flex; align-items: center; gap: 0; }}
-    .nav-link {{
-      padding: 6px 12px; font-size: 0.68rem; font-weight: 700;
-      color: #999; text-decoration: none; text-transform: uppercase;
-      letter-spacing: 0.07em; transition: color .15s;
-    }}
-    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
-    .nav-cta {{
-      margin-left: 10px; padding: 5px 15px;
-      border: 1.5px solid #1a1a1a; border-radius: 99px;
-      font-size: 0.65rem; font-weight: 700; color: #1a1a1a;
-      text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em;
-      transition: all .15s; white-space: nowrap;
-    }}
-    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+    {_HEADER_CSS}
 
     /* ── TOPBAR ── */
     .topbar {{
@@ -490,15 +502,7 @@ async def dashboard():
   </script>
 </head>
 <body>
-  <header>
-    <a class="brand" href="/">IARABÃO</a>
-    <nav>
-      <a class="nav-link active" href="/">Home</a>
-      <a class="nav-link" href="/descartadas">Descartadas</a>
-      <a class="nav-link" href="/fontes">Fontes</a>
-    </nav>
-    <a class="nav-cta" href="/gerador">Criar Post</a>
-  </header>
+  {_header("/")}
   <div class="topbar">
     <span class="count">{len(articles)} notícias · 48h</span>
     <div class="flag-summary">
@@ -599,13 +603,7 @@ async def descartadas():
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
-    header {{ background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 24px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; }}
-    .brand {{ font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }}
-    nav {{ display: flex; align-items: center; gap: 0; }}
-    .nav-link {{ padding: 6px 12px; font-size: 0.68rem; font-weight: 700; color: #999; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: color .15s; }}
-    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
-    .nav-cta {{ margin-left: 10px; padding: 5px 15px; border: 1.5px solid #1a1a1a; border-radius: 99px; font-size: 0.65rem; font-weight: 700; color: #1a1a1a; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; white-space: nowrap; }}
-    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+    {_HEADER_CSS}
     .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
     .card {{ background: #fafaf8; border-radius: 16px; display: flex; flex-direction: column; opacity: 0.82; }}
@@ -621,15 +619,7 @@ async def descartadas():
   </style>
 </head>
 <body>
-  <header>
-    <a class="brand" href="/">IARABÃO</a>
-    <nav>
-      <a class="nav-link" href="/">Home</a>
-      <a class="nav-link active" href="/descartadas">Descartadas</a>
-      <a class="nav-link" href="/fontes">Fontes</a>
-    </nav>
-    <a class="nav-cta" href="/gerador">Criar Post</a>
-  </header>
+  {_header("/descartadas")}
   <p class="info">{len(articles)} descartadas · 24h · Texto original sem tradução</p>
   <div class="grid">
     {cards if cards else '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Nenhuma notícia descartada nas últimas 24h.</p>'}
@@ -944,13 +934,7 @@ async def fontes_page():
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
-    header {{ background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 24px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; }}
-    .brand {{ font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }}
-    nav {{ display: flex; align-items: center; gap: 0; }}
-    .nav-link {{ padding: 6px 12px; font-size: 0.68rem; font-weight: 700; color: #999; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: color .15s; }}
-    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
-    .nav-cta {{ margin-left: 10px; padding: 5px 15px; border: 1.5px solid #1a1a1a; border-radius: 99px; font-size: 0.65rem; font-weight: 700; color: #1a1a1a; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; white-space: nowrap; }}
-    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+    {_HEADER_CSS}
     .page {{ max-width: 680px; margin: 28px auto; padding: 0 24px 80px; }}
     .page-title {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }}
     .page-sub {{ font-size: 0.75rem; color: #999; margin-bottom: 20px; }}
@@ -977,15 +961,7 @@ async def fontes_page():
   </style>
 </head>
 <body>
-<header>
-  <a class="brand" href="/">IARABÃO</a>
-  <nav>
-    <a class="nav-link" href="/">Home</a>
-    <a class="nav-link" href="/descartadas">Descartadas</a>
-    <a class="nav-link active" href="/fontes">Fontes</a>
-  </nav>
-  <a class="nav-cta" href="/gerador">Criar Post</a>
-</header>
+{_header("/fontes")}
 <div class="page">
   <p class="page-title">Fontes monitoradas</p>
   <p class="page-sub">{len(sources)} fontes · Alterações entram em vigor na próxima coleta</p>
@@ -1094,13 +1070,7 @@ async def lixeira_page():
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
-    header {{ background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 24px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; }}
-    .brand {{ font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }}
-    nav {{ display: flex; align-items: center; gap: 0; }}
-    .nav-link {{ padding: 6px 12px; font-size: 0.68rem; font-weight: 700; color: #999; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: color .15s; }}
-    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
-    .nav-cta {{ margin-left: 10px; padding: 5px 15px; border: 1.5px solid #1a1a1a; border-radius: 99px; font-size: 0.65rem; font-weight: 700; color: #1a1a1a; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; white-space: nowrap; }}
-    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+    {_HEADER_CSS}
     .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
     .card {{ background: #fff1f2; border-radius: 16px; opacity: .82; }}
@@ -1119,15 +1089,7 @@ async def lixeira_page():
   </style>
 </head>
 <body>
-<header>
-  <a class="brand" href="/">IARABÃO</a>
-  <nav>
-    <a class="nav-link" href="/">Home</a>
-    <a class="nav-link" href="/descartadas">Descartadas</a>
-    <a class="nav-link" href="/fontes">Fontes</a>
-  </nav>
-  <a class="nav-cta" href="/gerador">Criar Post</a>
-</header>
+{_header("/lixeira")}
 <p class="info">{len(articles)} na lixeira · removidos nas últimas 24h · após isso são apagados</p>
 <div class="grid">
   {cards if cards else empty}
