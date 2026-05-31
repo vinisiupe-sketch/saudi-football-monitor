@@ -71,6 +71,7 @@ async def dashboard():
     ICO_LOCK  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
     ICO_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
     ICO_TRASH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>'
+    ICO_PEN   = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 
     cards = ""
     for a in articles:
@@ -104,6 +105,7 @@ async def dashboard():
                 <button class="flag-circle visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">{ICO_LOCK}</button>
                 <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">{ICO_CHECK}</button>
                 <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Descarte">{ICO_TRASH}</button>
+                <a class="flag-circle post-btn" href="{post_url}" title="Criar post">{ICO_PEN}</a>
               </div>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
@@ -116,7 +118,6 @@ async def dashboard():
                 <span class="tag">@{handle}</span>
                 <span class="tag">{category_text}</span>
               </div>
-              <a class="post-link" href="{post_url}">✍ Post</a>
             </div>
           </div>
         </div>"""
@@ -221,6 +222,8 @@ async def dashboard():
     .flag-circle.visto-btn.on {{ background: #4338ca; border-color: #4338ca; }}
     .flag-circle.pub-btn.on   {{ background: #166534; border-color: #166534; }}
     .flag-circle.desc-btn.on  {{ background: #be123c; border-color: #be123c; }}
+    .flag-circle.post-btn     {{ background: #1a1a1a; border-color: #1a1a1a; color: white; text-decoration: none; }}
+    .flag-circle.post-btn:hover {{ background: #444; border-color: #444; color: white; }}
 
     /* ── TITLE ── */
     .card-title {{
@@ -260,13 +263,6 @@ async def dashboard():
       border: 1px solid #ccc; border-radius: 99px;
       padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em;
     }}
-    .post-link {{
-      font-size: 0.62rem; font-weight: 700; color: #1a1a1a;
-      text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em;
-      border: 1.5px solid #1a1a1a; border-radius: 99px; padding: 4px 13px;
-      transition: all .15s; white-space: nowrap;
-    }}
-    .post-link:hover {{ background: #1a1a1a; color: #edeae4; }}
 
     /* ── COLLECT BAR ── */
     .collect-bar {{
