@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, cleanup_old_trash
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
 
@@ -22,6 +22,7 @@ scheduler = None
 async def lifespan(app: FastAPI):
     global scheduler
     init_db()
+    cleanup_old_trash()
     scheduler = create_scheduler()
     scheduler.start()
     # Roda pipeline na inicialização
@@ -68,6 +69,7 @@ async def dashboard():
         "geral": "Geral",
     }
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+    ICO_ANALYSIS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>'
     ICO_LOCK  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
     ICO_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
     ICO_TRASH = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>'
@@ -103,9 +105,10 @@ async def dashboard():
             <div class="card-top">
               <span class="card-date">{date_display}</span>
               <div class="card-flags">
+                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"      title="Análise">{ICO_ANALYSIS}</button>
                 <button class="flag-circle visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">{ICO_LOCK}</button>
                 <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">{ICO_CHECK}</button>
-                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Descarte">{ICO_TRASH}</button>
+                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Lixeira">{ICO_TRASH}</button>
               </div>
             </div>
             <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
@@ -179,6 +182,7 @@ async def dashboard():
       border: 1.5px solid transparent;
     }}
     .fs-total     {{ border-color: #ccc;    color: #999;    }}
+    .fs-analise   {{ border-color: #fde68a; color: #92400e; }}
     .fs-visto     {{ border-color: #a5b4fc; color: #4338ca; }}
     .fs-publicado {{ border-color: #86efac; color: #166534; }}
     .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
@@ -198,9 +202,10 @@ async def dashboard():
       display: flex; flex-direction: column;
       transition: background .2s;
     }}
-    .card.flag-visto    {{ background: #ede9fe; }}
+    .card.flag-analise   {{ background: #fefce8; }}
+    .card.flag-visto     {{ background: #ede9fe; }}
     .card.flag-publicado {{ background: #dcfce7; }}
-    .card.flag-descarte  {{ background: #fff1f2; opacity: .75; }}
+    .card.flag-descarte  {{ display: none; }}
     .card.hidden-by-filter {{ display: none; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
 
@@ -223,6 +228,8 @@ async def dashboard():
     }}
     .flag-circle:hover {{ background: #1a1a1a; color: white; }}
     .flag-circle.on {{ background: #1a1a1a; color: white; }}
+    .flag-circle.anal-btn:hover  {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
+    .flag-circle.anal-btn.on     {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
     .flag-circle.visto-btn:hover {{ background: #4338ca; border-color: #4338ca; color: white; }}
     .flag-circle.visto-btn.on    {{ background: #4338ca; border-color: #4338ca; color: white; }}
     .flag-circle.pub-btn:hover   {{ background: #166534; border-color: #166534; color: white; }}
@@ -326,32 +333,38 @@ async def dashboard():
     let _activeFilter = null;
 
     function applyFlags() {{
-      let nVisto = 0, nPub = 0, nNone = 0, nDesc = 0;
+      let nAnalise = 0, nVisto = 0, nPub = 0, nNone = 0, nDesc = 0;
       const grid = document.querySelector('.grid');
       const cards = Array.from(document.querySelectorAll('.card[data-id]'));
       cards.forEach(card => {{
         const id = card.dataset.id;
         const f  = _flags[id];
-        card.classList.remove('flag-visto', 'flag-publicado', 'flag-descarte');
+        card.classList.remove('flag-analise', 'flag-visto', 'flag-publicado', 'flag-descarte');
+        card.querySelector('.anal-btn').classList.toggle('on',  f === 'analise');
         card.querySelector('.visto-btn').classList.toggle('on', f === 'naopublicado');
         card.querySelector('.pub-btn').classList.toggle('on',   f === 'publicado');
         card.querySelector('.desc-btn').classList.toggle('on',  f === 'descartado');
-        if      (f === 'naopublicado') {{ card.classList.add('flag-visto');     nVisto++; }}
+        if      (f === 'analise')      {{ card.classList.add('flag-analise');   nAnalise++; }}
+        else if (f === 'naopublicado') {{ card.classList.add('flag-visto');     nVisto++; }}
         else if (f === 'publicado')    {{ card.classList.add('flag-publicado'); nPub++;   }}
         else if (f === 'descartado')   {{ card.classList.add('flag-descarte');  nDesc++;  }}
         else                             nNone++;
-        card.classList.toggle('card-collapsed', !!f);
+        // Colapsar apenas flags que não sejam lixeira (descartados somem do grid via CSS)
+        card.classList.toggle('card-collapsed', f === 'naopublicado' || f === 'publicado' || f === 'analise');
+        // Resetar expand de flagados se flag mudou
+        if (!f) card.classList.remove('flag-open');
       }});
-      // Reorder: sem flag → publicado → não publicado → descartado
-      const order = {{ undefined: 0, 'publicado': 1, 'naopublicado': 2, 'descartado': 3 }};
+      // Reorder: sem flag → análise → publicado → não publicado (descartados ocultos)
+      const order = {{ undefined: 0, 'analise': 1, 'publicado': 2, 'naopublicado': 3, 'descartado': 99 }};
       cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
       cards.forEach(c => grid.appendChild(c));
-      const total = nVisto + nPub + nNone + nDesc;
+      const total = nAnalise + nVisto + nPub + nNone + nDesc;
       if (total > 0) {{
-        document.getElementById('fc-total').textContent = nNone;
-        document.getElementById('fc-visto').textContent = nVisto;
-        document.getElementById('fc-pub').textContent   = nPub;
-        document.getElementById('fc-desc').textContent  = nDesc;
+        document.getElementById('fc-total').textContent   = nNone;
+        document.getElementById('fc-analise').textContent = nAnalise;
+        document.getElementById('fc-visto').textContent   = nVisto;
+        document.getElementById('fc-pub').textContent     = nPub;
+        document.getElementById('fc-desc').textContent    = nDesc;
       }}
       applyFilter();
     }}
@@ -360,14 +373,16 @@ async def dashboard():
       document.querySelectorAll('.card[data-id]').forEach(card => {{
         const id = card.dataset.id;
         const f  = _flags[id] || 'none';
+        // descartados sempre ocultos (vão pra lixeira via CSS)
+        if (f === 'descartado') {{ card.classList.remove('hidden-by-filter'); return; }}
         const show = !_activeFilter || f === _activeFilter;
         card.classList.toggle('hidden-by-filter', !show);
       }});
-      ['fs-total','fs-visto','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
+      ['fs-total','fs-analise','fs-visto','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
       if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
+      else if (_activeFilter === 'analise')       document.getElementById('fs-analise').classList.add('active-filter');
       else if (_activeFilter === 'naopublicado')  document.getElementById('fs-visto').classList.add('active-filter');
       else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
-      else if (_activeFilter === 'descartado')    document.getElementById('fs-desc').classList.add('active-filter');
     }}
 
     function toggleFilter(type) {{
@@ -487,10 +502,11 @@ async def dashboard():
   <div class="topbar">
     <span class="count">{len(articles)} notícias · 48h</span>
     <div class="flag-summary">
-      <span class="fs-badge fs-total"     id="fs-total"     onclick="toggleFilter('none')"        title="Sem flag"><span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-visto"     id="fs-visto"     onclick="toggleFilter('naopublicado')" title="Não publicados"><span id="fc-visto">—</span> salvos</span>
-      <span class="fs-badge fs-publicado" id="fs-pub"       onclick="toggleFilter('publicado')"    title="Publicados"><span id="fc-pub">—</span> publicados</span>
-      <span class="fs-badge fs-descarte"  id="fs-desc"      onclick="toggleFilter('descartado')"   title="Descartados"><span id="fc-desc">—</span> descartados</span>
+      <span class="fs-badge fs-total"     id="fs-total"   onclick="toggleFilter('none')"         title="Sem flag"><span id="fc-total">—</span> sem flag</span>
+      <span class="fs-badge fs-analise"   id="fs-analise" onclick="toggleFilter('analise')"       title="Análise"><span id="fc-analise">—</span> análise</span>
+      <span class="fs-badge fs-visto"     id="fs-visto"   onclick="toggleFilter('naopublicado')"  title="Não publicados"><span id="fc-visto">—</span> salvos</span>
+      <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"     title="Publicados"><span id="fc-pub">—</span> publicados</span>
+      <span class="fs-badge fs-descarte"  id="fs-desc"    title="Lixeira · <a href='/lixeira'>ver lixeira →</a>"><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
     </div>
   </div>
   <div class="grid">
@@ -635,7 +651,7 @@ async def api_set_flag(request: Request):
     flag = body.get("flag") or None  # None = remover
     if not article_id:
         return JSONResponse({"error": "id obrigatório"}, status_code=400)
-    if flag and flag not in ("naopublicado", "publicado", "descartado"):
+    if flag and flag not in ("naopublicado", "publicado", "descartado", "analise"):
         return JSONResponse({"error": "flag inválida"}, status_code=400)
     set_flag(article_id, flag)
     return {"ok": True, "id": article_id, "flag": flag}
@@ -1020,6 +1036,111 @@ async def fontes_page():
     const r = await fetch('/api/fontes', {{ method: 'POST', headers: {{'content-type':'application/json'}},
       body: JSON.stringify({{ action: 'upsert', handle, tier, moon }}) }});
     if (r.ok) {{ showToast('Adicionado!'); setTimeout(() => location.reload(), 1000); }}
+  }}
+</script>
+</body></html>""")
+
+
+@app.get("/lixeira", response_class=HTMLResponse)
+async def lixeira_page():
+    cleanup_old_trash()
+    articles = get_trashed_articles()
+    MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+
+    cards = ""
+    for a in articles:
+        handle = a.get("source_name", "").lstrip("@")
+        title  = a.get("title_pt") or a.get("title_orig") or "—"
+        body   = (a.get("body_pt") or a.get("body_orig") or "")[:280]
+        if len(body) == 280:
+            body += "…"
+        art_id = a["id"]
+        trashed_raw = a.get("trashed_at") or ""
+        trashed_display = ""
+        if trashed_raw:
+            try:
+                from datetime import datetime, timezone, timedelta
+                dt = datetime.fromisoformat(str(trashed_raw).replace(" ", "T").split("+")[0] + "+00:00")
+                dt_local = dt.astimezone(timezone(timedelta(hours=3)))
+                trashed_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
+            except Exception:
+                pass
+        cards += f"""
+        <div class="card" data-id="{art_id}">
+          <div class="card-body">
+            <div class="card-top">
+              <span class="card-date">{trashed_display}</span>
+              <button class="restore-btn" onclick="restoreCard('{art_id}', this)" title="Restaurar">↩ Restaurar</button>
+            </div>
+            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
+            <p class="card-text">{body}</p>
+            <div class="card-bottom">
+              <div class="card-tags">
+                <span class="tag">@{handle}</span>
+                <span class="tag">Tier {a['source_tier']}</span>
+              </div>
+            </div>
+          </div>
+        </div>"""
+
+    empty = '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Lixeira vazia.</p>'
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>IARABÃO — Lixeira</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    header {{ background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 24px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; }}
+    .brand {{ font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }}
+    nav {{ display: flex; align-items: center; gap: 0; }}
+    .nav-link {{ padding: 6px 12px; font-size: 0.68rem; font-weight: 700; color: #999; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: color .15s; }}
+    .nav-link:hover, .nav-link.active {{ color: #1a1a1a; }}
+    .nav-cta {{ margin-left: 10px; padding: 5px 15px; border: 1.5px solid #1a1a1a; border-radius: 99px; font-size: 0.65rem; font-weight: 700; color: #1a1a1a; text-decoration: none; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; white-space: nowrap; }}
+    .nav-cta:hover {{ background: #1a1a1a; color: #edeae4; }}
+    .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
+    .card {{ background: #fff1f2; border-radius: 16px; opacity: .82; }}
+    .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
+    .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
+    .card-date {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .restore-btn {{ background: transparent; border: 1.5px solid #1a1a1a; border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
+    .restore-btn:hover {{ background: #1a1a1a; color: #edeae4; }}
+    .card-title {{ font-size: 0.95rem; font-weight: 700; color: #1a1a1a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
+    .card-title:hover {{ opacity: .7; }}
+    .card-text {{ font-size: 0.8rem; color: #666; line-height: 1.6; }}
+    .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
+    .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
+    .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .removed {{ opacity: 0; transform: scale(.95); transition: all .3s; pointer-events: none; }}
+  </style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">IARABÃO</a>
+  <nav>
+    <a class="nav-link" href="/">Home</a>
+    <a class="nav-link" href="/descartadas">Descartadas</a>
+    <a class="nav-link" href="/fontes">Fontes</a>
+  </nav>
+  <a class="nav-cta" href="/gerador">Criar Post</a>
+</header>
+<p class="info">{len(articles)} na lixeira · removidos nas últimas 24h · após isso são apagados</p>
+<div class="grid">
+  {cards if cards else empty}
+</div>
+<script>
+  async function restoreCard(id, btn) {{
+    const card = btn.closest('.card');
+    await fetch('/api/flag', {{
+      method: 'POST', headers: {{'content-type': 'application/json'}},
+      body: JSON.stringify({{ id, flag: null }}),
+    }});
+    card.classList.add('removed');
+    setTimeout(() => card.remove(), 300);
   }}
 </script>
 </body></html>""")

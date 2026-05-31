@@ -97,8 +97,35 @@ def init_db():
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
+def get_trashed_articles() -> list[dict]:
+    """Retorna artigos com flag='descartado' nas últimas 24h (com dados do artigo)."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT a.*, af.updated_at AS trashed_at
+            FROM articles a
+            JOIN article_flags af ON a.id = af.article_id
+            WHERE af.flag = 'descartado'
+              AND af.updated_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '24 hours')
+            ORDER BY af.updated_at DESC
+        """)
+        return [dict(r) for r in c.fetchall()]
+
+
+def cleanup_old_trash():
+    """Remove flags 'descartado' com mais de 24h."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            DELETE FROM article_flags
+            WHERE flag = 'descartado'
+              AND updated_at::TIMESTAMPTZ < (NOW() AT TIME ZONE 'UTC' - INTERVAL '24 hours')
+        """)
+        return c.rowcount
+
+
 def set_flag(article_id: str, flag: str | None):
-    """flag = 'visto' | 'publicado' | None (remove)"""
+    """flag = 'naopublicado' | 'publicado' | 'descartado' | 'analise' | None (remove)"""
     with get_conn() as conn:
         c = conn.cursor()
         if flag:
