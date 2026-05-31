@@ -9,206 +9,158 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
-/* ── FONTES DO GERADOR ──────────────────────────── */
 @font-face { font-family:'Antonio'; font-weight:700; src:url('/fonts/Antonio-Bold.ttf') format('truetype'); }
 @font-face { font-family:'Antonio'; font-weight:600; src:url('/fonts/Antonio-SemiBold.ttf') format('truetype'); }
 @font-face { font-family:'Poppins';  font-weight:400; src:url('/fonts/Poppins-Regular.ttf') format('truetype'); }
 @font-face { font-family:'Poppins';  font-weight:500; src:url('/fonts/Poppins-Medium.ttf') format('truetype'); }
 
-/* ── BASE ───────────────────────────────────────── */
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }
 
+/* ── HEADER ── */
 header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 20px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; gap: 6px; }
 .brand { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }
 .nav-icon { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.18); background: transparent; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all .15s; flex-shrink: 0; position: relative; }
 .nav-icon:hover { border-color: #1a1a1a; color: #1a1a1a; background: rgba(0,0,0,.04); }
 .nav-icon.active { background: #1a1a1a; border-color: #1a1a1a; color: white; }
-.nav-icon.cta { background: #1a1a1a; border-color: #1a1a1a; color: white; }
-.nav-icon.cta:hover { background: #444; border-color: #444; }
 .nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: white; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
 
-.container { max-width: 960px; margin: 0 auto; padding: 24px 24px 60px; }
+/* ── LOADING ── */
+#loading-screen {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: calc(100vh - 52px); gap: 16px;
+}
+.loading-ring {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 3px solid rgba(0,0,0,.1); border-top-color: #1a1a1a;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-label {
+  font-size: 0.65rem; font-weight: 700; color: #aaa;
+  text-transform: uppercase; letter-spacing: 0.1em;
+}
+.err-screen {
+  display: none; flex-direction: column; align-items: center; justify-content: center;
+  height: calc(100vh - 52px); gap: 14px; text-align: center; padding: 0 24px;
+}
+.err-msg { font-size: 0.9rem; color: #be123c; font-weight: 600; }
+.err-back { font-size: 0.65rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; text-decoration: underline; }
 
-/* ── STEP TABS ──────────────────────────────────── */
-.steps {
-  display: flex; gap: 0; margin-bottom: 20px;
-  background: #fafaf8; border-radius: 16px; overflow: hidden;
-}
-.step-tab {
-  flex: 1; padding: 14px 20px; display: flex; align-items: center; gap: 10px;
-  font-size: 0.72rem; font-weight: 700; color: #bbb;
-  border-bottom: 2px solid transparent; transition: all .2s;
-  text-transform: uppercase; letter-spacing: 0.07em;
-}
-.step-tab.active { color: #1a1a1a; border-bottom-color: #1a1a1a; }
-.step-tab.done   { color: #666; }
-.step-num {
-  width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,.08);
-  display: flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 700; flex-shrink: 0;
-}
-.step-tab.active .step-num { background: #1a1a1a; color: white; }
-.step-tab.done   .step-num { background: #dcfce7; color: #166534; }
+/* ── CONTAINER ── */
+.container { max-width: 1000px; margin: 0 auto; padding: 20px 20px 60px; display: none; }
 
-/* ── PANELS ─────────────────────────────────────── */
-.panel { display: none; }
-.panel.active { display: block; }
+/* ── TOP BAR ── */
+.top-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+}
+.tmpl-pill {
+  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  padding: 4px 12px; border-radius: 99px; border: 1.5px solid #1a1a1a;
+  background: #1a1a1a; color: #49fcb6;
+}
+.btn-back {
+  background: transparent; border: 1.5px solid rgba(0,0,0,.18); border-radius: 99px;
+  padding: 6px 16px; font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.07em; color: #999; cursor: pointer; transition: all .15s;
+}
+.btn-back:hover { border-color: #1a1a1a; color: #1a1a1a; }
 
-/* ── CARDS / SECTIONS ───────────────────────────── */
-.section-card {
-  background: #fafaf8; border-radius: 16px; padding: 20px 24px;
-  margin-bottom: 10px;
-}
-.section-label {
-  font-size: 0.62rem; font-weight: 700; color: #999;
-  text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 12px;
-  display: flex; align-items: center; gap: 8px;
-}
-.section-num {
-  width: 20px; height: 20px; border-radius: 50%; background: #1a1a1a;
-  color: white; display: flex; align-items: center; justify-content: center;
-  font-size: 10px; font-weight: 700; flex-shrink: 0;
-}
+/* ── LAYOUT ── */
+.playout { display: grid; grid-template-columns: 1fr 340px; gap: 16px; align-items: start; }
+@media (max-width: 820px) { .playout { grid-template-columns: 1fr; } }
 
-/* ── FORM ELEMENTS ──────────────────────────────── */
-textarea {
-  width: 100%; background: rgba(0,0,0,.04); border: 1px solid rgba(0,0,0,.1); border-radius: 10px;
-  color: #1a1a1a; padding: 12px 14px; font-size: 0.9rem;
-  font-family: inherit; resize: vertical; min-height: 140px; line-height: 1.6;
-  transition: border-color .2s;
+/* ── PREVIEW COLUMN ── */
+.preview-col { display: flex; flex-direction: column; gap: 10px; }
+
+/* Upload area — shown before images selected */
+.upload-zone {
+  background: #fafaf8; border-radius: 16px; padding: 32px 20px;
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  cursor: pointer; border: 2px dashed rgba(0,0,0,.15); transition: all .2s;
+  text-align: center;
 }
-textarea:focus { outline: none; border-color: #1a1a1a; }
-input[type="text"] {
+.upload-zone:hover { border-color: #1a1a1a; background: rgba(0,0,0,.03); }
+.upload-zone.has-img { border-style: solid; border-color: #1a1a1a; }
+.upload-zone-icon { font-size: 2rem; }
+.upload-zone-title { font-size: 0.85rem; font-weight: 700; color: #1a1a1a; }
+.upload-zone-sub { font-size: 0.72rem; color: #aaa; line-height: 1.5; max-width: 300px; }
+.thumb-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.thumb-item { position: relative; width: 60px; height: 60px; border-radius: 8px; overflow: hidden; border: 2px solid rgba(0,0,0,.1); }
+.thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb-num { position: absolute; top: 2px; left: 2px; background: rgba(0,0,0,.6); color: white; font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: 700; }
+
+/* Preview card */
+.cwrap {
+  border-radius: 16px; overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0,0,0,.15); position: relative;
+}
+.cscale { transform-origin: top left; width: 1080px; height: 1350px; }
+.drag-overlay { position: absolute; inset: 0; cursor: grab; z-index: 20; border-radius: 16px; }
+.drag-overlay.dragging { cursor: grabbing; }
+.drag-hint { text-align: center; margin-top: 6px; font-size: 0.62rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+
+.swap-label {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: transparent; color: #777; border: 1.5px solid rgba(0,0,0,.15); padding: 7px 16px;
+  border-radius: 99px; font-size: 0.62rem; font-weight: 700; cursor: pointer;
+  transition: all .15s; text-transform: uppercase; letter-spacing: 0.06em; width: 100%;
+}
+.swap-label:hover { border-color: #1a1a1a; color: #1a1a1a; }
+
+.snav { display: flex; gap: 6px; justify-content: center; }
+.sdot { width: 7px; height: 7px; border-radius: 50%; background: rgba(0,0,0,.2); cursor: pointer; transition: all .2s; }
+.sdot.on { background: #1a1a1a; width: 18px; border-radius: 4px; }
+
+/* ── RIGHT PANEL ── */
+.epanel { display: flex; flex-direction: column; gap: 10px; }
+.section-card { background: #fafaf8; border-radius: 16px; padding: 16px 18px; }
+.section-label { font-size: 0.6rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+
+input[type="text"], textarea {
   width: 100%; background: rgba(0,0,0,.04); border: 1px solid rgba(0,0,0,.1); border-radius: 10px;
   color: #1a1a1a; padding: 9px 12px; font-size: 0.88rem; font-family: inherit;
-  transition: border-color .2s;
+  transition: border-color .2s; resize: vertical;
 }
-input[type="text"]:focus { outline: none; border-color: #1a1a1a; }
-.fg { display: flex; flex-direction: column; gap: 5px; }
-.fg label { font-size: 0.62rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.07em; }
+input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a; }
+.fg { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.fg label { font-size: 0.6rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.07em; }
 
-/* ── UPLOAD ─────────────────────────────────────── */
-.upload-area {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 8px; padding: 28px 20px;
-  border: 2px dashed rgba(0,0,0,.15); border-radius: 12px; background: rgba(0,0,0,.03);
-  cursor: pointer; transition: all .2s; text-align: center;
-}
-.upload-area:hover { border-color: #1a1a1a; background: rgba(0,0,0,.06); }
-.upload-area.has-images { border-color: #1a1a1a; border-style: solid; background: rgba(0,0,0,.04); }
-.upload-area-icon { font-size: 28px; }
-.upload-area-text { font-size: 0.88rem; color: #555; font-weight: 600; }
-.upload-area-sub  { font-size: 0.72rem; color: #aaa; line-height: 1.5; max-width: 380px; }
+.capbox { background: #fafaf8; border-radius: 16px; padding: 16px; }
+.capt { font-size: 0.6rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
 
-.detect-badge {
-  display: flex; align-items: center; gap: 8px;
-  background: rgba(0,0,0,.05); border: 1px solid rgba(0,0,0,.1); border-radius: 8px;
-  padding: 9px 14px; margin-top: 10px;
-  font-size: 0.78rem; color: #555; line-height: 1.5; font-weight: 600;
-}
-
-.thumb-grid { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
-.thumb-item {
-  position: relative; width: 72px; height: 72px;
-  border-radius: 10px; overflow: hidden; border: 2px solid rgba(0,0,0,.1);
-}
-.thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.thumb-num {
-  position: absolute; top: 3px; left: 3px;
-  background: rgba(0,0,0,.6); color: white;
-  font-size: 10px; padding: 2px 5px; border-radius: 3px; font-weight: 700;
-}
-
-/* ── BUTTONS ────────────────────────────────────── */
 .btn-primary {
-  background: #1a1a1a; color: #edeae4; border: none; padding: 10px 26px;
-  border-radius: 99px; font-size: 0.72rem; font-weight: 700; cursor: pointer;
+  background: #1a1a1a; color: #edeae4; border: none; padding: 10px 22px;
+  border-radius: 99px; font-size: 0.68rem; font-weight: 700; cursor: pointer;
   transition: opacity .15s; display: inline-flex; align-items: center; gap: 7px;
   text-transform: uppercase; letter-spacing: 0.07em;
 }
 .btn-primary:hover:not(:disabled) { opacity: .75; }
 .btn-primary:disabled { opacity: .35; cursor: not-allowed; }
-.btn-secondary {
-  background: transparent; color: #777; border: 1.5px solid #ccc; padding: 9px 20px;
-  border-radius: 99px; font-size: 0.68rem; font-weight: 700; cursor: pointer;
-  transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
-  text-transform: uppercase; letter-spacing: 0.07em;
-}
-.btn-secondary:hover { border-color: #1a1a1a; color: #1a1a1a; }
 .btn-outline {
   background: transparent; color: #1a1a1a; border: 1.5px solid #1a1a1a;
-  padding: 9px 20px; border-radius: 99px; font-size: 0.68rem; font-weight: 700;
+  padding: 9px 18px; border-radius: 99px; font-size: 0.68rem; font-weight: 700;
   cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
   text-transform: uppercase; letter-spacing: 0.07em;
 }
 .btn-outline:hover { background: #1a1a1a; color: #edeae4; }
-.row { display: flex; gap: 10px; align-items: center; margin-top: 16px; flex-wrap: wrap; }
-.spinner {
-  display: inline-block; width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,.4); border-top-color: white;
-  border-radius: 50%; animation: spin .7s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.pst { font-size: 0.78rem; color: #888; }
-.err {
-  color: #be123c; font-size: 0.82rem; padding: 10px 14px;
-  background: #fff1f2; border-radius: 10px; border: 1px solid #fecdd3; margin-top: 12px;
-}
-
-/* ── PREVIEW LAYOUT ─────────────────────────────── */
-.playout { display: grid; grid-template-columns: 540px 1fr; gap: 20px; align-items: start; }
-.cwrap {
-  width: 540px; border-radius: 16px; overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,.15); flex-shrink: 0; position: relative;
-}
-.cscale { transform-origin: top left; width: 1080px; height: 1350px; }
-
-.snav { display: flex; gap: 6px; justify-content: center; margin-top: 12px; }
-.sdot { width: 7px; height: 7px; border-radius: 50%; background: rgba(0,0,0,.2); cursor: pointer; transition: all .2s; }
-.sdot.on { background: #1a1a1a; width: 18px; border-radius: 4px; }
-
-.epanel { display: flex; flex-direction: column; gap: 10px; }
-
-.capbox {
-  background: #fafaf8; border-radius: 16px; padding: 16px;
-}
-.capt { font-size: 0.62rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
-.capbox p { font-size: 0.82rem; color: #555; line-height: 1.7; white-space: pre-wrap; max-height: 120px; overflow-y: auto; }
 .cpbtn {
   background: none; border: 1.5px solid rgba(0,0,0,.15); color: #777;
-  padding: 5px 13px; border-radius: 99px; font-size: 0.65rem; font-weight: 700;
-  cursor: pointer; margin-top: 8px; transition: all .2s;
-  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 5px 13px; border-radius: 99px; font-size: 0.62rem; font-weight: 700;
+  cursor: pointer; transition: all .2s; text-transform: uppercase; letter-spacing: 0.06em;
 }
 .cpbtn:hover { border-color: #1a1a1a; color: #1a1a1a; }
 
-.dlbox {
-  background: #fafaf8; border-radius: 16px; padding: 16px; text-align: center;
-}
-.dlbox h3 { font-size: 0.62rem; font-weight: 700; color: #999; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.dlbox { background: #fafaf8; border-radius: 16px; padding: 16px; text-align: center; }
+.dlbox h3 { font-size: 0.6rem; font-weight: 700; color: #999; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .dlrow { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 .dlst { margin-top: 8px; font-size: 0.72rem; color: #888; min-height: 14px; }
 
-.swap-label {
-  display: inline-flex; align-items: center; gap: 6px;
-  background: transparent; color: #777; border: 1.5px solid rgba(0,0,0,.15); padding: 6px 14px;
-  border-radius: 99px; font-size: 0.65rem; font-weight: 700; cursor: pointer;
-  margin-top: 8px; transition: all .15s; text-transform: uppercase; letter-spacing: 0.06em;
-}
-.swap-label:hover { border-color: #1a1a1a; color: #1a1a1a; }
+#ig-hint { display:none; font-size:0.72rem; color:#888; margin-top:6px; }
 
-/* ── DRAG OVERLAY ───────────────────────────────── */
-.drag-overlay { position: absolute; inset: 0; cursor: grab; z-index: 20; border-radius: 16px; }
-.drag-overlay.dragging { cursor: grabbing; }
-.drag-hint { text-align: center; margin-top: 6px; font-size: 0.65rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
-
-/* ── EXPORT ─────────────────────────────────────── */
+/* ── INSTAGRAM CARD (1080×1350) ── */
 #export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
-
-/* ══════════════════════════════════════════════════
-   INSTAGRAM CARD — 1080 × 1350 px (output format)
-   ══════════════════════════════════════════════════ */
 .igcard { width:1080px; height:1350px; position:relative; overflow:hidden; background:#201322; font-family:'Poppins',sans-serif; }
 .igcard .layer-photo { position:absolute; inset:0; width:100%; height:100%; background-color:#2a1e2e; background-size:cover; background-repeat:no-repeat; z-index:1; }
 .igcard .layer-gradient { position:absolute; inset:0; z-index:2; background:linear-gradient(to bottom, transparent 45%, rgba(0,0,0,0.18) 58%, rgba(0,0,0,0.80) 80%, rgba(0,0,0,0.92) 100%); pointer-events:none; }
@@ -228,11 +180,6 @@ input[type="text"]:focus { outline: none; border-color: #1a1a1a; }
 .cta-logo { position:absolute; left:calc(50% - 75px); top:820px; width:150px; height:150px; z-index:5; }
 .slide-num { position:absolute; right:90px; top:55px; font-family:'Poppins',sans-serif; font-size:24px; color:rgba(255,255,255,.25); z-index:5; }
 .igcard.carousel-internal { background:#201322; }
-
-@media (max-width: 820px) {
-  .playout { grid-template-columns: 1fr; }
-  .cwrap { width: 100%; max-width: 540px; }
-}
 </style>
 </head>
 <body>
@@ -246,162 +193,214 @@ input[type="text"]:focus { outline: none; border-color: #1a1a1a; }
   <a class="nav-icon active" href="/gerador" title="Criar Post"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></a>
 </header>
 
-<div class="container">
+<!-- Loading -->
+<div id="loading-screen">
+  <div class="loading-ring"></div>
+  <div class="loading-label">Gerando post...</div>
+</div>
 
-  <!-- STEPS -->
-  <div class="steps">
-    <div class="step-tab active" id="si1"><div class="step-num">1</div>Notícia &amp; Imagens</div>
-    <div class="step-tab" id="si2"><div class="step-num">2</div>Preview &amp; Download</div>
+<!-- Error -->
+<div class="err-screen" id="err-screen">
+  <div class="err-msg" id="err-msg">Erro ao gerar post.</div>
+  <span class="err-back" onclick="history.back()">← Voltar</span>
+</div>
+
+<!-- Main -->
+<div class="container" id="main-container">
+  <div class="top-bar">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <button class="btn-back" onclick="history.back()">← Voltar</button>
+      <span class="tmpl-pill" id="tmpl-pill">Simples</span>
+    </div>
+    <div id="slide-counter" style="font-size:0.62rem;color:#aaa;font-weight:700;text-transform:uppercase;letter-spacing:.07em;display:none;"></div>
   </div>
 
-  <!-- ═══ TELA 1 ═══ -->
-  <section class="panel active" id="p1">
+  <div class="playout">
 
-    <div class="section-card">
-      <div class="section-label"><div class="section-num">1</div>Texto da notícia</div>
-      <textarea id="news" placeholder="Cole aqui o texto completo da notícia..."></textarea>
-    </div>
+    <!-- ── LEFT: Preview ── -->
+    <div class="preview-col">
 
-    <div class="section-card">
-      <div class="section-label"><div class="section-num">2</div>Imagens</div>
-      <label class="upload-area" id="upload-area">
-        <div class="upload-area-icon">📁</div>
-        <div class="upload-area-text">Clique para selecionar imagens</div>
-        <div class="upload-area-sub">
-          1 imagem = Simples · 2 imagens = Simples com círculo · 3–6 imagens = Carrossel
-        </div>
+      <!-- Upload zone (before image) -->
+      <label class="upload-zone" id="upload-zone">
+        <div class="upload-zone-icon">📁</div>
+        <div class="upload-zone-title">Selecionar imagem(ns)</div>
+        <div class="upload-zone-sub" id="upload-hint">1 imagem de fundo · ou 2 para adicionar círculo de destaque</div>
+        <div class="thumb-row" id="thumb-row"></div>
         <input type="file" accept="image/*" multiple id="img-input" style="display:none" onchange="handleImages(this)">
       </label>
-      <div class="detect-badge" id="detect-badge" style="display:none;"></div>
-      <div class="thumb-grid" id="thumb-grid"></div>
-    </div>
 
-    <div class="row">
-      <button class="btn-primary" id="pbtn" onclick="process()">Gerar Post</button>
-      <span class="pst" id="pst"></span>
-    </div>
-    <div class="err" id="perr" style="display:none;"></div>
-
-  </section>
-
-  <!-- ═══ TELA 2 ═══ -->
-  <section class="panel" id="p2">
-    <div class="playout">
-
-      <!-- Preview -->
-      <div>
+      <!-- Preview card (hidden until image selected) -->
+      <div id="cwrap-outer" style="display:none;">
         <div class="cwrap" id="cwrap">
           <div class="cscale" id="cscale"></div>
           <div class="drag-overlay" id="drag-overlay"></div>
         </div>
         <div class="drag-hint">Arraste para reposicionar a imagem</div>
-        <div style="text-align:center;">
-          <label class="swap-label">
-            Trocar imagem
-            <input type="file" accept="image/*" id="swap-input" style="display:none" onchange="swapImage(this)">
-          </label>
-        </div>
-        <div class="snav" id="snav" style="display:none;"></div>
+        <label class="swap-label" style="margin-top:8px;">
+          Trocar imagem
+          <input type="file" accept="image/*" id="swap-input" style="display:none" onchange="swapImage(this)">
+        </label>
+        <div class="snav" id="snav" style="display:none;margin-top:10px;"></div>
       </div>
 
-      <!-- Edição + Download -->
-      <div class="epanel">
-
-        <div class="section-card" style="margin-bottom:0;">
-          <div class="section-label" style="margin-bottom:14px;">Editar texto</div>
-
-          <div class="fg" id="grp-title" style="margin-bottom:10px;">
-            <label>Título</label>
-            <input type="text" id="etitle" oninput="upd()">
-          </div>
-          <div class="fg" id="grp-sub" style="display:none; flex-direction:column; margin-bottom:10px;">
-            <label>Subtítulo</label>
-            <textarea id="esub" style="min-height:70px;" oninput="upd()"></textarea>
-          </div>
-          <div class="fg" id="grp-body" style="display:none; flex-direction:column; margin-bottom:10px;">
-            <label>Corpo do slide atual</label>
-            <textarea id="ebody" style="min-height:100px;" oninput="updBody()"></textarea>
-          </div>
-          <div id="grp-tf" style="display:none; flex-direction:column; gap:10px; margin-bottom:10px;">
-            <div class="fg"><label>Nome do Jogador</label><input type="text" id="eplayer" oninput="upd()"></div>
-            <div class="fg"><label>Tipo de Anúncio</label><input type="text" id="eanntype" oninput="upd()"></div>
-          </div>
-        </div>
-
-        <div class="capbox">
-          <div class="capt">Texto do post <span style="font-weight:400;font-size:0.75rem;color:#94a3b8;">(editável)</span></div>
-          <textarea id="captext" rows="6" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:0.85rem;font-family:inherit;color:#1e293b;resize:vertical;margin-top:6px;line-height:1.5;">—</textarea>
-          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-            <button class="cpbtn" onclick="copyCaption()" style="margin-top:0;">Copiar</button>
-            <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="margin-top:0;background:#1a1a1a;color:#edeae4;border-color:#1a1a1a;">X · Twitter</button>
-            <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="margin-top:0;background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">Instagram</button>
-          </div>
-          <p id="ig-hint" style="display:none;font-size:0.72rem;color:#888;margin-top:6px;">Legenda copiada — selecione as imagens baixadas no Instagram e cole.</p>
-        </div>
-
-        <div class="dlbox">
-          <h3>Baixar posts</h3>
-          <div class="dlrow">
-            <button class="btn-primary" id="dlbtn" onclick="dlCurrent()">Baixar PNG</button>
-            <button class="btn-outline" id="dlall" style="display:none;" onclick="dlAll()">Baixar ZIP</button>
-          </div>
-          <div class="dlst" id="dlst"></div>
-        </div>
-
-        <button class="btn-secondary" style="width:100%; justify-content:center;" onclick="goP(1)">← Voltar</button>
-
-      </div>
     </div>
-  </section>
 
-</div><!-- /container -->
+    <!-- ── RIGHT: Edit + Download ── -->
+    <div class="epanel">
 
+      <div class="section-card">
+        <div class="section-label">Editar texto</div>
+        <div class="fg" id="grp-title">
+          <label>Título</label>
+          <input type="text" id="etitle" oninput="upd()">
+        </div>
+        <div class="fg" id="grp-sub" style="display:none;">
+          <label>Subtítulo</label>
+          <textarea id="esub" style="min-height:60px;" oninput="upd()"></textarea>
+        </div>
+        <div class="fg" id="grp-body" style="display:none;">
+          <label>Corpo do slide atual</label>
+          <textarea id="ebody" style="min-height:90px;" oninput="updBody()"></textarea>
+        </div>
+        <div id="grp-tf" style="display:none;">
+          <div class="fg"><label>Nome do Jogador</label><input type="text" id="eplayer" oninput="upd()"></div>
+          <div class="fg"><label>Tipo de Anúncio</label><input type="text" id="eanntype" oninput="upd()"></div>
+        </div>
+      </div>
+
+      <div class="capbox">
+        <div class="capt">Legenda do post <span style="font-weight:400;font-size:0.75rem;color:#94a3b8;">(editável)</span></div>
+        <textarea id="captext" rows="5" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:0.85rem;font-family:inherit;color:#1e293b;resize:vertical;margin-top:6px;line-height:1.5;">—</textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+          <button class="cpbtn" onclick="copyCaption()">Copiar</button>
+          <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="background:#1a1a1a;color:#edeae4;border-color:#1a1a1a;">X · Twitter</button>
+          <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">Instagram</button>
+        </div>
+        <p id="ig-hint">Legenda copiada — selecione as imagens baixadas no Instagram e cole.</p>
+      </div>
+
+      <div class="dlbox">
+        <h3>Baixar</h3>
+        <div class="dlrow">
+          <button class="btn-primary" id="dlbtn" onclick="dlCurrent()">Baixar PNG</button>
+          <button class="btn-outline" id="dlall" style="display:none;" onclick="dlAll()">Baixar ZIP</button>
+        </div>
+        <div class="dlst" id="dlst"></div>
+      </div>
+
+    </div>
+  </div>
+</div>
 
 <div id="export-wrap"></div>
 
 <script>
 const S = {
-  data: null, template: 'simples', selectedCount: 1,
+  data: null, template: 'simples', numSlides: 3,
   slides: [], curSlide: 0, uploadedImages: [], imgPositions: [],
 };
 
-function goP(n) {
-  if (n === 2) { if (!S.data) return; prepPreview(); }
-  document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
-  document.getElementById('p' + n).classList.add('active');
-  window.scrollTo(0, 0);
-  ['si1','si2'].forEach((id, i) => {
-    const el = document.getElementById(id);
-    el.classList.remove('active','done');
-    if (i + 1 < n) el.classList.add('done');
-    else if (i + 1 === n) el.classList.add('active');
-  });
+/* ── URL params ── */
+const _P = new URLSearchParams(window.location.search);
+const _news       = _P.get('texto')      || '';
+const _source     = _P.get('source')     || '';
+const _moon       = _P.get('moon')       || '';
+const _translated = _P.get('translated') === '1';
+S.template  = _P.get('template') || 'simples';
+S.numSlides = Math.min(6, Math.max(3, parseInt(_P.get('slides') || '3')));
+
+/* ── Init ── */
+document.addEventListener('DOMContentLoaded', async () => {
+  // Update pill label
+  const labels = { simples: 'Simples', carrossel: 'Carrossel', transferencia: 'Transferência' };
+  document.getElementById('tmpl-pill').textContent = labels[S.template] || S.template;
+
+  // Update upload hint
+  if (S.template === 'carrossel') {
+    document.getElementById('upload-hint').textContent =
+      `${S.numSlides} slides — selecione até ${S.numSlides} imagens (uma por slide)`;
+  } else if (S.template === 'transferencia') {
+    document.getElementById('upload-hint').textContent = '1 imagem de fundo · ou 2 para adicionar círculo de destaque';
+  }
+
+  if (!_news) { showErr('Nenhum texto recebido. Volte e tente novamente.'); return; }
+
+  // Call generate API
+  try {
+    const res = await fetch('/api/generate-post', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        news: _news, template: S.template, num_slides: S.numSlides,
+        already_translated: _translated, source: _source, moon: _moon,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
+    S.data = data;
+    prepPreview();
+    document.getElementById('loading-screen').style.display = 'none';
+    document.getElementById('main-container').style.display = 'block';
+  } catch(e) {
+    showErr(e.message);
+  }
+});
+
+function showErr(msg) {
+  document.getElementById('loading-screen').style.display = 'none';
+  document.getElementById('err-msg').textContent = msg;
+  document.getElementById('err-screen').style.display = 'flex';
 }
 
+function prepPreview() {
+  const t = S.template, data = S.data;
+  document.getElementById('etitle').value   = data.titulo    || '';
+  document.getElementById('esub').value     = data.subtitulo || '';
+  document.getElementById('captext').value  = data.legenda_instagram || '—';
+  if (data.nome_jogador) document.getElementById('eplayer').value  = data.nome_jogador;
+  if (data.tipo_anuncio) document.getElementById('eanntype').value = data.tipo_anuncio;
+
+  document.getElementById('grp-sub').style.display   = t === 'carrossel'     ? 'flex' : 'none';
+  document.getElementById('grp-body').style.display  = t === 'carrossel'     ? 'flex' : 'none';
+  document.getElementById('grp-tf').style.display    = t === 'transferencia' ? 'flex' : 'none';
+  document.getElementById('dlbtn').style.display     = t !== 'carrossel'     ? 'inline-flex' : 'none';
+  document.getElementById('dlall').style.display     = t === 'carrossel'     ? 'inline-flex' : 'none';
+
+  S.slides   = (t === 'carrossel' && data.slides?.length) ? data.slides : [];
+  S.curSlide = 0;
+  buildSlideNav();
+}
+
+/* ── Image handling ── */
 function handleImages(input) {
-  const files = Array.from(input.files).slice(0, 6);
+  const max = S.template === 'carrossel' ? S.numSlides : 2;
+  const files = Array.from(input.files).slice(0, max);
   if (!files.length) return;
   S.uploadedImages = new Array(files.length);
+  S.imgPositions   = files.map(() => ({ x: 50, y: 50 }));
   let loaded = 0;
   files.forEach((f, i) => {
     const r = new FileReader();
-    r.onload = e => { S.uploadedImages[i] = e.target.result; if (++loaded === files.length) detectMode(); };
+    r.onload = e => {
+      S.uploadedImages[i] = e.target.result;
+      if (++loaded === files.length) onImagesReady();
+    };
     r.readAsDataURL(f);
   });
 }
 
-function detectMode() {
-  const n = S.uploadedImages.filter(Boolean).length;
-  S.selectedCount = n;
-  S.template = n >= 3 ? 'carrossel' : 'simples';
-  S.imgPositions = S.uploadedImages.map(() => ({ x: 50, y: 50 }));
-  const badge = document.getElementById('detect-badge');
-  badge.innerHTML = n === 1 ? '📷 <strong>Simples</strong> — 1 imagem de fundo'
-    : n === 2 ? '👤 <strong>Simples com círculo</strong> — fundo + destaque'
-    : `🎠 <strong>Carrossel — ${n} slides</strong>`;
-  badge.style.display = 'flex';
-  document.getElementById('upload-area').classList.add('has-images');
-  renderThumbs();
+function onImagesReady() {
+  const n = S.uploadedImages.length;
+  // Thumbnails
+  const labels = S.template === 'carrossel'
+    ? S.uploadedImages.map((_, i) => i === 0 ? 'CAPA' : i === n-1 ? 'CTA' : String(i+1))
+    : n === 1 ? ['BG'] : ['BG', '●'];
+  document.getElementById('thumb-row').innerHTML = S.uploadedImages.map((src, i) =>
+    `<div class="thumb-item"><img src="${src}" alt=""><div class="thumb-num">${labels[i]}</div></div>`
+  ).join('');
+  document.getElementById('upload-zone').classList.add('has-img');
+  document.getElementById('cwrap-outer').style.display = 'block';
+  upd();
 }
 
 function swapImage(input) {
@@ -412,92 +411,45 @@ function swapImage(input) {
   r.readAsDataURL(f);
 }
 
-function renderThumbs() {
-  const n = S.uploadedImages.length;
-  const labels = n===1?['BG']:n===2?['BG','●']:S.uploadedImages.map((_,i)=>i===0?'CAPA':i===n-1?'CTA':String(i+1));
-  document.getElementById('thumb-grid').innerHTML = S.uploadedImages.map((src,i)=>`
-    <div class="thumb-item"><img src="${src}" alt=""><div class="thumb-num">${labels[i]}</div></div>`).join('');
-}
-
-async function process() {
-  const news = document.getElementById('news').value.trim();
-  if (!news)                { showErr('Cole o texto da notícia.'); return; }
-  if (!S.uploadedImages[0]) { showErr('Selecione ao menos 1 imagem.'); return; }
-  const btn = document.getElementById('pbtn');
-  btn.disabled = true;
-  document.getElementById('pst').innerHTML = '<span class="spinner"></span> Gerando post...';
-  document.getElementById('perr').style.display = 'none';
-  try {
-    const _urlP = new URLSearchParams(window.location.search);
-    const res = await fetch('/api/generate-post', {
-      method: 'POST', headers: {'content-type':'application/json'},
-      body: JSON.stringify({
-        news, template: S.template, num_slides: S.selectedCount,
-        already_translated: _urlP.get('translated') === '1',
-        source: _urlP.get('source') || '',
-        moon: _urlP.get('moon') || '',
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
-    S.data = data;
-    document.getElementById('pst').textContent = '✅ Pronto!';
-    btn.disabled = false;
-    setTimeout(() => goP(2), 300);
-  } catch(err) {
-    showErr('Erro: ' + err.message);
-    btn.disabled = false;
-    document.getElementById('pst').textContent = '';
-  }
-}
-
-function showErr(m) { const el = document.getElementById('perr'); el.textContent=m; el.style.display='block'; }
-
-function prepPreview() {
-  const t=S.template, data=S.data;
-  document.getElementById('etitle').value = data.titulo    || '';
-  document.getElementById('esub').value   = data.subtitulo || '';
-  document.getElementById('captext').value = data.legenda_instagram || '—';
-  if (data.nome_jogador) document.getElementById('eplayer').value  = data.nome_jogador;
-  if (data.tipo_anuncio) document.getElementById('eanntype').value = data.tipo_anuncio;
-  document.getElementById('grp-sub').style.display  = t==='carrossel'     ? 'flex' : 'none';
-  document.getElementById('grp-body').style.display = t==='carrossel'     ? 'flex' : 'none';
-  document.getElementById('grp-tf').style.display   = t==='transferencia' ? 'flex' : 'none';
-  document.getElementById('dlbtn').style.display    = t!=='carrossel'     ? 'inline-flex' : 'none';
-  document.getElementById('dlall').style.display    = t==='carrossel'     ? 'inline-flex' : 'none';
-  S.slides = (t==='carrossel' && data.slides?.length) ? data.slides : [];
-  S.curSlide = 0;
-  buildSlideNav(); upd();
-}
-
+/* ── Slide nav ── */
 function buildSlideNav() {
   const nav = document.getElementById('snav');
-  if (S.template!=='carrossel'||!S.slides.length) { nav.style.display='none'; return; }
-  nav.style.display='flex';
-  nav.innerHTML = S.slides.map((_,i)=>`<div class="sdot ${i===0?'on':''}" onclick="goslide(${i})"></div>`).join('');
+  const ctr = document.getElementById('slide-counter');
+  if (S.template !== 'carrossel' || !S.slides.length) { nav.style.display = 'none'; ctr.style.display = 'none'; return; }
+  nav.style.display = 'flex';
+  ctr.style.display = 'block';
+  ctr.textContent = `Slide ${S.curSlide + 1} / ${S.slides.length}`;
+  nav.innerHTML = S.slides.map((_, i) =>
+    `<div class="sdot ${i === 0 ? 'on' : ''}" onclick="goslide(${i})"></div>`
+  ).join('');
 }
 
 function goslide(idx) {
-  S.curSlide=idx;
-  document.querySelectorAll('.sdot').forEach((d,i)=>d.classList.toggle('on',i===idx));
-  if (S.slides[idx]) document.getElementById('ebody').value=S.slides[idx].corpo||'';
+  S.curSlide = idx;
+  document.querySelectorAll('.sdot').forEach((d, i) => d.classList.toggle('on', i === idx));
+  if (S.slides[idx]) document.getElementById('ebody').value = S.slides[idx].corpo || '';
+  document.getElementById('slide-counter').textContent = `Slide ${idx + 1} / ${S.slides.length}`;
   upd();
 }
 
-function updBody() { const v=document.getElementById('ebody').value; if(S.slides[S.curSlide]) S.slides[S.curSlide].corpo=v; upd(); }
+function updBody() {
+  const v = document.getElementById('ebody').value;
+  if (S.slides[S.curSlide]) S.slides[S.curSlide].corpo = v;
+  upd();
+}
 
 /* ── Card renderers ── */
-function bgPhotoTag(cls='', src=null, imgIdx=0) {
-  const img=src||S.uploadedImages[0]||'';
-  const p=S.imgPositions[imgIdx]||{x:50,y:50};
-  const bg=img?`background-image:url('${img}');background-position:${p.x}% ${p.y}%;`:'';
-  return `<div class="layer-photo ${cls}" style="${bg}"></div>`;
+function bgPhotoTag(src, imgIdx) {
+  const img = src || S.uploadedImages[0] || '';
+  const p   = S.imgPositions[imgIdx] || { x: 50, y: 50 };
+  const bg  = img ? `background-image:url('${img}');background-position:${p.x}% ${p.y}%;` : '';
+  return `<div class="layer-photo" style="${bg}"></div>`;
 }
-function bgImgIdx(si) { return (S.template==='carrossel'&&S.uploadedImages[si])?si:0; }
-function maskTag(file) { return `<img class="layer-mask" src="/masks/${file}" alt="" onerror="this.style.display='none'" onload="this.style.display='block'">`; }
+function bgImgIdx(si) { return (S.template === 'carrossel' && S.uploadedImages[si]) ? si : 0; }
+function maskTag(file) { return `<img class="layer-mask" src="/masks/${file}" alt="" onerror="this.style.display='none'">`; }
 
 function logoSVG(sz) {
-  const id='L'+sz+Math.random().toString(36).slice(2,5);
+  const id = 'L' + sz + Math.random().toString(36).slice(2,5);
   return `<svg width="${sz}" height="${sz}" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
     <circle cx="100" cy="100" r="98" fill="#201322" stroke="white" stroke-width="4"/>
     <circle cx="100" cy="100" r="85" fill="none" stroke="white" stroke-width="2.5"/>
@@ -520,97 +472,103 @@ function logoSVG(sz) {
 }
 
 function cardSimples() {
-  const title=esc(document.getElementById('etitle').value||'TÍTULO CURTO E GRANDE');
-  const circleEl=S.uploadedImages[1]?`<img class="layer-circle" src="${S.uploadedImages[1]}" alt="">`:'';
-  return `<div class="igcard">${bgPhotoTag('',null,0)}<div class="layer-gradient"></div>${circleEl}${maskTag('simples_mask.png')}<div class="layer-text txt-simples-block"><div class="s-title">${title}</div></div></div>`;
+  const title = esc(document.getElementById('etitle').value || 'TÍTULO');
+  const circle = S.uploadedImages[1] ? `<img class="layer-circle" src="${S.uploadedImages[1]}" alt="">` : '';
+  return `<div class="igcard">${bgPhotoTag(null, 0)}<div class="layer-gradient"></div>${circle}${maskTag('simples_mask.png')}<div class="layer-text txt-simples-block"><div class="s-title">${title}</div></div></div>`;
 }
 
 function cardCarousel(idx) {
-  const total=S.slides.length; if(!total) return cardSimples();
-  const bi=bgImgIdx(idx), slideSrc=S.uploadedImages[bi]||'';
-  if (idx===0) {
-    const title=esc(document.getElementById('etitle').value||S.slides[0]?.titulo||'TÍTULO');
-    const sub=esc(document.getElementById('esub').value||S.slides[0]?.corpo||'');
-    return `<div class="igcard">${bgPhotoTag('',slideSrc,bi)}<div class="layer-gradient"></div>${maskTag('carrossel_mask.png')}<div class="layer-text txt-carr-block"><div class="c-title">${title}</div>${sub?`<div class="c-sub">${sub}</div>`:''}</div></div>`;
+  const total = S.slides.length; if (!total) return cardSimples();
+  const bi = bgImgIdx(idx), slideSrc = S.uploadedImages[bi] || '';
+  if (idx === 0) {
+    const title = esc(document.getElementById('etitle').value || S.slides[0]?.titulo || 'TÍTULO');
+    const sub   = esc(document.getElementById('esub').value   || S.slides[0]?.corpo  || '');
+    return `<div class="igcard">${bgPhotoTag(slideSrc, bi)}<div class="layer-gradient"></div>${maskTag('carrossel_mask.png')}<div class="layer-text txt-carr-block"><div class="c-title">${title}</div>${sub ? `<div class="c-sub">${sub}</div>` : ''}</div></div>`;
   }
-  if (idx===total-1) {
-    return `<div class="igcard carousel-internal">${bgPhotoTag('',slideSrc,bi)}${maskTag('carrossel_interno_mask.png')}<div class="layer-text txt-cta">SIGA @CENTRALDOARABAO</div><div class="layer-text txt-cta-sub">Mais notícias da<br>Saudi Pro League</div><div class="cta-logo">${logoSVG(150)}</div></div>`;
+  if (idx === total - 1) {
+    return `<div class="igcard carousel-internal">${bgPhotoTag(slideSrc, bi)}${maskTag('carrossel_interno_mask.png')}<div class="layer-text txt-cta">SIGA @CENTRALDOARABAO</div><div class="layer-text txt-cta-sub">Mais notícias da<br>Saudi Pro League</div><div class="cta-logo">${logoSVG(150)}</div></div>`;
   }
-  const sl=S.slides[idx]||{titulo:'SLIDE '+idx,corpo:''};
-  const sbody=esc((idx===S.curSlide&&document.getElementById('ebody').value)||(sl.corpo||''));
-  return `<div class="igcard carousel-internal">${bgPhotoTag('',slideSrc,bi)}${maskTag('carrossel_interno_mask.png')}<div class="slide-num">${idx}/${total-1}</div><div class="layer-text txt-ci-block"><div class="ci-title">${esc(sl.titulo||'')}</div><div class="ci-body">${sbody}</div></div></div>`;
+  const sl    = S.slides[idx] || { titulo: 'SLIDE ' + idx, corpo: '' };
+  const sbody = esc((idx === S.curSlide && document.getElementById('ebody').value) || (sl.corpo || ''));
+  return `<div class="igcard carousel-internal">${bgPhotoTag(slideSrc, bi)}${maskTag('carrossel_interno_mask.png')}<div class="slide-num">${idx}/${total-1}</div><div class="layer-text txt-ci-block"><div class="ci-title">${esc(sl.titulo || '')}</div><div class="ci-body">${sbody}</div></div></div>`;
 }
 
-function renderCard(t, idx) { return t==='carrossel' ? cardCarousel(idx) : cardSimples(); }
+function renderCard(t, idx) { return t === 'carrossel' ? cardCarousel(idx) : cardSimples(); }
 
 function upd() {
-  const scaler=document.getElementById('cscale'), wrapper=document.getElementById('cwrap');
-  if (!scaler||!wrapper) return;
-  scaler.innerHTML=renderCard(S.template,S.curSlide);
-  const scale=(wrapper.offsetWidth||540)/1080;
-  scaler.style.transform=`scale(${scale})`;
-  scaler.style.transformOrigin='top left';
-  scaler.style.width='1080px'; scaler.style.height='1350px';
-  wrapper.style.height=1350*scale+'px';
+  const scaler  = document.getElementById('cscale');
+  const wrapper = document.getElementById('cwrap');
+  if (!scaler || !wrapper || !S.uploadedImages[0]) return;
+  scaler.innerHTML = renderCard(S.template, S.curSlide);
+  const scale = (wrapper.offsetWidth || 480) / 1080;
+  scaler.style.transform       = `scale(${scale})`;
+  scaler.style.transformOrigin = 'top left';
+  scaler.style.width           = '1080px';
+  scaler.style.height          = '1350px';
+  wrapper.style.height         = 1350 * scale + 'px';
+}
+
+/* ── Export ── */
+async function slideToBlob(idx) {
+  const wrap = document.getElementById('export-wrap');
+  wrap.style.cssText = 'position:fixed;left:-1200px;top:0;width:1080px;height:1350px;overflow:hidden;z-index:-1;';
+  wrap.innerHTML = renderCard(S.template, idx);
+  await wait(400);
+  const canvas = await html2canvas(wrap.querySelector('.igcard'), {
+    width:1080, height:1350, scale:1, useCORS:true, allowTaint:true,
+    backgroundColor:'#201322', logging:false, imageTimeout:0
+  });
+  wrap.innerHTML = '';
+  wrap.style.cssText = 'position:fixed;left:-9999px;top:0;z-index:-1;pointer-events:none;';
+  return new Promise(r => canvas.toBlob(r, 'image/png'));
 }
 
 async function dlCurrent() {
-  const btn=document.getElementById('dlbtn'); btn.disabled=true; setDs('Gerando PNG…');
-  try { await dlSlide(S.curSlide,`arabao-${S.template}-${S.curSlide+1}.png`); setDs('✅ Download concluído!'); }
-  catch(e) { setDs('Erro: '+e.message); }
-  btn.disabled=false; setTimeout(()=>setDs(''),4000);
+  const btn = document.getElementById('dlbtn'); btn.disabled = true;
+  setDs('Gerando PNG…');
+  try { await dlSlide(S.curSlide, `arabao-${S.template}.png`); setDs('✅ Download concluído!'); }
+  catch(e) { setDs('Erro: ' + e.message); }
+  btn.disabled = false; setTimeout(() => setDs(''), 4000);
 }
 
 async function dlAll() {
-  const total=S.slides.length; if(!total) return;
-  const btn=document.getElementById('dlall'); btn.disabled=true;
+  const total = S.slides.length; if (!total) return;
+  const btn = document.getElementById('dlall'); btn.disabled = true;
   try {
-    const zip=new JSZip();
-    for (let i=0;i<total;i++) {
+    const zip = new JSZip();
+    for (let i = 0; i < total; i++) {
       setDs(`Gerando slide ${i+1}/${total}…`);
-      const blob=await slideToBlob(i);
-      const label=i===0?'01-capa':i===total-1?`${String(i+1).padStart(2,'0')}-cta`:`${String(i+1).padStart(2,'0')}-slide`;
-      zip.file(`arabao-${label}.png`,blob);
+      const blob  = await slideToBlob(i);
+      const label = i === 0 ? '01-capa' : i === total-1 ? `${String(i+1).padStart(2,'0')}-cta` : `${String(i+1).padStart(2,'0')}-slide`;
+      zip.file(`arabao-${label}.png`, blob);
     }
     setDs('Comprimindo ZIP…');
-    const content=await zip.generateAsync({type:'blob'});
-    const a=document.createElement('a'); a.download='arabao-carrossel.zip';
-    a.href=URL.createObjectURL(content); a.click(); URL.revokeObjectURL(a.href);
+    const content = await zip.generateAsync({ type: 'blob' });
+    const a = document.createElement('a');
+    a.download = 'arabao-carrossel.zip';
+    a.href = URL.createObjectURL(content); a.click(); URL.revokeObjectURL(a.href);
     setDs('✅ ZIP baixado!');
-  } catch(e) { setDs('Erro: '+e.message); }
-  btn.disabled=false; setTimeout(()=>setDs(''),5000);
+  } catch(e) { setDs('Erro: ' + e.message); }
+  btn.disabled = false; setTimeout(() => setDs(''), 5000);
 }
 
-async function slideToBlob(idx) {
-  const wrap=document.getElementById('export-wrap');
-  wrap.style.cssText='position:fixed;left:-1200px;top:0;width:1080px;height:1350px;overflow:hidden;z-index:-1;';
-  wrap.innerHTML=renderCard(S.template,idx);
-  await wait(400);
-  const canvas=await html2canvas(wrap.querySelector('.igcard'),{width:1080,height:1350,scale:1,useCORS:true,allowTaint:true,backgroundColor:'#201322',logging:false,imageTimeout:0});
-  wrap.innerHTML=''; wrap.style.cssText='position:fixed;left:-9999px;top:0;z-index:-1;pointer-events:none;';
-  return new Promise(r=>canvas.toBlob(r,'image/png'));
+async function dlSlide(idx, filename) {
+  const blob = await slideToBlob(idx);
+  const a = document.createElement('a');
+  a.download = filename; a.href = URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href);
 }
 
-async function dlSlide(idx,filename) {
-  const blob=await slideToBlob(idx);
-  const a=document.createElement('a'); a.download=filename;
-  a.href=URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href);
-}
+function setDs(m) { document.getElementById('dlst').textContent = m; }
+function wait(ms)  { return new Promise(r => setTimeout(r, ms)); }
 
-function setDs(m) { document.getElementById('dlst').textContent=m; }
-function wait(ms) { return new Promise(r=>setTimeout(r,ms)); }
-
+/* ── Caption / Share ── */
 async function copyToClipboard(text) {
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    try { await navigator.clipboard.writeText(text); return true; } catch(e) {}
-  }
-  // Fallback for older/restricted browsers
+  if (navigator.clipboard?.writeText) { try { await navigator.clipboard.writeText(text); return true; } catch(e) {} }
   const ta = document.createElement('textarea');
   ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
   document.body.appendChild(ta); ta.select();
   const ok = document.execCommand('copy');
-  document.body.removeChild(ta);
-  return ok;
+  document.body.removeChild(ta); return ok;
 }
 
 function copyCaption() {
@@ -618,89 +576,75 @@ function copyCaption() {
   copyToClipboard(text).then(ok => {
     const b = event.target;
     b.textContent = ok ? '✅ Copiado!' : '❌ Erro';
-    setTimeout(() => b.textContent = '📋 Copiar', 2000);
+    setTimeout(() => b.textContent = 'Copiar', 2000);
   });
 }
 
 function tweetCaption() {
   const text = document.getElementById('captext').value;
   if (!text || text === '—') return;
-  const url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
-  window.open(url, '_blank', 'noopener,noreferrer');
+  window.open('https://twitter.com/intent/tweet?text=' + encodeURIComponent(text), '_blank', 'noopener,noreferrer');
 }
 
 async function shareInstagram() {
   const text = document.getElementById('captext').value;
   if (!text || text === '—') { alert('Gere o post primeiro.'); return; }
-
-  // Collect slide blobs
-  const isCarrossel = S.template === 'carrossel' && S.selectedCount > 1;
+  const isCarrossel = S.template === 'carrossel' && S.slides.length > 1;
   const blobs = [];
-  if (isCarrossel) {
-    for (let i = 0; i < S.selectedCount; i++) blobs.push(await slideToBlob(i));
-  } else {
-    blobs.push(await slideToBlob(S.curSlide));
-  }
+  if (isCarrossel) { for (let i = 0; i < S.slides.length; i++) blobs.push(await slideToBlob(i)); }
+  else blobs.push(await slideToBlob(S.curSlide));
   const files = blobs.map((b, i) => new File([b], `arabao_${i+1}.png`, { type: 'image/png' }));
-
-  // Always copy caption first (Instagram ignores text in Web Share by design)
   await copyToClipboard(text);
-
-  // Mobile: Web Share API — opens native share sheet (Instagram, WhatsApp, etc.)
-  if (navigator.canShare && navigator.canShare({ files })) {
-    try {
-      await navigator.share({ files });
-      document.getElementById('ig-hint').style.display = 'block';
-      return;
-    } catch(e) {
-      if (e.name === 'AbortError') return; // user cancelled
-    }
+  if (navigator.canShare?.({ files })) {
+    try { await navigator.share({ files }); document.getElementById('ig-hint').style.display = 'block'; return; }
+    catch(e) { if (e.name === 'AbortError') return; }
   }
-
-  // Desktop fallback: download images + open Instagram
   if (isCarrossel) { await dlAll(); } else { await dlCurrent(); }
   document.getElementById('ig-hint').style.display = 'block';
   setTimeout(() => window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer'), 600);
 }
 
-function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
 
-/* ── Drag ── */
-(function(){
-  let dragging=false, startX, startY, startPos, activeIdx;
-  function getIdx() { return S.template!=='carrossel'?0:bgImgIdx(S.curSlide); }
+/* ── Drag to reposition ── */
+(function() {
+  let dragging = false, startX, startY, startPos, activeIdx;
+  function getIdx() { return S.template !== 'carrossel' ? 0 : bgImgIdx(S.curSlide); }
   function onDown(e) {
-    if(!S.data) return; dragging=true;
-    startX=e.clientX??e.touches[0].clientX; startY=e.clientY??e.touches[0].clientY;
-    activeIdx=getIdx(); startPos={...(S.imgPositions[activeIdx]||{x:50,y:50})};
-    document.getElementById('drag-overlay').classList.add('dragging'); e.preventDefault();
+    if (!S.uploadedImages[0]) return;
+    dragging = true;
+    startX = e.clientX ?? e.touches[0].clientX;
+    startY = e.clientY ?? e.touches[0].clientY;
+    activeIdx = getIdx();
+    startPos = { ...(S.imgPositions[activeIdx] || { x: 50, y: 50 }) };
+    document.getElementById('drag-overlay').classList.add('dragging');
+    e.preventDefault();
   }
   function onMove(e) {
-    if(!dragging) return;
-    const cx=e.clientX??e.touches[0].clientX, cy=e.clientY??e.touches[0].clientY;
-    const wrap=document.getElementById('cwrap'), w=wrap.offsetWidth||540, h=wrap.offsetHeight||675;
-    S.imgPositions[activeIdx]={x:Math.min(100,Math.max(0,startPos.x-(cx-startX)/w*100)),y:Math.min(100,Math.max(0,startPos.y-(cy-startY)/h*100))};
+    if (!dragging) return;
+    const cx = e.clientX ?? e.touches[0].clientX, cy = e.clientY ?? e.touches[0].clientY;
+    const wrap = document.getElementById('cwrap'), w = wrap.offsetWidth || 480, h = wrap.offsetHeight || 600;
+    S.imgPositions[activeIdx] = {
+      x: Math.min(100, Math.max(0, startPos.x - (cx - startX) / w * 100)),
+      y: Math.min(100, Math.max(0, startPos.y - (cy - startY) / h * 100)),
+    };
     upd();
   }
-  function onUp() { dragging=false; document.getElementById('drag-overlay')?.classList.remove('dragging'); }
-  document.addEventListener('DOMContentLoaded',()=>{
-    const ov=document.getElementById('drag-overlay');
-    ov.addEventListener('mousedown',onDown,{passive:false});
-    ov.addEventListener('touchstart',onDown,{passive:false});
-    document.addEventListener('mousemove',onMove);
-    document.addEventListener('touchmove',onMove,{passive:true});
-    document.addEventListener('mouseup',onUp);
-    document.addEventListener('touchend',onUp);
+  function onUp() { dragging = false; document.getElementById('drag-overlay')?.classList.remove('dragging'); }
+  document.addEventListener('DOMContentLoaded', () => {
+    const ov = document.getElementById('drag-overlay');
+    ov.addEventListener('mousedown', onDown, { passive: false });
+    ov.addEventListener('touchstart', onDown, { passive: false });
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('touchmove', onMove, { passive: true });
+    document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchend', onUp);
   });
 })();
 
-/* ── Pré-preencher via URL ── */
-document.addEventListener('DOMContentLoaded',()=>{
-  const texto=new URLSearchParams(window.location.search).get('texto');
-  if (texto) document.getElementById('news').value=texto;
-});
-
-window.addEventListener('resize',upd);
+window.addEventListener('resize', upd);
 </script>
 </body>
 </html>
