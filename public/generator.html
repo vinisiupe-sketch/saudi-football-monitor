@@ -226,9 +226,9 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
       <button class="btn-back" onclick="history.back()">← Voltar</button>
       <div class="tmpl-switcher">
         <button class="tmpl-sw-btn" id="sw-simples"       onclick="switchTemplate('simples')">Simples</button>
-        <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="switchTemplate('carrossel')">Carrossel</button>
         <button class="tmpl-sw-btn" id="sw-transferencia" onclick="switchTemplate('transferencia')">Transferência</button>
         <button class="tmpl-sw-btn" id="sw-chamativo"     onclick="switchTemplate('chamativo')">Chamativo</button>
+        <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="switchTemplate('carrossel')">Carrossel</button>
       </div>
     </div>
     <div id="slide-counter" style="font-size:0.62rem;color:#aaa;font-weight:700;text-transform:uppercase;letter-spacing:.07em;display:none;"></div>
@@ -265,7 +265,6 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
     <div class="epanel">
 
       <div class="section-card">
-        <div class="section-label">Editar texto</div>
         <div class="fg" id="grp-title">
           <label>Título</label>
           <input type="text" id="etitle" oninput="upd()">
@@ -280,12 +279,29 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
         </div>
         <div id="grp-tf" style="display:none;">
           <div class="fg"><label>Nome do Jogador</label><input type="text" id="eplayer" oninput="upd()"></div>
-          <div class="fg"><label>Tipo de Anúncio</label><input type="text" id="eanntype" oninput="upd()"></div>
+          <div class="fg">
+            <label>Status</label>
+            <select id="estatus" oninput="upd()" style="width:100%;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.1);border-radius:10px;color:#1a1a1a;padding:9px 12px;font-size:0.88rem;font-family:inherit;">
+              <option value="">—</option>
+              <option>Negociação</option><option>Sondagem</option><option>Interesse</option>
+              <option>Proposta</option><option>Oficial</option><option>Opção</option>
+              <option>Anunciado</option><option>Conversas</option><option>Melou</option>
+              <option>Acerto</option><option>Consulta</option><option>Encaminhado</option>
+              <option>Avançado</option><option>De Saída</option>
+            </select>
+          </div>
+          <div class="fg">
+            <label>Fonte</label>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <input type="text" id="efonte" oninput="upd()" style="flex:1;">
+              <span id="efonte-moon" style="font-size:1.2rem;flex-shrink:0;"></span>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="capbox">
-        <div class="capt">Legenda do post <span style="font-weight:400;font-size:0.75rem;color:#94a3b8;">(editável)</span></div>
+        <div class="capt">Legenda</div>
         <textarea id="captext" rows="5" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:0.85rem;font-family:inherit;color:#1e293b;resize:vertical;margin-top:6px;line-height:1.5;">—</textarea>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
           <button class="cpbtn" onclick="copyCaption()">Copiar</button>
@@ -299,7 +315,7 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
         <h3>Baixar</h3>
         <div class="dlrow">
           <button class="btn-primary" id="dlbtn" onclick="dlCurrent()">Baixar PNG</button>
-          <button class="btn-outline" id="dlall" style="display:none;" onclick="dlAll()">Baixar ZIP</button>
+          <button class="btn-outline" id="dlall" style="display:none;" onclick="dlAll()">Baixar Todas</button>
         </div>
         <div class="dlst" id="dlst"></div>
       </div>
@@ -312,7 +328,7 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 
 <script>
 const S = {
-  data: null, template: 'simples', numSlides: 3,
+  data: null, carrosselData: null, template: 'simples', numSlides: 3,
   slides: [], curSlide: 0, uploadedImages: [], imgPositions: [],
 };
 
@@ -353,6 +369,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
     S.data = data;
+    if (S.template === 'carrossel') S.carrosselData = data;
     prepPreview();
     document.getElementById('loading-screen').style.display = 'none';
     document.getElementById('main-container').style.display = 'block';
@@ -385,29 +402,36 @@ async function switchTemplate(newTmpl) {
     prepPreview();
     upd();
   } else {
-    // Carrossel — needs new API call
-    const ov = document.getElementById('switch-overlay');
-    ov.style.display = 'flex';
-    try {
-      const res = await fetch('/api/generate-post', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          news: _news, template: S.template, num_slides: S.numSlides,
-          already_translated: _translated, source: _source, moon: _moon,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
-      S.data = data;
+    // Carrossel — use cached data if already generated, otherwise call API
+    if (S.carrosselData) {
+      S.data = S.carrosselData;
       prepPreview();
       upd();
-    } catch(e) {
-      document.getElementById('slide-counter').textContent = 'Erro: ' + e.message;
-      document.getElementById('slide-counter').style.display = 'block';
-      setTimeout(() => { document.getElementById('slide-counter').style.display = 'none'; }, 3000);
-    } finally {
-      ov.style.display = 'none';
+    } else {
+      const ov = document.getElementById('switch-overlay');
+      ov.style.display = 'flex';
+      try {
+        const res = await fetch('/api/generate-post', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            news: _news, template: 'carrossel', num_slides: S.numSlides,
+            already_translated: _translated, source: _source, moon: _moon,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
+        S.data = data;
+        S.carrosselData = data;
+        prepPreview();
+        upd();
+      } catch(e) {
+        document.getElementById('slide-counter').textContent = 'Erro: ' + e.message;
+        document.getElementById('slide-counter').style.display = 'block';
+        setTimeout(() => { document.getElementById('slide-counter').style.display = 'none'; }, 3000);
+      } finally {
+        ov.style.display = 'none';
+      }
     }
   }
 }
@@ -417,8 +441,10 @@ function prepPreview() {
   document.getElementById('etitle').value   = data.titulo    || '';
   document.getElementById('esub').value     = data.subtitulo || '';
   document.getElementById('captext').value  = data.legenda_instagram || '—';
-  if (data.nome_jogador) document.getElementById('eplayer').value  = data.nome_jogador;
-  if (data.tipo_anuncio) document.getElementById('eanntype').value = data.tipo_anuncio;
+  if (data.nome_jogador) document.getElementById('eplayer').value = data.nome_jogador;
+  // Pre-fill fonte with source handle; moon shown separately
+  document.getElementById('efonte').value = _source || '';
+  document.getElementById('efonte-moon').textContent = _moon || '';
 
   document.getElementById('grp-sub').style.display   = (t === 'carrossel' || t === 'chamativo') ? 'flex' : 'none';
   document.getElementById('grp-body').style.display  = t === 'carrossel'     ? 'flex' : 'none';
@@ -595,19 +621,14 @@ async function dlAll() {
   const total = S.slides.length; if (!total) return;
   const btn = document.getElementById('dlall'); btn.disabled = true;
   try {
-    const zip = new JSZip();
     for (let i = 0; i < total; i++) {
-      setDs(`Gerando slide ${i+1}/${total}…`);
+      setDs(`Gerando imagem ${i+1}/${total}…`);
       const blob  = await slideToBlob(i);
       const label = i === 0 ? '01-capa' : i === total-1 ? `${String(i+1).padStart(2,'0')}-cta` : `${String(i+1).padStart(2,'0')}-slide`;
-      zip.file(`arabao-${label}.png`, blob);
+      await dlSlide(i, `arabao-${label}.png`);
+      await wait(200);
     }
-    setDs('Comprimindo ZIP…');
-    const content = await zip.generateAsync({ type: 'blob' });
-    const a = document.createElement('a');
-    a.download = 'arabao-carrossel.zip';
-    a.href = URL.createObjectURL(content); a.click(); URL.revokeObjectURL(a.href);
-    setDs('✅ ZIP baixado!');
+    setDs('✅ Imagens baixadas!');
   } catch(e) { setDs('Erro: ' + e.message); }
   btn.disabled = false; setTimeout(() => setDs(''), 5000);
 }

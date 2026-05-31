@@ -348,7 +348,7 @@ async def dashboard():
       text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px;
     }}
     .tmpl-opt {{
-      width: 100%; padding: 16px 20px; border-radius: 14px;
+      width: 100%; padding: 11px 20px; border-radius: 14px;
       border: 1.5px solid rgba(0,0,0,.18); background: white;
       cursor: pointer; transition: all .15s;
       display: flex; flex-direction: column; align-items: center; gap: 2px;
@@ -611,11 +611,14 @@ async def dashboard():
       <button class="tmpl-opt active" data-t="simples" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Simples</div>
       </button>
-      <button class="tmpl-opt" data-t="carrossel" onclick="selectTmpl(this)">
-        <div class="tmpl-opt-name">Carrossel</div>
-      </button>
       <button class="tmpl-opt" data-t="transferencia" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Transferência</div>
+      </button>
+      <button class="tmpl-opt" data-t="chamativo" onclick="selectTmpl(this)">
+        <div class="tmpl-opt-name">Chamativo</div>
+      </button>
+      <button class="tmpl-opt" data-t="carrossel" onclick="selectTmpl(this)">
+        <div class="tmpl-opt-name">Carrossel</div>
       </button>
       <div class="tmpl-slides-row" id="tmpl-slides-row">
         <button class="tmpl-slide-opt active" data-n="3" onclick="selectSlides(this)">3</button>
