@@ -124,10 +124,14 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 .snav-arrow:hover:not(:disabled) { border-color: #1a1a1a; background: #1a1a1a; color: white; }
 .snav-arrow:disabled { opacity: .3; cursor: not-allowed; }
 .snav-label { font-size: 0.68rem; font-weight: 700; color: #1a1a1a; letter-spacing: .06em; min-width: 60px; text-align: center; }
-.snav-add { width: 28px; height: 28px; border-radius: 50%; border: 1.5px dashed rgba(0,0,0,.3); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; color: #999; transition: all .15s; }
-.snav-add:hover { border-color: #1a1a1a; color: #1a1a1a; }
-.snav-rm { width: 28px; height: 28px; border-radius: 50%; border: 1.5px dashed rgba(0,0,0,.3); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; color: #999; transition: all .15s; }
-.snav-rm:hover { border-color: #be123c; color: #be123c; }
+/* Slide count picker */
+.slide-picker { display: none; align-items: center; gap: 6px; background: #fafaf8; border-radius: 99px; padding: 3px 6px; border: 1.5px solid rgba(0,0,0,.12); }
+.slide-picker.show { display: flex; }
+.sp-btn { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.15); background: white; font-size: 0.68rem; font-weight: 700; color: #999; cursor: pointer; transition: all .15s; }
+.sp-btn:hover { border-color: #1a1a1a; color: #1a1a1a; }
+.sp-btn.active { background: #1a1a1a; border-color: #1a1a1a; color: #49fcb6; }
+.sp-confirm { padding: 5px 12px; border-radius: 99px; border: none; background: #1a1a1a; color: #49fcb6; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; cursor: pointer; transition: opacity .15s; }
+.sp-confirm:hover { opacity: .75; }
 
 /* ── RIGHT PANEL ── */
 .epanel { display: flex; flex-direction: column; gap: 10px; }
@@ -234,7 +238,14 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
         <button class="tmpl-sw-btn" id="sw-simples"       onclick="switchTemplate('simples')">Simples</button>
         <button class="tmpl-sw-btn" id="sw-chamativo"     onclick="switchTemplate('chamativo')">Chamativo</button>
         <button class="tmpl-sw-btn" id="sw-transferencia" onclick="switchTemplate('transferencia')">Transferência</button>
-        <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="switchTemplate('carrossel')">Carrossel</button>
+        <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="openSlidePicker()">Carrossel</button>
+      </div>
+      <div class="slide-picker" id="slide-picker">
+        <button class="sp-btn active" data-n="3" onclick="pickSlides(this)">3</button>
+        <button class="sp-btn"        data-n="4" onclick="pickSlides(this)">4</button>
+        <button class="sp-btn"        data-n="5" onclick="pickSlides(this)">5</button>
+        <button class="sp-btn"        data-n="6" onclick="pickSlides(this)">6</button>
+        <button class="sp-confirm" onclick="confirmCarrossel()">Gerar →</button>
       </div>
     </div>
     <div id="slide-counter" style="font-size:0.62rem;color:#aaa;font-weight:700;text-transform:uppercase;letter-spacing:.07em;display:none;"></div>
@@ -263,11 +274,9 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
         <div class="drag-hint">Arraste para reposicionar a imagem</div>
 
         <div class="snav" id="snav" style="display:none;">
-          <button class="snav-rm"    id="snav-rm"   onclick="removeSlide()" title="Remover slide">−</button>
           <button class="snav-arrow" id="snav-prev" onclick="goslide(S.curSlide-1)">◀</button>
-          <div class="snav-label" id="snav-label">1 / 3</div>
+          <div class="snav-label" id="snav-label">Capa</div>
           <button class="snav-arrow" id="snav-next" onclick="goslide(S.curSlide+1)">▶</button>
-          <button class="snav-add"   id="snav-add"  onclick="addSlide()" title="Adicionar slide">+</button>
         </div>
       </div>
 
@@ -400,52 +409,69 @@ function showErr(msg) {
 // Templates that reuse existing data (no new API call needed)
 const INSTANT_TEMPLATES = new Set(['simples', 'transferencia', 'chamativo']);
 
+function openSlidePicker() {
+  // If already on carrossel, just toggle picker
+  const picker = document.getElementById('slide-picker');
+  picker.classList.toggle('show');
+}
+
+function pickSlides(btn) {
+  document.querySelectorAll('.sp-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+async function confirmCarrossel() {
+  const n = parseInt(document.querySelector('.sp-btn.active')?.dataset.n || '3');
+  document.getElementById('slide-picker').classList.remove('show');
+
+  // Mark carrossel active
+  document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('sw-carrossel').classList.add('active');
+
+  // If same numSlides and cached, reuse
+  if (S.carrosselData && S.numSlides === n && S.template === 'carrossel') {
+    S.data = S.carrosselData;
+    prepPreview(); upd(); return;
+  }
+
+  S.template = 'carrossel';
+  S.numSlides = n;
+  S.curSlide = 0;
+
+  const ov = document.getElementById('switch-overlay');
+  ov.style.display = 'flex';
+  try {
+    const res = await fetch('/api/generate-post', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        news: _news, template: 'carrossel', num_slides: n,
+        already_translated: _translated, source: _source, moon: _moon,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
+    S.data = data;
+    S.carrosselData = data;
+    prepPreview(); upd();
+  } catch(e) {
+    document.getElementById('slide-counter').textContent = 'Erro: ' + e.message;
+    document.getElementById('slide-counter').style.display = 'block';
+    setTimeout(() => { document.getElementById('slide-counter').style.display = 'none'; }, 3000);
+  } finally {
+    ov.style.display = 'none';
+  }
+}
+
 async function switchTemplate(newTmpl) {
   if (newTmpl === S.template) return;
-
-  // Mark active button
+  document.getElementById('slide-picker').classList.remove('show');
   document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('sw-' + newTmpl)?.classList.add('active');
   S.template = newTmpl;
   S.curSlide = 0;
-
-  if (INSTANT_TEMPLATES.has(newTmpl)) {
-    // Instant switch — data already available
-    prepPreview();
-    upd();
-  } else {
-    // Carrossel — use cached data if already generated, otherwise call API
-    if (S.carrosselData) {
-      S.data = S.carrosselData;
-      prepPreview();
-      upd();
-    } else {
-      const ov = document.getElementById('switch-overlay');
-      ov.style.display = 'flex';
-      try {
-        const res = await fetch('/api/generate-post', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            news: _news, template: 'carrossel', num_slides: S.numSlides,
-            already_translated: _translated, source: _source, moon: _moon,
-          }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
-        S.data = data;
-        S.carrosselData = data;
-        prepPreview();
-        upd();
-      } catch(e) {
-        document.getElementById('slide-counter').textContent = 'Erro: ' + e.message;
-        document.getElementById('slide-counter').style.display = 'block';
-        setTimeout(() => { document.getElementById('slide-counter').style.display = 'none'; }, 3000);
-      } finally {
-        ov.style.display = 'none';
-      }
-    }
-  }
+  prepPreview();
+  upd();
 }
 
 function prepPreview() {
@@ -526,11 +552,6 @@ function updSlideNav() {
   document.getElementById('snav-label').textContent = label;
   document.getElementById('snav-prev').disabled = i === 0;
   document.getElementById('snav-next').disabled = i === total - 1;
-  // Can remove content slides only (not capa or CTA), min 3 total
-  const isContent = i > 0 && i < total - 1;
-  document.getElementById('snav-rm').style.visibility = (isContent && total > 3) ? 'visible' : 'hidden';
-  // Can add up to 8 slides
-  document.getElementById('snav-add').style.visibility = total < 8 ? 'visible' : 'hidden';
   if (S.slides[i]) document.getElementById('ebody').value = S.slides[i].corpo || '';
 }
 
@@ -542,26 +563,6 @@ function goslide(idx) {
   upd();
 }
 
-function addSlide() {
-  // Insert a new content slide before CTA
-  const cta = S.slides.pop();
-  S.slides.push({ titulo: 'NOVO SLIDE', corpo: '' });
-  S.slides.push(cta);
-  S.numSlides = S.slides.length;
-  S.curSlide = S.slides.length - 2; // go to the new slide
-  updSlideNav();
-  upd();
-}
-
-function removeSlide() {
-  const i = S.curSlide;
-  if (i === 0 || i === S.slides.length - 1 || S.slides.length <= 3) return;
-  S.slides.splice(i, 1);
-  S.numSlides = S.slides.length;
-  S.curSlide = Math.min(i, S.slides.length - 2);
-  updSlideNav();
-  upd();
-}
 
 function updBody() {
   const v = document.getElementById('ebody').value;
