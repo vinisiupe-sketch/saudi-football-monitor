@@ -1001,9 +1001,11 @@ def get_effective_sources() -> list[dict]:
     for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]:
         for h in tier_data.get("twitter_accounts", []):
             base[h] = {"handle": h, "tier": tier_label, "moon": SOURCE_MOON.get(h, "")}
-    # Apply overrides
+    # Apply overrides (deleted sources are excluded)
     for h, ov in overrides.items():
-        if h in base:
+        if ov.get("deleted"):
+            base.pop(h, None)
+        elif h in base:
             base[h].update(ov)
         else:
             base[h] = {"handle": h, "tier": ov.get("tier", "C"), "moon": ov.get("moon", "🌗")}
@@ -1232,7 +1234,7 @@ async def api_fontes(request: Request):
     if action == "upsert":
         overrides[handle] = {"tier": body.get("tier", "C"), "moon": body.get("moon", "🌗")}
     elif action == "delete":
-        overrides.pop(handle, None)
+        overrides[handle] = {"deleted": True}
     else:
         return JSONResponse({"error": "action inválida"}, status_code=400)
     _save_overrides(overrides)
