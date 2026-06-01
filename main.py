@@ -611,11 +611,11 @@ async def dashboard():
       <button class="tmpl-opt active" data-t="simples" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Simples</div>
       </button>
-      <button class="tmpl-opt" data-t="transferencia" onclick="selectTmpl(this)">
-        <div class="tmpl-opt-name">Transferência</div>
-      </button>
       <button class="tmpl-opt" data-t="chamativo" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Chamativo</div>
+      </button>
+      <button class="tmpl-opt" data-t="transferencia" onclick="selectTmpl(this)">
+        <div class="tmpl-opt-name">Transferência</div>
       </button>
       <button class="tmpl-opt" data-t="carrossel" onclick="selectTmpl(this)">
         <div class="tmpl-opt-name">Carrossel</div>
@@ -780,7 +780,7 @@ def _tmpl_rule(tmpl: str, n: int) -> str:
             "TEMPLATE: TRANSFERÊNCIA (1 card).\n"
             "- tipo_sugerido = \"transferencia\"\n"
             "- Extraia do texto o nome do jogador → nome_jogador em maiúsculas\n"
-            "- Extraia o tipo de anúncio (ex: \"Contratação definitiva\", \"Empréstimo\", \"Saída confirmada\") → tipo_anuncio\n"
+            "- status_transferencia: escolha o status mais adequado entre: Acerto, Anunciado, Avançado, Consulta, Conversas, De Saída, Encaminhado, Interesse, Melou, Negociação, Oficial, Opção, Proposta, Sondagem\n"
             "- slides = []"
         )
     if tmpl == "chamativo":
@@ -830,7 +830,7 @@ async def generate_post(request: Request):
         '  "subtitulo": "uma frase resumindo a notícia em português",\n'
         '  "texto_completo": "notícia em português, 2 a 4 parágrafos",\n'
         f'  "slides": [],\n  "tipo_sugerido": "{template}",\n  "num_slides": {n},\n'
-        '  "nome_jogador": null,\n  "tipo_anuncio": null\n}'
+        '  "nome_jogador": null,\n  "status_transferencia": null\n}'
     )
 
     ANGULO_SAUDITA = (

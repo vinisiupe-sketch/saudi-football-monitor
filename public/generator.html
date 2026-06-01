@@ -119,9 +119,15 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 
 
 
-.snav { display: flex; gap: 6px; justify-content: center; }
-.sdot { width: 7px; height: 7px; border-radius: 50%; background: rgba(0,0,0,.2); cursor: pointer; transition: all .2s; }
-.sdot.on { background: #1a1a1a; width: 18px; border-radius: 4px; }
+.snav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
+.snav-arrow { width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.18); background: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: all .15s; flex-shrink: 0; }
+.snav-arrow:hover:not(:disabled) { border-color: #1a1a1a; background: #1a1a1a; color: white; }
+.snav-arrow:disabled { opacity: .3; cursor: not-allowed; }
+.snav-label { font-size: 0.68rem; font-weight: 700; color: #1a1a1a; letter-spacing: .06em; min-width: 60px; text-align: center; }
+.snav-add { width: 28px; height: 28px; border-radius: 50%; border: 1.5px dashed rgba(0,0,0,.3); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; color: #999; transition: all .15s; }
+.snav-add:hover { border-color: #1a1a1a; color: #1a1a1a; }
+.snav-rm { width: 28px; height: 28px; border-radius: 50%; border: 1.5px dashed rgba(0,0,0,.3); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; color: #999; transition: all .15s; }
+.snav-rm:hover { border-color: #be123c; color: #be123c; }
 
 /* ── RIGHT PANEL ── */
 .epanel { display: flex; flex-direction: column; gap: 10px; }
@@ -226,8 +232,8 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
       <button class="btn-back" onclick="history.back()">← Voltar</button>
       <div class="tmpl-switcher">
         <button class="tmpl-sw-btn" id="sw-simples"       onclick="switchTemplate('simples')">Simples</button>
-        <button class="tmpl-sw-btn" id="sw-transferencia" onclick="switchTemplate('transferencia')">Transferência</button>
         <button class="tmpl-sw-btn" id="sw-chamativo"     onclick="switchTemplate('chamativo')">Chamativo</button>
+        <button class="tmpl-sw-btn" id="sw-transferencia" onclick="switchTemplate('transferencia')">Transferência</button>
         <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="switchTemplate('carrossel')">Carrossel</button>
       </div>
     </div>
@@ -256,7 +262,13 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
         </div>
         <div class="drag-hint">Arraste para reposicionar a imagem</div>
 
-        <div class="snav" id="snav" style="display:none;margin-top:10px;"></div>
+        <div class="snav" id="snav" style="display:none;">
+          <button class="snav-rm"    id="snav-rm"   onclick="removeSlide()" title="Remover slide">−</button>
+          <button class="snav-arrow" id="snav-prev" onclick="goslide(S.curSlide-1)">◀</button>
+          <div class="snav-label" id="snav-label">1 / 3</div>
+          <button class="snav-arrow" id="snav-next" onclick="goslide(S.curSlide+1)">▶</button>
+          <button class="snav-add"   id="snav-add"  onclick="addSlide()" title="Adicionar slide">+</button>
+        </div>
       </div>
 
     </div>
@@ -283,11 +295,11 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
             <label>Status</label>
             <select id="estatus" oninput="upd()" style="width:100%;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.1);border-radius:10px;color:#1a1a1a;padding:9px 12px;font-size:0.88rem;font-family:inherit;">
               <option value="">—</option>
-              <option>Negociação</option><option>Sondagem</option><option>Interesse</option>
-              <option>Proposta</option><option>Oficial</option><option>Opção</option>
-              <option>Anunciado</option><option>Conversas</option><option>Melou</option>
-              <option>Acerto</option><option>Consulta</option><option>Encaminhado</option>
-              <option>Avançado</option><option>De Saída</option>
+              <option>Acerto</option><option>Anunciado</option><option>Avançado</option>
+              <option>Consulta</option><option>Conversas</option><option>De Saída</option>
+              <option>Encaminhado</option><option>Interesse</option><option>Melou</option>
+              <option>Negociação</option><option>Oficial</option><option>Opção</option>
+              <option>Proposta</option><option>Sondagem</option>
             </select>
           </div>
           <div class="fg">
@@ -445,6 +457,13 @@ function prepPreview() {
   // Pre-fill fonte with source handle; moon shown separately
   document.getElementById('efonte').value = _source || '';
   document.getElementById('efonte-moon').textContent = _moon || '';
+  // AI-suggested status
+  if (data.status_transferencia) {
+    const sel = document.getElementById('estatus');
+    for (const opt of sel.options) {
+      if (opt.value.toLowerCase() === data.status_transferencia.toLowerCase()) { sel.value = opt.value; break; }
+    }
+  }
 
   document.getElementById('grp-sub').style.display   = (t === 'carrossel' || t === 'chamativo') ? 'flex' : 'none';
   document.getElementById('grp-body').style.display  = t === 'carrossel'     ? 'flex' : 'none';
@@ -497,18 +516,50 @@ function buildSlideNav() {
   const ctr = document.getElementById('slide-counter');
   if (S.template !== 'carrossel' || !S.slides.length) { nav.style.display = 'none'; ctr.style.display = 'none'; return; }
   nav.style.display = 'flex';
-  ctr.style.display = 'block';
-  ctr.textContent = `Slide ${S.curSlide + 1} / ${S.slides.length}`;
-  nav.innerHTML = S.slides.map((_, i) =>
-    `<div class="sdot ${i === 0 ? 'on' : ''}" onclick="goslide(${i})"></div>`
-  ).join('');
+  ctr.style.display = 'none'; // replaced by inline label
+  updSlideNav();
+}
+
+function updSlideNav() {
+  const total = S.slides.length, i = S.curSlide;
+  const label = i === 0 ? 'Capa' : i === total - 1 ? 'CTA' : `Slide ${i} / ${total - 2}`;
+  document.getElementById('snav-label').textContent = label;
+  document.getElementById('snav-prev').disabled = i === 0;
+  document.getElementById('snav-next').disabled = i === total - 1;
+  // Can remove content slides only (not capa or CTA), min 3 total
+  const isContent = i > 0 && i < total - 1;
+  document.getElementById('snav-rm').style.visibility = (isContent && total > 3) ? 'visible' : 'hidden';
+  // Can add up to 8 slides
+  document.getElementById('snav-add').style.visibility = total < 8 ? 'visible' : 'hidden';
+  if (S.slides[i]) document.getElementById('ebody').value = S.slides[i].corpo || '';
 }
 
 function goslide(idx) {
+  const total = S.slides.length;
+  if (idx < 0 || idx >= total) return;
   S.curSlide = idx;
-  document.querySelectorAll('.sdot').forEach((d, i) => d.classList.toggle('on', i === idx));
-  if (S.slides[idx]) document.getElementById('ebody').value = S.slides[idx].corpo || '';
-  document.getElementById('slide-counter').textContent = `Slide ${idx + 1} / ${S.slides.length}`;
+  updSlideNav();
+  upd();
+}
+
+function addSlide() {
+  // Insert a new content slide before CTA
+  const cta = S.slides.pop();
+  S.slides.push({ titulo: 'NOVO SLIDE', corpo: '' });
+  S.slides.push(cta);
+  S.numSlides = S.slides.length;
+  S.curSlide = S.slides.length - 2; // go to the new slide
+  updSlideNav();
+  upd();
+}
+
+function removeSlide() {
+  const i = S.curSlide;
+  if (i === 0 || i === S.slides.length - 1 || S.slides.length <= 3) return;
+  S.slides.splice(i, 1);
+  S.numSlides = S.slides.length;
+  S.curSlide = Math.min(i, S.slides.length - 2);
+  updSlideNav();
   upd();
 }
 
