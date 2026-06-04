@@ -14,7 +14,7 @@ from database import log_collection
 BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
 INACTIVE_START = 1   # 01:00 BRT
 INACTIVE_END   = 6   # 06:00 BRT
-COLLECT_INTERVAL = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 120))
+COLLECT_INTERVAL = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 360))
 
 
 def is_inactive_period() -> bool:
