@@ -81,7 +81,12 @@ def _header(active: str) -> str:
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     articles = get_recent_articles(hours=48, limit=80)
-    articles = [a for a in articles if a.get("relevance_score", 0) >= 0.34]
+    _deleted_sources = {h.upper() for h, ov in _load_overrides().items() if ov.get("deleted")}
+    articles = [
+        a for a in articles
+        if a.get("relevance_score", 0) >= 0.45
+        and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
+    ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
     CATEGORY_EMOJI = {
