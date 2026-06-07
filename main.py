@@ -11,7 +11,8 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, cleanup_old_trash
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, cleanup_old_trash, get_conn
+import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
 
@@ -1239,3 +1240,39 @@ async def api_fontes(request: Request):
         return JSONResponse({"error": "action inválida"}, status_code=400)
     _save_overrides(overrides)
     return JSONResponse({"ok": True})
+
+
+@app.post("/api/reprocess")
+async def reprocess_articles(request: Request):
+    """Retraduzi artigos sem title_pt (em árabe) a partir de uma data/hora."""
+    body = await request.json()
+    since = body.get("since", "")  # ex: "2025-06-06 18:37:00"
+    if not since:
+        return JSONResponse({"error": "Campo 'since' obrigatório (ex: '2025-06-06 18:37:00')"}, status_code=400)
+
+    from processor import translate_articles
+    from database import update_article_body, update_article_title
+
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT * FROM articles
+            WHERE collected_at >= %s
+              AND (title_pt IS NULL OR title_pt = title_orig)
+              AND is_duplicate = 0
+            ORDER BY collected_at ASC
+        """, (since,))
+        rows = [dict(r) for r in c.fetchall()]
+
+    if not rows:
+        return JSONResponse({"ok": True, "reprocessed": 0, "msg": "Nenhum artigo para reprocessar"})
+
+    translated = await translate_articles(rows)
+    updated = 0
+    for a in translated:
+        if a.get("title_pt") and a["title_pt"] != a.get("title_orig"):
+            update_article_title(a["id"], a["title_pt"])
+            update_article_body(a["id"], a.get("body_orig", ""), a.get("body_pt", ""))
+            updated += 1
+
+    return JSONResponse({"ok": True, "found": len(rows), "reprocessed": updated})
