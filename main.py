@@ -1267,10 +1267,15 @@ async def reprocess_articles(request: Request):
     if not rows:
         return JSONResponse({"ok": True, "reprocessed": 0, "msg": "Nenhum artigo para reprocessar"})
 
+    # Força retradução: limpa title_pt para que translate_articles não pule
+    for a in rows:
+        a["title_pt"] = None
+        a["body_pt"] = None
+
     translated = await translate_articles(rows)
     updated = 0
     for a in translated:
-        if a.get("title_pt") and a["title_pt"] != a.get("title_orig"):
+        if a.get("title_pt"):
             update_article_title(a["id"], a["title_pt"])
             update_article_body(a["id"], a.get("body_orig", ""), a.get("body_pt", ""))
             updated += 1
