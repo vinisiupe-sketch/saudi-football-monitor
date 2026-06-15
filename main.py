@@ -135,6 +135,7 @@ async def dashboard():
         a for a in articles
         if a.get("relevance_score", 0) >= 0.45
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
+        and not _is_selecao_article(a)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
