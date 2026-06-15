@@ -1634,7 +1634,13 @@ async def reprocess_articles(request: Request):
     )
 
     updated = 0
+    errors = []
     BATCH_SIZE = 3
+    prompt_header = (
+        "Traduza os artigos abaixo para português brasileiro.\n"
+        'Responda SOMENTE com JSON: {"translations": [{"title_pt": "...", "body_pt": "...", "category": "..."}]}\n'
+        "Categorias: transferencia, resultado, lesao, geral\n\n"
+    )
     async with httpx.AsyncClient() as client:
         for i in range(0, len(rows), BATCH_SIZE):
             batch = rows[i:i + BATCH_SIZE]
@@ -1644,10 +1650,18 @@ async def reprocess_articles(request: Request):
             try:
                 raw = await call_claude(
                     system=system,
-                    prompt=prompt_template.format(items=items_text),
+                    prompt=prompt_header + items_text,  # concatenação direta — evita KeyError em .format()
                     max_tokens=2000,
                     client=client
                 )
+                # Strip markdown caso Haiku retorne ```json...```
+                raw = raw.strip()
+                if raw.startswith("```"):
+                    parts = raw.split("```")
+                    raw = parts[1] if len(parts) > 1 else raw
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                raw = raw.strip()
                 translations = json.loads(raw).get("translations", [])
                 for idx, a in enumerate(batch):
                     if idx < len(translations):
@@ -1658,6 +1672,8 @@ async def reprocess_articles(request: Request):
                         update_article_body(a["id"], a.get("body_orig", ""), body_pt)
                         updated += 1
             except Exception as e:
-                print(f"Reprocess erro lote {i//BATCH_SIZE+1}: {e}")
+                err = f"Lote {i//BATCH_SIZE+1}: {type(e).__name__}: {e}"
+                print(f"Reprocess erro {err}")
+                errors.append(err)
 
-    return JSONResponse({"ok": True, "found": len(rows), "reprocessed": updated})
+    return JSONResponse({"ok": True, "found": len(rows), "reprocessed": updated, "errors": errors})
