@@ -135,15 +135,16 @@ COMPETITION_NAMES = {
 }
 
 # Glossário resumido para o system prompt da tradução
+# Mantido curto intencionalmente — glossários longos degradam qualidade do Haiku.
+# O apply_glossary() pós-processamento cobre todos os clubes via CLUB_NAMES acima.
 GLOSSARY_PROMPT = """
 Glossário obrigatório — use EXATAMENTE estes nomes, SEM hífen, sem variações:
-Saudi Pro League: Al Hilal, Al Nassr, Al Ittihad, Al Ahli, Al Shabab, Al Taawoun, Al Fateh, Al Ettifaq, Al Qadsiah, Al Fayha, Al Hazem, Al Khaleej, Al Kholood, Al Najma, Al Okhdood, Al Riyadh, Damac, Neom S.C.
-Yelo League (1ª divisão): Abha, Al Adalah, Al Anwar, Al Arabi, Al Batin, Al Bukiryah, Al Diriyah, Al Faisaly, Al Jabalain, Al Jandal, Al Jubail, Al Orobah, Al Raed, Al Shoulla, Al Tai, Al Ula, Al Wahda, Al Zulfi, Jeddah.
-Segunda Divisão: Afif, Al Ain, Al Entesar, Al Ghottah, Al Jeel, Al Kawkab, Al Lewaa, Al Nairyah, Al Nojoom, Al Qala, Al Qous, Al Rawdhah, Al Rayyan, Al Sadd, Al Safa, Al Sahel, Al Saqer, Al Sharq, Al Taraji, Al Washm, Arar, Bisha, Hajer, Hetten, Jerash, Jubbah, Mudhar, Najran, Ohod, Tuwaiq, Wej.
-Competição: sempre "Saudi Pro League". Yelo League = 1ª divisão. Segunda Divisão = 2ª divisão.
-NUNCA use hífen nos nomes dos clubes (Al Hilal, não Al-Hilal).
-NUNCA invente nomes — se não reconhecer, translitere do árabe literalmente (ex: الطائي = Al Tai, أبها = Abha).
+Clubes SPL: Al Hilal, Al Nassr, Al Ittihad, Al Ahli, Al Shabab, Al Taawoun, Al Fateh, Al Ettifaq,
+Al Qadsiah, Al Fayha, Al Hazem, Al Khaleej, Al Kholood, Al Najma, Al Okhdood, Al Riyadh,
+Al Diriyah, Al Ula, Damac, Neom S.C.
+Competição: sempre "Saudi Pro League" (nunca "Liga Saudita" ou "Campeonato Saudita").
 DISTINÇÃO CRÍTICA: الاتفاق = Al Ettifaq (Dammam) | الاتحاد = Al Ittihad (Jeddah). Nunca confunda.
+NUNCA invente nomes de jogadores em árabe — translitere letra por letra.
 """
 
 

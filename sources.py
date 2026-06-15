@@ -15,7 +15,7 @@ TIER_A = {
 TIER_B = {
     "twitter_accounts": [
         "ariyadhiah_br", "aawsat_spt", "Rabanalsafena", "13saeed",
-        "a_alhanyan", "majed_ma_10", "meejo_19", "Maaalnews",
+        "a_alhanyan", "majed_ma_10", "meejo_19",
         "Khvayaclubs", "NYF_5", "I_ABO3TB", "H_swilhy",
         "nawaf__oga", "zlatan_gh", "a_altamimi11", "Ali_alabdallh",
         "JacobsBen", "Santi_J_FM", "geglobo", "sachatavolieri",
@@ -113,7 +113,6 @@ SOURCE_MOON = {
     "a_alhanyan":      "🌖",
     "majed_ma_10":     "🌖",
     "meejo_19":        "🌖",
-    "Maaalnews":       "🌖",
     "Khvayaclubs":     "🌖",
     "NYF_5":           "🌖",
     "I_ABO3TB":        "🌖",
