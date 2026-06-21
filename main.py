@@ -1215,13 +1215,15 @@ async def api_analyze_feedback():
         "substring no título/corpo, impediriam notícias parecidas de aparecerem de novo. "
         "NUNCA proponha termos genéricos de futebol (ex: 'jogador', 'contrato', 'gol', 'transferência', 'lesão', 'técnico') "
         "pois isso bloquearia notícias sauditas legítimas — só proponha entidades/termos específicos e não-ambíguos. "
-        "Responda SOMENTE com JSON: {\"exclude_terms\": [\"termo1\", \"termo2\"], \"reasoning\": \"explicação breve em português\"}"
+        "IMPORTANTE SOBRE O FORMATO: responda SOMENTE com um único objeto JSON válido, em uma única linha (sem quebras de linha "
+        "dentro das strings, sem markdown, sem texto antes ou depois). O campo \"reasoning\" deve ter NO MÁXIMO 2 frases curtas. "
+        "Estrutura exata: {\"exclude_terms\": [\"termo1\", \"termo2\"], \"reasoning\": \"explicação breve em português, em até 2 frases\"}"
     )
-    prompt = f"Artigos marcados como irrelevantes pelo usuário (com motivo, quando informado):\n{items_text}\n\nIdentifique termos específicos de exclusão."
+    prompt = f"Artigos marcados como irrelevantes pelo usuário (com motivo, quando informado):\n{items_text}\n\nIdentifique termos específicos de exclusão. Lembre-se: JSON em uma linha só, reasoning curto."
 
     try:
         async with httpx.AsyncClient() as client:
-            raw = await call_claude(prompt=prompt, system=system, client=client, max_tokens=1200)
+            raw = await call_claude(prompt=prompt, system=system, client=client, max_tokens=3000)
         raw = raw.strip()
         if raw.startswith("```"):
             parts = raw.split("```")
