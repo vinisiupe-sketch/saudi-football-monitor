@@ -1156,6 +1156,39 @@ async def api_set_flag(request: Request):
     return {"ok": True, "id": article_id, "flag": flag, "comment": comment}
 
 
+@app.get("/api/analise-export")
+async def analise_export():
+    """Exporta os artigos marcados como 'análise' em JSON, com todos os dados
+    relevantes (título, corpo, fonte, score, comentário), pra análise externa
+    de por que cada um foi coletado/filtrado de forma equivocada."""
+    articles = get_flagged_articles("analise")
+    data = [
+        {
+            "title_orig": a.get("title_orig"),
+            "title_pt": a.get("title_pt"),
+            "body_orig": a.get("body_orig"),
+            "body_pt": a.get("body_pt"),
+            "url": a.get("url"),
+            "source_name": a.get("source_name"),
+            "source_tier": a.get("source_tier"),
+            "source_type": a.get("source_type"),
+            "category": a.get("category"),
+            "relevance_score": a.get("relevance_score"),
+            "language": a.get("language"),
+            "published_at": a.get("published_at"),
+            "collected_at": a.get("collected_at"),
+            "flagged_at": a.get("flagged_at"),
+            "comment": a.get("flag_comment"),
+        }
+        for a in articles
+    ]
+    filename = f"iarabao_analise_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+    return JSONResponse(
+        content=data,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.get("/gerador", response_class=HTMLResponse)
 async def gerador():
     with open("public/generator.html", "r", encoding="utf-8") as f:
@@ -1700,6 +1733,8 @@ async def analise_page():
     {_HEADER_CSS}
     .info-bar {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 14px 24px 6px; }}
     .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .export-btn {{ font-size: 0.62rem; font-weight: 700; padding: 6px 14px; border-radius: 99px; cursor: pointer; border: 1.5px solid #1a1a1a; background: transparent; color: #1a1a1a; text-transform: uppercase; letter-spacing: .05em; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }}
+    .export-btn:hover {{ background: #1a1a1a; color: #edeae4; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
     .card {{ background: #fefce8; border-radius: 16px; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
@@ -1727,6 +1762,7 @@ async def analise_page():
 {_header("/analise")}
 <div class="info-bar">
   <p class="info">{len(articles)} marcados para análise</p>
+  <a class="export-btn" href="/api/analise-export" download title="Baixa um JSON com todos os artigos marcados, pra analisar com calma">⬇ Baixar para análise</a>
 </div>
 <div class="grid">
   {cards if cards else empty}
