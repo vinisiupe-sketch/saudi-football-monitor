@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IARABÃO — Criar Post</title>
+<script>(function(){try{if(localStorage.getItem("iarabao_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}})();</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -14,16 +15,22 @@
 @font-face { font-family:'Poppins';  font-weight:400; src:url('/fonts/Poppins-Regular.ttf') format('truetype'); }
 @font-face { font-family:'Poppins';  font-weight:500; src:url('/fonts/Poppins-Medium.ttf') format('truetype'); }
 
+:root { --c-bg:#edeae4; --c-bg-card:#fafaf8; --c-bg-soft:#fff; --c-text:#1a1a1a; --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555; --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc; --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04); --c-success:#166534; --c-error:#be123c; }
+:root[data-theme="dark"] { --c-bg:#16161a; --c-bg-card:#1e1e22; --c-bg-soft:#242428; --c-text:#ededee; --c-muted-1:#8c8c93; --c-muted-2:#84848a; --c-muted-3:#9c9ca2; --c-muted-4:#c2c0c7; --c-muted-5:#b0aeb5; --c-muted-6:#d4d2d8; --c-line:#3a3a40; --c-border:rgba(255,255,255,.1); --c-border-2:rgba(255,255,255,.2); --c-hover-tint:rgba(255,255,255,.06); --c-success:#4ade80; --c-error:#fb7185; }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }
 
 /* ── HEADER ── */
-header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 20px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; gap: 6px; }
-.brand { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }
-.nav-icon { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.18); background: transparent; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all .15s; flex-shrink: 0; position: relative; }
-.nav-icon:hover { border-color: #1a1a1a; color: #1a1a1a; background: rgba(0,0,0,.04); }
-.nav-icon.active { background: #1a1a1a; border-color: #1a1a1a; color: white; }
-.nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: white; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+header { background: var(--c-bg); border-bottom: 1px solid var(--c-border); padding: 0 20px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; gap: 6px; }
+.brand { font-family: 'Bebas Neue', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: var(--c-text); text-decoration: none; margin-right: auto; line-height: 1; }
+.nav-icon { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--c-border-2); background: transparent; color: var(--c-muted-1); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all .15s; flex-shrink: 0; position: relative; }
+.nav-icon:hover { border-color: var(--c-text); color: var(--c-text); background: var(--c-hover-tint); }
+.nav-icon.active { background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); }
+.nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: var(--c-text); color: var(--c-bg); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+.theme-toggle .ico-sun { display: none; }
+:root[data-theme="dark"] .theme-toggle .ico-moon { display: none; }
+:root[data-theme="dark"] .theme-toggle .ico-sun { display: block; }
 
 /* ── LOADING ── */
 #loading-screen {
@@ -32,20 +39,20 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 }
 .loading-ring {
   width: 44px; height: 44px; border-radius: 50%;
-  border: 3px solid rgba(0,0,0,.1); border-top-color: #1a1a1a;
+  border: 3px solid var(--c-border); border-top-color: var(--c-text);
   animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loading-label {
-  font-size: 0.65rem; font-weight: 700; color: #aaa;
+  font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2);
   text-transform: uppercase; letter-spacing: 0.1em;
 }
 .err-screen {
   display: none; flex-direction: column; align-items: center; justify-content: center;
   height: calc(100vh - 52px); gap: 14px; text-align: center; padding: 0 24px;
 }
-.err-msg { font-size: 0.9rem; color: #be123c; font-weight: 600; }
-.err-back { font-size: 0.65rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; text-decoration: underline; }
+.err-msg { font-size: 0.9rem; color: var(--c-error); font-weight: 600; }
+.err-back { font-size: 0.65rem; font-weight: 700; color: var(--c-muted-1); text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; text-decoration: underline; }
 
 /* ── CONTAINER ── */
 .container { max-width: 1000px; margin: 0 auto; padding: 20px 20px 60px; display: none; }
@@ -56,22 +63,22 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
   margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
 }
 .tmpl-switcher {
-  display: flex; gap: 4px; background: #fafaf8; border-radius: 99px; padding: 3px;
-  border: 1.5px solid rgba(0,0,0,.12);
+  display: flex; gap: 4px; background: var(--c-bg-card); border-radius: 99px; padding: 3px;
+  border: 1.5px solid var(--c-border-2);
 }
 .tmpl-sw-btn {
   padding: 5px 13px; border-radius: 99px; border: none; background: transparent;
   font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
-  color: #999; cursor: pointer; transition: all .15s; white-space: nowrap;
+  color: var(--c-muted-1); cursor: pointer; transition: all .15s; white-space: nowrap;
 }
-.tmpl-sw-btn:hover { color: #1a1a1a; }
-.tmpl-sw-btn.active { background: #1a1a1a; color: #49fcb6; }
+.tmpl-sw-btn:hover { color: var(--c-text); }
+.tmpl-sw-btn.active { background: var(--c-text); color: #49fcb6; }
 .btn-back {
-  background: transparent; border: 1.5px solid rgba(0,0,0,.18); border-radius: 99px;
+  background: transparent; border: 1.5px solid var(--c-border-2); border-radius: 99px;
   padding: 6px 16px; font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.07em; color: #999; cursor: pointer; transition: all .15s;
+  letter-spacing: 0.07em; color: var(--c-muted-1); cursor: pointer; transition: all .15s;
 }
-.btn-back:hover { border-color: #1a1a1a; color: #1a1a1a; }
+.btn-back:hover { border-color: var(--c-text); color: var(--c-text); }
 
 /* ── LAYOUT ── */
 .playout { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start; }
@@ -83,15 +90,15 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 .upload-zone { display: flex; flex-direction: column; gap: 8px; }
 .tmpl-upload-btn {
   width: 100%; padding: 14px 12px; border-radius: 14px;
-  border: 1.5px solid rgba(0,0,0,.18); background: white;
+  border: 1.5px solid var(--c-border-2); background: var(--c-bg-soft);
   cursor: pointer; transition: all .15s;
   font-family: 'Bebas Neue', sans-serif; font-size: 1.2rem;
-  letter-spacing: 0.05em; color: #1a1a1a;
+  letter-spacing: 0.05em; color: var(--c-text);
   display: flex; align-items: center; justify-content: center; gap: 8px;
   text-align: center;
 }
-.tmpl-upload-btn:hover { border-color: #1a1a1a; background: rgba(0,0,0,.03); }
-.upload-zone.has-img .tmpl-upload-btn { background: #1a1a1a; color: #49fcb6; border-color: #1a1a1a; }
+.tmpl-upload-btn:hover { border-color: var(--c-text); background: var(--c-hover-tint); }
+.upload-zone.has-img .tmpl-upload-btn { background: var(--c-text); color: #49fcb6; border-color: var(--c-text); }
 .thumb-row { display: flex; gap: 6px; flex-wrap: wrap; }
 .thumb-item { position: relative; width: 52px; height: 52px; border-radius: 8px; overflow: hidden; border: 2px solid rgba(0,0,0,.1); }
 .thumb-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -106,27 +113,27 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 .cscale { transform-origin: top left; width: 1080px; height: 1350px; }
 .drag-overlay { position: absolute; inset: 0; cursor: grab; z-index: 20; border-radius: 16px; }
 .drag-overlay.dragging { cursor: grabbing; }
-.drag-hint { text-align: center; margin-top: 6px; font-size: 0.62rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
+.drag-hint { text-align: center; margin-top: 6px; font-size: 0.62rem; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.06em; }
 
 /* ── RIGHT PANEL ── */
 .epanel { display: flex; flex-direction: column; gap: 10px; }
-.section-card { background: #fafaf8; border-radius: 16px; padding: 16px 18px; }
-.section-label { font-size: 0.6rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
+.section-card { background: var(--c-bg-card); border-radius: 16px; padding: 16px 18px; }
+.section-label { font-size: 0.6rem; font-weight: 700; color: var(--c-muted-1); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 10px; }
 
 input[type="text"], textarea {
-  width: 100%; background: rgba(0,0,0,.04); border: 1px solid rgba(0,0,0,.1); border-radius: 10px;
-  color: #1a1a1a; padding: 9px 12px; font-size: 0.88rem; font-family: inherit;
+  width: 100%; background: var(--c-hover-tint); border: 1px solid var(--c-border); border-radius: 10px;
+  color: var(--c-text); padding: 9px 12px; font-size: 0.88rem; font-family: inherit;
   transition: border-color .2s; resize: vertical;
 }
-input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a; }
+input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--c-text); }
 .fg { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
-.fg label { font-size: 0.6rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.07em; }
+.fg label { font-size: 0.6rem; font-weight: 700; color: var(--c-muted-1); text-transform: uppercase; letter-spacing: 0.07em; }
 
-.capbox { background: #fafaf8; border-radius: 16px; padding: 16px; }
-.capt { font-size: 0.6rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
+.capbox { background: var(--c-bg-card); border-radius: 16px; padding: 16px; }
+.capt { font-size: 0.6rem; font-weight: 700; color: var(--c-muted-1); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px; }
 
 .btn-primary {
-  background: #1a1a1a; color: #edeae4; border: none; padding: 10px 22px;
+  background: var(--c-text); color: var(--c-bg); border: none; padding: 10px 22px;
   border-radius: 99px; font-size: 0.68rem; font-weight: 700; cursor: pointer;
   transition: opacity .15s; display: inline-flex; align-items: center; gap: 7px;
   text-transform: uppercase; letter-spacing: 0.07em;
@@ -134,18 +141,18 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 .btn-primary:hover:not(:disabled) { opacity: .75; }
 .btn-primary:disabled { opacity: .35; cursor: not-allowed; }
 .cpbtn {
-  background: none; border: 1.5px solid rgba(0,0,0,.15); color: #777;
+  background: none; border: 1.5px solid var(--c-border-2); color: var(--c-muted-3);
   padding: 5px 13px; border-radius: 99px; font-size: 0.62rem; font-weight: 700;
   cursor: pointer; transition: all .2s; text-transform: uppercase; letter-spacing: 0.06em;
 }
-.cpbtn:hover { border-color: #1a1a1a; color: #1a1a1a; }
+.cpbtn:hover { border-color: var(--c-text); color: var(--c-text); }
 
-.dlbox { background: #fafaf8; border-radius: 16px; padding: 16px; text-align: center; }
-.dlbox h3 { font-size: 0.6rem; font-weight: 700; color: #999; margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.dlbox { background: var(--c-bg-card); border-radius: 16px; padding: 16px; text-align: center; }
+.dlbox h3 { font-size: 0.6rem; font-weight: 700; color: var(--c-muted-1); margin-bottom: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .dlrow { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
-.dlst { margin-top: 8px; font-size: 0.72rem; color: #888; min-height: 14px; }
+.dlst { margin-top: 8px; font-size: 0.72rem; color: var(--c-muted-3); min-height: 14px; }
 
-#ig-hint { display:none; font-size:0.72rem; color:#888; margin-top:6px; }
+#ig-hint { display:none; font-size:0.72rem; color:var(--c-muted-3); margin-top:6px; }
 
 /* ── INSTAGRAM CARD (1080×1350) ── */
 #export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
@@ -175,6 +182,10 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
   <a class="nav-icon" href="/fontes" title="Fontes"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="19" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/><line x1="6.5" y1="10.8" x2="10.5" y2="6.2"/><line x1="13.5" y1="6.2" x2="17.5" y2="10.8"/><line x1="17.5" y1="13.2" x2="13.5" y2="17.8"/><line x1="10.5" y1="17.8" x2="6.5" y2="13.2"/></svg></a>
   <a class="nav-icon" href="/lixeira" title="Lixeira"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg></a>
   <a class="nav-icon active" href="/gerador" title="Criar Post"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></a>
+  <button class="nav-icon theme-toggle" type="button" onclick="toggleTheme()" title="Modo noturno">
+    <svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+  </button>
 </header>
 
 <!-- Loading -->
@@ -233,7 +244,7 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 
       <div class="section-card">
         <div class="fg" id="grp-title">
-          <label>Título <span id="title-hint" style="color:#bbb;font-weight:400;text-transform:none;letter-spacing:0;"></span></label>
+          <label>Título <span id="title-hint" style="color:var(--c-muted-2);font-weight:400;text-transform:none;letter-spacing:0;"></span></label>
           <input type="text" id="etitle" oninput="upd()">
         </div>
         <div class="fg" id="grp-sub" style="display:none;">
@@ -244,7 +255,7 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
           <div class="fg"><label>Nome do Jogador</label><input type="text" id="eplayer" oninput="upd()"></div>
           <div class="fg">
             <label>Status</label>
-            <select id="estatus" oninput="upd()" style="width:100%;background:rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.1);border-radius:10px;color:#1a1a1a;padding:9px 12px;font-size:0.88rem;font-family:inherit;">
+            <select id="estatus" oninput="upd()" style="width:100%;background:var(--c-hover-tint);border:1px solid var(--c-border);border-radius:10px;color:var(--c-text);padding:9px 12px;font-size:0.88rem;font-family:inherit;">
               <option value="">—</option>
               <option>Acerto</option><option>Anunciado</option><option>Avançado</option>
               <option>Consulta</option><option>Conversas</option><option>De Saída</option>
@@ -265,10 +276,10 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 
       <div class="capbox">
         <div class="capt">Legenda</div>
-        <textarea id="captext" rows="5" style="width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:10px;font-size:0.85rem;font-family:inherit;color:#1e293b;resize:vertical;margin-top:6px;line-height:1.5;">—</textarea>
+        <textarea id="captext" rows="5" style="width:100%;border:1px solid var(--c-border-2);border-radius:8px;padding:10px;font-size:0.85rem;font-family:inherit;color:var(--c-text);background:var(--c-bg-soft);resize:vertical;margin-top:6px;line-height:1.5;">—</textarea>
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
           <button class="cpbtn" onclick="copyCaption()">Copiar</button>
-          <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="background:#1a1a1a;color:#edeae4;border-color:#1a1a1a;">X · Twitter</button>
+          <button class="cpbtn" id="twbtn" onclick="tweetCaption()" style="background:var(--c-text);color:var(--c-bg);border-color:var(--c-text);">X · Twitter</button>
           <button class="cpbtn" id="igbtn" onclick="shareInstagram()" style="background:linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:#fff;border:none;">Instagram</button>
         </div>
         <p id="ig-hint">Legenda copiada — selecione as imagens baixadas no Instagram e cole.</p>
@@ -289,6 +300,12 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 <div id="export-wrap"></div>
 
 <script>
+function toggleTheme(){
+  var html = document.documentElement;
+  var isDark = html.getAttribute('data-theme') === 'dark';
+  if (isDark) { html.removeAttribute('data-theme'); try{localStorage.setItem('iarabao_theme','light');}catch(e){} }
+  else { html.setAttribute('data-theme','dark'); try{localStorage.setItem('iarabao_theme','dark');}catch(e){} }
+}
 const S = {
   data: null, template: 'curto',
   uploadedImages: [], imgPositions: [],

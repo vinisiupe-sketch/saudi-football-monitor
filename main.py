@@ -106,20 +106,30 @@ _ICO_TRASH2  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
 
-_HEADER_CSS = (
-    "    header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 0 20px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; gap: 6px; }\n"
-    "    .brand { font-family: \'Bebas Neue\', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: #1a1a1a; text-decoration: none; margin-right: auto; line-height: 1; }\n"
-    "    .nav-icon { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.18); background: transparent; color: #999; cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all .15s; flex-shrink: 0; position: relative; }\n"
-    "    .nav-icon:hover { border-color: #1a1a1a; color: #1a1a1a; background: rgba(0,0,0,.04); }\n"
-    "    .nav-icon.active { background: #1a1a1a; border-color: #1a1a1a; color: white; }\n"
-    "    .nav-icon.cta { background: #1a1a1a; border-color: #1a1a1a; color: white; }\n"
-    "    .nav-icon.cta:hover { background: #444; border-color: #444; }\n"
+_THEME_VARS_CSS = (
+    "    :root { --c-bg:#edeae4; --c-bg-card:#fafaf8; --c-bg-soft:#fff; --c-text:#1a1a1a; --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555; --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc; --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04); --c-success:#166534; --c-error:#be123c; }\n"
+    "    :root[data-theme=\"dark\"] { --c-bg:#16161a; --c-bg-card:#1e1e22; --c-bg-soft:#242428; --c-text:#ededee; --c-muted-1:#8c8c93; --c-muted-2:#84848a; --c-muted-3:#9c9ca2; --c-muted-4:#c2c0c7; --c-muted-5:#b0aeb5; --c-muted-6:#d4d2d8; --c-line:#3a3a40; --c-border:rgba(255,255,255,.1); --c-border-2:rgba(255,255,255,.2); --c-hover-tint:rgba(255,255,255,.06); --c-success:#4ade80; --c-error:#fb7185; }\n"
+)
+
+_HEADER_CSS = _THEME_VARS_CSS + (
+    "    header { background: var(--c-bg); border-bottom: 1px solid var(--c-border); padding: 0 20px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; gap: 6px; }\n"
+    "    .brand { font-family: \'Bebas Neue\', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: var(--c-text); text-decoration: none; margin-right: auto; line-height: 1; }\n"
+    "    .nav-icon { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--c-border-2); background: transparent; color: var(--c-muted-1); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all .15s; flex-shrink: 0; position: relative; }\n"
+    "    .nav-icon:hover { border-color: var(--c-text); color: var(--c-text); background: var(--c-hover-tint); }\n"
+    "    .nav-icon.active { background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); }\n"
+    "    .nav-icon.cta { background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); }\n"
+    "    .nav-icon.cta:hover { background: var(--c-muted-6); border-color: var(--c-muted-6); }\n"
     "    .nav-icon.selecao { background: #15803d; border-color: #15803d; color: white; }\n"
     "    .nav-icon.selecao:hover { background: #166534; border-color: #166534; }\n"
     "    .nav-icon.selecao.active { background: #14532d; border-color: #14532d; }\n"
-    "    .nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: #1a1a1a; color: white; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; }\n"
-    "    .nav-badge { position: absolute; top: -4px; right: -4px; background: #ef4444; color: white; font-size: 0.48rem; font-weight: 800; min-width: 14px; height: 14px; border-radius: 99px; display: none; align-items: center; justify-content: center; padding: 0 3px; line-height: 1; border: 1.5px solid #edeae4; }"
+    "    .nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: var(--c-text); color: var(--c-bg); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; }\n"
+    "    .nav-badge { position: absolute; top: -4px; right: -4px; background: #ef4444; color: white; font-size: 0.48rem; font-weight: 800; min-width: 14px; height: 14px; border-radius: 99px; display: none; align-items: center; justify-content: center; padding: 0 3px; line-height: 1; border: 1.5px solid var(--c-bg); }\n"
+    "    .theme-toggle .ico-sun { display: none; }\n"
+    "    :root[data-theme=\"dark\"] .theme-toggle .ico-moon { display: none; }\n"
+    "    :root[data-theme=\"dark\"] .theme-toggle .ico-sun { display: block; }\n"
 )
+
+_THEME_INIT_SCRIPT = '<script>(function(){try{if(localStorage.getItem("iarabao_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}})();</script>'
 
 def _header(active: str) -> str:
     pages = [
@@ -141,6 +151,12 @@ def _header(active: str) -> str:
             cls += " selecao"
         badge = f'<span class="nav-badge" data-tab="{badge_tab}" style="display:none"></span>' if badge_tab else ""
         items += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
+    theme_btn = (
+        '<button class="nav-icon theme-toggle" type="button" onclick="toggleTheme()" title="Modo noturno">'
+        '<svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
+        '<svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>'
+        '</button>'
+    )
     badge_script = """<script>
 (function(){
   async function loadBadges(){
@@ -163,7 +179,15 @@ def _header(active: str) -> str:
   });
 })();
 </script>"""
-    return f'<header><a class="brand" href="/">IARABÃO</a>{items}</header>{badge_script}'
+    theme_script = """<script>
+function toggleTheme(){
+  var html = document.documentElement;
+  var isDark = html.getAttribute('data-theme') === 'dark';
+  if (isDark) { html.removeAttribute('data-theme'); try{localStorage.setItem('iarabao_theme','light');}catch(e){} }
+  else { html.setAttribute('data-theme','dark'); try{localStorage.setItem('iarabao_theme','dark');}catch(e){} }
+}
+</script>"""
+    return f'<header><a class="brand" href="/">IARABÃO</a>{items}{theme_btn}</header>{badge_script}{theme_script}'
 
 
 
@@ -270,11 +294,12 @@ async def dashboard():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IARABÃO</title>
+  {_THEME_INIT_SCRIPT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
 
     {_HEADER_CSS}
 
@@ -283,7 +308,7 @@ async def dashboard():
       display: flex; align-items: center; gap: 10px;
       flex-wrap: wrap; padding: 14px 24px 8px;
     }}
-    .count {{ color: #999; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .count {{ color: var(--c-muted-1); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; }}
     .flag-summary {{ display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }}
     .fs-badge {{
       font-size: 0.62rem; font-weight: 700; padding: 3px 10px; border-radius: 99px;
@@ -291,13 +316,13 @@ async def dashboard():
       text-transform: uppercase; letter-spacing: 0.05em;
       border: 1.5px solid transparent;
     }}
-    .fs-total     {{ border-color: #ccc;    color: #999;    }}
+    .fs-total     {{ border-color: var(--c-line); color: var(--c-muted-1); }}
     .fs-analise   {{ border-color: #fde68a; color: #92400e; }}
     .fs-visto     {{ border-color: #a5b4fc; color: #4338ca; }}
-    .fs-publicado {{ border-color: #86efac; color: #166534; }}
-    .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
+    .fs-publicado {{ border-color: #86efac; color: var(--c-success); }}
+    .fs-descarte  {{ border-color: #fca5a5; color: var(--c-error); }}
     .fs-badge:hover {{ opacity: .7; }}
-    .fs-badge.active-filter {{ background: #1a1a1a; color: #edeae4; border-color: #1a1a1a; }}
+    .fs-badge.active-filter {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
 
     /* ── GRID ── */
     .grid {{
@@ -308,7 +333,7 @@ async def dashboard():
 
     /* ── CARD ── */
     .card {{
-      background: #fafaf8; border-radius: 16px;
+      background: var(--c-bg-card); border-radius: 16px;
       display: flex; flex-direction: column;
       transition: background .2s;
     }}
@@ -325,33 +350,33 @@ async def dashboard():
       justify-content: space-between; margin-bottom: 14px;
     }}
     .card-date {{
-      font-size: 0.65rem; font-weight: 700; color: #aaa;
+      font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2);
       text-transform: uppercase; letter-spacing: 0.07em;
     }}
     .card-flags {{ display: flex; gap: 7px; }}
     .flag-circle {{
       width: 32px; height: 32px; border-radius: 50%;
-      border: 1.5px solid #1a1a1a; background: transparent;
-      color: #1a1a1a; cursor: pointer;
+      border: 1.5px solid var(--c-text); background: transparent;
+      color: var(--c-text); cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       transition: all .15s; flex-shrink: 0;
     }}
-    .flag-circle:hover {{ background: #1a1a1a; color: white; }}
-    .flag-circle.on {{ background: #1a1a1a; color: white; }}
+    .flag-circle:hover {{ background: var(--c-text); color: var(--c-bg); }}
+    .flag-circle.on {{ background: var(--c-text); color: var(--c-bg); }}
     .flag-circle.anal-btn:hover  {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
     .flag-circle.anal-btn.on     {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
     .flag-circle.visto-btn:hover {{ background: #4338ca; border-color: #4338ca; color: white; }}
     .flag-circle.visto-btn.on    {{ background: #4338ca; border-color: #4338ca; color: white; }}
-    .flag-circle.pub-btn:hover   {{ background: #166534; border-color: #166534; color: white; }}
-    .flag-circle.pub-btn.on      {{ background: #166534; border-color: #166534; color: white; }}
-    .flag-circle.desc-btn:hover  {{ background: #be123c; border-color: #be123c; color: white; }}
-    .flag-circle.desc-btn.on     {{ background: #be123c; border-color: #be123c; color: white; }}
-    .flag-circle.post-btn        {{ background: #1a1a1a; border-color: #1a1a1a; color: white; text-decoration: none; }}
-    .flag-circle.post-btn:hover  {{ background: #444; border-color: #444; color: white; }}
+    .flag-circle.pub-btn:hover   {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
+    .flag-circle.pub-btn.on      {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
+    .flag-circle.desc-btn:hover  {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
+    .flag-circle.desc-btn.on     {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
+    .flag-circle.post-btn        {{ background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); text-decoration: none; }}
+    .flag-circle.post-btn:hover  {{ background: var(--c-muted-6); border-color: var(--c-muted-6); color: var(--c-bg); }}
 
     /* ── TITLE ── */
     .card-title {{
-      font-size: 1rem; font-weight: 700; color: #1a1a1a;
+      font-size: 1rem; font-weight: 700; color: var(--c-text);
       text-decoration: none; line-height: 1.4;
       display: block; margin-bottom: 10px;
     }}
@@ -360,11 +385,11 @@ async def dashboard():
     /* ── EXPAND FLAGADO ── */
     .flag-expand-btn {{
       background: none; border: none; cursor: pointer;
-      font-size: 0.62rem; color: #aaa; padding: 0 0 10px;
+      font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px;
       text-transform: uppercase; letter-spacing: 0.07em;
       font-weight: 700; display: none; text-align: left; transition: color .15s;
     }}
-    .flag-expand-btn:hover {{ color: #1a1a1a; }}
+    .flag-expand-btn:hover {{ color: var(--c-text); }}
     .card-collapsed .flag-expand-btn {{ display: block; }}
     .card-collapsed .card-text,
     .card-collapsed .card-bottom,
@@ -378,15 +403,15 @@ async def dashboard():
     /* ── EXPAND TEXTO LONGO ── */
     .expand-text-btn {{
       background: none; border: none; cursor: pointer;
-      font-size: 0.62rem; color: #aaa; padding: 0 0 10px;
+      font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px;
       text-transform: uppercase; letter-spacing: 0.07em;
       font-weight: 700; display: block; text-align: left; transition: color .15s;
     }}
-    .expand-text-btn:hover {{ color: #1a1a1a; }}
+    .expand-text-btn:hover {{ color: var(--c-text); }}
 
     /* ── BODY TEXT ── */
     .card-text {{
-      font-size: 0.82rem; color: #555; line-height: 1.65;
+      font-size: 0.82rem; color: var(--c-muted-4); line-height: 1.65;
       margin-bottom: 16px;
     }}
 
@@ -398,20 +423,20 @@ async def dashboard():
     }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
     .tag {{
-      font-size: 0.6rem; font-weight: 700; color: #777;
-      border: 1px solid #ccc; border-radius: 99px;
+      font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3);
+      border: 1px solid var(--c-line); border-radius: 99px;
       padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em;
     }}
 
     /* ── COLLECT BAR ── */
     .collect-bar {{
       position: fixed; bottom: 0; left: 0; right: 0;
-      background: #edeae4; border-top: 1px solid rgba(0,0,0,.1);
+      background: var(--c-bg); border-top: 1px solid var(--c-border);
       padding: 10px 24px; display: flex; align-items: center; gap: 14px;
       z-index: 10;
     }}
     .collect-btn {{
-      background: #1a1a1a; color: #edeae4; border: none;
+      background: var(--c-text); color: var(--c-bg); border: none;
       padding: 7px 20px; border-radius: 99px; cursor: pointer;
       font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
       letter-spacing: 0.07em; transition: opacity .15s; white-space: nowrap;
@@ -420,13 +445,13 @@ async def dashboard():
     .collect-btn:disabled {{ opacity: .4; cursor: not-allowed; }}
     .progress-wrap {{ flex: 1; display: flex; flex-direction: column; gap: 3px; }}
     .progress-track {{ height: 3px; background: rgba(0,0,0,.1); border-radius: 99px; overflow: hidden; display: none; }}
-    .progress-bar {{ height: 100%; width: 0%; background: #1a1a1a; border-radius: 99px; transition: width .4s ease; }}
+    .progress-bar {{ height: 100%; width: 0%; background: var(--c-text); border-radius: 99px; transition: width .4s ease; }}
     .progress-bar.indeterminate {{ width: 35%; animation: slide 1.2s ease-in-out infinite; }}
     @keyframes slide {{ 0% {{ transform: translateX(-100%); }} 100% {{ transform: translateX(350%); }} }}
-    .last-collect {{ font-size: 0.65rem; color: #aaa; white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; }}
-    .progress-msg {{ font-size: 0.68rem; color: #777; min-height: 14px; }}
-    .progress-msg.ok  {{ color: #166534; }}
-    .progress-msg.err {{ color: #be123c; }}
+    .last-collect {{ font-size: 0.65rem; color: var(--c-muted-2); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .progress-msg {{ font-size: 0.68rem; color: var(--c-muted-3); min-height: 14px; }}
+    .progress-msg.ok  {{ color: var(--c-success); }}
+    .progress-msg.err {{ color: var(--c-error); }}
   </style>
   <script>
     // ── Copiar ──
@@ -731,33 +756,34 @@ async def selecao_page():
           </div>
         </div>"""
 
-    empty_msg = '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Nenhuma notícia sobre a Seleção Saudita nas últimas 48h.</p>'
+    empty_msg = '<p style="padding:40px 24px;font-size:0.82rem;color:var(--c-muted-2);">Nenhuma notícia sobre a Seleção Saudita nas últimas 48h.</p>'
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IARABÃO — Seleção Saudita</title>
+  {_THEME_INIT_SCRIPT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
     {_HEADER_CSS}
     .topbar {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 24px 8px; }}
-    .count {{ color: #999; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .count {{ color: var(--c-muted-1); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; }}
     .selecao-badge {{ background: #15803d; color: white; font-size: 0.6rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; }}
     .flag-summary {{ display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }}
     .fs-badge {{ font-size: 0.62rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; cursor: pointer; user-select: none; transition: all .15s; text-transform: uppercase; letter-spacing: 0.05em; border: 1.5px solid transparent; }}
-    .fs-total     {{ border-color: #ccc;    color: #999;    }}
+    .fs-total     {{ border-color: var(--c-line); color: var(--c-muted-1); }}
     .fs-analise   {{ border-color: #fde68a; color: #92400e; }}
     .fs-visto     {{ border-color: #a5b4fc; color: #4338ca; }}
-    .fs-publicado {{ border-color: #86efac; color: #166534; }}
-    .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
+    .fs-publicado {{ border-color: #86efac; color: var(--c-success); }}
+    .fs-descarte  {{ border-color: #fca5a5; color: var(--c-error); }}
     .fs-badge:hover {{ opacity: .7; }}
-    .fs-badge.active-filter {{ background: #1a1a1a; color: #edeae4; border-color: #1a1a1a; }}
+    .fs-badge.active-filter {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 80px; align-items: start; }}
-    .card {{ background: #fafaf8; border-radius: 16px; display: flex; flex-direction: column; transition: background .2s; }}
+    .card {{ background: var(--c-bg-card); border-radius: 16px; display: flex; flex-direction: column; transition: background .2s; }}
     .card.flag-analise   {{ background: #fefce8; }}
     .card.flag-visto     {{ background: #ede9fe; }}
     .card.flag-publicado {{ background: #dcfce7; }}
@@ -765,37 +791,37 @@ async def selecao_page():
     .card.hidden-by-filter {{ display: none; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
-    .card-date {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .card-date {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
     .card-flags {{ display: flex; gap: 7px; }}
-    .flag-circle {{ width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid #1a1a1a; background: transparent; color: #1a1a1a; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; }}
-    .flag-circle:hover {{ background: #1a1a1a; color: white; }}
-    .flag-circle.on {{ background: #1a1a1a; color: white; }}
+    .flag-circle {{ width: 32px; height: 32px; border-radius: 50%; border: 1.5px solid var(--c-text); background: transparent; color: var(--c-text); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; flex-shrink: 0; }}
+    .flag-circle:hover {{ background: var(--c-text); color: var(--c-bg); }}
+    .flag-circle.on {{ background: var(--c-text); color: var(--c-bg); }}
     .flag-circle.anal-btn:hover  {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
     .flag-circle.anal-btn.on     {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
     .flag-circle.visto-btn:hover {{ background: #4338ca; border-color: #4338ca; color: white; }}
     .flag-circle.visto-btn.on    {{ background: #4338ca; border-color: #4338ca; color: white; }}
-    .flag-circle.pub-btn:hover   {{ background: #166534; border-color: #166534; color: white; }}
-    .flag-circle.pub-btn.on      {{ background: #166534; border-color: #166534; color: white; }}
-    .flag-circle.desc-btn:hover  {{ background: #be123c; border-color: #be123c; color: white; }}
-    .flag-circle.desc-btn.on     {{ background: #be123c; border-color: #be123c; color: white; }}
-    .flag-circle.post-btn        {{ background: #1a1a1a; border-color: #1a1a1a; color: white; text-decoration: none; }}
-    .flag-circle.post-btn:hover  {{ background: #444; border-color: #444; color: white; }}
-    .card-title {{ font-size: 1rem; font-weight: 700; color: #1a1a1a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 10px; }}
+    .flag-circle.pub-btn:hover   {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
+    .flag-circle.pub-btn.on      {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
+    .flag-circle.desc-btn:hover  {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
+    .flag-circle.desc-btn.on     {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
+    .flag-circle.post-btn        {{ background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); text-decoration: none; }}
+    .flag-circle.post-btn:hover  {{ background: var(--c-muted-6); border-color: var(--c-muted-6); color: var(--c-bg); }}
+    .card-title {{ font-size: 1rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 10px; }}
     .card-title:hover {{ opacity: .7; }}
-    .flag-expand-btn {{ background: none; border: none; cursor: pointer; font-size: 0.62rem; color: #aaa; padding: 0 0 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; display: none; text-align: left; transition: color .15s; }}
-    .flag-expand-btn:hover {{ color: #1a1a1a; }}
+    .flag-expand-btn {{ background: none; border: none; cursor: pointer; font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; display: none; text-align: left; transition: color .15s; }}
+    .flag-expand-btn:hover {{ color: var(--c-text); }}
     .card-collapsed .flag-expand-btn {{ display: block; }}
     .card-collapsed .card-text, .card-collapsed .card-bottom, .card-collapsed .expand-text-btn {{ display: none; }}
     .card-collapsed.flag-open .card-text, .card-collapsed.flag-open .card-bottom {{ display: flex; }}
     .card-collapsed.flag-open .card-text {{ display: block; }}
     .card-collapsed.flag-open .text-short {{ display: none; }}
     .card-collapsed.flag-open .text-full  {{ display: inline !important; }}
-    .expand-text-btn {{ background: none; border: none; cursor: pointer; font-size: 0.62rem; color: #aaa; padding: 0 0 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; display: block; text-align: left; transition: color .15s; }}
-    .expand-text-btn:hover {{ color: #1a1a1a; }}
-    .card-text {{ font-size: 0.82rem; color: #555; line-height: 1.65; margin-bottom: 16px; }}
+    .expand-text-btn {{ background: none; border: none; cursor: pointer; font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; display: block; text-align: left; transition: color .15s; }}
+    .expand-text-btn:hover {{ color: var(--c-text); }}
+    .card-text {{ font-size: 0.82rem; color: var(--c-muted-4); line-height: 1.65; margin-bottom: 16px; }}
     .card-bottom {{ display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
-    .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3); border: 1px solid var(--c-line); border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
   </style>
   <script>
     let _flags = {{}};
@@ -968,31 +994,32 @@ async def descartadas():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IARABÃO — Descartadas</title>
+  {_THEME_INIT_SCRIPT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
     {_HEADER_CSS}
-    .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
+    .info {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
-    .card {{ background: #fafaf8; border-radius: 16px; display: flex; flex-direction: column; opacity: 0.82; }}
+    .card {{ background: var(--c-bg-card); border-radius: 16px; display: flex; flex-direction: column; opacity: 0.82; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-meta {{ display: flex; align-items: center; gap: 5px; margin-bottom: 12px; flex-wrap: wrap; }}
-    .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
-    .score-tag {{ font-size: 0.6rem; font-weight: 700; color: #be123c; border: 1px solid #fca5a5; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: auto; }}
-    .card-title {{ font-size: 0.95rem; font-weight: 700; color: #1a1a1a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
+    .tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3); border: 1px solid var(--c-line); border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .score-tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-error); border: 1px solid #fca5a5; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: auto; }}
+    .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
     .card-title:hover {{ opacity: .7; }}
-    .card-text {{ font-size: 0.8rem; color: #666; line-height: 1.6; }}
+    .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
     .card-footer {{ display: flex; align-items: center; justify-content: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
-    .card-date {{ font-size: 0.6rem; font-weight: 700; color: #bbb; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .card-date {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.05em; }}
   </style>
 </head>
 <body>
   {_header("/descartadas")}
   <p class="info">{len(articles)} descartadas · 24h · Texto original sem tradução</p>
   <div class="grid">
-    {cards if cards else '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Nenhuma notícia descartada nas últimas 24h.</p>'}
+    {cards if cards else '<p style="padding:40px 24px;font-size:0.82rem;color:var(--c-muted-2);">Nenhuma notícia descartada nas últimas 24h.</p>'}
   </div>
 </body>
 </html>"""
@@ -1328,34 +1355,35 @@ async def fontes_page():
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>IARABÃO — Fontes</title>
+  {_THEME_INIT_SCRIPT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
     {_HEADER_CSS}
     .page {{ max-width: 680px; margin: 28px auto; padding: 0 24px 80px; }}
-    .page-title {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }}
-    .page-sub {{ font-size: 0.75rem; color: #999; margin-bottom: 20px; }}
-    .add-box {{ background: #fafaf8; border-radius: 16px; padding: 20px; margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }}
-    .add-box label {{ font-size: 0.62rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.07em; display: block; margin-bottom: 5px; }}
-    .add-box input, .add-box select {{ border: 1px solid rgba(0,0,0,.12); border-radius: 10px; padding: 7px 10px; font-size: 0.85rem; background: rgba(0,0,0,.04); color: #1a1a1a; font-family: inherit; }}
-    .add-box input:focus, .add-box select:focus {{ outline: none; border-color: #1a1a1a; }}
+    .page-title {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 4px; }}
+    .page-sub {{ font-size: 0.75rem; color: var(--c-muted-1); margin-bottom: 20px; }}
+    .add-box {{ background: var(--c-bg-card); border-radius: 16px; padding: 20px; margin-bottom: 12px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }}
+    .add-box label {{ font-size: 0.62rem; font-weight: 700; color: var(--c-muted-1); text-transform: uppercase; letter-spacing: 0.07em; display: block; margin-bottom: 5px; }}
+    .add-box input, .add-box select {{ border: 1px solid var(--c-border-2); border-radius: 10px; padding: 7px 10px; font-size: 0.85rem; background: var(--c-hover-tint); color: var(--c-text); font-family: inherit; }}
+    .add-box input:focus, .add-box select:focus {{ outline: none; border-color: var(--c-text); }}
     .add-box input {{ width: 180px; }}
-    .btn-primary {{ background: #1a1a1a; color: #edeae4; border: none; padding: 8px 20px; border-radius: 99px; font-size: 0.65rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: opacity .15s; }}
+    .btn-primary {{ background: var(--c-text); color: var(--c-bg); border: none; padding: 8px 20px; border-radius: 99px; font-size: 0.65rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: opacity .15s; }}
     .btn-primary:hover {{ opacity: .75; }}
-    table {{ width: 100%; border-collapse: collapse; background: #fafaf8; border-radius: 16px; overflow: hidden; }}
-    th {{ text-align: left; font-size: 0.62rem; font-weight: 700; color: #aaa; padding: 12px 16px; border-bottom: 1px solid rgba(0,0,0,.06); text-transform: uppercase; letter-spacing: 0.07em; }}
-    td {{ padding: 10px 16px; border-bottom: 1px solid rgba(0,0,0,.04); font-size: 0.85rem; }}
+    table {{ width: 100%; border-collapse: collapse; background: var(--c-bg-card); border-radius: 16px; overflow: hidden; }}
+    th {{ text-align: left; font-size: 0.62rem; font-weight: 700; color: var(--c-muted-2); padding: 12px 16px; border-bottom: 1px solid var(--c-border); text-transform: uppercase; letter-spacing: 0.07em; }}
+    td {{ padding: 10px 16px; border-bottom: 1px solid var(--c-hover-tint); font-size: 0.85rem; }}
     tr:last-child td {{ border-bottom: none; }}
     tr.dirty {{ background: rgba(234,179,8,.08); }}
-    code {{ font-size: 0.8rem; background: rgba(0,0,0,.06); padding: 2px 7px; border-radius: 5px; }}
-    select {{ border: 1px solid rgba(0,0,0,.12); border-radius: 8px; padding: 4px 8px; font-size: 0.82rem; background: rgba(0,0,0,.04); cursor: pointer; font-family: inherit; }}
-    .btn-save {{ background: #1a1a1a; color: #edeae4; border: none; padding: 4px 14px; border-radius: 99px; font-size: 0.62rem; font-weight: 700; cursor: pointer; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em; transition: opacity .15s; }}
+    code {{ font-size: 0.8rem; background: var(--c-border); padding: 2px 7px; border-radius: 5px; }}
+    select {{ border: 1px solid var(--c-border-2); border-radius: 8px; padding: 4px 8px; font-size: 0.82rem; background: var(--c-hover-tint); cursor: pointer; font-family: inherit; }}
+    .btn-save {{ background: var(--c-text); color: var(--c-bg); border: none; padding: 4px 14px; border-radius: 99px; font-size: 0.62rem; font-weight: 700; cursor: pointer; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em; transition: opacity .15s; }}
     .btn-save:hover {{ opacity: .75; }}
-    .btn-del {{ background: transparent; color: #be123c; border: 1.5px solid #fca5a5; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all .15s; }}
+    .btn-del {{ background: transparent; color: var(--c-error); border: 1.5px solid #fca5a5; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all .15s; }}
     .btn-del:hover {{ background: #fff1f2; }}
-    .toast {{ position: fixed; bottom: 24px; right: 24px; background: #1a1a1a; color: #edeae4; padding: 10px 20px; border-radius: 99px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0; transition: opacity .3s; pointer-events: none; }}
+    .toast {{ position: fixed; bottom: 24px; right: 24px; background: var(--c-text); color: var(--c-bg); padding: 10px 20px; border-radius: 99px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0; transition: opacity .3s; pointer-events: none; }}
     .toast.show {{ opacity: 1; }}
   </style>
 </head>
@@ -1458,32 +1486,33 @@ async def lixeira_page():
           </div>
         </div>"""
 
-    empty = '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Lixeira vazia.</p>'
+    empty = '<p style="padding:40px 24px;font-size:0.82rem;color:var(--c-muted-2);">Lixeira vazia.</p>'
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>IARABÃO — Lixeira</title>
+  {_THEME_INIT_SCRIPT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
     {_HEADER_CSS}
-    .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
+    .info {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
     .card {{ background: #fff1f2; border-radius: 16px; opacity: .82; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
-    .card-date {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
-    .restore-btn {{ background: transparent; border: 1.5px solid #1a1a1a; border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
-    .restore-btn:hover {{ background: #1a1a1a; color: #edeae4; }}
-    .card-title {{ font-size: 0.95rem; font-weight: 700; color: #1a1a1a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
+    .card-date {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
+    .restore-btn {{ background: transparent; border: 1.5px solid var(--c-text); border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
+    .restore-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
+    .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
     .card-title:hover {{ opacity: .7; }}
-    .card-text {{ font-size: 0.8rem; color: #666; line-height: 1.6; }}
+    .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
     .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
-    .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3); border: 1px solid var(--c-line); border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
     .removed {{ opacity: 0; transform: scale(.95); transition: all .3s; pointer-events: none; }}
   </style>
 </head>
@@ -1554,42 +1583,43 @@ async def analise_page():
           </div>
         </div>"""
 
-    empty = '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Nenhum artigo marcado para análise.</p>'
+    empty = '<p style="padding:40px 24px;font-size:0.82rem;color:var(--c-muted-2);">Nenhum artigo marcado para análise.</p>'
     return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>IARABÃO — Análise</title>
+  {_THEME_INIT_SCRIPT}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
     {_HEADER_CSS}
     .info-bar {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 14px 24px 6px; }}
-    .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
-    .export-btn {{ font-size: 0.62rem; font-weight: 700; padding: 6px 14px; border-radius: 99px; cursor: pointer; border: 1.5px solid #1a1a1a; background: transparent; color: #1a1a1a; text-transform: uppercase; letter-spacing: .05em; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }}
-    .export-btn:hover {{ background: #1a1a1a; color: #edeae4; }}
+    .info {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
+    .export-btn {{ font-size: 0.62rem; font-weight: 700; padding: 6px 14px; border-radius: 99px; cursor: pointer; border: 1.5px solid var(--c-text); background: transparent; color: var(--c-text); text-transform: uppercase; letter-spacing: .05em; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }}
+    .export-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
     .card {{ background: #fefce8; border-radius: 16px; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
-    .card-date {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
-    .restore-btn {{ background: transparent; border: 1.5px solid #1a1a1a; border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
-    .restore-btn:hover {{ background: #1a1a1a; color: #edeae4; }}
-    .card-title {{ font-size: 0.95rem; font-weight: 700; color: #1a1a1a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
+    .card-date {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
+    .restore-btn {{ background: transparent; border: 1.5px solid var(--c-text); border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
+    .restore-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
+    .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
     .card-title:hover {{ opacity: .7; }}
-    .card-text {{ font-size: 0.8rem; color: #666; line-height: 1.6; }}
+    .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
     .card-comment {{ font-size: 0.78rem; color: #92400e; background: #fef3c7; border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.5; }}
-    .card-comment-empty {{ color: #aaa; background: transparent; padding: 0; }}
+    .card-comment-empty {{ color: var(--c-muted-2); background: transparent; padding: 0; }}
     .card-comment-add {{ display: flex; gap: 6px; margin-top: 10px; }}
-    .comment-input {{ flex: 1; border: 1px solid rgba(0,0,0,.15); border-radius: 8px; padding: 6px 10px; font-size: 0.76rem; font-family: inherit; background: rgba(0,0,0,.03); color: #1a1a1a; }}
+    .comment-input {{ flex: 1; border: 1px solid var(--c-border-2); border-radius: 8px; padding: 6px 10px; font-size: 0.76rem; font-family: inherit; background: var(--c-hover-tint); color: var(--c-text); }}
     .comment-input:focus {{ outline: none; border-color: #92400e; }}
     .comment-save-btn {{ background: transparent; border: 1.5px solid #92400e; color: #92400e; border-radius: 8px; padding: 6px 12px; font-size: 0.7rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: .04em; transition: all .15s; white-space: nowrap; }}
     .comment-save-btn:hover {{ background: #92400e; color: white; }}
     .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
-    .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3); border: 1px solid var(--c-line); border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
     .removed {{ opacity: 0; transform: scale(.95); transition: all .3s; pointer-events: none; }}
   </style>
 </head>
