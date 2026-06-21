@@ -1229,7 +1229,15 @@ async def api_analyze_feedback():
             if raw.startswith("json"):
                 raw = raw[4:]
         raw = raw.strip()
-        result = json.loads(raw)
+        try:
+            result = json.loads(raw, strict=False)
+        except json.JSONDecodeError:
+            # Fallback: extrai só o array de termos e descarta o "reasoning" se ele
+            # tiver quebrado o JSON (ex: aspas/quebras de linha não escapadas pela IA).
+            import re as _re
+            terms_match = _re.search(r'"exclude_terms"\s*:\s*\[(.*?)\]', raw, _re.DOTALL)
+            terms = _re.findall(r'"((?:[^"\\]|\\.)*)"', terms_match.group(1)) if terms_match else []
+            result = {"exclude_terms": terms, "reasoning": "(resposta da IA parcialmente inválida; termos extraídos mesmo assim)"}
     except Exception as e:
         return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
 
