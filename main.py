@@ -1743,7 +1743,11 @@ async def analise_page():
                 flagged_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
             except Exception:
                 pass
-        comment_html = f'<p class="card-comment">💬 {comment}</p>' if comment else '<p class="card-comment card-comment-empty">Sem comentário.</p>'
+        comment_html = (
+            f'<p class="card-comment">💬 {comment}</p>'
+            if comment else
+            f'<div class="card-comment-add"><input type="text" class="comment-input" id="comment-input-{art_id}" placeholder="Por que está aqui? (opcional)" onkeydown="if(event.key===\'Enter\')saveComment(\'{art_id}\', this.nextElementSibling)"><button class="comment-save-btn" onclick="saveComment(\'{art_id}\', this)">Salvar</button></div>'
+        )
         cards += f"""
         <div class="card" data-id="{art_id}">
           <div class="card-body">
@@ -1792,6 +1796,11 @@ async def analise_page():
     .card-text {{ font-size: 0.8rem; color: #666; line-height: 1.6; }}
     .card-comment {{ font-size: 0.78rem; color: #92400e; background: #fef3c7; border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.5; }}
     .card-comment-empty {{ color: #aaa; background: transparent; padding: 0; }}
+    .card-comment-add {{ display: flex; gap: 6px; margin-top: 10px; }}
+    .comment-input {{ flex: 1; border: 1px solid rgba(0,0,0,.15); border-radius: 8px; padding: 6px 10px; font-size: 0.76rem; font-family: inherit; background: rgba(0,0,0,.03); color: #1a1a1a; }}
+    .comment-input:focus {{ outline: none; border-color: #92400e; }}
+    .comment-save-btn {{ background: transparent; border: 1.5px solid #92400e; color: #92400e; border-radius: 8px; padding: 6px 12px; font-size: 0.7rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: .04em; transition: all .15s; white-space: nowrap; }}
+    .comment-save-btn:hover {{ background: #92400e; color: white; }}
     .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
     .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
@@ -1816,6 +1825,25 @@ async def analise_page():
     }});
     card.classList.add('removed');
     setTimeout(() => card.remove(), 300);
+  }}
+  async function saveComment(id, btn) {{
+    const input = document.getElementById('comment-input-' + id);
+    const text = input.value.trim();
+    if (!text) return;
+    btn.disabled = true;
+    try {{
+      await fetch('/api/flag', {{
+        method: 'POST', headers: {{'content-type': 'application/json'}},
+        body: JSON.stringify({{ id, flag: 'analise', comment: text }}),
+      }});
+      const wrap = input.closest('.card-comment-add');
+      const p = document.createElement('p');
+      p.className = 'card-comment';
+      p.textContent = '💬 ' + text;
+      wrap.replaceWith(p);
+    }} catch (e) {{
+      btn.disabled = false;
+    }}
   }}
   async function analyzeFeedback() {{
     const btn = document.getElementById('analyze-btn');
