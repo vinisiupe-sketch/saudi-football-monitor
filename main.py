@@ -323,9 +323,6 @@ async def dashboard():
     .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
     .fs-badge:hover {{ opacity: .7; }}
     .fs-badge.active-filter {{ background: #1a1a1a; color: #edeae4; border-color: #1a1a1a; }}
-    .analyze-btn {{ font-size: 0.62rem; font-weight: 700; padding: 5px 12px; border-radius: 99px; cursor: pointer; border: 1.5px solid #c4b5fd; background: #f5f3ff; color: #6d28d9; text-transform: uppercase; letter-spacing: .05em; margin-left: auto; }}
-    .analyze-btn:hover {{ background: #ede9fe; }}
-    .analyze-btn:disabled {{ opacity: .5; cursor: wait; }}
 
     /* ── GRID ── */
     .grid {{
@@ -582,31 +579,6 @@ async def dashboard():
       applyFilter();
     }}
 
-    async function analyzeFeedback() {{
-      const btn = document.getElementById('analyze-btn');
-      const original = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '🧠 Analisando...';
-      try {{
-        const r = await fetch('/api/analyze-feedback', {{ method: 'POST' }});
-        const data = await r.json();
-        if (!data.ok) {{
-          alert('Erro: ' + (data.error || 'desconhecido'));
-        }} else if (data.analyzed === 0) {{
-          alert('Nenhum artigo marcado como análise no momento.');
-        }} else {{
-          const terms = (data.new_terms || []).join(', ') || 'nenhum termo novo';
-          alert('Analisados ' + data.analyzed + ' artigos.\\nNovos termos aprendidos: ' + terms + '\\nTotal de termos ativos: ' + data.total_terms + (data.reasoning ? ('\\n\\n' + data.reasoning) : ''));
-          location.reload();
-        }}
-      }} catch (e) {{
-        alert('Erro ao analisar: ' + e);
-      }} finally {{
-        btn.disabled = false;
-        btn.textContent = original;
-      }}
-    }}
-
     function toggleFlagExpand(btn) {{
       const card = btn.closest('.card');
       const open = card.classList.toggle('flag-open');
@@ -634,6 +606,11 @@ async def dashboard():
     async function toggleFlag(id, type) {{
       const current = _flags[id];
       const newFlag = (current === type) ? null : type;
+      let comment = null;
+      if (newFlag === 'analise') {{
+        comment = prompt('Por que esse artigo não deveria estar aqui? (ajuda a IA a aprender)');
+        if (comment === null) return; // cancelou — não marca a flag
+      }}
       // Atualiza local imediatamente (feedback instantâneo)
       if (newFlag) _flags[id] = newFlag; else delete _flags[id];
       applyFlags();
@@ -642,7 +619,7 @@ async def dashboard():
         await fetch('/api/flag', {{
           method: 'POST',
           headers: {{'content-type': 'application/json'}},
-          body: JSON.stringify({{ id, flag: newFlag }}),
+          body: JSON.stringify({{ id, flag: newFlag, comment }}),
         }});
       }} catch(e) {{}}
     }}
@@ -737,12 +714,11 @@ async def dashboard():
     <span class="count">{len(articles)} notícias · 48h</span>
     <div class="flag-summary">
       <span class="fs-badge fs-total"     id="fs-total"   onclick="toggleFilter('none')"         title="Sem flag"><span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-analise"   id="fs-analise" onclick="toggleFilter('analise')"       title="Análise"><span id="fc-analise">—</span> análise</span>
+      <span class="fs-badge fs-analise"   id="fs-analise" title="Análise · ver lista →"><a href="/analise" style="color:inherit;text-decoration:none"><span id="fc-analise">—</span> análise →</a></span>
       <span class="fs-badge fs-visto"     id="fs-visto"   onclick="toggleFilter('naopublicado')"  title="Não publicados"><span id="fc-visto">—</span> salvos</span>
       <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"     title="Publicados"><span id="fc-pub">—</span> publicados</span>
       <span class="fs-badge fs-descarte"  id="fs-desc"    title="Lixeira · <a href='/lixeira'>ver lixeira →</a>"><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
     </div>
-    <button class="analyze-btn" id="analyze-btn" onclick="analyzeFeedback()" title="A IA analisa os artigos marcados como análise e aprende a parar de buscá-los">🧠 Analisar feedback</button>
   </div>
   <div class="grid">
     {cards}
@@ -907,9 +883,6 @@ async def selecao_page():
     .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
     .fs-badge:hover {{ opacity: .7; }}
     .fs-badge.active-filter {{ background: #1a1a1a; color: #edeae4; border-color: #1a1a1a; }}
-    .analyze-btn {{ font-size: 0.62rem; font-weight: 700; padding: 5px 12px; border-radius: 99px; cursor: pointer; border: 1.5px solid #c4b5fd; background: #f5f3ff; color: #6d28d9; text-transform: uppercase; letter-spacing: .05em; margin-left: auto; }}
-    .analyze-btn:hover {{ background: #ede9fe; }}
-    .analyze-btn:disabled {{ opacity: .5; cursor: wait; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 80px; align-items: start; }}
     .card {{ background: #fafaf8; border-radius: 16px; display: flex; flex-direction: column; transition: background .2s; }}
     .card.flag-analise   {{ background: #fefce8; }}
@@ -1017,34 +990,10 @@ async def selecao_page():
       else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
     }}
     function toggleFilter(type) {{ _activeFilter = (_activeFilter === type) ? null : type; applyFilter(); }}
-    async function analyzeFeedback() {{
-      const btn = document.getElementById('analyze-btn');
-      const original = btn.textContent;
-      btn.disabled = true;
-      btn.textContent = '🧠 Analisando...';
-      try {{
-        const r = await fetch('/api/analyze-feedback', {{ method: 'POST' }});
-        const data = await r.json();
-        if (!data.ok) {{
-          alert('Erro: ' + (data.error || 'desconhecido'));
-        }} else if (data.analyzed === 0) {{
-          alert('Nenhum artigo marcado como análise no momento.');
-        }} else {{
-          const terms = (data.new_terms || []).join(', ') || 'nenhum termo novo';
-          alert('Analisados ' + data.analyzed + ' artigos.\\nNovos termos aprendidos: ' + terms + '\\nTotal de termos ativos: ' + data.total_terms + (data.reasoning ? ('\\n\\n' + data.reasoning) : ''));
-          location.reload();
-        }}
-      }} catch (e) {{
-        alert('Erro ao analisar: ' + e);
-      }} finally {{
-        btn.disabled = false;
-        btn.textContent = original;
-      }}
-    }}
     function toggleFlagExpand(btn) {{ const card = btn.closest('.card'); const open = card.classList.toggle('flag-open'); btn.textContent = open ? '↑ ver menos' : '↓ ver mais'; }}
     function expandText(btn) {{ const p = btn.previousElementSibling; const short = p.querySelector('.text-short'); const full = p.querySelector('.text-full'); const expanded = btn.classList.toggle('expanded'); short.style.display = expanded ? 'none' : 'inline'; full.style.display = expanded ? 'inline' : 'none'; btn.textContent = expanded ? '↑ ver menos' : '↓ ver mais'; }}
     async function loadFlags() {{ try {{ const r = await fetch('/api/flags'); _flags = await r.json(); applyFlags(); }} catch(e) {{}} }}
-    async function toggleFlag(id, type) {{ const current = _flags[id]; const newFlag = (current === type) ? null : type; if (newFlag) _flags[id] = newFlag; else delete _flags[id]; applyFlags(); try {{ await fetch('/api/flag', {{ method: 'POST', headers: {{'content-type': 'application/json'}}, body: JSON.stringify({{ id, flag: newFlag }}) }}); }} catch(e) {{}} }}
+    async function toggleFlag(id, type) {{ const current = _flags[id]; const newFlag = (current === type) ? null : type; let comment = null; if (newFlag === 'analise') {{ comment = prompt('Por que esse artigo não deveria estar aqui? (ajuda a IA a aprender)'); if (comment === null) return; }} if (newFlag) _flags[id] = newFlag; else delete _flags[id]; applyFlags(); try {{ await fetch('/api/flag', {{ method: 'POST', headers: {{'content-type': 'application/json'}}, body: JSON.stringify({{ id, flag: newFlag, comment }}) }}); }} catch(e) {{}} }}
     let _tmplPostBase = '';
     function openTmplModal(base) {{ _tmplPostBase = base; document.getElementById('tmpl-overlay').classList.add('open'); }}
     function closeTmpl() {{ document.getElementById('tmpl-overlay').classList.remove('open'); }}
@@ -1061,12 +1010,11 @@ async def selecao_page():
     <span class="selecao-badge">🇸🇦 Seleção</span>
     <div class="flag-summary">
       <span class="fs-badge fs-total"     id="fs-total"   onclick="toggleFilter('none')"        ><span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-analise"   id="fs-analise" onclick="toggleFilter('analise')"      ><span id="fc-analise">—</span> análise</span>
+      <span class="fs-badge fs-analise"   id="fs-analise" title="Análise · ver lista →"><a href="/analise" style="color:inherit;text-decoration:none"><span id="fc-analise">—</span> análise →</a></span>
       <span class="fs-badge fs-visto"     id="fs-visto"   onclick="toggleFilter('naopublicado')" ><span id="fc-visto">—</span> salvos</span>
       <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"    ><span id="fc-pub">—</span> publicados</span>
       <span class="fs-badge fs-descarte"  id="fs-desc"    ><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
     </div>
-    <button class="analyze-btn" id="analyze-btn" onclick="analyzeFeedback()" title="A IA analisa os artigos marcados como análise e aprende a parar de buscá-los">🧠 Analisar feedback</button>
   </div>
   <div class="grid">
     {cards if cards else empty_msg}
@@ -1226,12 +1174,13 @@ async def api_set_flag(request: Request):
     body = await request.json()
     article_id = body.get("id", "").strip()
     flag = body.get("flag") or None  # None = remover
+    comment = (body.get("comment") or "").strip() or None
     if not article_id:
         return JSONResponse({"error": "id obrigatório"}, status_code=400)
     if flag and flag not in ("naopublicado", "publicado", "descartado", "analise"):
         return JSONResponse({"error": "flag inválida"}, status_code=400)
-    set_flag(article_id, flag)
-    return {"ok": True, "id": article_id, "flag": flag}
+    set_flag(article_id, flag, comment)
+    return {"ok": True, "id": article_id, "flag": flag, "comment": comment}
 
 
 @app.post("/api/analyze-feedback")
@@ -1250,20 +1199,25 @@ async def api_analyze_feedback():
     for idx, a in enumerate(targets):
         title = a.get("title_pt") or a.get("title_orig") or ""
         body = (a.get("body_pt") or a.get("body_orig") or "")[:400]
-        items_text += f"\nARTIGO {idx+1} (fonte: {a.get('source_name','')}):\nTítulo: {title}\nTexto: {body}\n---"
+        comment = (a.get("flag_comment") or "").strip()
+        comment_line = f"\nMotivo dado pelo usuário: {comment}" if comment else "\nMotivo dado pelo usuário: (não informado)"
+        items_text += f"\nARTIGO {idx+1} (fonte: {a.get('source_name','')}):\nTítulo: {title}\nTexto: {body}{comment_line}\n---"
 
     system = (
         "Você ajuda a manter um monitor de notícias do futebol saudita (Saudi Pro League) limpo. "
         "Os artigos abaixo foram marcados manualmente por um humano como SEM RELAÇÃO REAL com futebol saudita "
         "(ex: notícia de clube europeu, liga errada, assunto não-futebolístico), mesmo tendo passado pelo filtro automático. "
-        "Sua tarefa: para cada artigo, identifique o motivo e proponha termos ESPECÍFICOS (nomes de clubes/jogadores/ligas "
-        "estrangeiras, ou frases bem específicas) que, usados como filtro de exclusão por substring no título/corpo, "
-        "impediriam notícias parecidas de aparecerem de novo. "
+        "Cada artigo pode ter um comentário do usuário explicando especificamente por que ele marcou aquele artigo — "
+        "esse comentário é o sinal MAIS IMPORTANTE para entender o motivo real; priorize-o sobre suas próprias suposições "
+        "ao decidir o que houve de errado e quais termos propor. Quando não houver comentário, infira o motivo a partir do título/texto. "
+        "Sua tarefa: para cada artigo, identifique o motivo (usando o comentário quando disponível) e proponha termos ESPECÍFICOS "
+        "(nomes de clubes/jogadores/ligas estrangeiras, ou frases bem específicas) que, usados como filtro de exclusão por "
+        "substring no título/corpo, impediriam notícias parecidas de aparecerem de novo. "
         "NUNCA proponha termos genéricos de futebol (ex: 'jogador', 'contrato', 'gol', 'transferência', 'lesão', 'técnico') "
         "pois isso bloquearia notícias sauditas legítimas — só proponha entidades/termos específicos e não-ambíguos. "
         "Responda SOMENTE com JSON: {\"exclude_terms\": [\"termo1\", \"termo2\"], \"reasoning\": \"explicação breve em português\"}"
     )
-    prompt = f"Artigos marcados como irrelevantes pelo usuário:\n{items_text}\n\nIdentifique termos específicos de exclusão."
+    prompt = f"Artigos marcados como irrelevantes pelo usuário (com motivo, quando informado):\n{items_text}\n\nIdentifique termos específicos de exclusão."
 
     try:
         async with httpx.AsyncClient() as client:
@@ -1761,6 +1715,130 @@ async def lixeira_page():
     }});
     card.classList.add('removed');
     setTimeout(() => card.remove(), 300);
+  }}
+</script>
+</body></html>""")
+
+
+@app.get("/analise", response_class=HTMLResponse)
+async def analise_page():
+    articles = get_flagged_articles("analise")
+    MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+
+    cards = ""
+    for a in articles:
+        handle = a.get("source_name", "").lstrip("@")
+        title  = a.get("title_pt") or a.get("title_orig") or "—"
+        body   = (a.get("body_pt") or a.get("body_orig") or "")[:280]
+        if len(body) == 280:
+            body += "…"
+        art_id = a["id"]
+        comment = (a.get("flag_comment") or "").strip()
+        flagged_raw = a.get("flagged_at") or ""
+        flagged_display = ""
+        if flagged_raw:
+            try:
+                dt = datetime.fromisoformat(str(flagged_raw).replace(" ", "T").split("+")[0] + "+00:00")
+                dt_local = dt.astimezone(timezone(timedelta(hours=3)))
+                flagged_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
+            except Exception:
+                pass
+        comment_html = f'<p class="card-comment">💬 {comment}</p>' if comment else '<p class="card-comment card-comment-empty">Sem comentário.</p>'
+        cards += f"""
+        <div class="card" data-id="{art_id}">
+          <div class="card-body">
+            <div class="card-top">
+              <span class="card-date">{flagged_display}</span>
+              <button class="restore-btn" onclick="restoreCard('{art_id}', this)" title="Remover da análise">✕ remover</button>
+            </div>
+            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
+            <p class="card-text">{body}</p>
+            {comment_html}
+            <div class="card-bottom">
+              <div class="card-tags">
+                <span class="tag">@{handle}</span>
+                <span class="tag">Tier {a['source_tier']}</span>
+              </div>
+            </div>
+          </div>
+        </div>"""
+
+    empty = '<p style="padding:40px 24px;font-size:0.82rem;color:#aaa;">Nenhum artigo marcado para análise.</p>'
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>IARABÃO — Análise</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #edeae4; color: #1a1a1a; }}
+    {_HEADER_CSS}
+    .info-bar {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 14px 24px 6px; }}
+    .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .analyze-btn {{ font-size: 0.62rem; font-weight: 700; padding: 6px 14px; border-radius: 99px; cursor: pointer; border: 1.5px solid #c4b5fd; background: #f5f3ff; color: #6d28d9; text-transform: uppercase; letter-spacing: .05em; }}
+    .analyze-btn:hover {{ background: #ede9fe; }}
+    .analyze-btn:disabled {{ opacity: .5; cursor: wait; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
+    .card {{ background: #fefce8; border-radius: 16px; }}
+    .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
+    .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
+    .card-date {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
+    .restore-btn {{ background: transparent; border: 1.5px solid #1a1a1a; border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
+    .restore-btn:hover {{ background: #1a1a1a; color: #edeae4; }}
+    .card-title {{ font-size: 0.95rem; font-weight: 700; color: #1a1a1a; text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
+    .card-title:hover {{ opacity: .7; }}
+    .card-text {{ font-size: 0.8rem; color: #666; line-height: 1.6; }}
+    .card-comment {{ font-size: 0.78rem; color: #92400e; background: #fef3c7; border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.5; }}
+    .card-comment-empty {{ color: #aaa; background: transparent; padding: 0; }}
+    .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
+    .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
+    .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
+    .removed {{ opacity: 0; transform: scale(.95); transition: all .3s; pointer-events: none; }}
+  </style>
+</head>
+<body>
+{_header("/analise")}
+<div class="info-bar">
+  <p class="info">{len(articles)} marcados para análise</p>
+  <button class="analyze-btn" id="analyze-btn" onclick="analyzeFeedback()" title="A IA lê os artigos e comentários abaixo e aprende a parar de buscar coisas parecidas">🧠 Analisar feedback</button>
+</div>
+<div class="grid">
+  {cards if cards else empty}
+</div>
+<script>
+  async function restoreCard(id, btn) {{
+    const card = btn.closest('.card');
+    await fetch('/api/flag', {{
+      method: 'POST', headers: {{'content-type': 'application/json'}},
+      body: JSON.stringify({{ id, flag: null }}),
+    }});
+    card.classList.add('removed');
+    setTimeout(() => card.remove(), 300);
+  }}
+  async function analyzeFeedback() {{
+    const btn = document.getElementById('analyze-btn');
+    const original = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '🧠 Analisando...';
+    try {{
+      const r = await fetch('/api/analyze-feedback', {{ method: 'POST' }});
+      const data = await r.json();
+      if (!data.ok) {{
+        alert('Erro: ' + (data.error || 'desconhecido'));
+      }} else if (data.analyzed === 0) {{
+        alert('Nenhum artigo marcado como análise no momento.');
+      }} else {{
+        const terms = (data.new_terms || []).join(', ') || 'nenhum termo novo';
+        alert('Analisados ' + data.analyzed + ' artigos.\\nNovos termos aprendidos: ' + terms + '\\nTotal de termos ativos: ' + data.total_terms + (data.reasoning ? ('\\n\\n' + data.reasoning) : ''));
+      }}
+    }} catch (e) {{
+      alert('Erro ao analisar: ' + e);
+    }} finally {{
+      btn.disabled = false;
+      btn.textContent = original;
+    }}
   }}
 </script>
 </body></html>""")

@@ -94,15 +94,16 @@ def init_db():
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
+        c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
 def get_flagged_articles(flag: str) -> list[dict]:
-    """Retorna artigos com a flag indicada (qualquer idade), com dados do artigo."""
+    """Retorna artigos com a flag indicada (qualquer idade), com dados do artigo e comentário."""
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("""
-            SELECT a.*, af.updated_at AS flagged_at
+            SELECT a.*, af.updated_at AS flagged_at, af.comment AS flag_comment
             FROM articles a
             JOIN article_flags af ON a.id = af.article_id
             WHERE af.flag = %s
@@ -138,16 +139,17 @@ def cleanup_old_trash():
         return c.rowcount
 
 
-def set_flag(article_id: str, flag: str | None):
-    """flag = 'naopublicado' | 'publicado' | 'descartado' | 'analise' | None (remove)"""
+def set_flag(article_id: str, flag: str | None, comment: str | None = None):
+    """flag = 'naopublicado' | 'publicado' | 'descartado' | 'analise' | None (remove).
+    comment: motivo informado pelo usuário (usado principalmente na flag 'analise')."""
     with get_conn() as conn:
         c = conn.cursor()
         if flag:
             c.execute("""
-                INSERT INTO article_flags (article_id, flag, updated_at)
-                VALUES (%s, %s, NOW()::TEXT)
-                ON CONFLICT (article_id) DO UPDATE SET flag = EXCLUDED.flag, updated_at = EXCLUDED.updated_at
-            """, (article_id, flag))
+                INSERT INTO article_flags (article_id, flag, updated_at, comment)
+                VALUES (%s, %s, NOW()::TEXT, %s)
+                ON CONFLICT (article_id) DO UPDATE SET flag = EXCLUDED.flag, updated_at = EXCLUDED.updated_at, comment = EXCLUDED.comment
+            """, (article_id, flag, comment))
         else:
             c.execute("DELETE FROM article_flags WHERE article_id = %s", (article_id,))
 
