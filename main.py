@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -79,27 +79,53 @@ def _is_actually_saudi_football(a: dict) -> bool:
 
 
 # ─── Exclusões aprendidas (feedback da flag "análise") ───
-LEARNED_EXCLUSIONS_FILE = "learned_exclusions.json"
+# Persistido no Postgres (app_state) em vez de arquivo local: o disco do
+# container na Railway não é persistente e some a cada redeploy.
+LEARNED_EXCLUSIONS_KEY = "learned_exclusions"
+LEARNED_EXCLUSIONS_FILE = "learned_exclusions.json"  # legado, só para migração local
 
 
 def _load_learned_exclusions() -> list[str]:
     try:
+        raw = get_state(LEARNED_EXCLUSIONS_KEY)
+        if raw is not None:
+            return [t.lower() for t in json.loads(raw).get("terms", [])]
+    except Exception:
+        pass
+    # Migração: se existir um arquivo local antigo e nada no banco ainda, importa uma vez.
+    try:
         with open(LEARNED_EXCLUSIONS_FILE, encoding="utf-8") as f:
-            return [t.lower() for t in json.load(f).get("terms", [])]
+            terms = [t.lower() for t in json.load(f).get("terms", [])]
+        if terms:
+            _save_learned_exclusions(terms)
+        return terms
     except Exception:
         return []
 
 
+def _save_learned_exclusions(terms: list[str]):
+    set_state(LEARNED_EXCLUSIONS_KEY, json.dumps({"terms": sorted(set(terms))}, ensure_ascii=False))
+
+
 def _is_learned_excluded(a: dict) -> bool:
     """Bloqueia artigos que contenham termos que a IA aprendeu a excluir
-    a partir de feedback anterior (artigos marcados como 'análise')."""
+    a partir de feedback anterior (artigos marcados como 'análise').
+    Exceção: se o TÍTULO já tem um sinal claro de futebol saudita (clube da SPL,
+    'SPL', 'Roshn', etc.), não bloqueia — provavelmente é uma notícia legítima
+    que só MENCIONA a entidade excluída (ex: jogador que sai de um clube europeu
+    excluído para um clube saudita, como 'Vini Jr. sai do Real Madrid pro Al Nassr')."""
     terms = _load_learned_exclusions()
     if not terms:
         return False
     text = " ".join([
         a.get("title_pt") or "", a.get("title_orig") or "", a.get("body_pt") or "",
     ]).lower()
-    return any(t in text for t in terms)
+    if not any(t in text for t in terms):
+        return False
+    title = f"{a.get('title_pt') or ''} {a.get('title_orig') or ''}".lower().replace("-", " ")
+    if any(term in title for term in SAUDI_TITLE_SIGNAL_TERMS):
+        return False
+    return True
 
 
 @asynccontextmanager
@@ -1247,8 +1273,7 @@ async def api_analyze_feedback():
     existing = _load_learned_exclusions()
     merged = sorted(set(existing) | set(new_terms))
 
-    with open(LEARNED_EXCLUSIONS_FILE, "w", encoding="utf-8") as f:
-        json.dump({"terms": merged}, f, ensure_ascii=False, indent=2)
+    _save_learned_exclusions(merged)
 
     return JSONResponse({
         "ok": True,
@@ -1486,19 +1511,31 @@ async def twitter_test(username: str = "FabrizioRomano"):
 
 
 # ─── Gestão de Fontes ──────────────────────────
-OVERRIDE_FILE = "sources_override.json"
+# Persistido no Postgres (app_state) em vez de arquivo local: o disco do
+# container na Railway não é persistente e some a cada redeploy.
+OVERRIDE_KEY = "source_overrides"
+OVERRIDE_FILE = "sources_override.json"  # legado, só para migração local
 
 def _load_overrides() -> dict:
-    """Retorna {handle: {moon, tier}} do arquivo de override."""
+    """Retorna {handle: {moon, tier}} dos overrides de fontes."""
+    try:
+        raw = get_state(OVERRIDE_KEY)
+        if raw is not None:
+            return json.loads(raw)
+    except Exception:
+        pass
+    # Migração: se existir um arquivo local antigo e nada no banco ainda, importa uma vez.
     try:
         with open(OVERRIDE_FILE) as f:
-            return json.load(f)
+            data = json.load(f)
+        if data:
+            _save_overrides(data)
+        return data
     except Exception:
         return {}
 
 def _save_overrides(data: dict):
-    with open(OVERRIDE_FILE, "w") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    set_state(OVERRIDE_KEY, json.dumps(data, ensure_ascii=False))
 
 def get_effective_sources() -> list[dict]:
     """Combina sources.py com overrides. Retorna lista de {handle, tier, moon}."""

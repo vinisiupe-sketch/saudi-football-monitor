@@ -91,6 +91,12 @@ def init_db():
                 updated_at  TEXT NOT NULL
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS app_state (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
@@ -160,6 +166,27 @@ def get_all_flags() -> dict:
         c = conn.cursor()
         c.execute("SELECT article_id, flag FROM article_flags")
         return {row[0]: row[1] for row in c.fetchall()}
+
+
+def get_state(key: str) -> str | None:
+    """Lê um valor (string, geralmente JSON) salvo em app_state. None se não existir.
+    Usado para dados que precisam sobreviver a redeploys (Railway não tem disco
+    persistente), como exclusões aprendidas e overrides de fontes."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT value FROM app_state WHERE key = %s", (key,))
+        row = c.fetchone()
+        return row[0] if row else None
+
+
+def set_state(key: str, value: str):
+    """Salva/atualiza um valor em app_state (upsert)."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO app_state (key, value) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """, (key, value))
 
 
 def make_article_id(url: str, title: str) -> str:
