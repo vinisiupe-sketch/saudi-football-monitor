@@ -78,56 +78,6 @@ def _is_actually_saudi_football(a: dict) -> bool:
     return False
 
 
-# ─── Exclusões aprendidas (feedback da flag "análise") ───
-# Persistido no Postgres (app_state) em vez de arquivo local: o disco do
-# container na Railway não é persistente e some a cada redeploy.
-LEARNED_EXCLUSIONS_KEY = "learned_exclusions"
-LEARNED_EXCLUSIONS_FILE = "learned_exclusions.json"  # legado, só para migração local
-
-
-def _load_learned_exclusions() -> list[str]:
-    try:
-        raw = get_state(LEARNED_EXCLUSIONS_KEY)
-        if raw is not None:
-            return [t.lower() for t in json.loads(raw).get("terms", [])]
-    except Exception:
-        pass
-    # Migração: se existir um arquivo local antigo e nada no banco ainda, importa uma vez.
-    try:
-        with open(LEARNED_EXCLUSIONS_FILE, encoding="utf-8") as f:
-            terms = [t.lower() for t in json.load(f).get("terms", [])]
-        if terms:
-            _save_learned_exclusions(terms)
-        return terms
-    except Exception:
-        return []
-
-
-def _save_learned_exclusions(terms: list[str]):
-    set_state(LEARNED_EXCLUSIONS_KEY, json.dumps({"terms": sorted(set(terms))}, ensure_ascii=False))
-
-
-def _is_learned_excluded(a: dict) -> bool:
-    """Bloqueia artigos que contenham termos que a IA aprendeu a excluir
-    a partir de feedback anterior (artigos marcados como 'análise').
-    Exceção: se o TÍTULO já tem um sinal claro de futebol saudita (clube da SPL,
-    'SPL', 'Roshn', etc.), não bloqueia — provavelmente é uma notícia legítima
-    que só MENCIONA a entidade excluída (ex: jogador que sai de um clube europeu
-    excluído para um clube saudita, como 'Vini Jr. sai do Real Madrid pro Al Nassr')."""
-    terms = _load_learned_exclusions()
-    if not terms:
-        return False
-    text = " ".join([
-        a.get("title_pt") or "", a.get("title_orig") or "", a.get("body_pt") or "",
-    ]).lower()
-    if not any(t in text for t in terms):
-        return False
-    title = f"{a.get('title_pt') or ''} {a.get('title_orig') or ''}".lower().replace("-", " ")
-    if any(term in title for term in SAUDI_TITLE_SIGNAL_TERMS):
-        return False
-    return True
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global scheduler
@@ -228,7 +178,6 @@ async def dashboard():
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and not _is_selecao_article(a)
         and _is_actually_saudi_football(a)
-        and not _is_learned_excluded(a)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -799,7 +748,6 @@ async def selecao_page():
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and _is_selecao_article(a)
         and _is_actually_saudi_football(a)
-        and not _is_learned_excluded(a)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -1089,7 +1037,6 @@ async def api_badge_counts(since: str = ""):
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and str(a.get("collected_at") or "") >= since
         and _is_actually_saudi_football(a)
-        and not _is_learned_excluded(a)
     ]
     home_count = sum(1 for a in visible if not _is_selecao_article(a))
     selecao_count = sum(1 for a in visible if _is_selecao_article(a))
@@ -1207,81 +1154,6 @@ async def api_set_flag(request: Request):
         return JSONResponse({"error": "flag inválida"}, status_code=400)
     set_flag(article_id, flag, comment)
     return {"ok": True, "id": article_id, "flag": flag, "comment": comment}
-
-
-@app.post("/api/analyze-feedback")
-async def api_analyze_feedback():
-    """Analisa artigos marcados como 'análise', pede pra IA identificar por que
-    eles não deveriam ter passado pelo filtro, e aprende novos termos de
-    exclusão a partir disso — aplicados automaticamente nas próximas rodadas."""
-    from processor import call_claude
-
-    targets = get_flagged_articles("analise")
-    if not targets:
-        return JSONResponse({"ok": True, "analyzed": 0, "new_terms": [], "message": "Nenhum artigo marcado como análise."})
-
-    targets = targets[:40]  # limite de segurança por chamada
-    items_text = ""
-    for idx, a in enumerate(targets):
-        title = a.get("title_pt") or a.get("title_orig") or ""
-        body = (a.get("body_pt") or a.get("body_orig") or "")[:400]
-        comment = (a.get("flag_comment") or "").strip()
-        comment_line = f"\nMotivo dado pelo usuário: {comment}" if comment else "\nMotivo dado pelo usuário: (não informado)"
-        items_text += f"\nARTIGO {idx+1} (fonte: {a.get('source_name','')}):\nTítulo: {title}\nTexto: {body}{comment_line}\n---"
-
-    system = (
-        "Você ajuda a manter um monitor de notícias do futebol saudita (Saudi Pro League) limpo. "
-        "Os artigos abaixo foram marcados manualmente por um humano como SEM RELAÇÃO REAL com futebol saudita "
-        "(ex: notícia de clube europeu, liga errada, assunto não-futebolístico), mesmo tendo passado pelo filtro automático. "
-        "Cada artigo pode ter um comentário do usuário explicando especificamente por que ele marcou aquele artigo — "
-        "esse comentário é o sinal MAIS IMPORTANTE para entender o motivo real; priorize-o sobre suas próprias suposições "
-        "ao decidir o que houve de errado e quais termos propor. Quando não houver comentário, infira o motivo a partir do título/texto. "
-        "Sua tarefa: para cada artigo, identifique o motivo (usando o comentário quando disponível) e proponha termos ESPECÍFICOS "
-        "(nomes de clubes/jogadores/ligas estrangeiras, ou frases bem específicas) que, usados como filtro de exclusão por "
-        "substring no título/corpo, impediriam notícias parecidas de aparecerem de novo. "
-        "NUNCA proponha termos genéricos de futebol (ex: 'jogador', 'contrato', 'gol', 'transferência', 'lesão', 'técnico') "
-        "pois isso bloquearia notícias sauditas legítimas — só proponha entidades/termos específicos e não-ambíguos. "
-        "IMPORTANTE SOBRE O FORMATO: responda SOMENTE com um único objeto JSON válido, em uma única linha (sem quebras de linha "
-        "dentro das strings, sem markdown, sem texto antes ou depois). O campo \"reasoning\" deve ter NO MÁXIMO 2 frases curtas. "
-        "Estrutura exata: {\"exclude_terms\": [\"termo1\", \"termo2\"], \"reasoning\": \"explicação breve em português, em até 2 frases\"}"
-    )
-    prompt = f"Artigos marcados como irrelevantes pelo usuário (com motivo, quando informado):\n{items_text}\n\nIdentifique termos específicos de exclusão. Lembre-se: JSON em uma linha só, reasoning curto."
-
-    try:
-        async with httpx.AsyncClient() as client:
-            raw = await call_claude(prompt=prompt, system=system, client=client, max_tokens=3000)
-        raw = raw.strip()
-        if raw.startswith("```"):
-            parts = raw.split("```")
-            raw = parts[1] if len(parts) > 1 else raw
-            if raw.startswith("json"):
-                raw = raw[4:]
-        raw = raw.strip()
-        try:
-            result = json.loads(raw, strict=False)
-        except json.JSONDecodeError:
-            # Fallback: extrai só o array de termos e descarta o "reasoning" se ele
-            # tiver quebrado o JSON (ex: aspas/quebras de linha não escapadas pela IA).
-            import re as _re
-            terms_match = _re.search(r'"exclude_terms"\s*:\s*\[(.*?)\]', raw, _re.DOTALL)
-            terms = _re.findall(r'"((?:[^"\\]|\\.)*)"', terms_match.group(1)) if terms_match else []
-            result = {"exclude_terms": terms, "reasoning": "(resposta da IA parcialmente inválida; termos extraídos mesmo assim)"}
-    except Exception as e:
-        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
-
-    new_terms = sorted({t.strip().lower() for t in result.get("exclude_terms", []) if t and t.strip()})
-    existing = _load_learned_exclusions()
-    merged = sorted(set(existing) | set(new_terms))
-
-    _save_learned_exclusions(merged)
-
-    return JSONResponse({
-        "ok": True,
-        "analyzed": len(targets),
-        "new_terms": new_terms,
-        "total_terms": len(merged),
-        "reasoning": result.get("reasoning", ""),
-    })
 
 
 @app.get("/gerador", response_class=HTMLResponse)
@@ -1828,9 +1700,6 @@ async def analise_page():
     {_HEADER_CSS}
     .info-bar {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 14px 24px 6px; }}
     .info {{ font-size: 0.65rem; font-weight: 700; color: #aaa; text-transform: uppercase; letter-spacing: 0.07em; }}
-    .analyze-btn {{ font-size: 0.62rem; font-weight: 700; padding: 6px 14px; border-radius: 99px; cursor: pointer; border: 1.5px solid #c4b5fd; background: #f5f3ff; color: #6d28d9; text-transform: uppercase; letter-spacing: .05em; }}
-    .analyze-btn:hover {{ background: #ede9fe; }}
-    .analyze-btn:disabled {{ opacity: .5; cursor: wait; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
     .card {{ background: #fefce8; border-radius: 16px; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
@@ -1858,7 +1727,6 @@ async def analise_page():
 {_header("/analise")}
 <div class="info-bar">
   <p class="info">{len(articles)} marcados para análise</p>
-  <button class="analyze-btn" id="analyze-btn" onclick="analyzeFeedback()" title="A IA lê os artigos e comentários abaixo e aprende a parar de buscar coisas parecidas">🧠 Analisar feedback</button>
 </div>
 <div class="grid">
   {cards if cards else empty}
@@ -1890,29 +1758,6 @@ async def analise_page():
       wrap.replaceWith(p);
     }} catch (e) {{
       btn.disabled = false;
-    }}
-  }}
-  async function analyzeFeedback() {{
-    const btn = document.getElementById('analyze-btn');
-    const original = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = '🧠 Analisando...';
-    try {{
-      const r = await fetch('/api/analyze-feedback', {{ method: 'POST' }});
-      const data = await r.json();
-      if (!data.ok) {{
-        alert('Erro: ' + (data.error || 'desconhecido'));
-      }} else if (data.analyzed === 0) {{
-        alert('Nenhum artigo marcado como análise no momento.');
-      }} else {{
-        const terms = (data.new_terms || []).join(', ') || 'nenhum termo novo';
-        alert('Analisados ' + data.analyzed + ' artigos.\\nNovos termos aprendidos: ' + terms + '\\nTotal de termos ativos: ' + data.total_terms + (data.reasoning ? ('\\n\\n' + data.reasoning) : ''));
-      }}
-    }} catch (e) {{
-      alert('Erro ao analisar: ' + e);
-    }} finally {{
-      btn.disabled = false;
-      btn.textContent = original;
     }}
   }}
 </script>
