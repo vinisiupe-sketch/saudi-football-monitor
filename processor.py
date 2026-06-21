@@ -121,10 +121,33 @@ Responda SOMENTE com este JSON (sem texto extra):
                         art["category"] = "geral"
                 print(f"   ✅ Lote {i//BATCH+1}/{(len(to_translate)-1)//BATCH+1} traduzido")
             except Exception as e:
-                print(f"   ⚠️  Erro no lote {i//BATCH+1}: {type(e).__name__}: {e}")
+                print(f"   ⚠️  Erro no lote {i//BATCH+1}: {type(e).__name__}: {e} — tentando artigo a artigo")
+                # Um artigo problemático (aspas/hashtags em árabe que quebram o JSON,
+                # texto curto demais, etc.) não pode derrubar a tradução dos outros
+                # 2 do lote — re-tenta cada um isoladamente antes de desistir.
                 for art in batch:
-                    art["title_pt"] = art.get("title_orig", "")
-                    art["body_pt"] = art.get("body_orig", "")
+                    try:
+                        solo_prompt = f"""Adapte o artigo abaixo para português brasileiro com estilo jornalístico esportivo.
+Classifique em UMA categoria: transferencia, patrocinio, planejamento, entrevista, resultado, competicao, treino, financeiro, lesao, sondagem, geral.
+Responda SOMENTE com este JSON (sem texto extra):
+{{"title_pt": "...", "body_pt": "...", "category": "..."}}
+
+Título: {art.get('title_orig', '')}
+Texto: {art.get('body_orig', '')[:1200]}"""
+                        solo_raw = await call_claude(solo_prompt, system, client, max_tokens=1000)
+                        solo_raw = solo_raw.strip()
+                        if solo_raw.startswith("```"):
+                            solo_raw = solo_raw.split("```")[1]
+                            if solo_raw.startswith("json"):
+                                solo_raw = solo_raw[4:]
+                        solo_data = json.loads(solo_raw.strip())
+                        art["title_pt"] = apply_glossary(solo_data.get("title_pt") or art["title_orig"])
+                        art["body_pt"] = apply_glossary(solo_data.get("body_pt") or art["body_orig"])
+                        art["category"] = solo_data.get("category", "geral")
+                    except Exception as e2:
+                        print(f"   ⚠️  Falha isolada também em '{art.get('title_orig','')[:50]}': {type(e2).__name__}: {e2}")
+                        art["title_pt"] = art.get("title_orig", "")
+                        art["body_pt"] = art.get("body_orig", "")
     return articles
 
 

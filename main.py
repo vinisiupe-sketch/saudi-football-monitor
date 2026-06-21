@@ -747,7 +747,11 @@ async def selecao_page():
         if a.get("relevance_score", 0) >= 0.45
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and _is_selecao_article(a)
-        and _is_actually_saudi_football(a)
+        # Nota: _is_actually_saudi_football() não entra aqui de propósito — ela exige
+        # o sinal saudita no TÍTULO, mas notícia de seleção é frequentemente sobre o
+        # ADVERSÁRIO da Arábia na Copa (ex: técnico do Uruguai, jogador da Espanha)
+        # com a Arábia citada só no corpo. _is_selecao_article() já é o filtro
+        # dedicado e correto pra esse caso.
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
