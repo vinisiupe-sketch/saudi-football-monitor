@@ -28,13 +28,31 @@ SELECAO_KEYWORDS = [
     "seleção saudita", "seleção da arábia", "selecao saudita",
 ]
 
+# Termos que indicam o PAÍS (seleção) em vez de um clube específico da SPL
+COUNTRY_TERMS = ["arábia saudita", "arabia saudita", "saudi arabia", "السعودية"]
+
+# Clubes da SPL — se um destes aparecer junto com "Arábia Saudita", é notícia de clube, não de seleção
+SPL_CLUB_NAMES_LOWER = [
+    "al hilal", "al nassr", "al ittihad", "al ahli", "al shabab", "al taawoun",
+    "al fateh", "al ettifaq", "al qadsiah", "al fayha", "al hazem", "al khaleej",
+    "al kholood", "al najma", "al okhdood", "al riyadh", "al diriyah", "al ula",
+    "damac", "neom", "الهلال", "النصر", "الاتحاد", "الأهلي", "الشباب", "التعاون",
+    "الفتح", "الاتفاق",
+]
+
 def _is_selecao_article(a: dict) -> bool:
     text = " ".join([
         a.get("title_pt") or "", a.get("title_orig") or "",
         a.get("body_pt") or "", a.get("body_orig") or "",
     ])
     tl = text.lower()
-    return any(kw.lower() in tl for kw in SELECAO_KEYWORDS)
+    if any(kw.lower() in tl for kw in SELECAO_KEYWORDS):
+        return True
+    # Heurística: menciona o país sauditas como time (ex: "Espanha x Arábia Saudita"),
+    # sem citar nenhum clube específico da SPL → é notícia da seleção, não de clube.
+    if any(c in tl for c in COUNTRY_TERMS) and not any(club in tl for club in SPL_CLUB_NAMES_LOWER):
+        return True
+    return False
 
 
 @asynccontextmanager
