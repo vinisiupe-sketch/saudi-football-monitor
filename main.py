@@ -259,7 +259,7 @@ async def dashboard():
                 <span class="tag">@{handle}</span>
                 <span class="tag">{category_text}</span>
               </div>
-              <button class="flag-circle post-btn" onclick="openTmplModal('{post_base}')" title="Criar post">{ICO_PEN}</button>
+              <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
             </div>
           </div>
         </div>"""
@@ -427,60 +427,6 @@ async def dashboard():
     .progress-msg {{ font-size: 0.68rem; color: #777; min-height: 14px; }}
     .progress-msg.ok  {{ color: #166534; }}
     .progress-msg.err {{ color: #be123c; }}
-
-    /* ── TEMPLATE MODAL ── */
-    .tmpl-overlay {{
-      position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200;
-      display: none; align-items: center; justify-content: center;
-      backdrop-filter: blur(4px);
-    }}
-    .tmpl-overlay.open {{ display: flex; }}
-    .tmpl-modal {{
-      background: #edeae4; border-radius: 24px; padding: 28px 20px 20px;
-      width: 320px; max-width: calc(100vw - 32px);
-      display: flex; flex-direction: column; gap: 8px;
-      box-shadow: 0 20px 60px rgba(0,0,0,.3);
-    }}
-    .tmpl-title {{
-      font-size: 0.58rem; font-weight: 700; color: #999;
-      text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px;
-    }}
-    .tmpl-opt {{
-      width: 100%; padding: 11px 20px; border-radius: 14px;
-      border: 1.5px solid rgba(0,0,0,.18); background: white;
-      cursor: pointer; transition: all .15s;
-      display: flex; flex-direction: column; align-items: center; gap: 2px;
-    }}
-    .tmpl-opt:hover {{ border-color: #1a1a1a; }}
-    .tmpl-opt.active {{ background: #1a1a1a; border-color: #1a1a1a; }}
-    .tmpl-opt-name {{
-      font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem;
-      letter-spacing: 0.05em; color: #1a1a1a; line-height: 1;
-    }}
-    .tmpl-opt.active .tmpl-opt-name {{ color: #49fcb6; }}
-    .tmpl-opt-sub {{
-      font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.07em; color: #aaa;
-    }}
-    .tmpl-opt.active .tmpl-opt-sub {{ color: rgba(73,252,182,.7); }}
-    .tmpl-slides-row {{
-      display: none; gap: 8px; justify-content: center; padding: 4px 0;
-    }}
-    .tmpl-slides-row.show {{ display: flex; }}
-    .tmpl-slide-opt {{
-      flex: 1; padding: 8px 0; border-radius: 10px;
-      border: 1.5px solid rgba(0,0,0,.15); background: white;
-      font-size: 0.75rem; font-weight: 700; cursor: pointer;
-      transition: all .15s; color: #1a1a1a;
-    }}
-    .tmpl-slide-opt.active {{ background: #1a1a1a; color: #49fcb6; border-color: #1a1a1a; }}
-    .tmpl-criar {{
-      width: 100%; padding: 14px; border-radius: 99px;
-      border: 1.5px solid #1a1a1a; background: white;
-      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.08em; cursor: pointer; transition: all .15s; margin-top: 6px;
-    }}
-    .tmpl-criar:hover {{ background: #1a1a1a; color: #edeae4; }}
   </style>
   <script>
     // ── Copiar ──
@@ -656,31 +602,6 @@ async def dashboard():
       msg.className = 'progress-msg ok';
       setTimeout(() => location.reload(), 1000);
     }}
-
-    // ── Template modal ──
-    let _tmplPostBase = '';
-    function openTmplModal(base) {{
-      _tmplPostBase = base;
-      document.getElementById('tmpl-overlay').classList.add('open');
-    }}
-    function closeTmpl() {{ document.getElementById('tmpl-overlay').classList.remove('open'); }}
-    function selectTmpl(btn) {{
-      document.querySelectorAll('.tmpl-opt').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const show = btn.dataset.t === 'carrossel';
-      document.getElementById('tmpl-slides-row').classList.toggle('show', show);
-    }}
-    function selectSlides(btn) {{
-      document.querySelectorAll('.tmpl-slide-opt').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-    }}
-    function criarPost() {{
-      const tmpl  = document.querySelector('.tmpl-opt.active')?.dataset.t || 'simples';
-      const nsld  = document.querySelector('.tmpl-slide-opt.active')?.dataset.n || '3';
-      let url = _tmplPostBase + '&template=' + tmpl;
-      if (tmpl === 'carrossel') url += '&slides=' + nsld;
-      window.location.href = url;
-    }}
   </script>
 </head>
 <body>
@@ -704,32 +625,6 @@ async def dashboard():
     <div class="progress-wrap">
       <div class="progress-track" id="ptrack"><div class="progress-bar" id="pbar"></div></div>
       <span class="progress-msg" id="pmsg"></span>
-    </div>
-  </div>
-
-  <!-- ── Template selector modal ── -->
-  <div class="tmpl-overlay" id="tmpl-overlay" onclick="if(event.target===this)closeTmpl()">
-    <div class="tmpl-modal">
-      <div class="tmpl-title">Escolher formato</div>
-      <button class="tmpl-opt active" data-t="simples" onclick="selectTmpl(this)">
-        <div class="tmpl-opt-name">Simples</div>
-      </button>
-      <button class="tmpl-opt" data-t="chamativo" onclick="selectTmpl(this)">
-        <div class="tmpl-opt-name">Chamativo</div>
-      </button>
-      <button class="tmpl-opt" data-t="transferencia" onclick="selectTmpl(this)">
-        <div class="tmpl-opt-name">Transferência</div>
-      </button>
-      <button class="tmpl-opt" data-t="carrossel" onclick="selectTmpl(this)">
-        <div class="tmpl-opt-name">Carrossel</div>
-      </button>
-      <div class="tmpl-slides-row" id="tmpl-slides-row">
-        <button class="tmpl-slide-opt active" data-n="3" onclick="selectSlides(this)">3</button>
-        <button class="tmpl-slide-opt" data-n="4" onclick="selectSlides(this)">4</button>
-        <button class="tmpl-slide-opt" data-n="5" onclick="selectSlides(this)">5</button>
-        <button class="tmpl-slide-opt" data-n="6" onclick="selectSlides(this)">6</button>
-      </div>
-      <button class="tmpl-criar" onclick="criarPost()">CRIAR</button>
     </div>
   </div>
 </body>
@@ -831,7 +726,7 @@ async def selecao_page():
                 <span class="tag">@{handle}</span>
                 <span class="tag">{category_text}</span>
               </div>
-              <button class="flag-circle post-btn" onclick="openTmplModal('{post_base}')" title="Criar post">{ICO_PEN}</button>
+              <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
             </div>
           </div>
         </div>"""
@@ -901,21 +796,6 @@ async def selecao_page():
     .card-bottom {{ display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
     .tag {{ font-size: 0.6rem; font-weight: 700; color: #777; border: 1px solid #ccc; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
-    .tmpl-overlay {{ position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 200; display: none; align-items: center; justify-content: center; backdrop-filter: blur(4px); }}
-    .tmpl-overlay.open {{ display: flex; }}
-    .tmpl-modal {{ background: #edeae4; border-radius: 24px; padding: 28px 20px 20px; width: 320px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.3); }}
-    .tmpl-title {{ font-size: 0.58rem; font-weight: 700; color: #999; text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }}
-    .tmpl-opt {{ width: 100%; padding: 11px 20px; border-radius: 14px; border: 1.5px solid rgba(0,0,0,.18); background: white; cursor: pointer; transition: all .15s; display: flex; flex-direction: column; align-items: center; gap: 2px; }}
-    .tmpl-opt:hover {{ border-color: #1a1a1a; }}
-    .tmpl-opt.active {{ background: #1a1a1a; border-color: #1a1a1a; }}
-    .tmpl-opt-name {{ font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem; letter-spacing: 0.05em; color: #1a1a1a; line-height: 1; }}
-    .tmpl-opt.active .tmpl-opt-name {{ color: #49fcb6; }}
-    .tmpl-slides-row {{ display: none; gap: 8px; justify-content: center; padding: 4px 0; }}
-    .tmpl-slides-row.show {{ display: flex; }}
-    .tmpl-slide-opt {{ flex: 1; padding: 8px 0; border-radius: 10px; border: 1.5px solid rgba(0,0,0,.15); background: white; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all .15s; color: #1a1a1a; }}
-    .tmpl-slide-opt.active {{ background: #1a1a1a; color: #49fcb6; border-color: #1a1a1a; }}
-    .tmpl-criar {{ width: 100%; padding: 14px; border-radius: 99px; border: 1.5px solid #1a1a1a; background: white; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; cursor: pointer; transition: all .15s; margin-top: 6px; }}
-    .tmpl-criar:hover {{ background: #1a1a1a; color: #edeae4; }}
   </style>
   <script>
     let _flags = {{}};
@@ -972,12 +852,6 @@ async def selecao_page():
     function expandText(btn) {{ const p = btn.previousElementSibling; const short = p.querySelector('.text-short'); const full = p.querySelector('.text-full'); const expanded = btn.classList.toggle('expanded'); short.style.display = expanded ? 'none' : 'inline'; full.style.display = expanded ? 'inline' : 'none'; btn.textContent = expanded ? '↑ ver menos' : '↓ ver mais'; }}
     async function loadFlags() {{ try {{ const r = await fetch('/api/flags'); _flags = await r.json(); applyFlags(); }} catch(e) {{}} }}
     async function toggleFlag(id, type) {{ const current = _flags[id]; const newFlag = (current === type) ? null : type; let comment = null; if (newFlag === 'analise') {{ comment = prompt('Por que esse artigo não deveria estar aqui? (ajuda a IA a aprender)'); if (comment === null) return; }} if (newFlag) _flags[id] = newFlag; else delete _flags[id]; applyFlags(); try {{ await fetch('/api/flag', {{ method: 'POST', headers: {{'content-type': 'application/json'}}, body: JSON.stringify({{ id, flag: newFlag, comment }}) }}); }} catch(e) {{}} }}
-    let _tmplPostBase = '';
-    function openTmplModal(base) {{ _tmplPostBase = base; document.getElementById('tmpl-overlay').classList.add('open'); }}
-    function closeTmpl() {{ document.getElementById('tmpl-overlay').classList.remove('open'); }}
-    function selectTmpl(btn) {{ document.querySelectorAll('.tmpl-opt').forEach(b => b.classList.remove('active')); btn.classList.add('active'); const show = btn.dataset.t === 'carrossel'; document.getElementById('tmpl-slides-row').classList.toggle('show', show); }}
-    function selectSlides(btn) {{ document.querySelectorAll('.tmpl-slide-opt').forEach(b => b.classList.remove('active')); btn.classList.add('active'); }}
-    function criarPost() {{ const tmpl = document.querySelector('.tmpl-opt.active')?.dataset.t || 'simples'; const nsld = document.querySelector('.tmpl-slide-opt.active')?.dataset.n || '3'; let url = _tmplPostBase + '&template=' + tmpl; if (tmpl === 'carrossel') url += '&slides=' + nsld; window.location.href = url; }}
     document.addEventListener('DOMContentLoaded', () => {{ loadFlags(); setInterval(loadFlags, 10000); }});
   </script>
 </head>
@@ -996,22 +870,6 @@ async def selecao_page():
   </div>
   <div class="grid">
     {cards if cards else empty_msg}
-  </div>
-  <div class="tmpl-overlay" id="tmpl-overlay" onclick="if(event.target===this)closeTmpl()">
-    <div class="tmpl-modal">
-      <div class="tmpl-title">Escolher formato</div>
-      <button class="tmpl-opt active" data-t="simples" onclick="selectTmpl(this)"><div class="tmpl-opt-name">Simples</div></button>
-      <button class="tmpl-opt" data-t="chamativo" onclick="selectTmpl(this)"><div class="tmpl-opt-name">Chamativo</div></button>
-      <button class="tmpl-opt" data-t="transferencia" onclick="selectTmpl(this)"><div class="tmpl-opt-name">Transferência</div></button>
-      <button class="tmpl-opt" data-t="carrossel" onclick="selectTmpl(this)"><div class="tmpl-opt-name">Carrossel</div></button>
-      <div class="tmpl-slides-row" id="tmpl-slides-row">
-        <button class="tmpl-slide-opt active" data-n="3" onclick="selectSlides(this)">3</button>
-        <button class="tmpl-slide-opt" data-n="4" onclick="selectSlides(this)">4</button>
-        <button class="tmpl-slide-opt" data-n="5" onclick="selectSlides(this)">5</button>
-        <button class="tmpl-slide-opt" data-n="6" onclick="selectSlides(this)">6</button>
-      </div>
-      <button class="tmpl-criar" onclick="criarPost()">CRIAR</button>
-    </div>
   </div>
 </body>
 </html>"""
@@ -1208,40 +1066,16 @@ CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL_POST = "claude-sonnet-4-5"
 
 
-def _tmpl_rule(tmpl: str, n: int) -> str:
-    if tmpl == "carrossel":
-        content = max(1, n - 2)
-        return (
-            f"TEMPLATE: CARROSSEL ({n} slides).\n"
-            f"- tipo_sugerido = \"carrossel\"\n"
-            f"- Gere EXATAMENTE {n} slides no array \"slides\"\n"
-            f"- slides[0] = capa: titulo em MAIÚSCULAS (3-4 palavras, máx 30 chars — NUNCA corte palavras no meio, reformule se necessário), corpo = subtítulo da notícia (1 frase)\n"
-            f"- slides[1..{n-2}] = conteúdo: divide o texto em {content} partes iguais. Cada parte: titulo curto em MAIÚSCULAS + corpo até 5 linhas em PT-BR\n"
-            f"- slides[{n-1}] = CTA: titulo=\"SIGA @CENTRALDOARABAO\", corpo=\"\"\n"
-            f"- num_slides = {n}"
-        )
-    if tmpl == "transferencia":
-        return (
-            "TEMPLATE: TRANSFERÊNCIA (1 card).\n"
-            "- tipo_sugerido = \"transferencia\"\n"
-            "- Extraia do texto o nome do jogador → nome_jogador em maiúsculas\n"
-            "- status_transferencia: escolha o status mais adequado entre: Acerto, Anunciado, Avançado, Consulta, Conversas, De Saída, Encaminhado, Interesse, Melou, Negociação, Oficial, Opção, Proposta, Sondagem\n"
-            "- slides = []"
-        )
-    if tmpl == "chamativo":
-        return (
-            "TEMPLATE: CHAMATIVO (1 card).\n"
-            "- tipo_sugerido = \"chamativo\"\n"
-            "- titulo = UMA ÚNICA PALAVRA em maiúsculas que sintetize o assunto com impacto máximo (ex: CONFIRMADO, BOMBA, OFICIAL, CHEGOU, SAIU, RENOVAÇÃO)\n"
-            "- subtitulo = exatamente 2 linhas separadas por \\n resumindo a notícia de forma direta e impactante\n"
-            "- slides = []"
-        )
+def _post_rule() -> str:
     return (
-        "TEMPLATE: SIMPLES (1 card).\n"
-        "- tipo_sugerido = \"simples\"\n"
-        "- Gere um título impactante em maiúsculas, máximo 60 caracteres.\n"
-        "- NUNCA corte palavras no meio. Se ultrapassar o limite, reformule com palavras mais curtas mantendo o sentido completo.\n"
-        "- slides = []"
+        "Gere, a partir da notícia abaixo, as QUATRO variações de título a seguir — não escolha uma, gere todas:\n\n"
+        "1. CURTO — até 3 palavras, MAIÚSCULAS, máximo impacto (ex: CONFIRMADO, BOMBA, OFICIAL, CHEGOU, RENOVAÇÃO). Sem subtítulo.\n"
+        "2. MÉDIO — até 7 palavras, MAIÚSCULAS. + subtitulo_medio: uma frase curta complementando o título.\n"
+        "3. LONGO — até 10 palavras, MAIÚSCULAS, mais descritivo. NUNCA corte palavras no meio — reformule se ultrapassar o limite.\n"
+        "4. TRANSFERÊNCIA — titulo_transferencia: até 7 palavras, MAIÚSCULAS, focado na movimentação do jogador. "
+        "nome_jogador: nome do jogador em MAIÚSCULAS extraído do texto. "
+        "status_transferencia: escolha o mais adequado entre Acerto, Anunciado, Avançado, Consulta, Conversas, "
+        "De Saída, Encaminhado, Interesse, Melou, Negociação, Oficial, Opção, Proposta, Sondagem."
     )
 
 
@@ -1249,11 +1083,6 @@ def _tmpl_rule(tmpl: str, n: int) -> str:
 async def generate_post(request: Request):
     body = await request.json()
     news = (body.get("news") or "").strip()
-    template = body.get("template", "simples")
-    if template not in ("simples", "carrossel", "transferencia", "chamativo"):
-        template = "simples"
-    num_slides = body.get("num_slides", 3)
-    n = min(6, max(3, int(num_slides))) if template == "carrossel" else 1
     already_translated = bool(body.get("already_translated", False))
     source = (body.get("source") or "").strip().lstrip("@")
     moon = (body.get("moon") or "").strip()
@@ -1268,14 +1097,12 @@ async def generate_post(request: Request):
 
     prompt_visual = (
         "Você é um editor de conteúdo esportivo especializado na Saudi Pro League (Roshn Saudi League).\n\n"
-        + _tmpl_rule(template, n)
+        + _post_rule()
         + "\n\nFORMATO DE SAÍDA:\nRetorne SOMENTE um objeto JSON puro, sem markdown, sem blocos de código, sem texto fora do JSON.\n\n"
-        "Estrutura exata (preencha os valores):\n"
-        '{\n  "titulo": "TÍTULO COMPLETO EM MAIÚSCULAS — não truncar, reformular se muito longo",\n'
-        '  "subtitulo": "uma frase resumindo a notícia em português",\n'
-        '  "texto_completo": "notícia em português, 2 a 4 parágrafos",\n'
-        f'  "slides": [],\n  "tipo_sugerido": "{template}",\n  "num_slides": {n},\n'
-        '  "nome_jogador": null,\n  "status_transferencia": null\n}'
+        "Estrutura exata (preencha TODOS os valores, sempre):\n"
+        '{\n  "titulo_curto": "...",\n  "titulo_medio": "...",\n  "subtitulo_medio": "...",\n'
+        '  "titulo_longo": "...",\n  "titulo_transferencia": "...",\n'
+        '  "nome_jogador": "...",\n  "status_transferencia": "..."\n}'
     )
 
     ANGULO_SAUDITA = (

@@ -66,15 +66,6 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 }
 .tmpl-sw-btn:hover { color: #1a1a1a; }
 .tmpl-sw-btn.active { background: #1a1a1a; color: #49fcb6; }
-.tmpl-sw-regen {
-  font-size: 0.6rem; color: #aaa; font-weight: 700; text-transform: uppercase;
-  letter-spacing: 0.06em; display: none; align-items: center; gap: 6px;
-}
-.tmpl-pill {
-  font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
-  padding: 4px 12px; border-radius: 99px; border: 1.5px solid #1a1a1a;
-  background: #1a1a1a; color: #49fcb6;
-}
 .btn-back {
   background: transparent; border: 1.5px solid rgba(0,0,0,.18); border-radius: 99px;
   padding: 6px 16px; font-size: 0.62rem; font-weight: 700; text-transform: uppercase;
@@ -117,22 +108,6 @@ header { background: #edeae4; border-bottom: 1px solid rgba(0,0,0,.1); padding: 
 .drag-overlay.dragging { cursor: grabbing; }
 .drag-hint { text-align: center; margin-top: 6px; font-size: 0.62rem; color: #aaa; text-transform: uppercase; letter-spacing: 0.06em; }
 
-
-
-.snav { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 10px; }
-.snav-arrow { width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.18); background: white; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 1rem; transition: all .15s; flex-shrink: 0; }
-.snav-arrow:hover:not(:disabled) { border-color: #1a1a1a; background: #1a1a1a; color: white; }
-.snav-arrow:disabled { opacity: .3; cursor: not-allowed; }
-.snav-label { font-size: 0.68rem; font-weight: 700; color: #1a1a1a; letter-spacing: .06em; min-width: 60px; text-align: center; }
-/* Slide count picker */
-.slide-picker { display: none; align-items: center; gap: 6px; background: #fafaf8; border-radius: 99px; padding: 3px 6px; border: 1.5px solid rgba(0,0,0,.12); }
-.slide-picker.show { display: flex; }
-.sp-btn { width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid rgba(0,0,0,.15); background: white; font-size: 0.68rem; font-weight: 700; color: #999; cursor: pointer; transition: all .15s; }
-.sp-btn:hover { border-color: #1a1a1a; color: #1a1a1a; }
-.sp-btn.active { background: #1a1a1a; border-color: #1a1a1a; color: #49fcb6; }
-.sp-confirm { padding: 5px 12px; border-radius: 99px; border: none; background: #1a1a1a; color: #49fcb6; font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; cursor: pointer; transition: opacity .15s; }
-.sp-confirm:hover { opacity: .75; }
-
 /* ── RIGHT PANEL ── */
 .epanel { display: flex; flex-direction: column; gap: 10px; }
 .section-card { background: #fafaf8; border-radius: 16px; padding: 16px 18px; }
@@ -158,13 +133,6 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 }
 .btn-primary:hover:not(:disabled) { opacity: .75; }
 .btn-primary:disabled { opacity: .35; cursor: not-allowed; }
-.btn-outline {
-  background: transparent; color: #1a1a1a; border: 1.5px solid #1a1a1a;
-  padding: 9px 18px; border-radius: 99px; font-size: 0.68rem; font-weight: 700;
-  cursor: pointer; transition: all .15s; display: inline-flex; align-items: center; gap: 6px;
-  text-transform: uppercase; letter-spacing: 0.07em;
-}
-.btn-outline:hover { background: #1a1a1a; color: #edeae4; }
 .cpbtn {
   background: none; border: 1.5px solid rgba(0,0,0,.15); color: #777;
   padding: 5px 13px; border-radius: 99px; font-size: 0.62rem; font-weight: 700;
@@ -192,14 +160,6 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 .txt-carr-block { left:0; right:0; top:877px; bottom:54px; padding:0 90px; display:flex; flex-direction:column; align-items:center; gap:16px; }
 .txt-carr-block .c-title { font-family:'Poppins',sans-serif; font-weight:700; font-size:65px; color:#fff; text-transform:uppercase; line-height:1.05; text-align:center; width:100%; }
 .txt-carr-block .c-sub { font-family:'Poppins',sans-serif; font-weight:400; font-size:28px; color:#fff; line-height:1.4; text-align:center; width:100%; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
-.txt-ci-block { left:0; right:0; top:810px; bottom:54px; padding:0 68px; display:flex; flex-direction:column; justify-content:flex-end; gap:14px; }
-.txt-ci-block .ci-title { font-family:'Antonio',sans-serif; font-weight:600; font-size:44px; color:#49fcb6; text-transform:uppercase; line-height:1.1; }
-.txt-ci-block .ci-body { font-family:'Poppins',sans-serif; font-weight:400; font-size:28px; color:#fff; line-height:1.3; display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical; overflow:hidden; }
-.txt-cta { left:0; right:0; top:580px; font-family:'Antonio',sans-serif; font-weight:700; font-size:64px; color:#49fcb6; text-align:center; text-transform:uppercase; letter-spacing:3px; }
-.txt-cta-sub { left:0; right:0; top:700px; font-family:'Poppins',sans-serif; font-weight:400; font-size:32px; color:#fff; text-align:center; line-height:1.6; }
-.cta-logo { position:absolute; left:calc(50% - 75px); top:820px; width:150px; height:150px; z-index:5; }
-.slide-num { position:absolute; right:90px; top:55px; font-family:'Poppins',sans-serif; font-size:24px; color:rgba(255,255,255,.25); z-index:5; }
-.igcard.carousel-internal { background:#201322; }
 .txt-chamativo-block { left:0; right:0; top:950px; bottom:100px; padding:0 68px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:20px; }
 .txt-chamativo-block .ch-word { font-family:'Antonio',sans-serif; font-weight:700; font-size:140px; color:#49fcb6; text-transform:uppercase; line-height:1; text-align:center; width:100%; }
 .txt-chamativo-block .ch-sub { font-family:'Poppins',sans-serif; font-weight:500; font-size:36px; color:#fff; line-height:1.4; text-align:center; width:100%; }
@@ -235,20 +195,12 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
     <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
       <button class="btn-back" onclick="history.back()">← Voltar</button>
       <div class="tmpl-switcher">
-        <button class="tmpl-sw-btn" id="sw-simples"       onclick="switchTemplate('simples')">Simples</button>
-        <button class="tmpl-sw-btn" id="sw-chamativo"     onclick="switchTemplate('chamativo')">Chamativo</button>
+        <button class="tmpl-sw-btn active" id="sw-curto"        onclick="switchTemplate('curto')">Curto</button>
+        <button class="tmpl-sw-btn" id="sw-medio"         onclick="switchTemplate('medio')">Médio</button>
+        <button class="tmpl-sw-btn" id="sw-longo"         onclick="switchTemplate('longo')">Longo</button>
         <button class="tmpl-sw-btn" id="sw-transferencia" onclick="switchTemplate('transferencia')">Transferência</button>
-        <button class="tmpl-sw-btn" id="sw-carrossel"     onclick="openSlidePicker()">Carrossel</button>
-      </div>
-      <div class="slide-picker" id="slide-picker">
-        <button class="sp-btn active" data-n="3" onclick="pickSlides(this)">3</button>
-        <button class="sp-btn"        data-n="4" onclick="pickSlides(this)">4</button>
-        <button class="sp-btn"        data-n="5" onclick="pickSlides(this)">5</button>
-        <button class="sp-btn"        data-n="6" onclick="pickSlides(this)">6</button>
-        <button class="sp-confirm" onclick="confirmCarrossel()">Gerar →</button>
       </div>
     </div>
-    <div id="slide-counter" style="font-size:0.62rem;color:#aaa;font-weight:700;text-transform:uppercase;letter-spacing:.07em;display:none;"></div>
   </div>
 
   <div class="playout">
@@ -272,12 +224,6 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
           <div class="drag-overlay" id="drag-overlay"></div>
         </div>
         <div class="drag-hint">Arraste para reposicionar a imagem</div>
-
-        <div class="snav" id="snav" style="display:none;">
-          <button class="snav-arrow" id="snav-prev" onclick="goslide(S.curSlide-1)">◀</button>
-          <div class="snav-label" id="snav-label">Capa</div>
-          <button class="snav-arrow" id="snav-next" onclick="goslide(S.curSlide+1)">▶</button>
-        </div>
       </div>
 
     </div>
@@ -287,16 +233,12 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 
       <div class="section-card">
         <div class="fg" id="grp-title">
-          <label>Título</label>
+          <label>Título <span id="title-hint" style="color:#bbb;font-weight:400;text-transform:none;letter-spacing:0;"></span></label>
           <input type="text" id="etitle" oninput="upd()">
         </div>
         <div class="fg" id="grp-sub" style="display:none;">
           <label>Subtítulo</label>
           <textarea id="esub" style="min-height:60px;" oninput="upd()"></textarea>
-        </div>
-        <div class="fg" id="grp-body" style="display:none;">
-          <label>Corpo do slide atual</label>
-          <textarea id="ebody" style="min-height:90px;" oninput="updBody()"></textarea>
         </div>
         <div id="grp-tf" style="display:none;">
           <div class="fg"><label>Nome do Jogador</label><input type="text" id="eplayer" oninput="upd()"></div>
@@ -336,7 +278,6 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
         <h3>Baixar</h3>
         <div class="dlrow">
           <button class="btn-primary" id="dlbtn" onclick="dlCurrent()">Baixar PNG</button>
-          <button class="btn-outline" id="dlall" style="display:none;" onclick="dlAll()">Baixar Todas</button>
         </div>
         <div class="dlst" id="dlst"></div>
       </div>
@@ -349,8 +290,8 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: #1a1a1a;
 
 <script>
 const S = {
-  data: null, carrosselData: null, template: 'simples', numSlides: 3,
-  slides: [], curSlide: 0, uploadedImages: [], imgPositions: [],
+  data: null, template: 'curto',
+  uploadedImages: [], imgPositions: [],
 };
 
 /* ── URL params ── */
@@ -359,38 +300,23 @@ const _news       = _P.get('texto')      || '';
 const _source     = _P.get('source')     || '';
 const _moon       = _P.get('moon')       || '';
 const _translated = _P.get('translated') === '1';
-S.template  = _P.get('template') || 'simples';
-S.numSlides = Math.min(6, Math.max(3, parseInt(_P.get('slides') || '3')));
 
 /* ── Init ── */
 document.addEventListener('DOMContentLoaded', async () => {
-  // Update pill label
-  // Mark active template button
-  document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('sw-' + S.template)?.classList.add('active');
-  if (S.template === 'chamativo') document.getElementById('sw-chamativo')?.classList.add('active');
-
-  // Update upload hint
-  if (S.template === 'carrossel') {
-    // hint removed
-  }
-
   if (!_news) { showErr('Nenhum texto recebido. Volte e tente novamente.'); return; }
 
-  // Call generate API
+  // Gera todas as variações (curto/médio/longo/transferência) em uma única chamada.
   try {
     const res = await fetch('/api/generate-post', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        news: _news, template: S.template, num_slides: S.numSlides,
-        already_translated: _translated, source: _source, moon: _moon,
+        news: _news, already_translated: _translated, source: _source, moon: _moon,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
     S.data = data;
-    if (S.template === 'carrossel') S.carrosselData = data;
     prepPreview();
     document.getElementById('loading-screen').style.display = 'none';
     document.getElementById('main-container').style.display = 'block';
@@ -405,85 +331,36 @@ function showErr(msg) {
   document.getElementById('err-screen').style.display = 'flex';
 }
 
-
-// Templates that reuse existing data (no new API call needed)
-const INSTANT_TEMPLATES = new Set(['simples', 'transferencia', 'chamativo']);
-
-function openSlidePicker() {
-  // If already on carrossel, just toggle picker
-  const picker = document.getElementById('slide-picker');
-  picker.classList.toggle('show');
-}
-
-function pickSlides(btn) {
-  document.querySelectorAll('.sp-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-async function confirmCarrossel() {
-  const n = parseInt(document.querySelector('.sp-btn.active')?.dataset.n || '3');
-  document.getElementById('slide-picker').classList.remove('show');
-
-  // Mark carrossel active
-  document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById('sw-carrossel').classList.add('active');
-
-  // If same numSlides and cached, reuse
-  if (S.carrosselData && S.numSlides === n && S.template === 'carrossel') {
-    S.data = S.carrosselData;
-    prepPreview(); upd(); return;
-  }
-
-  S.template = 'carrossel';
-  S.numSlides = n;
-  S.curSlide = 0;
-
-  const ov = document.getElementById('switch-overlay');
-  ov.style.display = 'flex';
-  try {
-    const res = await fetch('/api/generate-post', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        news: _news, template: 'carrossel', num_slides: n,
-        already_translated: _translated, source: _source, moon: _moon,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Erro ' + res.status);
-    S.data = data;
-    S.carrosselData = data;
-    prepPreview(); upd();
-  } catch(e) {
-    document.getElementById('slide-counter').textContent = 'Erro: ' + e.message;
-    document.getElementById('slide-counter').style.display = 'block';
-    setTimeout(() => { document.getElementById('slide-counter').style.display = 'none'; }, 3000);
-  } finally {
-    ov.style.display = 'none';
-  }
-}
-
-async function switchTemplate(newTmpl) {
+/* ── Troca de tipo de post (instantânea — sem nova geração) ── */
+function switchTemplate(newTmpl) {
   if (newTmpl === S.template) return;
-  document.getElementById('slide-picker').classList.remove('show');
   document.querySelectorAll('.tmpl-sw-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('sw-' + newTmpl)?.classList.add('active');
   S.template = newTmpl;
-  S.curSlide = 0;
   prepPreview();
   upd();
 }
 
+const TITLE_HINTS = {
+  curto: '(até 3 palavras)', medio: '(até 7 palavras)',
+  longo: '(até 10 palavras)', transferencia: '(transferência)',
+};
+
 function prepPreview() {
   const t = S.template, data = S.data;
-  document.getElementById('etitle').value   = data.titulo    || '';
-  document.getElementById('esub').value     = data.subtitulo || '';
-  document.getElementById('captext').value  = data.legenda_instagram || '—';
+  const titleByTmpl = {
+    curto: data.titulo_curto, medio: data.titulo_medio,
+    longo: data.titulo_longo, transferencia: data.titulo_transferencia,
+  };
+  document.getElementById('etitle').value    = titleByTmpl[t] || '';
+  document.getElementById('esub').value      = t === 'medio' ? (data.subtitulo_medio || '') : '';
+  document.getElementById('title-hint').textContent = TITLE_HINTS[t] || '';
+  document.getElementById('captext').value   = data.legenda_instagram || '—';
   if (data.nome_jogador) document.getElementById('eplayer').value = data.nome_jogador;
-  // Pre-fill fonte with source handle; moon shown separately
+  // Pre-fill fonte com o handle da fonte; moon mostrado separadamente
   document.getElementById('efonte').value = _source || '';
   document.getElementById('efonte-moon').textContent = _moon || '';
-  // AI-suggested status
+  // Status sugerido pela IA
   if (data.status_transferencia) {
     const sel = document.getElementById('estatus');
     for (const opt of sel.options) {
@@ -491,21 +368,13 @@ function prepPreview() {
     }
   }
 
-  document.getElementById('grp-sub').style.display   = (t === 'carrossel' || t === 'chamativo') ? 'flex' : 'none';
-  document.getElementById('grp-body').style.display  = t === 'carrossel'     ? 'flex' : 'none';
-  document.getElementById('grp-tf').style.display    = t === 'transferencia' ? 'flex' : 'none';
-  document.getElementById('dlbtn').style.display     = t !== 'carrossel'     ? 'inline-flex' : 'none';
-  document.getElementById('dlall').style.display     = t === 'carrossel'     ? 'inline-flex' : 'none';
-
-  S.slides   = (t === 'carrossel' && data.slides?.length) ? data.slides : [];
-  S.curSlide = 0;
-  buildSlideNav();
+  document.getElementById('grp-sub').style.display = t === 'medio'         ? 'flex' : 'none';
+  document.getElementById('grp-tf').style.display  = t === 'transferencia' ? 'flex' : 'none';
 }
 
 /* ── Image handling ── */
 function handleImages(input) {
-  const max = S.template === 'carrossel' ? S.numSlides : 2;
-  const files = Array.from(input.files).slice(0, max);
+  const files = Array.from(input.files).slice(0, 2);
   if (!files.length) return;
   S.uploadedImages = new Array(files.length);
   S.imgPositions   = files.map(() => ({ x: 50, y: 50 }));
@@ -522,10 +391,7 @@ function handleImages(input) {
 
 function onImagesReady() {
   const n = S.uploadedImages.length;
-  // Thumbnails
-  const labels = S.template === 'carrossel'
-    ? S.uploadedImages.map((_, i) => i === 0 ? 'CAPA' : i === n-1 ? 'CTA' : String(i+1))
-    : n === 1 ? ['BG'] : ['BG', '●'];
+  const labels = n === 1 ? ['BG'] : ['BG', '●'];
   document.getElementById('thumb-row').innerHTML = S.uploadedImages.map((src, i) =>
     `<div class="thumb-item"><img src="${src}" alt=""><div class="thumb-num">${labels[i]}</div></div>`
   ).join('');
@@ -534,110 +400,46 @@ function onImagesReady() {
   upd();
 }
 
-
-
-/* ── Slide nav ── */
-function buildSlideNav() {
-  const nav = document.getElementById('snav');
-  const ctr = document.getElementById('slide-counter');
-  if (S.template !== 'carrossel' || !S.slides.length) { nav.style.display = 'none'; ctr.style.display = 'none'; return; }
-  nav.style.display = 'flex';
-  ctr.style.display = 'none'; // replaced by inline label
-  updSlideNav();
-}
-
-function updSlideNav() {
-  const total = S.slides.length, i = S.curSlide;
-  const label = i === 0 ? 'Capa' : i === total - 1 ? 'CTA' : `Slide ${i} / ${total - 2}`;
-  document.getElementById('snav-label').textContent = label;
-  document.getElementById('snav-prev').disabled = i === 0;
-  document.getElementById('snav-next').disabled = i === total - 1;
-  if (S.slides[i]) document.getElementById('ebody').value = S.slides[i].corpo || '';
-}
-
-function goslide(idx) {
-  const total = S.slides.length;
-  if (idx < 0 || idx >= total) return;
-  S.curSlide = idx;
-  updSlideNav();
-  upd();
-}
-
-
-function updBody() {
-  const v = document.getElementById('ebody').value;
-  if (S.slides[S.curSlide]) S.slides[S.curSlide].corpo = v;
-  upd();
-}
-
 /* ── Card renderers ── */
-function bgPhotoTag(src, imgIdx) {
+function bgPhotoTag(src) {
   const img = src || S.uploadedImages[0] || '';
-  const p   = S.imgPositions[imgIdx] || { x: 50, y: 50 };
+  const p   = S.imgPositions[0] || { x: 50, y: 50 };
   const bg  = img ? `background-image:url('${img}');background-position:${p.x}% ${p.y}%;` : '';
   return `<div class="layer-photo" style="${bg}"></div>`;
 }
-function bgImgIdx(si) { return (S.template === 'carrossel' && S.uploadedImages[si]) ? si : 0; }
 function maskTag(file) { return `<img class="layer-mask" src="/masks/${file}" alt="" onerror="this.style.display='none'">`; }
-
-function logoSVG(sz) {
-  const id = 'L' + sz + Math.random().toString(36).slice(2,5);
-  return `<svg width="${sz}" height="${sz}" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
-    <circle cx="100" cy="100" r="98" fill="#201322" stroke="white" stroke-width="4"/>
-    <circle cx="100" cy="100" r="85" fill="none" stroke="white" stroke-width="2.5"/>
-    <circle cx="17" cy="100" r="6" fill="white"/><circle cx="183" cy="100" r="6" fill="white"/>
-    <path id="${id}a" d="M26,100 A74,74 0,0,1 174,100" fill="none"/>
-    <text fill="white" font-weight="700" font-size="17" letter-spacing="3" font-family="Arial Black,Arial,sans-serif"><textPath href="#${id}a" startOffset="50%" text-anchor="middle">CENTRAL DO</textPath></text>
-    <path id="${id}b" d="M26,100 A74,74 0,0,0 174,100" fill="none"/>
-    <text fill="white" font-weight="700" font-size="17" letter-spacing="3" font-family="Arial Black,Arial,sans-serif"><textPath href="#${id}b" startOffset="50%" text-anchor="middle">ARABÃO</textPath></text>
-    <path d="M100,38 A47,47 0,1,0 100,132 A31,31 0,1,1 100,38Z" fill="white"/>
-    <rect x="97" y="46" width="6" height="46" rx="3" fill="#201322"/>
-    <ellipse cx="100" cy="44" rx="21" ry="7" fill="#201322" transform="rotate(-30,100,44)"/>
-    <ellipse cx="100" cy="44" rx="21" ry="7" fill="#201322" transform="rotate(30,100,44)"/>
-    <ellipse cx="100" cy="42" rx="18" ry="6" fill="#201322"/>
-    <ellipse cx="100" cy="44" rx="13" ry="5" fill="#201322" transform="rotate(-60,100,44)"/>
-    <ellipse cx="100" cy="44" rx="13" ry="5" fill="#201322" transform="rotate(60,100,44)"/>
-    <line x1="70" y1="106" x2="130" y2="131" stroke="#201322" stroke-width="5" stroke-linecap="round"/>
-    <line x1="130" y1="106" x2="70" y2="131" stroke="#201322" stroke-width="5" stroke-linecap="round"/>
-    <circle cx="70" cy="106" r="6.5" fill="#201322"/><circle cx="130" cy="106" r="6.5" fill="#201322"/>
-  </svg>`;
-}
 
 function cardSimples() {
   const title = esc(document.getElementById('etitle').value || 'TÍTULO');
   const circle = S.uploadedImages[1] ? `<img class="layer-circle" src="${S.uploadedImages[1]}" alt="">` : '';
-  return `<div class="igcard">${bgPhotoTag(null, 0)}<div class="layer-gradient"></div>${circle}${maskTag('simples_mask.png')}<div class="layer-text txt-simples-block"><div class="s-title">${title}</div></div></div>`;
+  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${circle}${maskTag('simples_mask.png')}<div class="layer-text txt-simples-block"><div class="s-title">${title}</div></div></div>`;
 }
 
-function cardCarousel(idx) {
-  const total = S.slides.length; if (!total) return cardSimples();
-  const bi = bgImgIdx(idx), slideSrc = S.uploadedImages[bi] || '';
-  if (idx === 0) {
-    const title = esc(document.getElementById('etitle').value || S.slides[0]?.titulo || 'TÍTULO');
-    const sub   = esc(document.getElementById('esub').value   || S.slides[0]?.corpo  || '');
-    return `<div class="igcard">${bgPhotoTag(slideSrc, bi)}<div class="layer-gradient"></div>${maskTag('carrossel_mask.png')}<div class="layer-text txt-carr-block"><div class="c-title">${title}</div>${sub ? `<div class="c-sub">${sub}</div>` : ''}</div></div>`;
-  }
-  if (idx === total - 1) {
-    return `<div class="igcard carousel-internal">${bgPhotoTag(slideSrc, bi)}${maskTag('carrossel_interno_mask.png')}<div class="layer-text txt-cta">SIGA @CENTRALDOARABAO</div><div class="layer-text txt-cta-sub">Mais notícias da<br>Saudi Pro League</div><div class="cta-logo">${logoSVG(150)}</div></div>`;
-  }
-  const sl    = S.slides[idx] || { titulo: 'SLIDE ' + idx, corpo: '' };
-  const sbody = esc((idx === S.curSlide && document.getElementById('ebody').value) || (sl.corpo || ''));
-  return `<div class="igcard carousel-internal">${bgPhotoTag(slideSrc, bi)}${maskTag('carrossel_interno_mask.png')}<div class="slide-num">${idx}/${total-1}</div><div class="layer-text txt-ci-block"><div class="ci-title">${esc(sl.titulo || '')}</div><div class="ci-body">${sbody}</div></div></div>`;
+function cardMedio() {
+  const title = esc(document.getElementById('etitle').value || 'TÍTULO');
+  const sub   = esc(document.getElementById('esub').value || '');
+  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${maskTag('carrossel_mask.png')}<div class="layer-text txt-carr-block"><div class="c-title">${title}</div>${sub ? `<div class="c-sub">${sub}</div>` : ''}</div></div>`;
 }
 
 function cardChamativo() {
   const word = esc(document.getElementById('etitle').value || 'BOMBA');
   const sub  = esc(document.getElementById('esub').value || '').replace(/\n/g, '<br>');
-  return `<div class="igcard">${bgPhotoTag(null, 0)}<div class="layer-gradient"></div>${maskTag('simples_mask.png')}<div class="layer-text txt-chamativo-block"><div class="ch-word">${word}</div><div class="ch-sub">${sub}</div></div></div>`;
+  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${maskTag('simples_mask.png')}<div class="layer-text txt-chamativo-block"><div class="ch-word">${word}</div>${sub ? `<div class="ch-sub">${sub}</div>` : ''}</div></div>`;
 }
 
-function renderCard(t, idx) { return t === 'carrossel' ? cardCarousel(idx) : t === 'chamativo' ? cardChamativo() : cardSimples(); }
+// Mapa fixo: curto = chamativo (palavra de impacto), médio = título + subtítulo,
+// longo e transferência reaproveitam o template simples por enquanto.
+function renderCard(t) {
+  if (t === 'curto') return cardChamativo();
+  if (t === 'medio') return cardMedio();
+  return cardSimples();
+}
 
 function upd() {
   const scaler  = document.getElementById('cscale');
   const wrapper = document.getElementById('cwrap');
   if (!scaler || !wrapper || !S.uploadedImages[0]) return;
-  scaler.innerHTML = renderCard(S.template, S.curSlide);
+  scaler.innerHTML = renderCard(S.template);
   const scale = 0.2;
   scaler.style.transform       = `scale(${scale})`;
   scaler.style.transformOrigin = 'top left';
@@ -647,10 +449,10 @@ function upd() {
 }
 
 /* ── Export ── */
-async function slideToBlob(idx) {
+async function cardToBlob() {
   const wrap = document.getElementById('export-wrap');
   wrap.style.cssText = 'position:fixed;left:-1200px;top:0;width:1080px;height:1350px;overflow:hidden;z-index:-1;';
-  wrap.innerHTML = renderCard(S.template, idx);
+  wrap.innerHTML = renderCard(S.template);
   await wait(400);
   const canvas = await html2canvas(wrap.querySelector('.igcard'), {
     width:1080, height:1350, scale:1, useCORS:true, allowTaint:true,
@@ -664,31 +466,13 @@ async function slideToBlob(idx) {
 async function dlCurrent() {
   const btn = document.getElementById('dlbtn'); btn.disabled = true;
   setDs('Gerando PNG…');
-  try { await dlSlide(S.curSlide, `arabao-${S.template}.png`); setDs('✅ Download concluído!'); }
-  catch(e) { setDs('Erro: ' + e.message); }
-  btn.disabled = false; setTimeout(() => setDs(''), 4000);
-}
-
-async function dlAll() {
-  const total = S.slides.length; if (!total) return;
-  const btn = document.getElementById('dlall'); btn.disabled = true;
   try {
-    for (let i = 0; i < total; i++) {
-      setDs(`Gerando imagem ${i+1}/${total}…`);
-      const blob  = await slideToBlob(i);
-      const label = i === 0 ? '01-capa' : i === total-1 ? `${String(i+1).padStart(2,'0')}-cta` : `${String(i+1).padStart(2,'0')}-slide`;
-      await dlSlide(i, `arabao-${label}.png`);
-      await wait(200);
-    }
-    setDs('✅ Imagens baixadas!');
+    const blob = await cardToBlob();
+    const a = document.createElement('a');
+    a.download = `arabao-${S.template}.png`; a.href = URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href);
+    setDs('✅ Download concluído!');
   } catch(e) { setDs('Erro: ' + e.message); }
-  btn.disabled = false; setTimeout(() => setDs(''), 5000);
-}
-
-async function dlSlide(idx, filename) {
-  const blob = await slideToBlob(idx);
-  const a = document.createElement('a');
-  a.download = filename; a.href = URL.createObjectURL(blob); a.click(); URL.revokeObjectURL(a.href);
+  btn.disabled = false; setTimeout(() => setDs(''), 4000);
 }
 
 function setDs(m) { document.getElementById('dlst').textContent = m; }
@@ -722,17 +506,14 @@ function tweetCaption() {
 async function shareInstagram() {
   const text = document.getElementById('captext').value;
   if (!text || text === '—') { alert('Gere o post primeiro.'); return; }
-  const isCarrossel = S.template === 'carrossel' && S.slides.length > 1;
-  const blobs = [];
-  if (isCarrossel) { for (let i = 0; i < S.slides.length; i++) blobs.push(await slideToBlob(i)); }
-  else blobs.push(await slideToBlob(S.curSlide));
-  const files = blobs.map((b, i) => new File([b], `arabao_${i+1}.png`, { type: 'image/png' }));
+  const blob = await cardToBlob();
+  const file = new File([blob], 'arabao.png', { type: 'image/png' });
   await copyToClipboard(text);
-  if (navigator.canShare?.({ files })) {
-    try { await navigator.share({ files }); document.getElementById('ig-hint').style.display = 'block'; return; }
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file] }); document.getElementById('ig-hint').style.display = 'block'; return; }
     catch(e) { if (e.name === 'AbortError') return; }
   }
-  if (isCarrossel) { await dlAll(); } else { await dlCurrent(); }
+  await dlCurrent();
   document.getElementById('ig-hint').style.display = 'block';
   setTimeout(() => window.open('https://www.instagram.com/', '_blank', 'noopener,noreferrer'), 600);
 }
@@ -743,15 +524,13 @@ function esc(s) {
 
 /* ── Drag to reposition ── */
 (function() {
-  let dragging = false, startX, startY, startPos, activeIdx;
-  function getIdx() { return S.template !== 'carrossel' ? 0 : bgImgIdx(S.curSlide); }
+  let dragging = false, startX, startY, startPos;
   function onDown(e) {
     if (!S.uploadedImages[0]) return;
     dragging = true;
     startX = e.clientX ?? e.touches[0].clientX;
     startY = e.clientY ?? e.touches[0].clientY;
-    activeIdx = getIdx();
-    startPos = { ...(S.imgPositions[activeIdx] || { x: 50, y: 50 }) };
+    startPos = { ...(S.imgPositions[0] || { x: 50, y: 50 }) };
     document.getElementById('drag-overlay').classList.add('dragging');
     e.preventDefault();
   }
@@ -759,7 +538,7 @@ function esc(s) {
     if (!dragging) return;
     const cx = e.clientX ?? e.touches[0].clientX, cy = e.clientY ?? e.touches[0].clientY;
     const wrap = document.getElementById('cwrap'), w = wrap.offsetWidth || 480, h = wrap.offsetHeight || 600;
-    S.imgPositions[activeIdx] = {
+    S.imgPositions[0] = {
       x: Math.min(100, Math.max(0, startPos.x - (cx - startX) / w * 100)),
       y: Math.min(100, Math.max(0, startPos.y - (cy - startY) / h * 100)),
     };
@@ -779,11 +558,5 @@ function esc(s) {
 
 window.addEventListener('resize', upd);
 </script>
-
-<!-- Template switch loading overlay -->
-<div id="switch-overlay" style="display:none;position:fixed;inset:0;background:rgba(237,234,228,.85);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:14px;backdrop-filter:blur(4px);">
-  <div class="loading-ring"></div>
-  <div class="loading-label">Gerando carrossel...</div>
-</div>
 </body>
 </html>
