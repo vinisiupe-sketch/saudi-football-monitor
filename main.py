@@ -55,6 +55,29 @@ def _is_selecao_article(a: dict) -> bool:
     return False
 
 
+# Termos que comprovam relação real do artigo com futebol saudita.
+# Verificados no TÍTULO (não no corpo inteiro) — fontes genéricas às vezes
+# raspam páginas de "resumo"/digest cujo corpo cita um clube saudita em algum
+# parágrafo solto, inflando o relevance_score mesmo quando o ASSUNTO do artigo
+# (refletido no título) não tem nenhuma relação com futebol saudita.
+SAUDI_TITLE_SIGNAL_TERMS = SPL_CLUB_NAMES_LOWER + COUNTRY_TERMS + [
+    "spl", "roshn", "saudi pro league", "liga saudita", "futebol saudita", "السعودي",
+]
+
+
+def _is_actually_saudi_football(a: dict) -> bool:
+    """Exige que o TÍTULO (não só o corpo/score) tenha um sinal saudita claro.
+    Filtro final contra falsos positivos do relevance_score (ex: notícia sobre
+    Werder Bremen/clube europeu que só passou porque o corpo raspado mencionava
+    a Arábia Saudita em outro trecho, sem o título ter qualquer relação real)."""
+    title = f"{a.get('title_pt') or ''} {a.get('title_orig') or ''}".lower().replace("-", " ")
+    if any(term in title for term in SAUDI_TITLE_SIGNAL_TERMS):
+        return True
+    if any(kw.lower() in title for kw in SELECAO_KEYWORDS):
+        return True
+    return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global scheduler
@@ -154,6 +177,7 @@ async def dashboard():
         if a.get("relevance_score", 0) >= 0.45
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and not _is_selecao_article(a)
+        and _is_actually_saudi_football(a)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -718,6 +742,7 @@ async def selecao_page():
         if a.get("relevance_score", 0) >= 0.45
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and _is_selecao_article(a)
+        and _is_actually_saudi_football(a)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -1006,8 +1031,9 @@ async def api_badge_counts(since: str = ""):
         if a.get("relevance_score", 0) >= 0.45
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and str(a.get("collected_at") or "") >= since
+        and _is_actually_saudi_football(a)
     ]
-    home_count = len(visible)
+    home_count = sum(1 for a in visible if not _is_selecao_article(a))
     selecao_count = sum(1 for a in visible if _is_selecao_article(a))
     return {"home": home_count, "selecao": selecao_count}
 
