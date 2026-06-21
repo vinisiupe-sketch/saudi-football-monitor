@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, cleanup_old_trash, get_conn
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -76,6 +76,30 @@ def _is_actually_saudi_football(a: dict) -> bool:
     if any(kw.lower() in title for kw in SELECAO_KEYWORDS):
         return True
     return False
+
+
+# ─── Exclusões aprendidas (feedback da flag "análise") ───
+LEARNED_EXCLUSIONS_FILE = "learned_exclusions.json"
+
+
+def _load_learned_exclusions() -> list[str]:
+    try:
+        with open(LEARNED_EXCLUSIONS_FILE, encoding="utf-8") as f:
+            return [t.lower() for t in json.load(f).get("terms", [])]
+    except Exception:
+        return []
+
+
+def _is_learned_excluded(a: dict) -> bool:
+    """Bloqueia artigos que contenham termos que a IA aprendeu a excluir
+    a partir de feedback anterior (artigos marcados como 'análise')."""
+    terms = _load_learned_exclusions()
+    if not terms:
+        return False
+    text = " ".join([
+        a.get("title_pt") or "", a.get("title_orig") or "", a.get("body_pt") or "",
+    ]).lower()
+    return any(t in text for t in terms)
 
 
 @asynccontextmanager
@@ -178,6 +202,7 @@ async def dashboard():
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and not _is_selecao_article(a)
         and _is_actually_saudi_football(a)
+        and not _is_learned_excluded(a)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -298,6 +323,9 @@ async def dashboard():
     .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
     .fs-badge:hover {{ opacity: .7; }}
     .fs-badge.active-filter {{ background: #1a1a1a; color: #edeae4; border-color: #1a1a1a; }}
+    .analyze-btn {{ font-size: 0.62rem; font-weight: 700; padding: 5px 12px; border-radius: 99px; cursor: pointer; border: 1.5px solid #c4b5fd; background: #f5f3ff; color: #6d28d9; text-transform: uppercase; letter-spacing: .05em; margin-left: auto; }}
+    .analyze-btn:hover {{ background: #ede9fe; }}
+    .analyze-btn:disabled {{ opacity: .5; cursor: wait; }}
 
     /* ── GRID ── */
     .grid {{
@@ -554,6 +582,31 @@ async def dashboard():
       applyFilter();
     }}
 
+    async function analyzeFeedback() {{
+      const btn = document.getElementById('analyze-btn');
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '🧠 Analisando...';
+      try {{
+        const r = await fetch('/api/analyze-feedback', {{ method: 'POST' }});
+        const data = await r.json();
+        if (!data.ok) {{
+          alert('Erro: ' + (data.error || 'desconhecido'));
+        }} else if (data.analyzed === 0) {{
+          alert('Nenhum artigo marcado como análise no momento.');
+        }} else {{
+          const terms = (data.new_terms || []).join(', ') || 'nenhum termo novo';
+          alert('Analisados ' + data.analyzed + ' artigos.\\nNovos termos aprendidos: ' + terms + '\\nTotal de termos ativos: ' + data.total_terms + (data.reasoning ? ('\\n\\n' + data.reasoning) : ''));
+          location.reload();
+        }}
+      }} catch (e) {{
+        alert('Erro ao analisar: ' + e);
+      }} finally {{
+        btn.disabled = false;
+        btn.textContent = original;
+      }}
+    }}
+
     function toggleFlagExpand(btn) {{
       const card = btn.closest('.card');
       const open = card.classList.toggle('flag-open');
@@ -689,6 +742,7 @@ async def dashboard():
       <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"     title="Publicados"><span id="fc-pub">—</span> publicados</span>
       <span class="fs-badge fs-descarte"  id="fs-desc"    title="Lixeira · <a href='/lixeira'>ver lixeira →</a>"><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
     </div>
+    <button class="analyze-btn" id="analyze-btn" onclick="analyzeFeedback()" title="A IA analisa os artigos marcados como análise e aprende a parar de buscá-los">🧠 Analisar feedback</button>
   </div>
   <div class="grid">
     {cards}
@@ -743,6 +797,7 @@ async def selecao_page():
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and _is_selecao_article(a)
         and _is_actually_saudi_football(a)
+        and not _is_learned_excluded(a)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -852,6 +907,9 @@ async def selecao_page():
     .fs-descarte  {{ border-color: #fca5a5; color: #be123c; }}
     .fs-badge:hover {{ opacity: .7; }}
     .fs-badge.active-filter {{ background: #1a1a1a; color: #edeae4; border-color: #1a1a1a; }}
+    .analyze-btn {{ font-size: 0.62rem; font-weight: 700; padding: 5px 12px; border-radius: 99px; cursor: pointer; border: 1.5px solid #c4b5fd; background: #f5f3ff; color: #6d28d9; text-transform: uppercase; letter-spacing: .05em; margin-left: auto; }}
+    .analyze-btn:hover {{ background: #ede9fe; }}
+    .analyze-btn:disabled {{ opacity: .5; cursor: wait; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 80px; align-items: start; }}
     .card {{ background: #fafaf8; border-radius: 16px; display: flex; flex-direction: column; transition: background .2s; }}
     .card.flag-analise   {{ background: #fefce8; }}
@@ -959,6 +1017,30 @@ async def selecao_page():
       else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
     }}
     function toggleFilter(type) {{ _activeFilter = (_activeFilter === type) ? null : type; applyFilter(); }}
+    async function analyzeFeedback() {{
+      const btn = document.getElementById('analyze-btn');
+      const original = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = '🧠 Analisando...';
+      try {{
+        const r = await fetch('/api/analyze-feedback', {{ method: 'POST' }});
+        const data = await r.json();
+        if (!data.ok) {{
+          alert('Erro: ' + (data.error || 'desconhecido'));
+        }} else if (data.analyzed === 0) {{
+          alert('Nenhum artigo marcado como análise no momento.');
+        }} else {{
+          const terms = (data.new_terms || []).join(', ') || 'nenhum termo novo';
+          alert('Analisados ' + data.analyzed + ' artigos.\\nNovos termos aprendidos: ' + terms + '\\nTotal de termos ativos: ' + data.total_terms + (data.reasoning ? ('\\n\\n' + data.reasoning) : ''));
+          location.reload();
+        }}
+      }} catch (e) {{
+        alert('Erro ao analisar: ' + e);
+      }} finally {{
+        btn.disabled = false;
+        btn.textContent = original;
+      }}
+    }}
     function toggleFlagExpand(btn) {{ const card = btn.closest('.card'); const open = card.classList.toggle('flag-open'); btn.textContent = open ? '↑ ver menos' : '↓ ver mais'; }}
     function expandText(btn) {{ const p = btn.previousElementSibling; const short = p.querySelector('.text-short'); const full = p.querySelector('.text-full'); const expanded = btn.classList.toggle('expanded'); short.style.display = expanded ? 'none' : 'inline'; full.style.display = expanded ? 'inline' : 'none'; btn.textContent = expanded ? '↑ ver menos' : '↓ ver mais'; }}
     async function loadFlags() {{ try {{ const r = await fetch('/api/flags'); _flags = await r.json(); applyFlags(); }} catch(e) {{}} }}
@@ -984,6 +1066,7 @@ async def selecao_page():
       <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"    ><span id="fc-pub">—</span> publicados</span>
       <span class="fs-badge fs-descarte"  id="fs-desc"    ><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
     </div>
+    <button class="analyze-btn" id="analyze-btn" onclick="analyzeFeedback()" title="A IA analisa os artigos marcados como análise e aprende a parar de buscá-los">🧠 Analisar feedback</button>
   </div>
   <div class="grid">
     {cards if cards else empty_msg}
@@ -1032,6 +1115,7 @@ async def api_badge_counts(since: str = ""):
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and str(a.get("collected_at") or "") >= since
         and _is_actually_saudi_football(a)
+        and not _is_learned_excluded(a)
     ]
     home_count = sum(1 for a in visible if not _is_selecao_article(a))
     selecao_count = sum(1 for a in visible if _is_selecao_article(a))
@@ -1148,6 +1232,67 @@ async def api_set_flag(request: Request):
         return JSONResponse({"error": "flag inválida"}, status_code=400)
     set_flag(article_id, flag)
     return {"ok": True, "id": article_id, "flag": flag}
+
+
+@app.post("/api/analyze-feedback")
+async def api_analyze_feedback():
+    """Analisa artigos marcados como 'análise', pede pra IA identificar por que
+    eles não deveriam ter passado pelo filtro, e aprende novos termos de
+    exclusão a partir disso — aplicados automaticamente nas próximas rodadas."""
+    from processor import call_claude
+
+    targets = get_flagged_articles("analise")
+    if not targets:
+        return JSONResponse({"ok": True, "analyzed": 0, "new_terms": [], "message": "Nenhum artigo marcado como análise."})
+
+    targets = targets[:40]  # limite de segurança por chamada
+    items_text = ""
+    for idx, a in enumerate(targets):
+        title = a.get("title_pt") or a.get("title_orig") or ""
+        body = (a.get("body_pt") or a.get("body_orig") or "")[:400]
+        items_text += f"\nARTIGO {idx+1} (fonte: {a.get('source_name','')}):\nTítulo: {title}\nTexto: {body}\n---"
+
+    system = (
+        "Você ajuda a manter um monitor de notícias do futebol saudita (Saudi Pro League) limpo. "
+        "Os artigos abaixo foram marcados manualmente por um humano como SEM RELAÇÃO REAL com futebol saudita "
+        "(ex: notícia de clube europeu, liga errada, assunto não-futebolístico), mesmo tendo passado pelo filtro automático. "
+        "Sua tarefa: para cada artigo, identifique o motivo e proponha termos ESPECÍFICOS (nomes de clubes/jogadores/ligas "
+        "estrangeiras, ou frases bem específicas) que, usados como filtro de exclusão por substring no título/corpo, "
+        "impediriam notícias parecidas de aparecerem de novo. "
+        "NUNCA proponha termos genéricos de futebol (ex: 'jogador', 'contrato', 'gol', 'transferência', 'lesão', 'técnico') "
+        "pois isso bloquearia notícias sauditas legítimas — só proponha entidades/termos específicos e não-ambíguos. "
+        "Responda SOMENTE com JSON: {\"exclude_terms\": [\"termo1\", \"termo2\"], \"reasoning\": \"explicação breve em português\"}"
+    )
+    prompt = f"Artigos marcados como irrelevantes pelo usuário:\n{items_text}\n\nIdentifique termos específicos de exclusão."
+
+    try:
+        async with httpx.AsyncClient() as client:
+            raw = await call_claude(prompt=prompt, system=system, client=client, max_tokens=1200)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+        result = json.loads(raw)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": f"{type(e).__name__}: {e}"}, status_code=500)
+
+    new_terms = sorted({t.strip().lower() for t in result.get("exclude_terms", []) if t and t.strip()})
+    existing = _load_learned_exclusions()
+    merged = sorted(set(existing) | set(new_terms))
+
+    with open(LEARNED_EXCLUSIONS_FILE, "w", encoding="utf-8") as f:
+        json.dump({"terms": merged}, f, ensure_ascii=False, indent=2)
+
+    return JSONResponse({
+        "ok": True,
+        "analyzed": len(targets),
+        "new_terms": new_terms,
+        "total_terms": len(merged),
+        "reasoning": result.get("reasoning", ""),
+    })
 
 
 @app.get("/gerador", response_class=HTMLResponse)

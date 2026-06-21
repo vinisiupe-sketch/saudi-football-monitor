@@ -97,6 +97,20 @@ def init_db():
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
+def get_flagged_articles(flag: str) -> list[dict]:
+    """Retorna artigos com a flag indicada (qualquer idade), com dados do artigo."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT a.*, af.updated_at AS flagged_at
+            FROM articles a
+            JOIN article_flags af ON a.id = af.article_id
+            WHERE af.flag = %s
+            ORDER BY af.updated_at DESC
+        """, (flag,))
+        return [dict(r) for r in c.fetchall()]
+
+
 def get_trashed_articles() -> list[dict]:
     """Retorna artigos com flag='descartado' nas últimas 24h (com dados do artigo)."""
     with get_conn() as conn:
