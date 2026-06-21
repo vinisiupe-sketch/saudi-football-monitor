@@ -1187,6 +1187,10 @@ async def analise_export():
         for a in articles
     ]
     filename = f"iarabao_analise_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+    # Limpa a flag 'analise' dos artigos exportados — a página /analise deve ficar
+    # vazia depois do download, e só voltar a ter itens quando novos forem marcados.
+    for a in articles:
+        set_flag(a["id"], None)
     return JSONResponse(
         content=data,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
