@@ -158,11 +158,11 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--c-
 #export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
 .igcard { width:1080px; height:1350px; position:relative; overflow:hidden; background:#201322; font-family:'Poppins',sans-serif; }
 .igcard .layer-photo { position:absolute; inset:0; width:100%; height:100%; background-color:#2a1e2e; background-size:cover; background-repeat:no-repeat; z-index:1; }
-.igcard .layer-mockup { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:3; pointer-events:none; }
+.igcard .layer-mockup { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:2; pointer-events:none; }
 .igcard .layer-text { position:absolute; z-index:5; pointer-events:none; }
 
-/* Círculos de foto — a foto real do usuário, visível através do recorte transparente do mockup */
-.igcard .igc-circle { position:absolute; border-radius:50%; object-fit:cover; box-sizing:border-box; z-index:2; background:#2a1e2e; }
+/* Círculos de foto — a foto real do usuário, por cima do mockup (inclusive da sombra dele) */
+.igcard .igc-circle { position:absolute; border-radius:50%; object-fit:cover; box-sizing:border-box; z-index:3; background:#2a1e2e; }
 /* Anel colorido do círculo — redesenhado em CSS por cima do mockup (a borda não fica no recorte transparente) */
 .igcard .igc-ring { position:absolute; border-radius:50%; box-sizing:border-box; z-index:4; pointer-events:none; background:transparent; }
 
