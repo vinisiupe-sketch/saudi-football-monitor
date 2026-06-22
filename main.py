@@ -1116,7 +1116,9 @@ def _post_rule() -> str:
     return (
         "Gere, a partir da notícia abaixo, as QUATRO variações de título a seguir — não escolha uma, gere todas:\n\n"
         "1. CURTO — até 3 palavras, MAIÚSCULAS, máximo impacto (ex: CONFIRMADO, BOMBA, OFICIAL, CHEGOU, RENOVAÇÃO). "
-        "+ subtitulo_curto: uma frase curta complementando o título.\n"
+        "+ subtitulo_curto: 1 a 2 frases (até ~35 palavras) dando contexto da notícia, complementando o título "
+        "(ex: 'Cristiano Ronaldo retorna aos gramados para disputar sua 6ª Copa do Mundo por Portugal. "
+        "São 20 anos entre sua estreia, em 2006, e o Mundial de hoje.').\n"
         "2. MÉDIO — até 7 palavras, MAIÚSCULAS. Sem subtítulo.\n"
         "3. LONGO — até 10 palavras, MAIÚSCULAS, mais descritivo. NUNCA corte palavras no meio — reformule se ultrapassar o limite.\n"
         "4. TRANSFERÊNCIA — titulo_transferencia: até 7 palavras, MAIÚSCULAS, focado na movimentação do jogador. "
