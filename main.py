@@ -341,6 +341,15 @@ async def dashboard():
     .card.flag-analise   {{ background: #fefce8; }}
     .card.flag-visto     {{ background: #ede9fe; }}
     .card.flag-publicado {{ background: #dcfce7; }}
+    /* Esses 3 fundos são sempre claros (mesmo no modo noturno) — reancora as
+       variáveis de tema para os valores claros dentro do card, senão texto e
+       ícones (que seguem var(--c-text) etc.) ficam claros sobre fundo claro. */
+    .card.flag-analise, .card.flag-visto, .card.flag-publicado {{
+      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
+      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
+      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
+      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
+    }}
     .card.flag-descarte  {{ display: none; }}
     .card.hidden-by-filter {{ display: none; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
@@ -788,6 +797,15 @@ async def selecao_page():
     .card.flag-analise   {{ background: #fefce8; }}
     .card.flag-visto     {{ background: #ede9fe; }}
     .card.flag-publicado {{ background: #dcfce7; }}
+    /* Esses 3 fundos são sempre claros (mesmo no modo noturno) — reancora as
+       variáveis de tema para os valores claros dentro do card, senão texto e
+       ícones (que seguem var(--c-text) etc.) ficam claros sobre fundo claro. */
+    .card.flag-analise, .card.flag-visto, .card.flag-publicado {{
+      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
+      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
+      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
+      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
+    }}
     .card.flag-descarte  {{ display: none; }}
     .card.hidden-by-filter {{ display: none; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
@@ -1503,7 +1521,15 @@ async def lixeira_page():
     {_HEADER_CSS}
     .info {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
-    .card {{ background: #fff1f2; border-radius: 16px; opacity: .82; }}
+    .card {{
+      background: #fff1f2; border-radius: 16px; opacity: .82;
+      /* Fundo sempre claro (mesmo no modo noturno) — reancora as variáveis de
+         tema para os valores claros, senão texto/ícones ficam claros sobre fundo claro. */
+      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
+      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
+      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
+      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
+    }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
     .card-date {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
@@ -1603,7 +1629,15 @@ async def analise_page():
     .export-btn {{ font-size: 0.62rem; font-weight: 700; padding: 6px 14px; border-radius: 99px; cursor: pointer; border: 1.5px solid var(--c-text); background: transparent; color: var(--c-text); text-transform: uppercase; letter-spacing: .05em; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }}
     .export-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
-    .card {{ background: #fefce8; border-radius: 16px; }}
+    .card {{
+      background: #fefce8; border-radius: 16px;
+      /* Fundo sempre claro (mesmo no modo noturno) — reancora as variáveis de
+         tema para os valores claros, senão texto/ícones ficam claros sobre fundo claro. */
+      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
+      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
+      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
+      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
+    }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
     .card-date {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
