@@ -158,35 +158,29 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--c-
 #export-wrap { position: fixed; left: -9999px; top: 0; z-index: -1; pointer-events: none; }
 .igcard { width:1080px; height:1350px; position:relative; overflow:hidden; background:#201322; font-family:'Poppins',sans-serif; }
 .igcard .layer-photo { position:absolute; inset:0; width:100%; height:100%; background-color:#2a1e2e; background-size:cover; background-repeat:no-repeat; z-index:1; }
-.igcard .layer-gradient { position:absolute; inset:0; z-index:2; background:linear-gradient(to bottom, transparent 45%, rgba(0,0,0,0.18) 58%, rgba(0,0,0,0.80) 80%, rgba(0,0,0,0.92) 100%); pointer-events:none; }
+.igcard .layer-mockup { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:3; pointer-events:none; }
 .igcard .layer-text { position:absolute; z-index:5; pointer-events:none; }
 
-/* Círculos de foto — tamanho/posição medidos nos mockups de referência (cada template tem o seu) */
-.igcard .igc-circle { position:absolute; border-radius:50%; object-fit:cover; box-sizing:border-box; z-index:3; background:#2a1e2e; }
-.igcard .circle-medio    { left:643px; top:432px; width:386px; height:386px; border:9px solid #10ED9D; }
-.igcard .circle-longo    { left:573px; top:417px; width:464px; height:464px; border:9px solid #5CF3C0; }
-.igcard .circle-transf-a { left:244px; top:822px; width:174px; height:174px; border:9px solid #8C52FF; }
-.igcard .circle-transf-b { left:661px; top:822px; width:174px; height:174px; border:9px solid #49FEB6; }
+/* Círculos de foto — a foto real do usuário, visível através do recorte transparente do mockup */
+.igcard .igc-circle { position:absolute; border-radius:50%; object-fit:cover; box-sizing:border-box; z-index:2; background:#2a1e2e; }
+/* Anel colorido do círculo — redesenhado em CSS por cima do mockup (a borda não fica no recorte transparente) */
+.igcard .igc-ring { position:absolute; border-radius:50%; box-sizing:border-box; z-index:4; pointer-events:none; background:transparent; }
 
-/* Seta dupla entre os círculos da transferência */
-.igcard .layer-arrow { position:absolute; left:457px; top:862px; width:166px; height:93px; z-index:3; pointer-events:none; }
-
-/* Selo "Central do Arabão" — extraído dos mockups de referência */
-.igcard .layer-logo-badge { position:absolute; z-index:3; pointer-events:none; }
-.igcard .logo-badge-corner { top:36px; right:26px; width:96px; height:96px; opacity:0.16; }
-.igcard .logo-badge-bottom { left:50%; bottom:76px; width:97px; height:96px; transform:translateX(-50%); opacity:0.92; }
-
-/* Barra decorativa de cor (marca) */
-.igcard .layer-bar { position:absolute; z-index:3; pointer-events:none; }
-.igcard .bar-bottom { left:0; right:0; bottom:0; height:20px; background:linear-gradient(to right, #8C52FF 0 14%, #10ED9D 14% 45.3%, #303030 45.3% 77.2%, #fff 77.2% 100%); }
-.igcard .bar-left   { left:0; top:782px; bottom:0; width:20px; background:linear-gradient(to bottom, #8C52FF 0 26.1%, #5CF3C0 26.1% 85.4%, #303030 85.4% 100%); }
+.igcard .circle-medio    { left:643px; top:432px; width:386px; height:386px; }
+.igcard .circle-longo    { left:573px; top:417px; width:464px; height:464px; }
+.igcard .circle-transf-a { left:244px; top:822px; width:174px; height:174px; }
+.igcard .circle-transf-b { left:661px; top:822px; width:174px; height:174px; }
+.igcard .ring-medio    { border:9px solid #10ED9D; }
+.igcard .ring-longo    { border:9px solid #5CF3C0; }
+.igcard .ring-transf-a { border:9px solid #8C52FF; }
+.igcard .ring-transf-b { border:9px solid #49FEB6; }
 
 /* CURTO — título + subtítulo, branco, centralizado, 1 foto */
-.txt-curto-block { left:0; right:0; top:877px; bottom:54px; padding:0 90px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+.txt-curto-block { left:0; right:0; top:980px; bottom:40px; padding:0 90px; display:flex; flex-direction:column; align-items:center; gap:16px; }
 .txt-curto-block .curto-title { font-family:'Poppins',sans-serif; font-weight:700; font-size:74px; letter-spacing:0.02em; line-height:0.78; color:#fff; text-transform:uppercase; text-align:center; width:100%; }
-.txt-curto-block .curto-sub { font-family:'Poppins',sans-serif; font-weight:400; font-size:22px; letter-spacing:0.02em; line-height:1.4; color:#fff; text-align:center; width:100%; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+.txt-curto-block .curto-sub { font-family:'Poppins',sans-serif; font-weight:400; font-size:22px; letter-spacing:0.02em; line-height:1.4; color:#fff; text-align:center; width:100%; overflow:hidden; display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical; }
 
-/* MÉDIO / LONGO — título único, verde, 2 fotos (bg + círculo); cada um com seu próprio círculo/selo/barra */
+/* MÉDIO / LONGO — título único, verde, 2 fotos (bg + círculo); cada um com seu próprio círculo */
 .txt-destaque-block { left:0; right:0; top:1012px; bottom:135px; padding:0 68px; display:flex; flex-direction:column; justify-content:flex-start; }
 .txt-destaque-block.align-center { align-items:center; }
 .txt-destaque-block.align-left { align-items:flex-start; }
@@ -455,25 +449,28 @@ function bgPhotoTag(src) {
   const bg  = img ? `background-image:url('${img}');background-position:${p.x}% ${p.y}%;` : '';
   return `<div class="layer-photo" style="${bg}"></div>`;
 }
-function logoBadge(cls) { return `<img class="layer-logo-badge ${cls}" src="/masks/logo-arabao.png" alt="">`; }
-const ARROW_SVG = `<svg class="layer-arrow" viewBox="0 0 166 93" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><polygon points="0,0 35,0 70,46.5 35,93 0,93 35,46.5" fill="#8C52FF"/><polygon points="45,0 80,0 115,46.5 80,93 45,93 80,46.5" fill="#8C52FF"/><polygon points="90,0 130,0 166,46.5 130,93 90,93 126,46.5" fill="#5CF3C0"/></svg>`;
+// O "resto" do visual (fundo/gradiente, selo, barra, seta) vem direto do arquivo de mockup —
+// só o anel colorido do círculo é redesenhado em CSS por cima do recorte transparente.
+function mockupTag(file) { return `<img class="layer-mockup" src="/masks/${file}" alt="">`; }
 
 function cardCurto() {
   const title = esc(document.getElementById('etitle').value || 'TÍTULO');
   const sub   = esc(document.getElementById('esub').value || '');
-  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${logoBadge('logo-badge-corner')}<div class="layer-text txt-curto-block"><div class="curto-title">${title}</div>${sub ? `<div class="curto-sub">${sub}</div>` : ''}</div></div>`;
+  return `<div class="igcard">${bgPhotoTag()}${mockupTag('curto-subtitulo-mockup.png')}<div class="layer-text txt-curto-block"><div class="curto-title">${title}</div>${sub ? `<div class="curto-sub">${sub}</div>` : ''}</div></div>`;
 }
 
 function cardMedio() {
   const title  = esc(document.getElementById('etitle').value || 'TÍTULO');
   const circle = S.uploadedImages[1] ? `<img class="igc-circle circle-medio" src="${S.uploadedImages[1]}" alt="">` : '';
-  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${circle}${logoBadge('logo-badge-bottom')}<div class="layer-bar bar-bottom"></div><div class="layer-text txt-destaque-block align-center"><div class="destaque-title">${title}</div></div></div>`;
+  const ring   = `<div class="igc-ring circle-medio ring-medio"></div>`;
+  return `<div class="igcard">${bgPhotoTag()}${circle}${mockupTag('medio-mockup.png')}${ring}<div class="layer-text txt-destaque-block align-center"><div class="destaque-title">${title}</div></div></div>`;
 }
 
 function cardLongo() {
   const title  = esc(document.getElementById('etitle').value || 'TÍTULO');
   const circle = S.uploadedImages[1] ? `<img class="igc-circle circle-longo" src="${S.uploadedImages[1]}" alt="">` : '';
-  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${circle}${logoBadge('logo-badge-corner')}<div class="layer-bar bar-left"></div><div class="layer-text txt-destaque-block align-left"><div class="destaque-title">${title}</div></div></div>`;
+  const ring   = `<div class="igc-ring circle-longo ring-longo"></div>`;
+  return `<div class="igcard">${bgPhotoTag()}${circle}${mockupTag('longo-mockup.png')}${ring}<div class="layer-text txt-destaque-block align-left"><div class="destaque-title">${title}</div></div></div>`;
 }
 
 function cardTransferencia() {
@@ -482,7 +479,9 @@ function cardTransferencia() {
   const fonte  = esc(document.getElementById('efonte').value || '');
   const logoA  = S.uploadedImages[1] ? `<img class="igc-circle circle-transf-a" src="${S.uploadedImages[1]}" alt="">` : '';
   const logoB  = S.uploadedImages[2] ? `<img class="igc-circle circle-transf-b" src="${S.uploadedImages[2]}" alt="">` : '';
-  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${logoA}${logoB}${ARROW_SVG}${logoBadge('logo-badge-corner')}<div class="layer-bar bar-bottom"></div><div class="layer-text txt-transf-block">${status ? `<div class="tf-status">${status}</div>` : ''}<div class="tf-player">${player}</div>${fonte ? `<div class="tf-fonte">${fonte}</div>` : ''}</div></div>`;
+  const ringA  = `<div class="igc-ring circle-transf-a ring-transf-a"></div>`;
+  const ringB  = `<div class="igc-ring circle-transf-b ring-transf-b"></div>`;
+  return `<div class="igcard">${bgPhotoTag()}${logoA}${logoB}${mockupTag('transferencia-mockup.png')}${ringA}${ringB}<div class="layer-text txt-transf-block">${status ? `<div class="tf-status">${status}</div>` : ''}<div class="tf-player">${player}</div>${fonte ? `<div class="tf-fonte">${fonte}</div>` : ''}</div></div>`;
 }
 
 // Cada template tem agora seu próprio layout de imagem (medido nos mockups de referência):
