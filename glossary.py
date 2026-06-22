@@ -122,6 +122,25 @@ CLUB_NAMES = {
     "صندوق الاستثمارات العامة": "PIF",
 }
 
+# Listas canônicas usadas para montar o glossário enviado à IA na tradução
+# (processor.py) e na geração de posts (main.py) — fonte única, evita que os
+# dois prompts fiquem com listas de clubes divergentes/desatualizadas entre si.
+SPL_CLUBS = [
+    "Al Hilal", "Al Nassr", "Al Ittihad", "Al Ahli", "Al Shabab", "Al Taawoun",
+    "Al Fateh", "Al Ettifaq", "Al Qadsiah", "Al Fayha", "Al Hazem", "Al Khaleej",
+    "Al Kholood", "Al Najma", "Al Okhdood", "Al Riyadh", "Al Diriyah", "Al Ula",
+    "Damac", "Neom S.C.",
+]
+
+# Yelo League — nome comercial da "1ª Divisão" saudita (2º nível da pirâmide,
+# abaixo da Saudi Pro League). Citados com frequência em notícias de
+# empréstimos/transferências envolvendo a SPL (ex: Abha).
+YELO_CLUBS = [
+    "Abha", "Al Adalah", "Al Anwar", "Al Arabi", "Al Batin", "Al Bukiryah",
+    "Al Faisaly", "Al Jabalain", "Al Jandal", "Al Jubail", "Al Orobah",
+    "Al Raed", "Al Shoulla", "Al Tai", "Al Wahda", "Al Zulfi", "Jeddah",
+]
+
 COMPETITION_NAMES = {
     "Liga Saudita": "Saudi Pro League",
     "Liga Árabe Saudita": "Saudi Pro League",
@@ -136,12 +155,14 @@ COMPETITION_NAMES = {
 
 # Glossário resumido para o system prompt da tradução
 # Mantido curto intencionalmente — glossários longos degradam qualidade do Haiku.
-# O apply_glossary() pós-processamento cobre todos os clubes via CLUB_NAMES acima.
-GLOSSARY_PROMPT = """
+# O apply_glossary() pós-processamento cobre as variações de grafia LATINA dos
+# clubes (ex: "Al-Hilal" → "Al Hilal"); ele NÃO corrige nomes árabes que o
+# modelo deixou de traduzir ou alucinou — para isso o clube precisa estar
+# listado abaixo, no prompt que a IA vê ANTES de responder.
+GLOSSARY_PROMPT = f"""
 Glossário obrigatório — use EXATAMENTE estes nomes, SEM hífen, sem variações:
-Clubes SPL: Al Hilal, Al Nassr, Al Ittihad, Al Ahli, Al Shabab, Al Taawoun, Al Fateh, Al Ettifaq,
-Al Qadsiah, Al Fayha, Al Hazem, Al Khaleej, Al Kholood, Al Najma, Al Okhdood, Al Riyadh,
-Al Diriyah, Al Ula, Damac, Neom S.C.
+Clubes SPL (1ª divisão): {", ".join(SPL_CLUBS)}.
+Clubes Yelo League (2º nível, abaixo da SPL, aparecem em notícias de empréstimo/transferência): {", ".join(YELO_CLUBS)}.
 Competição: sempre "Saudi Pro League" (nunca "Liga Saudita" ou "Campeonato Saudita").
 DISTINÇÃO CRÍTICA: الاتفاق = Al Ettifaq (Dammam) | الاتحاد = Al Ittihad (Jeddah). Nunca confunda.
 NUNCA invente nomes de jogadores em árabe — translitere letra por letra.

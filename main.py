@@ -15,6 +15,7 @@ from database import init_db, get_recent_articles, get_low_score_articles, get_c
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
+from glossary import SPL_CLUBS, YELO_CLUBS
 
 scheduler = None
 
@@ -1143,8 +1144,9 @@ async def generate_post(request: Request):
         "Se a notícia não envolver clube saudita diretamente, foque no impacto para a liga saudita.\n"
     )
     CLUBE_NAMES_RULE = (
-        "NOMES DE CLUBES: NUNCA use hífen. Grafias OBRIGATÓRIAS: Al Hilal, Al Nassr, Al Ahli, Al Ittihad, "
-        "Al Ettifaq, Al Shabab, Al Fateh, Al Taawoun, Al Qadsiah, Al Fayha, Al Wahda, Al Hazm, Damac. "
+        "NOMES DE CLUBES: NUNCA use hífen. Grafias OBRIGATÓRIAS (1ª divisão/SPL): "
+        + ", ".join(SPL_CLUBS) + ". "
+        "Grafias OBRIGATÓRIAS (Yelo League, 2º nível): " + ", ".join(YELO_CLUBS) + ". "
         "ATENÇÃO: الاتفاق = Al Ettifaq (NÃO Al Ittihad); الاتحاد = Al Ittihad. São clubes diferentes.\n"
     )
 
