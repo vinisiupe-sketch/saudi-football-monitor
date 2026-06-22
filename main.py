@@ -1115,8 +1115,9 @@ CLAUDE_MODEL_POST = "claude-sonnet-4-5"
 def _post_rule() -> str:
     return (
         "Gere, a partir da notícia abaixo, as QUATRO variações de título a seguir — não escolha uma, gere todas:\n\n"
-        "1. CURTO — até 3 palavras, MAIÚSCULAS, máximo impacto (ex: CONFIRMADO, BOMBA, OFICIAL, CHEGOU, RENOVAÇÃO). Sem subtítulo.\n"
-        "2. MÉDIO — até 7 palavras, MAIÚSCULAS. + subtitulo_medio: uma frase curta complementando o título.\n"
+        "1. CURTO — até 3 palavras, MAIÚSCULAS, máximo impacto (ex: CONFIRMADO, BOMBA, OFICIAL, CHEGOU, RENOVAÇÃO). "
+        "+ subtitulo_curto: uma frase curta complementando o título.\n"
+        "2. MÉDIO — até 7 palavras, MAIÚSCULAS. Sem subtítulo.\n"
         "3. LONGO — até 10 palavras, MAIÚSCULAS, mais descritivo. NUNCA corte palavras no meio — reformule se ultrapassar o limite.\n"
         "4. TRANSFERÊNCIA — titulo_transferencia: até 7 palavras, MAIÚSCULAS, focado na movimentação do jogador. "
         "nome_jogador: nome do jogador em MAIÚSCULAS extraído do texto. "
@@ -1146,7 +1147,7 @@ async def generate_post(request: Request):
         + _post_rule()
         + "\n\nFORMATO DE SAÍDA:\nRetorne SOMENTE um objeto JSON puro, sem markdown, sem blocos de código, sem texto fora do JSON.\n\n"
         "Estrutura exata (preencha TODOS os valores, sempre):\n"
-        '{\n  "titulo_curto": "...",\n  "titulo_medio": "...",\n  "subtitulo_medio": "...",\n'
+        '{\n  "titulo_curto": "...",\n  "subtitulo_curto": "...",\n  "titulo_medio": "...",\n'
         '  "titulo_longo": "...",\n  "titulo_transferencia": "...",\n'
         '  "nome_jogador": "...",\n  "status_transferencia": "..."\n}'
     )

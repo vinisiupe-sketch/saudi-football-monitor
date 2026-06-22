@@ -160,16 +160,30 @@ input[type="text"]:focus, textarea:focus { outline: none; border-color: var(--c-
 .igcard .layer-photo { position:absolute; inset:0; width:100%; height:100%; background-color:#2a1e2e; background-size:cover; background-repeat:no-repeat; z-index:1; }
 .igcard .layer-gradient { position:absolute; inset:0; z-index:2; background:linear-gradient(to bottom, transparent 45%, rgba(0,0,0,0.18) 58%, rgba(0,0,0,0.80) 80%, rgba(0,0,0,0.92) 100%); pointer-events:none; }
 .igcard .layer-circle { position:absolute; left:calc(787px - 177.5px); top:calc(698px - 177.5px); width:355px; height:355px; border-radius:50%; object-fit:cover; z-index:3; }
+.igcard .layer-logo-a, .igcard .layer-logo-b { position:absolute; top:560px; width:230px; height:230px; border-radius:50%; object-fit:cover; z-index:3; background:#fff; }
+.igcard .layer-logo-a { left:265px; }
+.igcard .layer-logo-b { left:585px; }
 .igcard .layer-mask { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; z-index:4; pointer-events:none; }
 .igcard .layer-text { position:absolute; z-index:5; pointer-events:none; }
-.txt-simples-block { left:0; right:0; top:1012px; bottom:135px; padding:0 68px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; }
-.txt-simples-block .s-title { font-family:'Antonio',sans-serif; font-weight:700; font-size:65px; color:#49fcb6; text-transform:uppercase; line-height:1.05; text-align:center; width:100%; }
-.txt-carr-block { left:0; right:0; top:877px; bottom:54px; padding:0 90px; display:flex; flex-direction:column; align-items:center; gap:16px; }
-.txt-carr-block .c-title { font-family:'Poppins',sans-serif; font-weight:700; font-size:65px; color:#fff; text-transform:uppercase; line-height:1.05; text-align:center; width:100%; }
-.txt-carr-block .c-sub { font-family:'Poppins',sans-serif; font-weight:400; font-size:28px; color:#fff; line-height:1.4; text-align:center; width:100%; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
-.txt-chamativo-block { left:0; right:0; top:950px; bottom:100px; padding:0 68px; display:flex; flex-direction:column; align-items:center; justify-content:flex-start; gap:20px; }
-.txt-chamativo-block .ch-word { font-family:'Antonio',sans-serif; font-weight:700; font-size:140px; color:#49fcb6; text-transform:uppercase; line-height:1; text-align:center; width:100%; }
-.txt-chamativo-block .ch-sub { font-family:'Poppins',sans-serif; font-weight:500; font-size:36px; color:#fff; line-height:1.4; text-align:center; width:100%; }
+
+/* CURTO — título + subtítulo, branco, centralizado, 1 foto (reaproveita o layout/máscara "carrossel") */
+.txt-curto-block { left:0; right:0; top:877px; bottom:54px; padding:0 90px; display:flex; flex-direction:column; align-items:center; gap:16px; }
+.txt-curto-block .curto-title { font-family:'Poppins',sans-serif; font-weight:700; font-size:74px; letter-spacing:0.02em; line-height:0.78; color:#fff; text-transform:uppercase; text-align:center; width:100%; }
+.txt-curto-block .curto-sub { font-family:'Poppins',sans-serif; font-weight:400; font-size:22px; letter-spacing:0.02em; line-height:1.4; color:#fff; text-align:center; width:100%; overflow:hidden; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; }
+
+/* MÉDIO / LONGO — título único, verde, 2 fotos (bg + círculo, reaproveita o layout/máscara "simples"); só muda o alinhamento */
+.txt-destaque-block { left:0; right:0; top:1012px; bottom:135px; padding:0 68px; display:flex; flex-direction:column; justify-content:flex-start; }
+.txt-destaque-block.align-center { align-items:center; }
+.txt-destaque-block.align-left { align-items:flex-start; }
+.txt-destaque-block .destaque-title { font-family:'Poppins',sans-serif; font-weight:700; font-size:75.9px; letter-spacing:-0.055em; line-height:0.8; color:#49fdb6; text-transform:uppercase; width:100%; }
+.txt-destaque-block.align-center .destaque-title { text-align:center; }
+.txt-destaque-block.align-left .destaque-title { text-align:left; }
+
+/* TRANSFERÊNCIA — status + nome do jogador/treinador + fonte, centralizado, 1 foto + 2 logos */
+.txt-transf-block { left:0; right:0; top:877px; bottom:54px; padding:0 90px; display:flex; flex-direction:column; align-items:center; gap:10px; }
+.txt-transf-block .tf-status { font-family:'Poppins',sans-serif; font-weight:700; font-size:44.9px; letter-spacing:-0.055em; line-height:0.8; color:#fff; text-transform:uppercase; text-align:center; width:100%; }
+.txt-transf-block .tf-player { font-family:'Poppins',sans-serif; font-weight:700; font-size:75.9px; letter-spacing:-0.055em; line-height:0.8; color:#49fdb6; text-transform:uppercase; text-align:center; width:100%; }
+.txt-transf-block .tf-fonte { font-family:'Poppins',sans-serif; font-weight:400; font-size:21.4px; letter-spacing:-0.004em; line-height:1.45; color:#fff; text-align:center; width:100%; }
 
 </style>
 </head>
@@ -370,7 +384,7 @@ function prepPreview() {
     longo: data.titulo_longo, transferencia: data.titulo_transferencia,
   };
   document.getElementById('etitle').value    = titleByTmpl[t] || '';
-  document.getElementById('esub').value      = t === 'medio' ? (data.subtitulo_medio || '') : '';
+  document.getElementById('esub').value      = t === 'curto' ? (data.subtitulo_curto || '') : '';
   document.getElementById('title-hint').textContent = TITLE_HINTS[t] || '';
   document.getElementById('captext').value   = data.legenda_instagram || '—';
   if (data.nome_jogador) document.getElementById('eplayer').value = data.nome_jogador;
@@ -385,13 +399,18 @@ function prepPreview() {
     }
   }
 
-  document.getElementById('grp-sub').style.display = t === 'medio'         ? 'flex' : 'none';
+  document.getElementById('grp-sub').style.display = t === 'curto'         ? 'flex' : 'none';
   document.getElementById('grp-tf').style.display  = t === 'transferencia' ? 'flex' : 'none';
 }
 
 /* ── Image handling ── */
+// curto: 1 foto (BG) · médio/longo: 2 (BG + círculo) · transferência: 3 (BG + 2 logos)
+function maxImagesForTemplate() {
+  return S.template === 'transferencia' ? 3 : (S.template === 'curto' ? 1 : 2);
+}
+
 function handleImages(input) {
-  const files = Array.from(input.files).slice(0, 2);
+  const files = Array.from(input.files).slice(0, maxImagesForTemplate());
   if (!files.length) return;
   S.uploadedImages = new Array(files.length);
   S.imgPositions   = files.map(() => ({ x: 50, y: 50 }));
@@ -408,7 +427,7 @@ function handleImages(input) {
 
 function onImagesReady() {
   const n = S.uploadedImages.length;
-  const labels = n === 1 ? ['BG'] : ['BG', '●'];
+  const labels = n === 1 ? ['BG'] : (n === 2 ? ['BG', '●'] : ['BG', '●1', '●2']);
   document.getElementById('thumb-row').innerHTML = S.uploadedImages.map((src, i) =>
     `<div class="thumb-item"><img src="${src}" alt=""><div class="thumb-num">${labels[i]}</div></div>`
   ).join('');
@@ -426,30 +445,34 @@ function bgPhotoTag(src) {
 }
 function maskTag(file) { return `<img class="layer-mask" src="/masks/${file}" alt="" onerror="this.style.display='none'">`; }
 
-function cardSimples() {
-  const title = esc(document.getElementById('etitle').value || 'TÍTULO');
-  const circle = S.uploadedImages[1] ? `<img class="layer-circle" src="${S.uploadedImages[1]}" alt="">` : '';
-  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${circle}${maskTag('simples_mask.png')}<div class="layer-text txt-simples-block"><div class="s-title">${title}</div></div></div>`;
-}
-
-function cardMedio() {
+function cardCurto() {
   const title = esc(document.getElementById('etitle').value || 'TÍTULO');
   const sub   = esc(document.getElementById('esub').value || '');
-  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${maskTag('carrossel_mask.png')}<div class="layer-text txt-carr-block"><div class="c-title">${title}</div>${sub ? `<div class="c-sub">${sub}</div>` : ''}</div></div>`;
+  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${maskTag('carrossel_mask.png')}<div class="layer-text txt-curto-block"><div class="curto-title">${title}</div>${sub ? `<div class="curto-sub">${sub}</div>` : ''}</div></div>`;
 }
 
-function cardChamativo() {
-  const word = esc(document.getElementById('etitle').value || 'BOMBA');
-  const sub  = esc(document.getElementById('esub').value || '').replace(/\n/g, '<br>');
-  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${maskTag('simples_mask.png')}<div class="layer-text txt-chamativo-block"><div class="ch-word">${word}</div>${sub ? `<div class="ch-sub">${sub}</div>` : ''}</div></div>`;
+function cardDestaque(align) {
+  const title  = esc(document.getElementById('etitle').value || 'TÍTULO');
+  const circle = S.uploadedImages[1] ? `<img class="layer-circle" src="${S.uploadedImages[1]}" alt="">` : '';
+  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${circle}${maskTag('simples_mask.png')}<div class="layer-text txt-destaque-block align-${align}"><div class="destaque-title">${title}</div></div></div>`;
 }
 
-// Mapa fixo: curto = chamativo (palavra de impacto), médio = título + subtítulo,
-// longo e transferência reaproveitam o template simples por enquanto.
+function cardTransferencia() {
+  const status = esc(document.getElementById('estatus').value || '');
+  const player = esc(document.getElementById('eplayer').value || 'JOGADOR');
+  const fonte  = esc(document.getElementById('efonte').value || '');
+  const logoA  = S.uploadedImages[1] ? `<img class="layer-logo-a" src="${S.uploadedImages[1]}" alt="">` : '';
+  const logoB  = S.uploadedImages[2] ? `<img class="layer-logo-b" src="${S.uploadedImages[2]}" alt="">` : '';
+  return `<div class="igcard">${bgPhotoTag()}<div class="layer-gradient"></div>${logoA}${logoB}${maskTag('transf_mask.png')}<div class="layer-text txt-transf-block">${status ? `<div class="tf-status">${status}</div>` : ''}<div class="tf-player">${player}</div>${fonte ? `<div class="tf-fonte">${fonte}</div>` : ''}</div></div>`;
+}
+
+// Mapa fixo: curto = título + subtítulo (branco) · médio = título único (verde, centro)
+// · longo = título único (verde, esquerda) · transferência = status + jogador + fonte.
 function renderCard(t) {
-  if (t === 'curto') return cardChamativo();
-  if (t === 'medio') return cardMedio();
-  return cardSimples();
+  if (t === 'curto') return cardCurto();
+  if (t === 'medio') return cardDestaque('center');
+  if (t === 'transferencia') return cardTransferencia();
+  return cardDestaque('left'); // longo
 }
 
 function upd() {
