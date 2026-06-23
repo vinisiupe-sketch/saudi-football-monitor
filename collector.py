@@ -154,13 +154,21 @@ ARTICLE_MAX_AGE_HOURS = int(os.environ.get("ARTICLE_MAX_AGE_HOURS", 48))
 
 def parse_entries(feed, source_name: str, source_tier: str, source_type: str) -> list[dict]:
     cutoff = datetime.now(timezone.utc) - timedelta(hours=ARTICLE_MAX_AGE_HOURS)
+    # Nome de exibição da conta (ex: "Twitter @Germán García Grova" -> "germán garcía grova"),
+    # usado para diferenciar auto-retweet/repost da própria conta (comum quando jornalistas
+    # reforçam um furo já publicado) de retweet de conteúdo de terceiros, que continua ignorado.
+    feed_title = getattr(getattr(feed, "feed", None), "title", "") or ""
+    account_display_name = feed_title.split("@", 1)[-1].strip().lower() if "@" in feed_title else ""
+    account_handle = source_name.lstrip("@").lower()
 
     articles = []
     for entry in feed.entries[:30]:
         title = getattr(entry, "title", "") or ""
-        # Ignora retweets
+        # Ignora retweets de terceiros; permite auto-retweet/repost da própria conta monitorada
         if title.startswith("RT ") or title.startswith("RT@"):
-            continue
+            rt_label = title[3:].split(":", 1)[0].strip().lstrip("@").lower()
+            if rt_label not in (account_display_name, account_handle):
+                continue
         summary = getattr(entry, "summary", "") or ""
         link = getattr(entry, "link", "") or ""
         body = re.sub(r"<[^>]+>", " ", summary).strip()
