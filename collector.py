@@ -74,7 +74,14 @@ FOOTBALL_REQUIRED = [
 
 # Palavras árabes genéricas — só contam se outro keyword Saudi não-ambíguo também presente
 # Nota: removemos الاتفاق/التعاون/الشباب/الفتح daqui pois são nomes de clubes sauditas
-AMBIGUOUS_ARABIC = {"الاتحاد", "دوري", "الفريق", "اللاعب", "المدرب"}
+# Termos de treinador/jogador/transferência também são genéricos (qualquer país usa essas
+# palavras) — viraram ambíguos depois que um artigo sobre a federação turca de futebol
+# (sem nenhum termo saudita real) passou pelo filtro só por citar "مدرب" e "لاعب".
+AMBIGUOUS_ARABIC = {
+    "الاتحاد", "دوري", "الفريق", "اللاعب", "المدرب",
+    "مدرب", "لاعب", "صفقة", "صفقات", "انتقال", "انتقالات",
+    "إعارة", "رحيل", "عقد", "تعاقد", "تجديد",
+}
 
 def is_relevant(text: str, min_hits: int = 3, title: str = "") -> bool:
     text_lower = text.lower()
