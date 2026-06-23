@@ -61,6 +61,9 @@ KEYWORDS = {
         "al qadsiah", "al shabab", "al fateh", "al taawoun",
         "al ettifaq", "al wahda", "damac", "abha", "al fayha",
         "saudi football", "saudi league", "saudi arabia football",
+        # Variante sem espaço/hífen — formato comum de hashtag (#AlAhli, #AlNassr...)
+        "alhilal", "alnassr", "alittihad", "alahli", "alqadsiah",
+        "alshabab", "alfateh", "altaawoun", "alettifaq", "alwahda", "alfayha",
     ],
     "portuguese": [
         "arábia saudita", "liga saudita", "futebol saudita",
@@ -92,6 +95,9 @@ KEYWORDS = {
     "spanish": ["arabia saudita", "liga saudi", "al hilal", "al nassr"],
     "french": ["arabie saoudite", "championnat saoudien", "ligue saoudienne"],
     "italian": ["arabia saudita", "campionato saudita"],
+    # Emoji de bandeira — sinal forte e não-ambíguo de Arábia Saudita,
+    # comum em tweets de mercado de transferências (ex: "#AlAhli 🇸🇦")
+    "symbols": ["🇸🇦"],
 }
 
 TIER_WEIGHTS = {"A": 3, "B": 2, "C": 1}

@@ -60,6 +60,9 @@ FOOTBALL_REQUIRED = [
     "al hilal", "al nassr", "al ittihad", "al ahli", "al shabab", "al fateh",
     "al ettifaq", "al ettifak", "al qadsiah", "al fayha", "al taawoun", "al wahda", "damac",
     "al-hilal", "al-nassr", "al-ittihad", "al-ahli", "al-shabab", "al-ettifaq",
+    # Variante sem espaço/hífen — formato comum de hashtag (#AlAhli, #AlNassr...)
+    "alhilal", "alnassr", "alittihad", "alahli", "alqadsiah",
+    "alshabab", "alfateh", "altaawoun", "alettifaq", "alwahda", "alfayha",
     # Clubes sauditas em árabe (nomes próprios — não ambíguos)
     "الهلال", "النصر", "الأهلي", "الخلود", "القادسية",
     "الفيحاء", "الحزم", "الخليج", "الأخدود", "ضمك",
