@@ -977,8 +977,11 @@ async def api_logs(limit: int = 20):
 
 
 @app.post("/api/collect")
-async def api_collect(background_tasks: BackgroundTasks):
-    background_tasks.add_task(run_pipeline, True)  # force=True ignora período inativo
+async def api_collect(background_tasks: BackgroundTasks, hours: int = None):
+    # force=True ignora período inativo. hours opcional permite forçar uma
+    # janela maior manualmente (resgate pontual); sem isso, usa o cálculo
+    # dinâmico em lookback_hours() (cobre o tempo desde a última coleta OK).
+    background_tasks.add_task(run_pipeline, True, hours)
     return {"status": "started"}
 
 

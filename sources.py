@@ -36,7 +36,7 @@ TIER_B = {
 TIER_C = {
     "twitter_accounts": [
         "ariyadhiah", "khaled_alhussan", "A_Ragab", "AHADI4",
-        "OKAZ_online", "AlArabiya_spt", "ahmed_aljadi68",
+        "OKAZ_online", "ahmed_aljadi68",
         "SultanALotaibi0", "samialqadi800", "k7aled_otb",
         "lequipe", "NicoSchira", "Glongari", "yagosabuncuoglu", "ahmad2man",
     ],
@@ -151,7 +151,6 @@ SOURCE_MOON = {
     "A_Ragab":         "🌗",
     "AHADI4":          "🌗",
     "OKAZ_online":     "🌗",
-    "AlArabiya_spt":   "🌗",
     "ahmed_aljadi68":  "🌗",
     "SultanALotaibi0": "🌗",
     "samialqadi800":   "🌗",
