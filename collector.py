@@ -9,12 +9,9 @@ import asyncio
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from sources import (
-    TIER_A, TIER_B, TIER_C,
-    TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS
-)
+from sources import TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS
 from clubs import match_saudi_club, match_saudi_club_risky
-from database import make_article_id
+from database import make_article_id, get_effective_sources
 
 REQUEST_TIMEOUT = 15
 
@@ -286,30 +283,18 @@ async def collect_all(hours: int = None) -> dict:
     all_articles = []
     stats = {"sources_ok": 0, "sources_fail": 0}
     limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
-    # Load override sources (added via /fontes page)
-    override_file = "sources_override.json"
-    override_extra: dict[str, str] = {}  # handle -> tier
-    try:
-        import json as _json
-        with open(override_file) as _f:
-            for h, ov in _json.load(_f).items():
-                override_extra[h] = ov.get("tier", "C")
-    except Exception:
-        pass
+    # Fontes efetivas = sources.py (TIER_A/B/C) + overrides salvos via /fontes
+    # (fontes adicionadas, excluídas ou com tier trocado). Mesma função usada
+    # pela própria página /fontes pra exibir a lista — antes a coleta lia um
+    # arquivo local que a UI nunca escrevia, então editar fontes ali não tinha
+    # nenhum efeito real na coleta (bug real, 2026-06-24).
+    effective_sources = get_effective_sources()
 
     async with httpx.AsyncClient(limits=limits) as client:
-        tasks = []
-        seen_handles: set[str] = set()
-        for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]:
-            # Somente Twitter — RSS desabilitado
-            for username in tier_data.get("twitter_accounts", []):
-                tasks.append((tier_label, "twitter", f"@{username}", username))
-                seen_handles.add(username.lower())
-        # Add sources from override that aren't already in sources.py
-        for handle, tier_label in override_extra.items():
-            if handle.lower() not in seen_handles:
-                tasks.append((tier_label, "twitter", f"@{handle}", handle))
-                seen_handles.add(handle.lower())
+        tasks = [
+            (s["tier"], "twitter", f"@{s['handle']}", s["handle"])
+            for s in effective_sources
+        ]
         BATCH_SIZE = 10
         for i in range(0, len(tasks), BATCH_SIZE):
             batch = tasks[i:i + BATCH_SIZE]

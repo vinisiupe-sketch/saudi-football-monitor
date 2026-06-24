@@ -201,7 +201,7 @@ function toggleTheme(){
 @app.get("/", response_class=HTMLResponse)
 async def dashboard():
     articles = get_recent_articles(hours=48, limit=80)
-    _deleted_sources = {h.upper() for h, ov in _load_overrides().items() if ov.get("deleted")}
+    _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
     articles = [
         a for a in articles
         if a.get("relevance_score", 0) >= 0.45
@@ -676,7 +676,7 @@ async def dashboard():
 @app.get("/selecao", response_class=HTMLResponse)
 async def selecao_page():
     all_articles = get_recent_articles(hours=48, limit=200)
-    _deleted_sources = {h.upper() for h, ov in _load_overrides().items() if ov.get("deleted")}
+    _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
     articles = [
         a for a in all_articles
         if a.get("relevance_score", 0) >= 0.45
@@ -942,7 +942,7 @@ async def api_badge_counts(since: str = ""):
         else:
             since = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
     articles = get_recent_articles(hours=48, limit=300)
-    _deleted_sources = {h.upper() for h, ov in _load_overrides().items() if ov.get("deleted")}
+    _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
     visible = [
         a for a in articles
         if a.get("relevance_score", 0) >= 0.45
@@ -1309,49 +1309,13 @@ async def twitter_test(username: str = "FabrizioRomano"):
 
 
 # ─── Gestão de Fontes ──────────────────────────
-# Persistido no Postgres (app_state) em vez de arquivo local: o disco do
-# container na Railway não é persistente e some a cada redeploy.
-OVERRIDE_KEY = "source_overrides"
-OVERRIDE_FILE = "sources_override.json"  # legado, só para migração local
-
-def _load_overrides() -> dict:
-    """Retorna {handle: {moon, tier}} dos overrides de fontes."""
-    try:
-        raw = get_state(OVERRIDE_KEY)
-        if raw is not None:
-            return json.loads(raw)
-    except Exception:
-        pass
-    # Migração: se existir um arquivo local antigo e nada no banco ainda, importa uma vez.
-    try:
-        with open(OVERRIDE_FILE) as f:
-            data = json.load(f)
-        if data:
-            _save_overrides(data)
-        return data
-    except Exception:
-        return {}
-
-def _save_overrides(data: dict):
-    set_state(OVERRIDE_KEY, json.dumps(data, ensure_ascii=False))
-
-def get_effective_sources() -> list[dict]:
-    """Combina sources.py com overrides. Retorna lista de {handle, tier, moon}."""
-    from sources import TIER_A, TIER_B, TIER_C, SOURCE_MOON
-    overrides = _load_overrides()
-    base: dict[str, dict] = {}
-    for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]:
-        for h in tier_data.get("twitter_accounts", []):
-            base[h] = {"handle": h, "tier": tier_label, "moon": SOURCE_MOON.get(h, "")}
-    # Apply overrides (deleted sources are excluded)
-    for h, ov in overrides.items():
-        if ov.get("deleted"):
-            base.pop(h, None)
-        elif h in base:
-            base[h].update(ov)
-        else:
-            base[h] = {"handle": h, "tier": ov.get("tier", "C"), "moon": ov.get("moon", "🌗")}
-    return sorted(base.values(), key=lambda x: (x["tier"], x["handle"].lower()))
+# A lógica de overrides mora em database.py (get_effective_sources /
+# load_source_overrides / save_source_overrides) — collector.py importa as
+# mesmas funções, então a coleta real sempre vê exatamente a lista mostrada
+# aqui. Antes, collector.py tinha sua própria leitura (de um arquivo local que
+# a UI nunca escrevia), então adicionar/excluir fonte em /fontes não tinha
+# NENHUM efeito na coleta (bug real reportado pelo usuário em 2026-06-24).
+from database import get_effective_sources, load_source_overrides, save_source_overrides
 
 
 @app.get("/fontes", response_class=HTMLResponse)
@@ -1719,14 +1683,14 @@ async def api_fontes(request: Request):
     handle = (body.get("handle") or "").strip().lstrip("@")
     if not handle:
         return JSONResponse({"error": "handle obrigatório"}, status_code=400)
-    overrides = _load_overrides()
+    overrides = load_source_overrides()
     if action == "upsert":
         overrides[handle] = {"tier": body.get("tier", "C"), "moon": body.get("moon", "🌗")}
     elif action == "delete":
         overrides[handle] = {"deleted": True}
     else:
         return JSONResponse({"error": "action inválida"}, status_code=400)
-    _save_overrides(overrides)
+    save_source_overrides(overrides)
     return JSONResponse({"ok": True})
 
 

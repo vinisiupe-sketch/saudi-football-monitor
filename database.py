@@ -189,6 +189,52 @@ def set_state(key: str, value: str):
         """, (key, value))
 
 
+SOURCE_OVERRIDE_KEY = "source_overrides"
+
+
+def load_source_overrides() -> dict:
+    """Retorna {handle: {tier, moon}} ou {handle: {deleted: True}} salvos via /fontes."""
+    try:
+        raw = get_state(SOURCE_OVERRIDE_KEY)
+        if raw is not None:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return {}
+
+
+def save_source_overrides(data: dict):
+    set_state(SOURCE_OVERRIDE_KEY, json.dumps(data, ensure_ascii=False))
+
+
+def get_effective_sources() -> list[dict]:
+    """Combina sources.py (TIER_A/B/C) com os overrides salvos via /fontes — fontes
+    adicionadas manualmente entram, fontes deletadas saem, tier/moon editados valem.
+
+    Bug real (2026-06-24): essa lógica existia só dentro de main.py (pra exibir a
+    página /fontes), e collector.py tinha sua PRÓPRIA leitura de overrides — de um
+    arquivo local (sources_override.json) que a UI nunca escrevia (ela já salvava
+    no Postgres há tempos). Resultado: adicionar ou excluir uma fonte em /fontes
+    não tinha NENHUM efeito na coleta real — o coletor sempre rodava só com o que
+    estava em sources.py, ignorando completamente os overrides. Agora main.py e
+    collector.py chamam essa mesma função, então os dois sempre veem a lista
+    efetiva idêntica."""
+    from sources import TIER_A, TIER_B, TIER_C, SOURCE_MOON
+    overrides = load_source_overrides()
+    base: dict[str, dict] = {}
+    for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]:
+        for h in tier_data.get("twitter_accounts", []):
+            base[h] = {"handle": h, "tier": tier_label, "moon": SOURCE_MOON.get(h, "")}
+    for h, ov in overrides.items():
+        if ov.get("deleted"):
+            base.pop(h, None)
+        elif h in base:
+            base[h].update(ov)
+        else:
+            base[h] = {"handle": h, "tier": ov.get("tier", "C"), "moon": ov.get("moon", "🌗")}
+    return sorted(base.values(), key=lambda x: (x["tier"], x["handle"].lower()))
+
+
 def make_article_id(url: str, title: str) -> str:
     raw = f"{url}|{title}".encode()
     return hashlib.sha256(raw).hexdigest()[:16]
