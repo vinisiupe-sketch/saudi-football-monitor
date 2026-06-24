@@ -79,14 +79,19 @@ KEYWORDS = {
         "السعودي", "الدوري السعودي", "كرة القدم السعودية", "روشن", "دوري روشن",
         "دوري روشن السعودي للمحترفين",
         # Clubes sauditas (nomes próprios — não ambíguos)
-        "الهلال", "النصر", "الأهلي", "الخلود", "القادسية",
-        "الفيحاء", "الحزم", "الخليج", "النجمة", "الأخدود", "ضمك",
+        "الهلال", "النصر", "الأهلي", "الخلود",
+        "الفيحاء", "الحزم", "النجمة", "الأخدود", "ضمك",
         "الاتحاد",  # Al Ittihad — clube saudita (estava faltando: nunca tinha sido
                     # adicionado de fato, só citado em comentário — bug real, ficava sem nenhum hit)
-        "الاتفاق",  # Al Ettifaq — nome de clube saudita
-        "التعاون",  # Al Taawoun
-        "الشباب",   # Al Shabab
-        "الفتح",    # Al Fateh
+        # القادسية/الخليج/الاتفاق/التعاون/الشباب/الفتح foram REMOVIDOS daqui de propósito.
+        # São palavras árabes genéricas (golfo/acordo/cooperação/jovens/conquista/batalha
+        # histórica) que também são nomes de clube — confirmado por falsos positivos reais
+        # em 2026-06-24 (reunião do Conselho de Cooperação do Golfo, jogadores jovens da
+        # seleção mexicana). Tratá-las como keyword direta aqui as deixava sempre "diretas"
+        # mesmo pra fontes Twitter com strict_ambiguous=False, contornando a defesa em
+        # AMBIGUOUS_ARABIC. Agora são tratadas EXCLUSIVAMENTE via RISKY_VARIANTS/
+        # match_saudi_club_risky em clubs.py, que exige corroboração sempre — não importa
+        # o tipo de fonte. Não devolva esses termos pra esta lista sem reavaliar isso.
         # Termos de transferência/futebol em árabe — alto sinal quando combinados com clube
         "مدرب",     # treinador/coach
         "لاعب",     # jogador

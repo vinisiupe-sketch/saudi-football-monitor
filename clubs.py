@@ -86,45 +86,132 @@ SPL_CLUBS: dict[str, list[str]] = _parse(_RAW_SPL)
 YELO_CLUBS: dict[str, list[str]] = _parse(_RAW_YELO)
 ALL_CLUBS: dict[str, list[str]] = {**SPL_CLUBS, **YELO_CLUBS}
 
+# Variantes "arriscadas": formas isoladas (sem hífen/sufixo/hashtag) que coincidem
+# com palavra genérica do dicionário árabe/inglês ou com nome de cidade/projeto
+# saudita que aparece o tempo todo em noticiário NÃO esportivo. Confirmado por
+# casos reais sinalizados pelo usuário em 2026-06-24 (ex: "مجلس التعاون لدول
+# الخليج العربية" = Conselho de Cooperação do Golfo, bateu em Al-Taawoun + Al-Khaleej
+# sem ter nada a ver com futebol).
+# Essas formas só contam como sinal de clube se OUTRO sinal claro também estiver
+# presente no texto — formas com hífen/espaço+sufixo/hashtag (#alkhaleej, "al-khaleej",
+# "jeddah sc"...) continuam diretas, pois aí a intenção de citar o clube é explícita.
+RISKY_VARIANTS: frozenset[str] = frozenset(v.lower() for v in [
+    # Al-Khaleej — "الخليج"/"khaleej" bare = "golfo" (geográfico/político, comum)
+    "الخليج", "khaleej",
+    # Al-Taawoun — "التعاون" bare = "cooperação" (ex: Conselho de Cooperação do Golfo)
+    "التعاون", "taawoun", "taawon", "taawun",
+    # Al-Shabab — "الشباب" bare = "jovens/juventude" (usado em qualquer contexto)
+    "الشباب", "shabab",
+    # Al-Fateh — "الفتح" bare = "a conquista/abertura" (histórico/religioso)
+    "الفتح", "fateh", "fath",
+    # Al-Ettifaq — "الاتفاق" bare = "o acordo" (político/comercial, muito comum)
+    "الاتفاق",
+    # Al-Qadsiah — "القادسية" é também a famosa batalha histórica de Qadisiyyah
+    "القادسية", "qadsiah", "qadisiyah", "qadisiya", "quadisiya",
+    # Al-Riyadh — "الرياض"/"riyadh" bare = a capital saudita, citada em qualquer notícia do país
+    "الرياض", "riyadh", "riyad",
+    # Jeddah — "جدة"/"jeddah" bare = a cidade, citada em qualquer notícia do país
+    "جدة", "jeddah", "jidda", "jiddah",
+    # Al-Wehda — "الوحدة" bare = "a unidade" (político/social, muito comum)
+    "الوحدة", "wehda", "wahda", "wihda",
+    # Al-Adalah — "العدالة" bare = "a justiça" (jurídico/político, muito comum)
+    "العدالة", "adalah", "adala",
+    # Al-Arabi — "العربي"/"arabi" bare = "o árabe" (adjetivo genérico extremamente comum)
+    "العربي", "arabi", "araby",
+    # NEOM — "نيوم"/"neom" bare = megaprojeto saudita, constante em noticiário de
+    # negócios/turismo sem relação com o clube de futebol NEOM SC
+    "نيوم", "neom",
+    # Al-Diriyah — "الدرعية" bare = sítio histórico/turístico (Diriyah Gate), muito
+    # noticiado fora do contexto do clube
+    "الدرعية", "diriyah", "diraiyah", "deriyah",
+    # Al-Ula — "العلا"/"alula" bare = destino turístico/patrimônio mundial (AlUla),
+    # muito noticiado fora do contexto do clube
+    "العلا", "العُلا", "ula", "alula", "ola", "alola",
+    # Abha — "أبها"/"abha" bare = capital da região de Asir, cidade turística
+    "أبها", "ابها", "abha",
+    # Al-Jubail — "الجبيل"/"jubail" bare = grande cidade industrial/petroquímica
+    "الجبيل", "jubail", "jubayl",
+    # Al-Najmah — "النجمة" bare = "a estrela/celebridade" (genérico, comum)
+    "النجمة", "najmah", "najma",
+])
 
-def _build_pattern(clubs: dict[str, list[str]]) -> re.Pattern:
+
+def _build_pattern(variants: set[str]) -> re.Pattern:
     """
-    Regex única com todas as variantes, usando fronteiras de palavra
-    ((?<!\\w) / (?!\\w)) em vez de simples substring "in" — necessário porque
-    a lista tem variantes curtas (ex: "tai", "raid", "ola", "tay", "fath")
-    que apareceriam dentro de palavras comuns em inglês ("obtain", "father",
-    "cola") se fosse um match de substring ingênuo. Hashtags (#al-ahli) já
-    começam com um caractere não-alfanumérico, então a fronteira do início
-    é satisfeita naturalmente.
+    Regex única com fronteiras de palavra em vez de simples substring "in" —
+    necessário porque a lista tem variantes curtas (ex: "tai", "ola", "tay",
+    "fath") que apareceriam dentro de palavras comuns em inglês ("obtain",
+    "father", "cola") se fosse um match de substring ingênuo. Hashtags
+    (#al-ahli) já começam com um caractere não-alfanumérico, então a fronteira
+    do início é satisfeita naturalmente.
+
+    Fronteira usa (?<![^\\W_]) / (?![^\\W_]) em vez do \\w padrão — propositalmente
+    trata "_" como fronteira válida (não como caractere de palavra), porque
+    hashtags árabes no Twitter costumam juntar palavras com underscore
+    (#الهلال_السعودي, #دوري_روشن_السعودي). Com \\b/\\w puro, "الهلال" dentro de
+    "الهلال_السعودي" não bateria, pois "_" conta como \\w e bloquearia a
+    fronteira — bug real descoberto ao validar os casos do usuário em 2026-06-24.
+
+    Variantes com mais de uma palavra (ex: "al ahli", "jeddah sc") também
+    precisam casar quando o separador real no texto é "_" em vez de espaço
+    (mesmo motivo acima) — por isso o espaço escapado vira [\\s_]+ no lugar de
+    um espaço literal.
     """
-    variants: set[str] = set()
-    for vs in clubs.values():
-        variants.update(v.lower() for v in vs)
-    escaped = sorted((re.escape(v) for v in variants), key=len, reverse=True)
-    pattern = r"(?<!\w)(?:" + "|".join(escaped) + r")(?!\w)"
+    if not variants:
+        return re.compile(r"(?!)")  # nunca bate
+    escaped = sorted(
+        (re.escape(v).replace(r"\ ", r"[\s_]+") for v in variants),
+        key=len, reverse=True,
+    )
+    pattern = r"(?<![^\W_])(?:" + "|".join(escaped) + r")(?![^\W_])"
     return re.compile(pattern, re.IGNORECASE | re.UNICODE)
 
 
-_CLUB_PATTERN = _build_pattern(ALL_CLUBS)
+def _all_variants_lower() -> set[str]:
+    variants: set[str] = set()
+    for vs in ALL_CLUBS.values():
+        variants.update(v.lower() for v in vs)
+    return variants
+
+
+_ALL_VARIANTS_LOWER = _all_variants_lower()
+_SAFE_VARIANTS = _ALL_VARIANTS_LOWER - RISKY_VARIANTS
+_RISKY_PRESENT = _ALL_VARIANTS_LOWER & RISKY_VARIANTS
+
+_SAFE_PATTERN = _build_pattern(_SAFE_VARIANTS)
+_RISKY_PATTERN = _build_pattern(_RISKY_PRESENT)
 
 
 def match_saudi_club(text: str) -> bool:
-    """True se o texto citar qualquer clube saudita (SPL ou Yelo), em
-    qualquer grafia/transliteração/variação de hashtag conhecida."""
+    """True se o texto citar um clube saudita (SPL ou Yelo) de forma segura —
+    qualquer grafia/transliteração/hashtag, EXCETO as formas isoladas que
+    colidem com palavra genérica ou nome de cidade/projeto (ver RISKY_VARIANTS).
+    Usado para satisfazer o gate "é sobre futebol" e como hit direto."""
     if not text:
         return False
-    return bool(_CLUB_PATTERN.search(text))
+    return bool(_SAFE_PATTERN.search(text.lower()))
+
+
+def match_saudi_club_risky(text: str) -> bool:
+    """True se o texto citar uma forma 'arriscada' (ver RISKY_VARIANTS) — só
+    deve contar como sinal adicional se outro sinal claro também estiver
+    presente, nunca como prova isolada de contexto futebolístico saudita."""
+    if not text:
+        return False
+    return bool(_RISKY_PATTERN.search(text.lower()))
 
 
 def find_saudi_clubs(text: str) -> list[str]:
-    """Retorna as chaves dos clubes citados no texto (pode ter mais de um)."""
+    """Retorna as chaves dos clubes citados no texto (pode ter mais de um),
+    considerando tanto variantes seguras quanto arriscadas."""
     if not text:
         return []
     text_lower = text.lower()
     found = []
     for key, variants in ALL_CLUBS.items():
         for v in variants:
-            if re.search(r"(?<!\w)" + re.escape(v.lower()) + r"(?!\w)", text_lower):
+            v_pattern = re.escape(v.lower()).replace(r"\ ", r"[\s_]+")
+            if re.search(r"(?<![^\W_])" + v_pattern + r"(?![^\W_])", text_lower):
                 found.append(key)
                 break
     return found

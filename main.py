@@ -46,7 +46,12 @@ def _is_selecao_article(a: dict) -> bool:
         a.get("title_pt") or "", a.get("title_orig") or "",
         a.get("body_pt") or "", a.get("body_orig") or "",
     ])
-    tl = text.lower()
+    # "_" -> " " porque hashtags árabes no Twitter juntam palavras com underscore
+    # (#المنتخب_السعودي) — sem isso, "المنتخب السعودي" (com espaço) em SELECAO_KEYWORDS
+    # nunca batia nesse formato de hashtag, e o artigo caía na heurística de
+    # país+ausência-de-clube abaixo, que tem seu próprio ponto fraco (nome de
+    # jogador que colide com nome de clube). Bug real visto em 2026-06-24.
+    tl = text.lower().replace("_", " ")
     if any(kw.lower() in tl for kw in SELECAO_KEYWORDS):
         return True
     # Heurística: menciona o país sauditas como time (ex: "Espanha x Arábia Saudita"),
@@ -71,7 +76,7 @@ def _is_actually_saudi_football(a: dict) -> bool:
     Filtro final contra falsos positivos do relevance_score (ex: notícia sobre
     Werder Bremen/clube europeu que só passou porque o corpo raspado mencionava
     a Arábia Saudita em outro trecho, sem o título ter qualquer relação real)."""
-    title = f"{a.get('title_pt') or ''} {a.get('title_orig') or ''}".lower().replace("-", " ")
+    title = f"{a.get('title_pt') or ''} {a.get('title_orig') or ''}".lower().replace("-", " ").replace("_", " ")
     if any(term in title for term in SAUDI_TITLE_SIGNAL_TERMS):
         return True
     if any(kw.lower() in title for kw in SELECAO_KEYWORDS):

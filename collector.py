@@ -13,7 +13,7 @@ from sources import (
     TIER_A, TIER_B, TIER_C,
     TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS
 )
-from clubs import match_saudi_club
+from clubs import match_saudi_club, match_saudi_club_risky
 from database import make_article_id
 
 REQUEST_TIMEOUT = 15
@@ -41,10 +41,45 @@ def detect_language(text: str) -> str:
     return "en"
 
 
+# Matching de keyword com fronteira de palavra real em vez de substring "in"
+# ingênuo. Necessário porque árabe é aglutinante — prefixos/sufixos (ال-, م-,
+# -ة, -ته...) colam direto na raiz sem espaço — então um termo curto como "عقد"
+# (contrato) bate como substring dentro de "المنعقد" (convocado/reunido), que
+# não tem nada a ver com futebol. Foi exatamente assim que a reunião do Conselho de
+# Cooperação do Golfo (caso real sinalizado pelo usuário em 2026-06-24) passou pelo
+# gate FOOTBALL_REQUIRED: "المنعقد" continha "عقد" como substring solta. Mesmo
+# princípio já usado em clubs.py para nomes de clube — agora replicado aqui pra
+# qualquer keyword (inglês/português/árabe), já que frases com espaço (ex: "al hilal",
+# "pro league") continuam funcionando normalmente com este esquema.
+#
+# Fronteira usa (?<![^\w_]) ... na verdade (?<![^\W_]) / (?![^\W_]) — trata "_"
+# como fronteira válida (não como caractere de palavra), porque hashtags árabes
+# no Twitter juntam palavras com underscore (#دوري_روشن_السعودي). Com \w puro,
+# "السعودي" dentro desse hashtag não bateria (o "_" bloquearia a fronteira) —
+# mesmo bug descoberto e corrigido em clubs.py, replicado aqui por consistência.
+_KEYWORD_PATTERN_CACHE: dict[str, re.Pattern] = {}
+
+
+def _compile_word_pattern(word: str) -> re.Pattern:
+    cached = _KEYWORD_PATTERN_CACHE.get(word)
+    if cached is None:
+        # Frases com mais de uma palavra (ex: "saudi national team") também precisam
+        # casar quando o separador real é "_" em vez de espaço — comum em hashtags
+        # árabes (#المنتخب_السعودي) — por isso o espaço escapado vira [\s_]+.
+        escaped = re.escape(word.lower()).replace(r"\ ", r"[\s_]+")
+        cached = re.compile(r"(?<![^\W_])" + escaped + r"(?![^\W_])", re.IGNORECASE | re.UNICODE)
+        _KEYWORD_PATTERN_CACHE[word] = cached
+    return cached
+
+
+def _contains_word(text_lower: str, word: str) -> bool:
+    return bool(_compile_word_pattern(word).search(text_lower))
+
+
 def compute_relevance(text: str, tier: str) -> float:
     text_lower = text.lower()
     all_keywords = [kw for lang_kws in KEYWORDS.values() for kw in lang_kws]
-    hits = sum(1 for kw in all_keywords if kw.lower() in text_lower)
+    hits = sum(1 for kw in all_keywords if _contains_word(text_lower, kw))
     keyword_score = min(hits / 5.0, 1.0)
     tier_bonus = TIER_WEIGHTS.get(tier, 1) / 3.0
     return round((keyword_score * 0.7) + (tier_bonus * 0.3), 3)
@@ -65,22 +100,37 @@ FOOTBALL_REQUIRED = [
     "alhilal", "alnassr", "alittihad", "alahli", "alqadsiah",
     "alshabab", "alfateh", "altaawoun", "alettifaq", "alwahda", "alfayha",
     # Clubes sauditas em árabe (nomes próprios — não ambíguos)
-    "الهلال", "النصر", "الأهلي", "الخلود", "القادسية",
-    "الفيحاء", "الحزم", "الخليج", "الأخدود", "ضمك",
-    # Nomes de clube árabes que eram ambíguos — mantidos pois são suficientemente específicos
-    "الاتفاق",  # Al Ettifaq
-    "التعاون",  # Al Taawoun
-    "الشباب",   # Al Shabab
-    "الفتح",    # Al Fateh
+    "الهلال", "النصر", "الأهلي", "الخلود",
+    "الفيحاء", "الحزم", "الأخدود", "ضمك",
     # Termos árabes de futebol — qualificam o contexto
     "مدرب", "لاعب", "مباراة", "دوري", "انتقال", "صفقة", "رحيل", "عقد", "إعارة",
+    # Seleção Saudita — o app tem uma aba dedicada (/selecao, ver main.py) pra esse
+    # conteúdo, então ele PRECISA continuar sendo coletado (não é pra excluir).
+    # Tinha um caso real (2026-06-24) de um tweet sobre a seleção que só passava
+    # pelo gate por acidente (via o bug do "لاعب" dentro de "اللاعب" — já corrigido
+    # acima) — agora tem sinal explícito e seguro, sem depender de bug de substring.
+    # Mesma lista usada em SELECAO_KEYWORDS (main.py) pra rotear pra aba certa.
+    "المنتخب السعودي", "منتخب السعودية", "الأخضر", "منتخبنا",
+    "saudi national team", "saudi arabia national", "green falcons", "saudi nt",
+    "seleção saudita", "seleção da arábia", "selecao saudita",
 ]
 
 # Palavras árabes genéricas — só contam se outro keyword Saudi não-ambíguo também presente
-# Nota: removemos الاتفاق/التعاون/الشباب/الفتح daqui pois são nomes de clubes sauditas
 # Termos de treinador/jogador/transferência também são genéricos (qualquer país usa essas
 # palavras) — viraram ambíguos depois que um artigo sobre a federação turca de futebol
 # (sem nenhum termo saudita real) passou pelo filtro só por citar "مدرب" e "لاعب".
+#
+# IMPORTANTE: الخليج/الاتفاق/التعاون/الشباب/الفتح/القادسية NÃO estão aqui de propósito,
+# mesmo sendo ambíguas. Tentei tratá-las aqui primeiro, mas esse mecanismo só se aplica
+# quando strict_ambiguous=True — e fontes Twitter (a maioria das fontes monitoradas)
+# sempre chamam com strict_ambiguous=False, contornando a defesa completamente. Foi
+# exatamente assim que os 2 falsos positivos reais de 2026-06-24 passaram (reunião do
+# Conselho de Cooperação do Golfo via @OKAZ_online, jogadores jovens da seleção mexicana
+# via @aawsat_spt — ambas fontes Twitter). Essas 6 palavras foram removidas de
+# KEYWORDS["arabic"] (sources.py) e agora são tratadas EXCLUSIVAMENTE via
+# RISKY_VARIANTS/match_saudi_club_risky em clubs.py, que exige corroboração de forma
+# incondicional (não depende de strict_ambiguous nem de source_type). Não as adicione
+# de volta aqui nem em KEYWORDS sem reavaliar esse bypass.
 AMBIGUOUS_ARABIC = {
     "الاتحاد", "دوري", "الفريق", "اللاعب", "المدرب",
     "مدرب", "لاعب", "صفقة", "صفقات", "انتقال", "انتقالات",
@@ -93,8 +143,11 @@ def is_relevant(text: str, min_hits: int = 3, title: str = "", strict_ambiguous:
     # transliterações/hífen/espaço/hashtag conhecidas — citar qualquer um por nome já
     # prova contexto de futebol saudita por si só, então também serve pro gate abaixo.
     club_hit = match_saudi_club(text_lower)
+    # club_risky_hit = formas tipo "jeddah"/"riyadh"/"الخليج" sozinhas — colidem com
+    # cidade/palavra genérica, então NUNCA bastam por si só (nem pro gate nem pro hit).
+    club_risky_hit = match_saudi_club_risky(text_lower)
     # Must have at least one football-specific term — ou um clube saudita reconhecido
-    if not (club_hit or any(kw in text_lower for kw in FOOTBALL_REQUIRED)):
+    if not (club_hit or any(_contains_word(text_lower, kw) for kw in FOOTBALL_REQUIRED)):
         return False
     # Count keyword hits — ambiguous Arabic words only count if another Saudi keyword also present.
     # strict_ambiguous=False (usado para contas de Twitter curadas) trata esses termos como
@@ -104,13 +157,15 @@ def is_relevant(text: str, min_hits: int = 3, title: str = "", strict_ambiguous:
     ambiguous_hits = 0
     for lang_kws in KEYWORDS.values():
         for kw in lang_kws:
-            if kw.lower() in text_lower:
+            if _contains_word(text_lower, kw):
                 if strict_ambiguous and kw in AMBIGUOUS_ARABIC:
                     ambiguous_hits += 1
                 else:
                     hits += 1
     if club_hit:
         hits += 1
+    if club_risky_hit:
+        ambiguous_hits += 1
     # Ambiguous hits only count if there's already a clear Saudi hit
     if hits > 0:
         hits += ambiguous_hits
