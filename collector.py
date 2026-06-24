@@ -13,6 +13,7 @@ from sources import (
     TIER_A, TIER_B, TIER_C,
     TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS
 )
+from clubs import match_saudi_club
 from database import make_article_id
 
 REQUEST_TIMEOUT = 15
@@ -88,8 +89,12 @@ AMBIGUOUS_ARABIC = {
 
 def is_relevant(text: str, min_hits: int = 3, title: str = "", strict_ambiguous: bool = True) -> bool:
     text_lower = text.lower()
-    # Must have at least one football-specific term
-    if not any(kw in text_lower for kw in FOOTBALL_REQUIRED):
+    # clubs.py é a lista mestre de clubes sauditas (SPL + Yelo League), com todas as
+    # transliterações/hífen/espaço/hashtag conhecidas — citar qualquer um por nome já
+    # prova contexto de futebol saudita por si só, então também serve pro gate abaixo.
+    club_hit = match_saudi_club(text_lower)
+    # Must have at least one football-specific term — ou um clube saudita reconhecido
+    if not (club_hit or any(kw in text_lower for kw in FOOTBALL_REQUIRED)):
         return False
     # Count keyword hits — ambiguous Arabic words only count if another Saudi keyword also present.
     # strict_ambiguous=False (usado para contas de Twitter curadas) trata esses termos como
@@ -104,6 +109,8 @@ def is_relevant(text: str, min_hits: int = 3, title: str = "", strict_ambiguous:
                     ambiguous_hits += 1
                 else:
                     hits += 1
+    if club_hit:
+        hits += 1
     # Ambiguous hits only count if there's already a clear Saudi hit
     if hits > 0:
         hits += ambiguous_hits
