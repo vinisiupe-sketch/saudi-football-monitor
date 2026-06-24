@@ -64,6 +64,10 @@ KEYWORDS = {
         # Variante sem espaço/hífen — formato comum de hashtag (#AlAhli, #AlNassr...)
         "alhilal", "alnassr", "alittihad", "alahli", "alqadsiah",
         "alshabab", "alfateh", "altaawoun", "alettifaq", "alwahda", "alfayha",
+        # Variante com hífen — grafia padrão da mídia em inglês (Al-Ettifaq, Al-Fayha...)
+        # (al-hilal/al-nassr/al-ittihad/al-ahli já cobertos na lista "portuguese" abaixo)
+        "al-qadsiah", "al-shabab", "al-fateh", "al-taawoun",
+        "al-ettifaq", "al-wahda", "al-fayha",
     ],
     "portuguese": [
         "arábia saudita", "liga saudita", "futebol saudita",
@@ -77,6 +81,8 @@ KEYWORDS = {
         # Clubes sauditas (nomes próprios — não ambíguos)
         "الهلال", "النصر", "الأهلي", "الخلود", "القادسية",
         "الفيحاء", "الحزم", "الخليج", "النجمة", "الأخدود", "ضمك",
+        "الاتحاد",  # Al Ittihad — clube saudita (estava faltando: nunca tinha sido
+                    # adicionado de fato, só citado em comentário — bug real, ficava sem nenhum hit)
         "الاتفاق",  # Al Ettifaq — nome de clube saudita
         "التعاون",  # Al Taawoun
         "الشباب",   # Al Shabab

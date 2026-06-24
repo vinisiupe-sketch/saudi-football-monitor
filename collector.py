@@ -86,18 +86,21 @@ AMBIGUOUS_ARABIC = {
     "إعارة", "رحيل", "عقد", "تعاقد", "تجديد",
 }
 
-def is_relevant(text: str, min_hits: int = 3, title: str = "") -> bool:
+def is_relevant(text: str, min_hits: int = 3, title: str = "", strict_ambiguous: bool = True) -> bool:
     text_lower = text.lower()
     # Must have at least one football-specific term
     if not any(kw in text_lower for kw in FOOTBALL_REQUIRED):
         return False
-    # Count keyword hits — ambiguous Arabic words only count if another Saudi keyword also present
+    # Count keyword hits — ambiguous Arabic words only count if another Saudi keyword also present.
+    # strict_ambiguous=False (usado para contas de Twitter curadas) trata esses termos como
+    # diretos: o risco de falso positivo (ex: "الاتحاد" = federação de outro país) é baixo quando
+    # a fonte já é um jornalista dedicado a futebol saudita, diferente de uma busca RSS genérica.
     hits = 0
     ambiguous_hits = 0
     for lang_kws in KEYWORDS.values():
         for kw in lang_kws:
             if kw.lower() in text_lower:
-                if kw in AMBIGUOUS_ARABIC:
+                if strict_ambiguous and kw in AMBIGUOUS_ARABIC:
                     ambiguous_hits += 1
                 else:
                     hits += 1
@@ -173,7 +176,12 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
         link = getattr(entry, "link", "") or ""
         body = re.sub(r"<[^>]+>", " ", summary).strip()
         full_text = f"{title} {body}"
-        if not is_relevant(full_text, min_hits=2):
+        # Contas de Twitter monitoradas são todas jornalistas de futebol curados —
+        # 1 sinal saudita claro já basta (o gate FOOTBALL_REQUIRED acima já garante
+        # contexto de futebol). Feeds RSS (Google News etc.) cobrem futebol mundial,
+        # então continuam exigindo 2 sinais pra evitar ruído de notícias não-sauditas.
+        min_hits = 1 if source_type == "twitter" else 2
+        if not is_relevant(full_text, min_hits=min_hits, strict_ambiguous=(source_type != "twitter")):
             continue
         published = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
