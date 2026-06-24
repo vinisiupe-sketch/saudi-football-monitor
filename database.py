@@ -6,6 +6,7 @@ import os
 import hashlib
 import json
 from contextlib import contextmanager
+from datetime import datetime, timezone
 import psycopg2
 import psycopg2.extras
 
@@ -233,6 +234,32 @@ def get_effective_sources() -> list[dict]:
         else:
             base[h] = {"handle": h, "tier": ov.get("tier", "C"), "moon": ov.get("moon", "🌗")}
     return sorted(base.values(), key=lambda x: (x["tier"], x["handle"].lower()))
+
+
+TOKEN_STATUS_KEY = "twitter_token_status"
+
+
+def get_token_status() -> dict:
+    """Retorna {status: 'ok'|'broken', detail: str, checked_at: iso} do último check
+    diário do token X/Twitter do RSSHub (rotina agendada twitter-token-check).
+    {} se nunca checado — o front trata isso como 'desconhecido' (bolinha cinza)."""
+    try:
+        raw = get_state(TOKEN_STATUS_KEY)
+        if raw is not None:
+            return json.loads(raw)
+    except Exception:
+        pass
+    return {}
+
+
+def set_token_status(status: str, detail: str = ""):
+    """status = 'ok' | 'broken'. Chamado via POST /api/token-status pela rotina
+    diária que verifica o token X/Twitter do RSSHub."""
+    set_state(TOKEN_STATUS_KEY, json.dumps({
+        "status": status,
+        "detail": detail,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
+    }, ensure_ascii=False))
 
 
 def make_article_id(url: str, title: str) -> str:

@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -133,6 +133,9 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "    .theme-toggle .ico-sun { display: none; }\n"
     "    :root[data-theme=\"dark\"] .theme-toggle .ico-moon { display: none; }\n"
     "    :root[data-theme=\"dark\"] .theme-toggle .ico-sun { display: block; }\n"
+    "    .token-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c-muted-2); margin-right: 8px; flex-shrink: 0; cursor: default; }\n"
+    "    .token-dot.ok { background: #22c55e; }\n"
+    "    .token-dot.broken { background: #ef4444; }\n"
 )
 
 _THEME_INIT_SCRIPT = '<script>(function(){try{if(localStorage.getItem("iarabao_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}})();</script>'
@@ -193,7 +196,32 @@ function toggleTheme(){
   else { html.setAttribute('data-theme','dark'); try{localStorage.setItem('iarabao_theme','dark');}catch(e){} }
 }
 </script>"""
-    return f'<header><a class="brand" href="/">IARABÃO</a>{items}{theme_btn}</header>{badge_script}{theme_script}'
+    token_dot = '<span class="token-dot" id="tokenDot" title="Token X/Twitter: verificando…"></span>'
+    token_script = """<script>
+(function(){
+  async function loadTokenStatus(){
+    var el = document.getElementById('tokenDot');
+    if(!el) return;
+    try{
+      var r = await fetch('/api/token-status');
+      var d = await r.json();
+      if(!d || !d.status){
+        el.title = 'Token X/Twitter: ainda não verificado';
+        return;
+      }
+      el.classList.remove('ok','broken');
+      el.classList.add(d.status === 'ok' ? 'ok' : 'broken');
+      var quando = '';
+      try{ quando = new Date(d.checked_at).toLocaleString('pt-BR'); }catch(e){}
+      el.title = 'Token X/Twitter: ' + (d.status === 'ok' ? 'OK' : 'quebrado')
+        + (quando ? ' · checado em ' + quando : '')
+        + (d.detail ? ' · ' + d.detail : '');
+    }catch(e){}
+  }
+  document.addEventListener('DOMContentLoaded', loadTokenStatus);
+})();
+</script>"""
+    return f'<header>{token_dot}<a class="brand" href="/">IARABÃO</a>{items}{theme_btn}</header>{badge_script}{theme_script}{token_script}'
 
 
 
@@ -974,6 +1002,25 @@ async def api_stats():
 @app.get("/api/logs")
 async def api_logs(limit: int = 20):
     return get_collection_logs(limit=limit)
+
+
+@app.get("/api/token-status")
+async def api_token_status_get():
+    """Status do último check diário do token X/Twitter (rotina twitter-token-check).
+    Usado pela bolinha verde/vermelha no header."""
+    return get_token_status()
+
+
+@app.post("/api/token-status")
+async def api_token_status_post(request: Request):
+    """Chamado pela rotina diária (8h) ao terminar de checar o token. Body:
+    {"status": "ok"|"broken", "detail": "..."} — detail é opcional."""
+    payload = await request.json()
+    status = payload.get("status")
+    if status not in ("ok", "broken"):
+        return JSONResponse({"error": "status deve ser 'ok' ou 'broken'"}, status_code=400)
+    set_token_status(status, payload.get("detail", ""))
+    return {"saved": True}
 
 
 @app.post("/api/collect")
