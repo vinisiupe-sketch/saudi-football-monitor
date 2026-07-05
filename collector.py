@@ -9,7 +9,7 @@ import asyncio
 import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from sources import TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS
+from sources import TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS, TIER_A, TIER_B, TIER_C
 from clubs import match_saudi_club, match_saudi_club_risky
 from database import make_article_id, get_effective_sources
 
@@ -291,10 +291,21 @@ async def collect_all(hours: int = None) -> dict:
     effective_sources = get_effective_sources()
 
     async with httpx.AsyncClient(limits=limits) as client:
-        tasks = [
+        # Tasks de Twitter: vêm dos overrides (via /fontes) + sources.py — mesma
+        # lista que a página /fontes exibe, garantindo consistência total.
+        twitter_tasks = [
             (s["tier"], "twitter", f"@{s['handle']}", s["handle"])
             for s in effective_sources
         ]
+        # Tasks de RSS: feeds estáticos definidos em sources.py. Não passam por
+        # overrides (o /fontes só gerencia contas do Twitter), então lemos direto
+        # de TIER_A/B/C — sem risco de inconsistência com a UI.
+        rss_tasks = [
+            (tier_label, "rss", _rss_feed_name(feed_url), feed_url)
+            for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]
+            for feed_url in tier_data.get("rss_feeds", [])
+        ]
+        tasks = twitter_tasks + rss_tasks
         BATCH_SIZE = 10
         for i in range(0, len(tasks), BATCH_SIZE):
             batch = tasks[i:i + BATCH_SIZE]
@@ -320,6 +331,26 @@ async def collect_all(hours: int = None) -> dict:
     print(f"\n📡 Coleta: {stats['sources_ok']} ok, {stats['sources_fail']} falhas")
     print(f"   {len(unique_articles)} artigos relevantes\n")
     return {"articles": unique_articles, **stats}
+
+
+def _rss_feed_name(url: str) -> str:
+    """Gera um nome legível para um feed RSS a partir da URL, usado como source_name
+    no banco. Para feeds do Google News com site:X, retorna 'site:X'. Para outros,
+    retorna o domínio limpo."""
+    if "news.google.com" in url:
+        m = re.search(r'site:([^\s&+%]+)', url)
+        if m:
+            return f"site:{m.group(1)}"
+        # Feed genérico do Google News — extrai a query pra identificar
+        m2 = re.search(r'[?&]q=([^&]{1,40})', url)
+        return f"Google News: {m2.group(1)}" if m2 else "Google News"
+    # Domínio direto (arabnews, saudigazette, etc.)
+    try:
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc.replace("www.", "")
+        return domain or url[:50]
+    except Exception:
+        return url[:50]
 
 
 async def _collect_rss(client, tier, name, url) -> Optional[list]:
