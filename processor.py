@@ -64,14 +64,30 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
         "Adapte o texto para o português brasileiro com o estilo natural de sites como ge.globo.com ou ESPN Brasil — fluido, direto, jornalístico. "
         "NÃO faça tradução literal: reescreva as frases para soar natural em português. "
         "Use termos corretos do futebol: 'meio-campista', 'zagueiro', 'lateral', 'atacante', 'volante', 'emprestar', 'janela de transferências'. "
-        "Se o texto já estiver em português, melhore o estilo apenas se necessário. "
+        "Se o texto já estiver em português, melhore o estilo apenas se necessário — mas NUNCA altere a direção factual da notícia. "
         "PONTO DE VISTA — FUTEBOL SAUDITA: quando a notícia envolver um clube saudita e um europeu, "
         "o título e o corpo devem ter o clube saudita como sujeito principal da ação "
         "(ex: 'Al Ittihad se movimenta por Konaté', não 'Konaté deixa o Liverpool'). "
         "Contexto europeu vai no corpo, não no título. "
-        "REGRA CRÍTICA PARA NOMES DE JOGADORES: JAMAIS invente ou deduza nomes de jogadores. "
+        # Nomes: estendido para cobrir técnicos e qualquer pessoa (antes só dizia 'jogadores')
+        "REGRA CRÍTICA PARA NOMES: JAMAIS invente ou deduza nomes de jogadores, técnicos, dirigentes ou qualquer pessoa mencionada. "
+        "Se o texto usa uma abreviação ou apelido (ex: 'إنج', 'Lucho', 'Motta'), mantenha exatamente essa forma no title_pt e no body_pt — "
+        "NÃO complete para o nome completo a menos que o original o escreva por extenso. "
         "Para nomes em árabe que você não conhece com certeza, aplique transliteração direta letra por letra. "
         "Nunca substitua um nome árabe por um nome latino inventado que soe parecido. "
+        # Fatos: impede inventar 'comunicado oficial', 'em entrevista', framing jornalístico ausente no original
+        "REGRA CRÍTICA PARA FATOS: Não adicione informações ausentes no original. "
+        "JAMAIS escreva as seguintes expressões a menos que o texto original as diga explicitamente: "
+        "'em comunicado oficial', 'segundo o clube', 'o clube informou', 'em entrevista', "
+        "'em entrevista exclusiva', 'ao desembarcar', 'em coletiva'. "
+        "Se a notícia vem de uma fonte jornalística ('segundo X', 'sources claim', 'مصادر'), "
+        "preserve esse caráter no português ('segundo fontes', 'de acordo com X') — "
+        "nunca eleve para declaração oficial do clube. "
+        # Transferências: impede inverter quem compra e quem vende
+        "REGRA CRÍTICA PARA TRANSFERÊNCIAS: Preserve rigorosamente a direção da negociação. "
+        "'proposta ao Clube X' = proposta enviada AO clube X (X é o vendedor/destino). "
+        "'proposta do Clube X' = proposta feita PELO clube X (X é o comprador). "
+        "JAMAIS inverta sujeito e objeto de uma transferência. Em caso de ambiguidade, use a formulação mais literal possível. "
         "Responda APENAS com JSON válido, sem markdown.\n"
         + GLOSSARY_PROMPT
     )
@@ -82,7 +98,14 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
             batch = to_translate[i:i + BATCH]
             items_text = ""
             for idx, art in enumerate(batch):
-                items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {art.get('body_orig', '')[:1200]}\n---"
+                body_orig_text = art.get('body_orig', '')
+                brevity_note = (
+                    "\n[TEXTO MUITO CURTO — NÃO expanda. body_pt deve ser fiel ao original; "
+                    "no máximo 1 frase de contexto se absolutamente necessária. "
+                    "Não invente detalhes ausentes.]"
+                    if len(body_orig_text.strip()) < 120 else ""
+                )
+                items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {body_orig_text[:1200]}{brevity_note}\n---"
 
             prompt = f"""Adapte os artigos abaixo para português brasileiro com estilo jornalístico esportivo.
 Classifique cada artigo em UMA categoria: transferencia, patrocinio, planejamento, entrevista, resultado, competicao, treino, financeiro, lesao, sondagem, geral.
