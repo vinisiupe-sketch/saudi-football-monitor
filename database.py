@@ -102,6 +102,7 @@ def init_db():
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
+    init_injuries()
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
@@ -260,6 +261,178 @@ def set_token_status(status: str, detail: str = ""):
         "detail": detail,
         "checked_at": datetime.now(timezone.utc).isoformat(),
     }, ensure_ascii=False))
+
+
+
+# ─────────────────────────────────────────────
+#  MONITOR DE LESÕES
+# ─────────────────────────────────────────────
+
+def init_injuries():
+    """Cria/migra a tabela injuries. Chamado por init_db()."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS injuries (
+                id              TEXT PRIMARY KEY,
+                player_name     TEXT NOT NULL,
+                player_name_orig TEXT,
+                club            TEXT NOT NULL,
+                injury_date     TEXT,
+                injury_type     TEXT,
+                body_part       TEXT,
+                expected_return TEXT,
+                status          TEXT DEFAULT 'lesionado',
+                first_reported  TEXT NOT NULL,
+                last_updated    TEXT NOT NULL,
+                sources         TEXT NOT NULL DEFAULT '[]',
+                notes           TEXT
+            )
+        """)
+
+
+def _normalize(s: str) -> str:
+    """Normaliza string para comparação fuzzy (minúsculo, sem acentos)."""
+    import unicodedata
+    s = s.lower().strip()
+    return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
+
+
+def upsert_injury(data: dict) -> str:
+    """Insere ou atualiza registro de lesão.
+    data keys: player_name, player_name_orig, club, injury_date, injury_type,
+               body_part, expected_return, status, source_info (dict), notes.
+    Matching: mesmo jogador + mesmo clube dentro de 60 dias → atualiza.
+    Retorna 'created' | 'updated'."""
+    from difflib import SequenceMatcher
+
+    player_name = (data.get("player_name") or "").strip()
+    club = (data.get("club") or "").strip()
+    source_info = data.get("source_info") or {}
+    now = datetime.now(timezone.utc).isoformat()
+
+    if not player_name or not club:
+        return "skipped"
+
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+        # Candidatos: mesmo clube, últimos 60 dias
+        c.execute("""
+            SELECT * FROM injuries
+            WHERE LOWER(club) = LOWER(%s)
+              AND last_updated::DATE >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '60 days')::DATE
+            ORDER BY last_updated DESC
+        """, (club,))
+        candidates = [dict(r) for r in c.fetchall()]
+
+        # Fuzzy match por nome de jogador
+        player_norm = _normalize(player_name)
+        best_match, best_ratio = None, 0.0
+        for cand in candidates:
+            ratio = SequenceMatcher(None, player_norm, _normalize(cand["player_name"])).ratio()
+            if ratio > best_ratio:
+                best_ratio, best_match = ratio, cand
+
+        existing = best_match if best_ratio >= 0.75 else None
+
+        if existing:
+            sources = json.loads(existing["sources"] or "[]")
+            url = source_info.get("url", "")
+            if url and url not in [s.get("url") for s in sources]:
+                sources.append(source_info)
+
+            c2 = conn.cursor()
+            c2.execute("""
+                UPDATE injuries SET
+                    player_name     = COALESCE(NULLIF(%s,''), player_name),
+                    injury_type     = COALESCE(NULLIF(%s,''), injury_type),
+                    body_part       = COALESCE(NULLIF(%s,''), body_part),
+                    expected_return = COALESCE(NULLIF(%s,''), expected_return),
+                    status          = %s,
+                    last_updated    = %s,
+                    sources         = %s,
+                    notes           = COALESCE(NULLIF(%s,''), notes)
+                WHERE id = %s
+            """, (
+                player_name,
+                data.get("injury_type") or "",
+                data.get("body_part") or "",
+                data.get("expected_return") or "",
+                data.get("status") or existing["status"],
+                now,
+                json.dumps(sources, ensure_ascii=False),
+                data.get("notes") or "",
+                existing["id"],
+            ))
+            return "updated"
+        else:
+            injury_id = hashlib.sha256(
+                f"{_normalize(player_name)}|{_normalize(club)}|{now[:10]}".encode()
+            ).hexdigest()[:16]
+            sources = [source_info] if source_info else []
+
+            c2 = conn.cursor()
+            c2.execute("""
+                INSERT INTO injuries
+                    (id, player_name, player_name_orig, club, injury_date, injury_type,
+                     body_part, expected_return, status, first_reported, last_updated, sources, notes)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (id) DO NOTHING
+            """, (
+                injury_id,
+                player_name,
+                data.get("player_name_orig"),
+                club,
+                data.get("injury_date"),
+                data.get("injury_type"),
+                data.get("body_part"),
+                data.get("expected_return"),
+                data.get("status") or "lesionado",
+                now, now,
+                json.dumps(sources, ensure_ascii=False),
+                data.get("notes"),
+            ))
+            return "created"
+
+
+def get_injuries(include_recovered: bool = True) -> list[dict]:
+    """Retorna lesões ordenadas: ativas primeiro, depois recuperadas."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        where = "" if include_recovered else "WHERE status != 'recuperado'"
+        c.execute(f"""
+            SELECT * FROM injuries
+            {where}
+            ORDER BY
+                CASE status
+                    WHEN 'lesionado'      THEN 1
+                    WHEN 'em_recuperacao' THEN 2
+                    WHEN 'retornando'     THEN 3
+                    WHEN 'recuperado'     THEN 4
+                    ELSE 5
+                END,
+                last_updated DESC
+        """)
+        rows = [dict(r) for r in c.fetchall()]
+        for r in rows:
+            try:
+                r["sources"] = json.loads(r["sources"] or "[]")
+            except Exception:
+                r["sources"] = []
+        return rows
+
+
+def get_lesao_articles() -> list[dict]:
+    """Retorna todos os artigos com category='lesao' para reprocessamento retroativo."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT * FROM articles
+            WHERE category = 'lesao'
+            ORDER BY published_at ASC
+        """)
+        return [dict(r) for r in c.fetchall()]
 
 
 def make_article_id(url: str, title: str) -> str:

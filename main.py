@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -111,6 +111,7 @@ _ICO_SOURCES = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_TRASH2  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>'
 _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
+_ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
 
 _THEME_VARS_CSS = (
     "    :root { --c-bg:#edeae4; --c-bg-card:#fafaf8; --c-bg-soft:#fff; --c-text:#1a1a1a; --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555; --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc; --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04); --c-success:#166534; --c-error:#be123c; }\n"
@@ -145,6 +146,7 @@ def _header(active: str) -> str:
         ("/",           _ICO_HOME,    "Home",          "home"),
         ("/selecao",    _ICO_SELECAO, "Seleção Saudita","selecao"),
         ("/descartadas",_ICO_ARCHIVE, "Descartadas",   ""),
+        ("/lesoes",     _ICO_INJURY,  "Lesões",        ""),
         ("/fontes",     _ICO_SOURCES, "Fontes",        ""),
         ("/lixeira",    _ICO_TRASH2,  "Lixeira",       ""),
         ("/gerador",    _ICO_PEN2,    "Criar Post",    ""),
@@ -1824,3 +1826,276 @@ async def reprocess_articles(request: Request):
                 errors.append(err)
 
     return JSONResponse({"ok": True, "found": len(rows), "reprocessed": updated, "errors": errors})
+
+
+# ═══════════════════════════════════════════════════════════
+#  MONITOR DE LESÕES
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/lesoes", response_class=HTMLResponse)
+async def page_lesoes(request: Request):
+    injuries = get_injuries(include_recovered=True)
+    active   = [i for i in injuries if i["status"] != "recuperado"]
+    recovered = [i for i in injuries if i["status"] == "recuperado"]
+
+    STATUS_LABEL = {
+        "lesionado":      ("🔴", "Lesionado"),
+        "em_recuperacao": ("🟡", "Em recuperação"),
+        "retornando":     ("🟢", "Retornando"),
+        "recuperado":     ("⚫", "Recuperado"),
+    }
+    TYPE_LABEL = {
+        "muscular": "Muscular", "ligamento": "Ligamento", "fratura": "Fratura",
+        "cirurgia": "Cirurgia", "doença": "Doença", "contusão": "Contusão",
+        "fadiga": "Fadiga", "outro": "Outro",
+    }
+
+    def _row(inj: dict) -> str:
+        emoji, slabel = STATUS_LABEL.get(inj["status"], ("⚪", inj["status"]))
+        tipo = TYPE_LABEL.get(inj.get("injury_type") or "", inj.get("injury_type") or "—")
+        parte = inj.get("body_part") or ""
+        tipo_full = f"{tipo} · {parte.capitalize()}" if parte else tipo
+        retorno = inj.get("expected_return") or "—"
+        injury_dt = (inj.get("injury_date") or "")[:10] or "—"
+        updated = (inj.get("last_updated") or "")[:10]
+        notes = inj.get("notes") or ""
+
+        # Fontes
+        sources = inj.get("sources") or []
+        srcs_html = ""
+        for s in sources[:4]:
+            url  = s.get("url", "#")
+            name = s.get("source_name", "fonte")
+            dt   = s.get("published_at", "")[:10]
+            srcs_html += f'<a href="{url}" target="_blank" class="src-chip">{name}<span class="src-dt">{dt}</span></a>'
+        if len(sources) > 4:
+            srcs_html += f'<span class="src-chip src-more">+{len(sources)-4}</span>'
+
+        return f"""<tr>
+  <td class="td-player"><strong>{inj['player_name']}</strong>{f'<br><small class="orig">{inj["player_name_orig"]}</small>' if inj.get("player_name_orig") and inj["player_name_orig"] != inj["player_name"] else ""}</td>
+  <td class="td-club">{inj['club']}</td>
+  <td class="td-date">{injury_dt}</td>
+  <td class="td-type">{tipo_full}</td>
+  <td class="td-return">{retorno}</td>
+  <td class="td-status"><span class="status-badge status-{inj['status']}">{emoji} {slabel}</span></td>
+  <td class="td-sources">{srcs_html}</td>
+  <td class="td-updated">{updated}</td>
+</tr>{f'<tr class="notes-row"><td colspan="8" class="td-notes">💬 {notes}</td></tr>' if notes else ''}"""
+
+    rows_active    = "".join(_row(i) for i in active)    if active    else '<tr><td colspan="8" class="empty-row">Nenhuma lesão ativa registrada.</td></tr>'
+    rows_recovered = "".join(_row(i) for i in recovered) if recovered else '<tr><td colspan="8" class="empty-row">Nenhuma recuperação registrada.</td></tr>'
+
+    count_active    = len(active)
+    count_recovered = len(recovered)
+
+    html = f"""<!DOCTYPE html><html lang="pt-BR">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IARABÃO · Lesões</title>
+{_THEME_INIT_SCRIPT}
+<style>
+{_THEME_VARS_CSS}
+{_BASE_CSS}
+{_HEADER_CSS}
+*,*::before,*::after{{box-sizing:border-box}}
+
+.lesoes-wrap {{
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 24px 16px 60px;
+}}
+.lesoes-title {{
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--c-text);
+  margin: 0 0 4px;
+}}
+.lesoes-subtitle {{
+  font-size: .78rem;
+  color: var(--c-muted);
+  margin: 0 0 20px;
+}}
+.rebuild-btn {{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: .75rem;
+  color: var(--c-muted);
+  background: none;
+  border: 1px solid var(--c-border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  margin-bottom: 20px;
+  transition: color .15s, border-color .15s;
+}}
+.rebuild-btn:hover {{ color: var(--c-text); border-color: var(--c-muted); }}
+
+.section-label {{
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+  padding: 0 0 8px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 0;
+}}
+.section-count {{
+  font-weight: 400;
+  opacity: .7;
+}}
+
+.injuries-table {{
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .82rem;
+  margin-bottom: 32px;
+}}
+.injuries-table th {{
+  text-align: left;
+  font-size: .68rem;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+  padding: 10px 12px 8px;
+  border-bottom: 2px solid var(--c-border);
+  white-space: nowrap;
+}}
+.injuries-table td {{
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--c-border);
+  vertical-align: top;
+  color: var(--c-text);
+}}
+.injuries-table tr:hover td {{ background: var(--c-muted-2); }}
+.notes-row td {{ padding: 2px 12px 10px !important; border-bottom: 1px solid var(--c-border); background: var(--c-muted-2); }}
+.notes-row:hover td {{ background: var(--c-muted-2) !important; }}
+.td-notes {{ font-size: .75rem; color: var(--c-muted); font-style: italic; }}
+
+.td-player strong {{ font-weight: 600; }}
+.td-player .orig {{ color: var(--c-muted); font-size: .72rem; }}
+.td-club {{ white-space: nowrap; }}
+.td-date, .td-updated {{ white-space: nowrap; color: var(--c-muted); font-size: .78rem; }}
+.td-return {{ white-space: nowrap; }}
+.empty-row {{ text-align: center; color: var(--c-muted); padding: 32px !important; }}
+
+.status-badge {{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 99px;
+  white-space: nowrap;
+}}
+.status-lesionado      {{ background: #fef2f2; color: #b91c1c; }}
+.status-em_recuperacao {{ background: #fefce8; color: #92400e; }}
+.status-retornando     {{ background: #f0fdf4; color: #15803d; }}
+.status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted); }}
+[data-theme=dark] .status-lesionado      {{ background: #3f1212; color: #fca5a5; }}
+[data-theme=dark] .status-em_recuperacao {{ background: #3f2d00; color: #fde68a; }}
+[data-theme=dark] .status-retornando     {{ background: #052e16; color: #86efac; }}
+[data-theme=dark] .status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted); }}
+
+.src-chip {{
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: .68rem;
+  background: var(--c-muted-2);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin: 2px 2px 2px 0;
+  color: var(--c-text);
+  text-decoration: none;
+  white-space: nowrap;
+}}
+.src-chip:hover {{ background: var(--c-border); }}
+.src-dt {{ color: var(--c-muted); font-size: .62rem; }}
+.src-more {{ color: var(--c-muted); cursor: default; }}
+a.src-chip {{ cursor: pointer; }}
+
+details summary {{
+  cursor: pointer;
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--c-muted);
+  padding: 10px 0 8px;
+  border-bottom: 1px solid var(--c-border);
+  margin-bottom: 0;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}}
+details summary::-webkit-details-marker {{ display: none; }}
+details summary::before {{ content: "▶"; font-size: .6rem; transition: transform .2s; }}
+details[open] summary::before {{ transform: rotate(90deg); }}
+</style>
+</head>
+<body>
+{_header("/lesoes")}
+<div class="lesoes-wrap">
+  <div class="lesoes-title">Monitor de Lesões</div>
+  <div class="lesoes-subtitle">Atualizado automaticamente com base nas notícias coletadas com category=lesao.</div>
+
+  <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
+  <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted);margin-left:8px;"></span>
+
+  <div class="section-label">Ativas <span class="section-count">({count_active})</span></div>
+  <table class="injuries-table">
+    <thead><tr>
+      <th>Jogador</th><th>Clube</th><th>Data Lesão</th><th>Tipo / Região</th>
+      <th>Retorno Est.</th><th>Status</th><th>Fontes</th><th>Atualizado</th>
+    </tr></thead>
+    <tbody>{rows_active}</tbody>
+  </table>
+
+  <details>
+    <summary>Recuperados <span class="section-count" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
+    <table class="injuries-table" style="margin-top:12px">
+      <thead><tr>
+        <th>Jogador</th><th>Clube</th><th>Data Lesão</th><th>Tipo / Região</th>
+        <th>Retorno Est.</th><th>Status</th><th>Fontes</th><th>Atualizado</th>
+      </tr></thead>
+      <tbody>{rows_recovered}</tbody>
+    </table>
+  </details>
+</div>
+
+<script>
+async function rebuild() {{
+  const btn = document.querySelector('.rebuild-btn');
+  const st  = document.getElementById('rebuild-status');
+  btn.disabled = true;
+  st.textContent = 'Processando…';
+  try {{
+    const r = await fetch('/api/injuries/rebuild', {{method:'POST'}});
+    const d = await r.json();
+    st.textContent = `Concluído: ${{d.created}} criados, ${{d.updated}} atualizados, ${{d.skipped}} ignorados de ${{d.total}} artigos.`;
+    setTimeout(() => location.reload(), 2000);
+  }} catch(e) {{
+    st.textContent = 'Erro: ' + e.message;
+  }} finally {{
+    btn.disabled = false;
+  }}
+}}
+</script>
+</body></html>"""
+    return HTMLResponse(html)
+
+
+@app.get("/api/injuries")
+async def api_injuries():
+    return get_injuries(include_recovered=True)
+
+
+@app.post("/api/injuries/rebuild")
+async def api_injuries_rebuild():
+    from injury_processor import rebuild_injuries_from_history
+    result = await rebuild_injuries_from_history()
+    return result

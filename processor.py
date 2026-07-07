@@ -182,7 +182,19 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
     async with httpx.AsyncClient() as client:
         articles = list(await asyncio.gather(*[enrich_with_article(a, client) for a in articles]))
     articles = await translate_articles(articles)
-    new_count = sum(1 for art in articles if save_article(art))
-    dup_count = len(articles) - new_count
+    new_saved, dup_count = [], 0
+    for art in articles:
+        if save_article(art):
+            new_saved.append(art)
+        else:
+            dup_count += 1
+    new_count = len(new_saved)
     print(f"   💾 {new_count} novos, {dup_count} já existiam\n")
+
+    # Extrai lesões dos artigos novos com category='lesao'
+    lesao_arts = [a for a in new_saved if a.get("category") == "lesao"]
+    if lesao_arts:
+        from injury_processor import process_injury_article
+        await asyncio.gather(*[process_injury_article(a) for a in lesao_arts])
+
     return {"articles_new": new_count, "articles_dup": dup_count}
