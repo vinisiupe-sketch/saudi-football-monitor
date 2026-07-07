@@ -1924,8 +1924,6 @@ async def _page_lesoes_impl(request: Request):
 <title>IARABÃO · Lesões</title>
 {_THEME_INIT_SCRIPT}
 <style>
-{_THEME_VARS_CSS}
-{_BASE_CSS}
 {_HEADER_CSS}
 *,*::before,*::after{{box-sizing:border-box}}
 
