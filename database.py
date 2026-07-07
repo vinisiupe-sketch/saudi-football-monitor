@@ -397,30 +397,41 @@ def upsert_injury(data: dict) -> str:
 
 
 def get_injuries(include_recovered: bool = True) -> list[dict]:
-    """Retorna lesões ordenadas: ativas primeiro, depois recuperadas."""
-    with get_conn() as conn:
-        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        where = "" if include_recovered else "WHERE status != 'recuperado'"
-        c.execute(f"""
-            SELECT * FROM injuries
-            {where}
-            ORDER BY
-                CASE status
-                    WHEN 'lesionado'      THEN 1
-                    WHEN 'em_recuperacao' THEN 2
-                    WHEN 'retornando'     THEN 3
-                    WHEN 'recuperado'     THEN 4
-                    ELSE 5
-                END,
-                last_updated DESC
-        """)
-        rows = [dict(r) for r in c.fetchall()]
-        for r in rows:
-            try:
-                r["sources"] = json.loads(r["sources"] or "[]")
-            except Exception:
-                r["sources"] = []
-        return rows
+    """Retorna lesões ordenadas: ativas primeiro, depois recuperadas.
+    Se a tabela ainda não existir, chama init_injuries() e retorna []."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if include_recovered:
+                c.execute("""
+                    SELECT * FROM injuries
+                    ORDER BY
+                        CASE status
+                            WHEN 'lesionado'      THEN 1
+                            WHEN 'em_recuperacao' THEN 2
+                            WHEN 'retornando'     THEN 3
+                            WHEN 'recuperado'     THEN 4
+                            ELSE 5
+                        END,
+                        last_updated DESC
+                """)
+            else:
+                c.execute("""
+                    SELECT * FROM injuries
+                    WHERE status != 'recuperado'
+                    ORDER BY last_updated DESC
+                """)
+            rows = [dict(r) for r in c.fetchall()]
+            for r in rows:
+                try:
+                    r["sources"] = json.loads(r["sources"] or "[]")
+                except Exception:
+                    r["sources"] = []
+            return rows
+    except Exception as e:
+        if "injuries" in str(e) and "does not exist" in str(e):
+            init_injuries()
+        return []
 
 
 def get_lesao_articles() -> list[dict]:

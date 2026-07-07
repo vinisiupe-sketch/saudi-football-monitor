@@ -1851,36 +1851,49 @@ async def page_lesoes(request: Request):
     }
 
     def _row(inj: dict) -> str:
-        emoji, slabel = STATUS_LABEL.get(inj["status"], ("⚪", inj["status"]))
+        emoji, slabel = STATUS_LABEL.get(inj.get("status") or "lesionado", ("⚪", inj.get("status") or "—"))
         tipo = TYPE_LABEL.get(inj.get("injury_type") or "", inj.get("injury_type") or "—")
         parte = inj.get("body_part") or ""
-        tipo_full = f"{tipo} · {parte.capitalize()}" if parte else tipo
+        tipo_full = tipo + " · " + parte.capitalize() if parte else tipo
         retorno = inj.get("expected_return") or "—"
-        injury_dt = (inj.get("injury_date") or "")[:10] or "—"
+        injury_dt = ((inj.get("injury_date") or "")[:10]) or "—"
         updated = (inj.get("last_updated") or "")[:10]
         notes = inj.get("notes") or ""
+        player = inj.get("player_name") or "—"
+        club   = inj.get("club") or "—"
+        status = inj.get("status") or "lesionado"
+
+        # Nome original (só se diferente)
+        orig = inj.get("player_name_orig") or ""
+        orig_html = ('<br><small class="orig">' + orig + "</small>") if orig and orig != player else ""
 
         # Fontes
         sources = inj.get("sources") or []
         srcs_html = ""
         for s in sources[:4]:
-            url  = s.get("url", "#")
-            name = s.get("source_name", "fonte")
-            dt   = s.get("published_at", "")[:10]
-            srcs_html += f'<a href="{url}" target="_blank" class="src-chip">{name}<span class="src-dt">{dt}</span></a>'
+            u  = s.get("url", "#")
+            nm = s.get("source_name", "fonte")
+            dt = s.get("published_at", "")[:10]
+            srcs_html += '<a href="' + u + '" target="_blank" class="src-chip">' + nm + '<span class="src-dt">' + dt + "</span></a>"
         if len(sources) > 4:
-            srcs_html += f'<span class="src-chip src-more">+{len(sources)-4}</span>'
+            srcs_html += '<span class="src-chip src-more">+' + str(len(sources) - 4) + "</span>"
 
-        return f"""<tr>
-  <td class="td-player"><strong>{inj['player_name']}</strong>{f'<br><small class="orig">{inj["player_name_orig"]}</small>' if inj.get("player_name_orig") and inj["player_name_orig"] != inj["player_name"] else ""}</td>
-  <td class="td-club">{inj['club']}</td>
-  <td class="td-date">{injury_dt}</td>
-  <td class="td-type">{tipo_full}</td>
-  <td class="td-return">{retorno}</td>
-  <td class="td-status"><span class="status-badge status-{inj['status']}">{emoji} {slabel}</span></td>
-  <td class="td-sources">{srcs_html}</td>
-  <td class="td-updated">{updated}</td>
-</tr>{f'<tr class="notes-row"><td colspan="8" class="td-notes">💬 {notes}</td></tr>' if notes else ''}"""
+        # Linha de notas
+        notes_row = ('<tr class="notes-row"><td colspan="8" class="td-notes">💬 ' + notes + "</td></tr>") if notes else ""
+
+        return (
+            "<tr>"
+            + '<td class="td-player"><strong>' + player + "</strong>" + orig_html + "</td>"
+            + '<td class="td-club">' + club + "</td>"
+            + '<td class="td-date">' + injury_dt + "</td>"
+            + '<td class="td-type">' + tipo_full + "</td>"
+            + '<td class="td-return">' + retorno + "</td>"
+            + '<td class="td-status"><span class="status-badge status-' + status + '">' + emoji + " " + slabel + "</span></td>"
+            + '<td class="td-sources">' + srcs_html + "</td>"
+            + '<td class="td-updated">' + updated + "</td>"
+            + "</tr>"
+            + notes_row
+        )
 
     rows_active    = "".join(_row(i) for i in active)    if active    else '<tr><td colspan="8" class="empty-row">Nenhuma lesão ativa registrada.</td></tr>'
     rows_recovered = "".join(_row(i) for i in recovered) if recovered else '<tr><td colspan="8" class="empty-row">Nenhuma recuperação registrada.</td></tr>'
