@@ -1919,13 +1919,19 @@ async def _page_lesoes_impl(request: Request):
     count_active    = len(active)
     count_recovered = len(recovered)
 
-    html = f"""<!DOCTYPE html><html lang="pt-BR">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>IARABÃO · Lesões</title>
-{_THEME_INIT_SCRIPT}
-<style>
-{_HEADER_CSS}
-*,*::before,*::after{{box-sizing:border-box}}
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IARABÃO — Lesões</title>
+  {_THEME_INIT_SCRIPT}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
+    {_HEADER_CSS}
 
 .lesoes-wrap {{
   max-width: 1400px;
