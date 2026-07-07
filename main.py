@@ -1844,6 +1844,14 @@ async def debug_lesoes():
 
 @app.get("/lesoes", response_class=HTMLResponse)
 async def page_lesoes(request: Request):
+    import traceback as _tb
+    try:
+        return await _page_lesoes_impl(request)
+    except Exception as _e:
+        return HTMLResponse("<pre>" + _tb.format_exc() + "</pre>", status_code=500)
+
+
+async def _page_lesoes_impl(request: Request):
     injuries = get_injuries(include_recovered=True)
     active   = [i for i in injuries if i["status"] != "recuperado"]
     recovered = [i for i in injuries if i["status"] == "recuperado"]
