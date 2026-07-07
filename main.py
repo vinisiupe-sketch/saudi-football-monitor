@@ -1832,6 +1832,16 @@ async def reprocess_articles(request: Request):
 #  MONITOR DE LESÕES
 # ═══════════════════════════════════════════════════════════
 
+@app.get("/api/debug-lesoes")
+async def debug_lesoes():
+    import traceback
+    try:
+        injuries = get_injuries(include_recovered=True)
+        return {"ok": True, "count": len(injuries), "sample": injuries[:2]}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "trace": traceback.format_exc()}
+
+
 @app.get("/lesoes", response_class=HTMLResponse)
 async def page_lesoes(request: Request):
     injuries = get_injuries(include_recovered=True)
