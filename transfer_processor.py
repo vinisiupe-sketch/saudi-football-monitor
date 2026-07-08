@@ -58,11 +58,13 @@ async def normalize_player_name(raw_name: str, client: httpx.AsyncClient,
     # 2) Busca no Transfermarkt
     canonical = ""
     tm_id = ""
+    _api_ok = False  # True = API respondeu (mesmo sem resultado)
     try:
         r = await client.get(
             f"https://transfermarkt-api.fly.dev/players/search/{_url_quote(raw_name)}",
             timeout=7.0,
         )
+        _api_ok = True
         if r.status_code == 200:
             results = r.json().get("results") or []
             if results:
@@ -79,11 +81,18 @@ async def normalize_player_name(raw_name: str, client: httpx.AsyncClient,
                     chosen = results[0]
                 canonical = chosen.get("name") or ""
                 tm_id = str(chosen.get("id") or "")
+                print(f"   ✅ TM name: '{raw_name}' → '{canonical}'")
+            else:
+                print(f"   ℹ️  TM: nenhum resultado para '{raw_name}'")
+        else:
+            print(f"   ⚠️  TM HTTP {r.status_code} para '{raw_name}'")
+            _api_ok = False
     except Exception as e:
-        print(f"   ⚠️  Transfermarkt name lookup error for '{raw_name}': {e}")
+        print(f"   ⚠️  TM erro de rede para '{raw_name}': {type(e).__name__}: {e}")
 
-    # 3) Armazena no cache ('' se não encontrado)
-    set_player_name_cache(key, canonical, tm_id)
+    # 3) Armazena no cache SÓ se a API respondeu (não cacheia erros de rede)
+    if canonical or _api_ok:
+        set_player_name_cache(key, canonical, tm_id)
 
     return canonical if canonical else raw_name
 
