@@ -2228,69 +2228,37 @@ async def _page_transferencias_impl(request: Request):
         "espanha": "🇪🇸", "spain": "🇪🇸",
         "belgica": "🇧🇪", "belgium": "🇧🇪",
         "croacia": "🇭🇷", "croatia": "🇭🇷",
-        "nigeria": "🇳🇬",
-        "senegal": "🇸🇳",
+        "nigeria": "🇳🇬", "senegal": "🇸🇳",
         "arabia saudita": "🇸🇦", "saudi arabia": "🇸🇦",
         "egito": "🇪🇬", "egypt": "🇪🇬",
         "marrocos": "🇲🇦", "morocco": "🇲🇦",
-        "colombia": "🇨🇴",
-        "uruguai": "🇺🇾", "uruguay": "🇺🇾",
-        "chile": "🇨🇱",
-        "mexico": "🇲🇽",
+        "colombia": "🇨🇴", "uruguai": "🇺🇾", "uruguay": "🇺🇾",
+        "chile": "🇨🇱", "mexico": "🇲🇽",
         "costa do marfim": "🇨🇮", "ivory coast": "🇨🇮",
-        "mali": "🇲🇱",
-        "gana": "🇬🇭", "ghana": "🇬🇭",
-        "guinea": "🇬🇳",
+        "mali": "🇲🇱", "gana": "🇬🇭", "ghana": "🇬🇭", "guinea": "🇬🇳",
         "alemanha": "🇩🇪", "germany": "🇩🇪",
         "italia": "🇮🇹", "italy": "🇮🇹",
         "holanda": "🇳🇱", "netherlands": "🇳🇱",
         "polonia": "🇵🇱", "poland": "🇵🇱",
-        "austria": "🇦🇹",
-        "suica": "🇨🇭", "switzerland": "🇨🇭",
+        "austria": "🇦🇹", "suica": "🇨🇭", "switzerland": "🇨🇭",
         "turquia": "🇹🇷", "turkey": "🇹🇷",
-        "russia": "🇷🇺",
-        "ucrania": "🇺🇦", "ukraine": "🇺🇦",
+        "russia": "🇷🇺", "ucrania": "🇺🇦", "ukraine": "🇺🇦",
         "servia": "🇷🇸", "serbia": "🇷🇸",
         "suecia": "🇸🇪", "sweden": "🇸🇪",
         "dinamarca": "🇩🇰", "denmark": "🇩🇰",
         "noruega": "🇳🇴", "norway": "🇳🇴",
         "japao": "🇯🇵", "japan": "🇯🇵",
         "coreia do sul": "🇰🇷", "south korea": "🇰🇷",
-        "china": "🇨🇳",
-        "camaroes": "🇨🇲", "cameroon": "🇨🇲",
-        "tunisia": "🇹🇳",
-        "argelia": "🇩🇿", "algeria": "🇩🇿",
+        "china": "🇨🇳", "camaroes": "🇨🇲", "cameroon": "🇨🇲",
+        "tunisia": "🇹🇳", "argelia": "🇩🇿", "algeria": "🇩🇿",
         "inglaterra": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "england": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
         "escocia": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
         "gales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
-        "venezuela": "🇻🇪",
-        "peru": "🇵🇪",
+        "venezuela": "🇻🇪", "peru": "🇵🇪",
         "paraguai": "🇵🇾", "paraguay": "🇵🇾",
         "equador": "🇪🇨", "ecuador": "🇪🇨",
-        "estados unidos": "🇺🇸", "usa": "🇺🇸",
-        "australia": "🇦🇺",
+        "estados unidos": "🇺🇸", "usa": "🇺🇸", "australia": "🇦🇺",
     }
-
-    _BADGE_BG = {
-        "oficial":     "#15803d",
-        "avancado":    "#1d4ed8",
-        "negociacoes": "#b45309",
-        "proposta":    "#c2410c",
-        "interesse":   "#374151",
-        "emprestimo":  "#0e7490",
-        "renovacao":   "#7c3aed",
-        "sondagem":    "#4b5563",
-    }
-
-    SILHOUETTE = (
-        '<svg class="player-silhouette" viewBox="0 0 44 90" '
-        'xmlns="http://www.w3.org/2000/svg" fill="currentColor" opacity=".18">'
-        '<ellipse cx="22" cy="10" rx="8.5" ry="9.5"/>'
-        '<path d="M13 21 Q22 17 31 21 L34 54 L28 54 L26 82 L18 82 L16 54 L10 54 Z"/>'
-        '<path d="M13 25 L5 44 Q6 47 10 46 L17 29 Z"/>'
-        '<path d="M31 25 L39 44 Q38 47 34 46 L27 29 Z"/>'
-        '</svg>'
-    )
 
     def _norm(s: str | None) -> str:
         s = (s or "").lower().strip()
@@ -2299,14 +2267,14 @@ async def _page_transferencias_impl(request: Request):
 
     def _club_cfg(name: str | None) -> dict:
         if not name:
-            return {"bg": "#2a2a2e", "color": "#fff", "abbr": "?"}
+            return {"bg": "#3a3a3c", "color": "#fff", "abbr": "?"}
         n = _norm(name)
         if n in _CLUB_COLORS:
             return _CLUB_COLORS[n]
         for k, v in _CLUB_COLORS.items():
             if k in n or (len(n) > 4 and n in k):
                 return v
-        return {"bg": "#2a2a2e", "color": "#fff", "abbr": (n[:3].upper() or "?")}
+        return {"bg": "#3a3a3c", "color": "#fff", "abbr": (n[:3].upper() or "?")}
 
     def _logo_wrap(name: str | None) -> str:
         if not name:
@@ -2329,10 +2297,9 @@ async def _page_transferencias_impl(request: Request):
         if not ntype:
             ntype = "sondagem"
         cfg = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])
-        bg = _BADGE_BG.get(ntype, "#4b5563")
         return (
-            f'<span class="nego-badge" style="background:{bg}">'
-            f'{cfg["icon"]} {cfg["label"].upper()}</span>'
+            f'<span class="nego-badge" style="background:{cfg["bg"]};color:{cfg["color"]}">'
+            f'{cfg["icon"]} {cfg["label"]}</span>'
         )
 
     def _date_short(iso) -> str:
@@ -2345,20 +2312,20 @@ async def _page_transferencias_impl(request: Request):
             return ""
 
     def _sources_html(sources: list) -> str:
-        links = []
-        for s in sources[:4]:
+        chips = []
+        for s in sources:
             sname = s.get("source_name", "")
             moon = SOURCE_MOON.get(sname.lstrip("@"), "")
-            label = (sname.lstrip("@") or "?")[:14]
-            url = s.get("url", "#")
+            label = (sname.lstrip("@") or "?")[:16]
             date_str = _date_short(s.get("published_at"))
-            links.append(
-                f'<a class="src-link" href="{url}" target="_blank" rel="noopener">'
-                f'{moon} {label}'
-                f'{"  " + date_str if date_str else ""}'
+            url = s.get("url", "#")
+            chips.append(
+                f'<a class="src-chip" href="{url}" target="_blank" rel="noopener">'
+                f'{moon}{label}'
+                f'{"&nbsp;· " + date_str if date_str else ""}'
                 f'</a>'
             )
-        return "\n".join(links)
+        return "\n".join(chips)
 
     def _player_initials(name: str) -> str:
         parts = (name or "?").split()
@@ -2409,36 +2376,41 @@ async def _page_transferencias_impl(request: Request):
         pos    = g.get("player_position") or ""
         fee    = g.get("fee") or ""
         ntype  = g.get("nego_type") or "sondagem"
+        accent = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])["color"]
         badge  = _nego_badge(ntype)
         srcs   = _sources_html(g.get("sources", []))
         ucls   = " tc-dim" if g.get("_unclassified") else ""
-        # Card bg = destination club color
+        fw     = _logo_wrap(g.get("club_from"))
+        tw     = _logo_wrap(g.get("club_to"))
+        # Card background = destination club color
         to_cfg   = _club_cfg(g.get("club_to"))
         card_bg  = to_cfg["bg"]
         card_txt = to_cfg["color"]
-        fw = _logo_wrap(g.get("club_from"))
-        tw = _logo_wrap(g.get("club_to"))
         flag_h = f' <span class="tc-flag">{flag}</span>' if flag else ""
         pos_h  = f'<div class="tc-pos">{pos}</div>' if pos else ""
         fee_h  = f'<div class="tc-fee">{fee}</div>' if fee else ""
+        initials   = _player_initials(pname)
         player_enc = quote(pname, safe="")
-        photo_wrap = (
+        avatar = (
             f'<div class="player-photo-wrap" data-player="{player_enc}">'
-            f'{SILHOUETTE}</div>'
+            f'<span class="player-initials">{initials}</span>'
+            f'</div>'
         )
         return (
             f'<div class="tc{ucls}" data-type="{ntype}" '
-            f'style="background:{card_bg};color:{card_txt}">'
-            f'<div class="tc-left">{photo_wrap}'
-            f'<div class="tc-clubs">{fw}<span class="clubs-sep">›</span>{tw}</div>'
-            f'</div>'
-            f'<div class="tc-mid">'
+            f'style="--accent:{accent};background:{card_bg};color:{card_txt};border-color:transparent">'
+            f'<div class="tc-accent"></div>'
+            f'<div class="tc-body">'
+            f'<span class="tc-rank">#{idx}</span>'
+            f'{avatar}'
+            f'<div class="clubs-block">{fw}<span class="clubs-sep">›</span>{tw}</div>'
+            f'<div class="tc-info">'
             f'<div class="tc-player">{pname}{flag_h}</div>'
             f'{pos_h}{fee_h}'
-            f'<div class="tc-badge">{badge}</div>'
             f'</div>'
-            f'<div class="tc-right">{srcs}</div>'
-            f'</div>'
+            f'<div class="tc-badge-wrap">{badge}</div>'
+            f'<div class="tc-sources">{srcs}</div>'
+            f'</div></div>'
         )
 
     if groups:
@@ -2455,10 +2427,8 @@ async def _page_transferencias_impl(request: Request):
         cnt = type_counts.get(ntype, 0)
         if cnt == 0:
             continue
-        bg = _BADGE_BG.get(ntype, "#4b5563")
         filter_btns += (
-            f'<button class="filter-btn" data-type="{ntype}" '
-            f'data-activebg="{bg}">'
+            f'<button class="filter-btn" data-type="{ntype}">'
             f'{cfg["icon"]} {cfg["label"]} <span class="filter-cnt">{cnt}</span>'
             f'</button>\n'
         )
@@ -2471,60 +2441,62 @@ async def _page_transferencias_impl(request: Request):
 
     CSS = """
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;background:#080810;color:#f2f2f7;min-height:100vh}
-.page{max-width:940px;margin:0 auto;padding:16px 12px 56px}
-.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.1)}
-.hdr h1{font-size:1.25rem;font-weight:800}
-.hdr-sub{font-size:.7rem;color:#636366;margin-top:3px}
-.hdr-actions{display:flex;gap:6px;flex-shrink:0}
-.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;font-size:.73rem;font-weight:600;border:none;cursor:pointer;text-decoration:none;transition:opacity .15s}
-.btn-primary{background:#147efb;color:#fff}
-.btn-sec{background:#1c1c1e;color:#8e8e93;border:1px solid #3a3a3c}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.4}
+:root{
+  --bg:#f0f0f5;--bg-card:#fff;--text:#1c1c1e;--muted:#6b7280;--muted2:#9ca3af;
+  --border:#e5e7eb;--border2:#d1d5db;--accent-blue:#147efb;
+  --chip-bg:rgba(128,128,128,.15);--chip-border:rgba(128,128,128,.25);
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#0d0d0f;--bg-card:#1c1c1e;--text:#f2f2f7;--muted:#8e8e93;--muted2:#636366;
+    --border:#2c2c2e;--border2:#3a3a3c;
+    --chip-bg:rgba(128,128,128,.18);--chip-border:rgba(128,128,128,.28);
+  }
+}
+body{background:var(--bg);color:var(--text);min-height:100vh}
+.page{max-width:980px;margin:0 auto;padding:16px 12px 56px}
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.hdr h1{font-size:1.2rem;font-weight:800;color:var(--text)}
+.hdr-sub{font-size:.7rem;color:var(--muted);margin-top:3px}
+.hdr-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:8px;font-size:.73rem;font-weight:600;border:none;cursor:pointer;text-decoration:none;transition:opacity .15s}
+.btn-primary{background:var(--accent-blue);color:#fff}
+.btn-sec{background:var(--bg-card);color:var(--muted);border:1px solid var(--border2)}
 .btn:hover{opacity:.82}
-.filters{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px}
-.filter-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:.70rem;font-weight:600;border:1.5px solid #3a3a3c;background:#1c1c1e;color:#8e8e93;cursor:pointer;transition:all .2s;line-height:1.6}
-.filter-btn.active{color:#fff;border-color:transparent}
-.filter-cnt{font-weight:400;opacity:.6}
-/* Cards */
-.tc{display:flex;align-items:stretch;border-radius:14px;overflow:hidden;margin-bottom:6px;min-height:100px;transition:transform .15s,box-shadow .15s;cursor:default}
-.tc:hover{transform:translateY(-2px);box-shadow:0 6px 28px rgba(0,0,0,.55)}
-.tc-dim{opacity:.45}
-.tc-left{width:88px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 0 8px}
-.player-photo-wrap{flex:1;width:88px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden;padding-top:6px}
-.player-silhouette{width:54px;height:auto;display:block}
-.player-img{width:88px;height:100%;object-fit:cover;object-position:center 10%}
-.tc-clubs{display:flex;align-items:center;gap:3px;padding-bottom:2px}
-.club-logo-wrap{width:22px;height:22px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid rgba(255,255,255,.25)}
-.club-crest{width:22px;height:22px;border-radius:50%;font-size:.36rem;font-weight:800;display:inline-flex;align-items:center;justify-content:center;text-transform:uppercase;line-height:1}
-.club-logo-img{width:22px;height:22px;object-fit:contain;border-radius:50%}
-.clubs-sep{font-size:9px;opacity:.7;margin:0 2px}
-.tc-mid{flex:1;display:flex;flex-direction:column;justify-content:center;padding:12px 16px;gap:2px;min-width:0}
-.tc-player{font-size:1.05rem;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tc-flag{font-size:.85rem}
-.tc-pos{font-size:.72rem;opacity:.75;margin-top:1px}
-.tc-fee{font-size:.73rem;font-weight:700;opacity:.9;margin-top:1px}
-.tc-badge{margin-top:7px}
-.nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:20px;font-size:.58rem;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.05em;border:1.5px solid rgba(255,255,255,.3)}
-.tc-right{width:106px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;padding:12px 14px 12px 6px;gap:7px;border-left:1px solid rgba(255,255,255,.12)}
-.src-link{display:block;font-size:.65rem;font-weight:600;color:inherit;opacity:.8;text-decoration:none;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:92px;line-height:1.4}
-.src-link:hover{opacity:1;text-decoration:underline}
-.empty{text-align:center;padding:60px 16px;color:#4a4a4e}
+.filters{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+.filter-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:.70rem;font-weight:600;border:1.5px solid var(--border2);background:var(--bg-card);color:var(--muted);cursor:pointer;transition:all .15s;line-height:1.6}
+.filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+.filter-cnt{font-weight:400;opacity:.7}
+.tc{display:flex;border-radius:11px;border:1px solid var(--border);background:var(--bg-card);overflow:hidden;margin-bottom:5px;transition:border-color .15s,box-shadow .15s,transform .15s}
+.tc:hover{box-shadow:0 2px 16px rgba(0,0,0,.18);transform:translateY(-1px)}
+.tc-accent{width:4px;flex-shrink:0;background:var(--accent,#6b7280)}
+.tc-body{flex:1;display:flex;align-items:center;gap:10px;padding:9px 13px;min-width:0;overflow:hidden}
+.tc-rank{font-size:.62rem;font-weight:700;color:inherit;opacity:.45;min-width:20px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
+.player-photo-wrap{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:50%;overflow:hidden}
+.player-initials{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;background:rgba(128,128,128,.3);color:inherit;letter-spacing:-.02em;opacity:.7}
+.player-img{width:38px;height:38px;object-fit:cover;object-position:center 8%;border-radius:50%}
+.clubs-block{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.club-logo-wrap{width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.club-crest{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.48rem;font-weight:800;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
+.club-logo-img{width:36px;height:36px;object-fit:contain;border-radius:5px}
+.clubs-sep{font-size:11px;color:inherit;opacity:.55;line-height:1}
+.tc-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.tc-player{font-size:.86rem;font-weight:700;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+.tc-flag{font-size:.78rem}
+.tc-pos{font-size:.67rem;color:inherit;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc-fee{font-size:.66rem;color:inherit;opacity:.65;font-variant-numeric:tabular-nums}
+.nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:.63rem;font-weight:700;white-space:nowrap}
+.tc-badge-wrap{flex-shrink:0}
+.tc-sources{display:flex;flex-direction:column;gap:3px;align-items:flex-end;flex-shrink:0;max-width:165px;min-width:80px}
+.src-chip{display:inline-flex;align-items:center;gap:3px;font-size:.62rem;font-weight:600;color:inherit;opacity:.82;background:var(--chip-bg);border:1px solid var(--chip-border);border-radius:6px;padding:2px 7px;text-decoration:none;white-space:nowrap;transition:opacity .12s;max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.src-chip:hover{opacity:1}
+.tc-dim{opacity:.5}
+.tc-dim .tc-player{font-style:italic}
+.empty{text-align:center;padding:60px 16px;color:var(--muted)}
 .empty-icon{font-size:2.4rem;display:block;margin-bottom:8px}
-@media(max-width:620px){
-  .tc-left{width:68px}
-  .player-photo-wrap{width:68px}
-  .player-silhouette{width:42px}
-  .player-img{width:68px}
-  .tc-right{width:80px;padding:10px 10px 10px 4px}
-  .tc-player{font-size:.9rem}
-}
-@media(max-width:420px){
-  .tc-right{display:none}
-  .tc-left{width:58px}
-  .player-photo-wrap{width:58px}
-  .player-silhouette{width:36px}
-  .player-img{width:58px}
-}
+@media(max-width:600px){.tc-rank{display:none}.tc-sources{max-width:110px;min-width:60px}.tc-pos,.tc-fee{display:none}}
+@media(max-width:400px){.tc-sources{display:none}.tc-badge-wrap{display:none}}
 """
 
     JS = """
@@ -2553,23 +2525,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;f
     btn.addEventListener('click',function(){
       var type=this.dataset.type;
       if(type==='all'){
-        document.querySelectorAll('.filter-btn').forEach(function(b){
-          b.classList.remove('active');b.style.background='';
-        });
-        this.classList.add('active');this.style.background='#f2f2f7';
+        document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active')});
+        this.classList.add('active');
         document.querySelectorAll('.tc').forEach(function(c){c.style.display=''});
       } else {
-        document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){
-          b.classList.remove('active');b.style.background='';
-        });
+        document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){b.classList.remove('active')});
         this.classList.toggle('active');
-        var bg=this.dataset.activebg||'#333';
-        this.style.background=this.classList.contains('active')?bg:'';
         var active=Array.from(document.querySelectorAll('.filter-btn.active')).map(function(b){return b.dataset.type});
         if(active.length===0){
-          document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){
-            b.classList.add('active');b.style.background='#f2f2f7';
-          });
+          document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){b.classList.add('active')});
           document.querySelectorAll('.tc').forEach(function(c){c.style.display=''});
         } else {
           document.querySelectorAll('.tc[data-type]').forEach(function(c){
@@ -2613,7 +2577,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;f
         "  </div>\n"
         "</div>\n"
         "<div class=\"filters\">\n"
-        "  <button class=\"filter-btn active\" data-type=\"all\" style=\"background:#f2f2f7;color:#080810;border-color:transparent\">Todos</button>\n"
+        "  <button class=\"filter-btn active\" data-type=\"all\">Todos</button>\n"
         f"  {filter_btns}"
         "</div>\n"
         f"<div id=\"tc-list\">\n{cards_html}\n</div>\n"
@@ -2622,6 +2586,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;f
         "</body></html>"
     )
     return HTMLResponse(html)
+
 
 
 @app.get("/api/transfers")
