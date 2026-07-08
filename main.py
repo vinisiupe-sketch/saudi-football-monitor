@@ -3005,23 +3005,28 @@ async def api_club_logo(name: str):
         hdrs = _af_headers()
         if hdrs:
             try:
+                import unicodedata as _ud2
+                def _af_n(s):
+                    nfd = _ud2.normalize("NFD", (s or "").strip())
+                    return "".join(c for c in nfd if _ud2.category(c) != "Mn").lower()
                 async with httpx.AsyncClient(timeout=7.0, headers=hdrs) as client:
                     r = await client.get(
                         f"{AF_BASE}/teams",
-                        params={"search": name},
+                        params={"search": _af_n(name)},
                     )
                     results = r.json().get("response") or []
                     if results:
-                        saudi = [
-                            t for t in results
-                            if (t.get("team") or {}).get("country") == "Saudi Arabia"
-                        ]
-                        chosen = (saudi[0] if saudi else results[0]).get("team") or {}
+                        saudi  = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
+                        name_l = _af_n(name)
+                        exact  = [t for t in results if _af_n((t.get("team") or {}).get("name","")) == name_l]
+                        chosen = (exact[0] if exact else (saudi[0] if saudi else results[0])).get("team") or {}
                         logo_url = chosen.get("logo") or ""
             except Exception as e:
                 print(f"api-football logo error for '{name}': {e}")
-        set_club_logo(name_norm, logo_url)
-        cached = logo_url
+        # Só cacheia se encontrou logo real — falhas serão retentadas na próxima carga
+        if logo_url:
+            set_club_logo(name_norm, logo_url)
+            cached = logo_url
     if not cached:
         return Response(status_code=404)
     return RedirectResponse(cached, status_code=302)
@@ -3041,23 +3046,29 @@ async def api_player_photo(name: str):
     hdrs = _af_headers()
     if hdrs:
         try:
-            async with httpx.AsyncClient(timeout=8.0, headers=hdrs) as client:
-                r = await client.get(
-                    f"{AF_BASE}/players",
-                    params={"search": name, "league": AF_SAUDI_LEAGUE, "season": AF_SEASON},
-                )
-                results = r.json().get("response") or []
-                if not results:
+            import unicodedata as _ud3
+            def _af_name(s):
+                nfd = _ud3.normalize("NFD", (s or "").strip())
+                return "".join(c for c in nfd if _ud3.category(c) != "Mn")
+            search_name = _af_name(name)
+            async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
+                results = []
+                # Tenta: nome normalizado sem acentos, temporadas 2025/2024/2023
+                for _season in ("2025", "2024", "2023"):
                     r = await client.get(
                         f"{AF_BASE}/players",
-                        params={"search": name, "season": AF_SEASON},
+                        params={"search": search_name, "season": _season},
                     )
                     results = r.json().get("response") or []
+                    if results:
+                        break
                 if results:
                     photo_url = (results[0].get("player") or {}).get("photo") or ""
         except Exception as e:
             print(f"api-football photo error for '{name}': {type(e).__name__}")
-    set_player_photo(name_norm, photo_url)
+    # Só cacheia se encontrou foto real — falhas serão retentadas na próxima carga
+    if photo_url:
+        set_player_photo(name_norm, photo_url)
     if not photo_url:
         return Response(status_code=404)
     return RedirectResponse(photo_url, status_code=302)
