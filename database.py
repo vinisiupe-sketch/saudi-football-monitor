@@ -104,6 +104,7 @@ def init_db():
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
     init_injuries()
     init_transfer_meta()
+    init_club_logos()
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
@@ -517,6 +518,57 @@ def upsert_transfer_meta(article_id: str, data: dict):
             data.get("nego_type"),
             now,
         ))
+
+
+# ─────────────────────────────────────────────
+#  CACHE DE LOGOS DE CLUBES
+# ─────────────────────────────────────────────
+
+def init_club_logos():
+    """Cria tabela de cache de logos de clubes. Chamado por init_db()."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS club_logos (
+                name_norm  TEXT PRIMARY KEY,
+                logo_url   TEXT,
+                fetched_at TEXT NOT NULL
+            )
+        """)
+
+
+def get_club_logo(name_norm: str) -> str | None:
+    """Retorna URL cacheada do logo.
+    - str (url ou ''): já foi buscado antes
+    - None: nunca buscado
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT logo_url FROM club_logos WHERE name_norm = %s", (name_norm,))
+            row = c.fetchone()
+            if row is None:
+                return None
+            return row[0] if row[0] else ""
+    except Exception:
+        return None
+
+
+def set_club_logo(name_norm: str, logo_url: str):
+    """Armazena URL do logo ('' se não encontrado)."""
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO club_logos (name_norm, logo_url, fetched_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (name_norm) DO UPDATE SET
+                    logo_url   = EXCLUDED.logo_url,
+                    fetched_at = EXCLUDED.fetched_at
+            """, (name_norm, logo_url, now))
+    except Exception:
+        pass
 
 
 def get_transfer_articles() -> list[dict]:

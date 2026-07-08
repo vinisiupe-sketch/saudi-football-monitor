@@ -8,10 +8,10 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_transfer_articles
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_transfer_articles, get_club_logo, set_club_logo
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -2154,7 +2154,7 @@ async def _page_transferencias_impl(request: Request):
     total = len(articles)
     classified = sum(1 for a in articles if a.get("nego_type"))
 
-    # ── Tabela de cores por clube ─────────────────────────────────────────
+    # ── Cores por clube ───────────────────────────────────────────────────
     _CLUB_COLORS = {
         "al hilal":            {"bg": "#1a3a8f", "color": "#fff", "abbr": "HIL"},
         "al nassr":            {"bg": "#FFD700", "color": "#003087", "abbr": "NAS"},
@@ -2172,54 +2172,51 @@ async def _page_transferencias_impl(request: Request):
         "al riyadh":           {"bg": "#006400", "color": "#fff", "abbr": "RIY"},
         "al akhdoud":          {"bg": "#2d6e2d", "color": "#000", "abbr": "AKH"},
         "al wahda":            {"bg": "#FFD700", "color": "#006400", "abbr": "WAH"},
+        "al wehda":            {"bg": "#FFD700", "color": "#006400", "abbr": "WHD"},
+        "al qadisiyah":        {"bg": "#1e3a5f", "color": "#fff", "abbr": "QDY"},
+        "al batin":            {"bg": "#006400", "color": "#fff", "abbr": "BAT"},
+        "al tai":              {"bg": "#006400", "color": "#fff", "abbr": "TAI"},
+        "abha":                {"bg": "#cc0000", "color": "#fff", "abbr": "ABH"},
+        "al okhdood":          {"bg": "#2d6e2d", "color": "#000", "abbr": "OKH"},
         "real madrid":         {"bg": "#000080", "color": "#fff", "abbr": "RM"},
         "barcelona":           {"bg": "#A50044", "color": "#004D98", "abbr": "FCB"},
         "atletico madrid":     {"bg": "#CE3524", "color": "#fff", "abbr": "ATM"},
         "sevilla":             {"bg": "#D52B1E", "color": "#fff", "abbr": "SEV"},
+        "villarreal":          {"bg": "#FFD700", "color": "#003087", "abbr": "VIL"},
+        "valencia":            {"bg": "#FF8C00", "color": "#000", "abbr": "VCF"},
         "psg":                 {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
         "paris saint-germain": {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
-        "paris sg":            {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
-        "manchester city":     {"bg": "#6CABDD", "color": "#1C2C5B", "abbr": "MCI"},
-        "manchester united":   {"bg": "#DA291C", "color": "#FBE122", "abbr": "MUN"},
-        "liverpool":           {"bg": "#C8102E", "color": "#F6EB61", "abbr": "LIV"},
+        "manchester city":     {"bg": "#6CABDD", "color": "#fff", "abbr": "MCI"},
+        "manchester united":   {"bg": "#DA291C", "color": "#FBE122", "abbr": "MNU"},
         "chelsea":             {"bg": "#034694", "color": "#fff", "abbr": "CHE"},
         "arsenal":             {"bg": "#EF0107", "color": "#fff", "abbr": "ARS"},
+        "liverpool":           {"bg": "#C8102E", "color": "#fff", "abbr": "LIV"},
         "tottenham":           {"bg": "#132257", "color": "#fff", "abbr": "TOT"},
-        "newcastle united":    {"bg": "#1d1d1b", "color": "#fff", "abbr": "NEW"},
-        "newcastle":           {"bg": "#1d1d1b", "color": "#fff", "abbr": "NEW"},
-        "aston villa":         {"bg": "#95BFE5", "color": "#670E36", "abbr": "AVL"},
-        "west ham":            {"bg": "#7A263A", "color": "#1BB1E7", "abbr": "WHU"},
-        "juventus":            {"bg": "#1d1d1b", "color": "#fff", "abbr": "JUV"},
-        "inter":               {"bg": "#003399", "color": "#000", "abbr": "INT"},
-        "inter milan":         {"bg": "#003399", "color": "#000", "abbr": "INT"},
-        "ac milan":            {"bg": "#FB090B", "color": "#000", "abbr": "MIL"},
+        "aston villa":         {"bg": "#670E36", "color": "#C5A028", "abbr": "AVL"},
+        "newcastle":           {"bg": "#241F20", "color": "#fff", "abbr": "NEW"},
+        "juventus":            {"bg": "#000000", "color": "#fff", "abbr": "JUV"},
+        "inter milan":         {"bg": "#010E80", "color": "#fff", "abbr": "INT"},
+        "ac milan":            {"bg": "#FB090B", "color": "#000", "abbr": "ACM"},
         "napoli":              {"bg": "#12A0D7", "color": "#fff", "abbr": "NAP"},
-        "as roma":             {"bg": "#8E1F2F", "color": "#FFD700", "abbr": "ROM"},
-        "roma":                {"bg": "#8E1F2F", "color": "#FFD700", "abbr": "ROM"},
-        "lazio":               {"bg": "#87CEEB", "color": "#003366", "abbr": "LAZ"},
-        "atalanta":            {"bg": "#1a3a8f", "color": "#000", "abbr": "ATA"},
-        "fiorentina":          {"bg": "#6A0DAD", "color": "#fff", "abbr": "FIO"},
-        "porto":               {"bg": "#003087", "color": "#FFD700", "abbr": "FCP"},
-        "benfica":             {"bg": "#CC0000", "color": "#fff", "abbr": "SLB"},
-        "sporting":            {"bg": "#005E27", "color": "#FFD700", "abbr": "SCP"},
-        "sporting cp":         {"bg": "#005E27", "color": "#FFD700", "abbr": "SCP"},
+        "roma":                {"bg": "#8B0000", "color": "#FFD700", "abbr": "ROM"},
+        "lazio":               {"bg": "#87CEEB", "color": "#003087", "abbr": "LAZ"},
+        "atalanta":            {"bg": "#1E40AF", "color": "#000", "abbr": "ATA"},
+        "porto":               {"bg": "#003087", "color": "#FFD700", "abbr": "POR"},
+        "benfica":             {"bg": "#CC0000", "color": "#fff", "abbr": "BEN"},
+        "sporting cp":         {"bg": "#006400", "color": "#FFD700", "abbr": "SPO"},
         "ajax":                {"bg": "#CC0000", "color": "#fff", "abbr": "AJX"},
+        "psv":                 {"bg": "#CC0000", "color": "#fff", "abbr": "PSV"},
+        "bayer leverkusen":    {"bg": "#E32219", "color": "#000", "abbr": "B04"},
         "borussia dortmund":   {"bg": "#FDE100", "color": "#000", "abbr": "BVB"},
-        "dortmund":            {"bg": "#FDE100", "color": "#000", "abbr": "BVB"},
         "bayern munich":       {"bg": "#DC052D", "color": "#fff", "abbr": "BAY"},
-        "bayern":              {"bg": "#DC052D", "color": "#fff", "abbr": "BAY"},
-        "bayer leverkusen":    {"bg": "#E32221", "color": "#000", "abbr": "B04"},
-        "rb leipzig":          {"bg": "#DD0741", "color": "#fff", "abbr": "RBL"},
+        "rb leipzig":          {"bg": "#CC0000", "color": "#fff", "abbr": "RBL"},
+        "lyon":                {"bg": "#1B2148", "color": "#D00000", "abbr": "OL"},
+        "marseille":           {"bg": "#009FD4", "color": "#fff", "abbr": "OM"},
         "monaco":              {"bg": "#CC0000", "color": "#fff", "abbr": "ASM"},
-        "lyon":                {"bg": "#0048A0", "color": "#fff", "abbr": "OL"},
-        "marseille":           {"bg": "#2196F3", "color": "#fff", "abbr": "OM"},
-        "galatasaray":         {"bg": "#CC0000", "color": "#FFD700", "abbr": "GS"},
-        "fenerbahce":          {"bg": "#FFD700", "color": "#003087", "abbr": "FB"},
-        "besiktas":            {"bg": "#1a1a1a", "color": "#fff", "abbr": "BJK"},
-        "villarreal":          {"bg": "#FFD700", "color": "#1a1a1a", "abbr": "VIL"},
-        "valencia":            {"bg": "#FF8C00", "color": "#000", "abbr": "VCF"},
         "celtic":              {"bg": "#006400", "color": "#fff", "abbr": "CEL"},
         "rangers":             {"bg": "#003082", "color": "#fff", "abbr": "RFC"},
+        "galatasaray":         {"bg": "#CC0000", "color": "#FFD700", "abbr": "GAL"},
+        "fenerbahce":          {"bg": "#FFD700", "color": "#003087", "abbr": "FEN"},
         "flamengo":            {"bg": "#CC0000", "color": "#000", "abbr": "FLA"},
         "fluminense":          {"bg": "#8B0000", "color": "#006400", "abbr": "FLU"},
         "corinthians":         {"bg": "#1a1a1a", "color": "#fff", "abbr": "COR"},
@@ -2228,6 +2225,7 @@ async def _page_transferencias_impl(request: Request):
         "boca juniors":        {"bg": "#0033A0", "color": "#FFD700", "abbr": "BOC"},
         "river plate":         {"bg": "#CC0000", "color": "#fff", "abbr": "RIV"},
     }
+
     _FLAG = {
         "brasil": "🇧🇷", "brazil": "🇧🇷",
         "argentina": "🇦🇷",
@@ -2248,6 +2246,7 @@ async def _page_transferencias_impl(request: Request):
         "costa do marfim": "🇨🇮", "ivory coast": "🇨🇮",
         "mali": "🇲🇱",
         "gana": "🇬🇭", "ghana": "🇬🇭",
+        "guinea": "🇬🇳",
         "alemanha": "🇩🇪", "germany": "🇩🇪",
         "italia": "🇮🇹", "italy": "🇮🇹",
         "holanda": "🇳🇱", "netherlands": "🇳🇱",
@@ -2274,19 +2273,18 @@ async def _page_transferencias_impl(request: Request):
         "peru": "🇵🇪",
         "paraguai": "🇵🇾", "paraguay": "🇵🇾",
         "equador": "🇪🇨", "ecuador": "🇪🇨",
-        "jamaica": "🇯🇲",
-        "costa rica": "🇨🇷",
         "estados unidos": "🇺🇸", "usa": "🇺🇸",
         "australia": "🇦🇺",
     }
 
-    # ── Normalização ──────────────────────────────────────────────────────
-    def _norm(s: str) -> str:
+    def _norm(s: str | None) -> str:
         s = (s or "").lower().strip()
         nfd = unicodedata.normalize("NFD", s)
         return "".join(c for c in nfd if unicodedata.category(c) != "Mn")
 
-    def _club_cfg(name: str) -> dict:
+    def _club_cfg(name: str | None) -> dict:
+        if not name:
+            return {"bg": "#6b7280", "color": "#fff", "abbr": "?"}
         n = _norm(name)
         if n in _CLUB_COLORS:
             return _CLUB_COLORS[n]
@@ -2295,17 +2293,17 @@ async def _page_transferencias_impl(request: Request):
                 return v
         return {"bg": "#6b7280", "color": "#fff", "abbr": (n[:3].upper() or "?")}
 
-    def _club_cell(name: str | None) -> str:
+    def _logo_wrap(name: str | None) -> str:
         if not name:
-            return '<div class="club-cell"><span class="club-name c-empty">—</span></div>'
+            return '<div class="club-logo-wrap"><span class="club-crest" style="background:#6b7280;color:#fff">?</span></div>'
         cfg = _club_cfg(name)
-        disp = name if len(name) <= 17 else name[:16] + "…"
-        return (
-            '<div class="club-cell">'
-            f'<span class="club-crest" style="background:{cfg["bg"]};color:{cfg["color"]}">{cfg["abbr"]}</span>'
-            f'<span class="club-name">{disp}</span>'
-            '</div>'
+        enc = quote(name, safe="")
+        title_safe = name.replace('"', "&quot;").replace("&", "&amp;")
+        crest = (
+            f'<span class="club-crest" style="background:{cfg["bg"]};color:{cfg["color"]}">'
+            f'{cfg["abbr"]}</span>'
         )
+        return f'<div class="club-logo-wrap" data-club="{enc}" title="{title_safe}">{crest}</div>'
 
     def _flag(nat: str | None) -> str:
         if not nat:
@@ -2317,282 +2315,268 @@ async def _page_transferencias_impl(request: Request):
             ntype = "sondagem"
         cfg = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])
         return (
-            f'<span class="nego-badge nego-{ntype}">'
-            f'{cfg["icon"]}&nbsp;{cfg["label"]}'
-            f'</span>'
+            f'<span class="nego-badge" style="background:{cfg["bg"]};color:{cfg["color"]}">'
+            f'{cfg["icon"]} {cfg["label"]}</span>'
         )
 
-    def _date_short(iso: str | None) -> str:
+    def _date_short(iso) -> str:
         if not iso:
             return ""
         try:
-            d = iso[:10].split("-")
-            return f"{d[2]}/{d[1]}"
+            dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+            return dt.strftime("%d/%m")
         except Exception:
             return ""
 
-    # ── Agrupamento: mesmo jogador + clubes + tipo → 1 linha, múltiplas fontes ──
-    groups: list[dict] = []
+    def _sources_html(sources: list) -> str:
+        chips = []
+        for s in sources:
+            sname = s.get("source_name", "")
+            moon = SOURCE_MOON.get(sname.lstrip("@"), "")
+            label = (sname.lstrip("@") or "?")[:16]
+            date_str = _date_short(s.get("published_at"))
+            url = s.get("url", "#")
+            chips.append(
+                f'<a class="src-chip" href="{url}" target="_blank" rel="noopener">'
+                f'{moon}{label}'
+                f'{"&nbsp;· " + date_str if date_str else ""}'
+                f'</a>'
+            )
+        return "\n".join(chips)
+
+    # ── Agrupamento / deduplicação ────────────────────────────────────────
     seen: dict = {}
-
     for a in articles:
-        pname = (a.get("player_name") or "").strip()
-        ntype = (a.get("nego_type") or "").strip()
-        cfrom = (a.get("club_from") or "").strip()
-        cto   = (a.get("club_to") or "").strip()
-        sname = (a.get("source_name") or "")
-        src_entry = {
-            "source_name":  sname,
-            "url":          a.get("url") or "#",
-            "published_at": a.get("published_at") or "",
-            "moon":         SOURCE_MOON.get(sname.lstrip("@"), ""),
-        }
-
-        if pname and ntype:
-            key = (_norm(pname), _norm(cfrom), _norm(cto), ntype)
-            if key in seen:
-                groups[seen[key]]["sources"].append(src_entry)
-                continue
-            seen[key] = len(groups)
-            groups.append({
-                "player_name":        pname,
+        pname = a.get("player_name") or ""
+        cfrom = a.get("club_from") or ""
+        cto   = a.get("club_to") or ""
+        ntype = a.get("nego_type") or "sondagem"
+        key   = (_norm(pname), _norm(cfrom), _norm(cto), ntype)
+        if key not in seen:
+            seen[key] = {
+                "player_name":        pname or None,
                 "player_position":    a.get("player_position"),
                 "player_nationality": a.get("player_nationality"),
                 "club_from":          cfrom or None,
                 "club_to":            cto or None,
-                "nego_type":          ntype,
                 "fee":                a.get("fee"),
-                "sources":            [src_entry],
-            })
-        else:
-            title = (a.get("title_pt") or a.get("title_orig") or "")
-            groups.append({
-                "player_name":        title[:55] + ("…" if len(title) > 55 else ""),
-                "player_position":    None,
-                "player_nationality": None,
-                "club_from":          cfrom or None,
-                "club_to":            cto or None,
-                "nego_type":          "sondagem",
-                "fee":                None,
-                "sources":            [src_entry],
-                "_unclassified":      True,
-            })
+                "nego_type":          ntype,
+                "_unclassified":      not a.get("player_name"),
+                "sources":            [],
+            }
+        seen[key]["sources"].append({
+            "source_name":  a.get("source_name", ""),
+            "url":          a.get("url", "#"),
+            "published_at": a.get("published_at"),
+        })
+        if a.get("fee") and not seen[key]["fee"]:
+            seen[key]["fee"] = a.get("fee")
 
+    groups = list(seen.values())
     n_groups = len(groups)
 
-    def _sources_html(sources: list[dict]) -> str:
-        chips = []
-        for s in sources:
-            sn   = (s["source_name"] or "").lstrip("@")
-            moon = s["moon"]
-            url  = s["url"]
-            date = _date_short(s["published_at"])
-            nm   = sn[:11] + "…" if len(sn) > 12 else sn
-            parts = []
-            if moon:
-                parts.append(moon)
-            parts.append(nm)
-            if date:
-                parts.append("·")
-                parts.append(date)
-            label = " ".join(parts)
-            chips.append(
-                f'<a class="src-chip" href="{url}" target="_blank" rel="noopener">'
-                f'{label} <span class="src-arrow">→</span></a>'
-            )
-        return '<div class="fontes-wrap">' + "".join(chips) + "</div>"
+    type_counts: dict = {}
+    for g in groups:
+        t = g.get("nego_type") or "sondagem"
+        type_counts[t] = type_counts.get(t, 0) + 1
 
+    # ── Gera cards ────────────────────────────────────────────────────────
     def _card(idx: int, g: dict) -> str:
-        pname   = g["player_name"]
-        pos     = g.get("player_position") or ""
-        flag_em = _flag(g.get("player_nationality"))
-        meta    = " · ".join(filter(None, [pos, flag_em]))
-        fee     = g.get("fee") or "—"
-        badge   = _nego_badge(g.get("nego_type"))
-        cfrom   = _club_cell(g.get("club_from"))
-        cto_    = _club_cell(g.get("club_to"))
-        srcs    = _sources_html(g["sources"])
-        ucls    = " tr-unclassified" if g.get("_unclassified") else ""
+        pname  = g.get("player_name") or "?"
+        flag   = _flag(g.get("player_nationality"))
+        pos    = g.get("player_position") or ""
+        fee    = g.get("fee") or ""
+        ntype  = g.get("nego_type") or "sondagem"
+        accent = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])["color"]
+        badge  = _nego_badge(ntype)
+        srcs   = _sources_html(g.get("sources", []))
+        ucls   = " tc-dim" if g.get("_unclassified") else ""
+        fw     = _logo_wrap(g.get("club_from"))
+        tw     = _logo_wrap(g.get("club_to"))
+        flag_h = f' <span class="tc-flag">{flag}</span>' if flag else ""
+        pos_h  = f'<div class="tc-pos">{pos}</div>' if pos else ""
+        fee_h  = f'<div class="tc-fee">{fee}</div>' if fee else ""
         return (
-            f'<div class="tr-card{ucls}">'
-            f'<div class="tr-rank">#{idx}</div>'
-            f'<div class="tr-player">'
-            f'<span class="player-name">{pname}</span>'
-            + (f'<span class="player-meta">{meta}</span>' if meta else "")
-            + f'</div>'
-            f'<div class="tr-club-from">{cfrom}</div>'
-            f'<div class="tr-club-to">{cto_}</div>'
-            f'<div class="tr-badge">{badge}</div>'
-            f'<div class="tr-fee">{fee}</div>'
-            f'<div class="tr-fontes">{srcs}</div>'
+            f'<div class="tc{ucls}" data-type="{ntype}" style="--accent:{accent}">'
+            f'<div class="tc-accent"></div>'
+            f'<div class="tc-body">'
+            f'<span class="tc-rank">#{idx}</span>'
+            f'<div class="clubs-block">{fw}<span class="clubs-sep">›</span>{tw}</div>'
+            f'<div class="tc-info">'
+            f'<div class="tc-player">{pname}{flag_h}</div>'
+            f'{pos_h}{fee_h}'
             f'</div>'
+            f'<div class="tc-badge-wrap">{badge}</div>'
+            f'<div class="tc-sources">{srcs}</div>'
+            f'</div></div>'
         )
 
-    cards_html = "".join(_card(i + 1, g) for i, g in enumerate(groups))
-    if not groups:
-        cards_html = '<div class="empty-msg">Nenhuma transferência registrada em julho de 2026.</div>'
-
-    badge_css = ""
-    for key, cfg in NEGO_TYPES.items():
-        badge_css += (
-            f".nego-{key} {{ background:{cfg['bg']}; color:{cfg['color']}; }}\n    "
-            f":root[data-theme='dark'] .nego-{key} {{ background:{cfg['dark_bg']}; color:{cfg['dark_color']}; }}\n    "
+    if groups:
+        cards_html = "\n".join(_card(i + 1, g) for i, g in enumerate(groups))
+    else:
+        cards_html = (
+            '<div class="empty"><span class="empty-icon">🔍</span>'
+            '<p>Nenhuma transferência encontrada para julho de 2026.</p></div>'
         )
 
-    html = f"""<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>IARABÃO — Transferências</title>
-  {_THEME_INIT_SCRIPT}
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
-  <style>
-    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
-    {_HEADER_CSS}
+    # ── Botões de filtro ──────────────────────────────────────────────────
+    filter_btns = ""
+    for ntype, cfg in NEGO_TYPES.items():
+        cnt = type_counts.get(ntype, 0)
+        if cnt == 0:
+            continue
+        filter_btns += (
+            f'<button class="filter-btn" data-type="{ntype}">'
+            f'{cfg["icon"]} {cfg["label"]} <span class="filter-cnt">{cnt}</span>'
+            f'</button>\n'
+        )
 
-    .tr-wrap {{
-      max-width: 1440px;
-      margin: 0 auto;
-      padding: 24px 16px 60px;
-    }}
-    .tr-page-title {{ font-size: 1.15rem; font-weight: 700; color: var(--c-text); margin: 0 0 4px; }}
-    .tr-page-sub   {{ font-size: .78rem; color: var(--c-muted-1); margin: 0 0 20px; }}
-    .tr-toolbar {{ display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }}
-    .rebuild-btn {{
-      font-size: .75rem; font-weight: 600; padding: 5px 12px; border-radius: 6px;
-      border: 1.5px solid var(--c-border-2); background: transparent; color: var(--c-muted-4);
-      cursor: pointer; transition: all .15s;
-    }}
-    .rebuild-btn:hover   {{ background: var(--c-hover-tint); color: var(--c-text); }}
-    .rebuild-btn:disabled {{ opacity: .5; cursor: default; }}
+    subtitle = (
+        f"{n_groups} negociações · "
+        f"{classified} de {total} artigos classificados · "
+        "julho 2026"
+    )
 
-    /* ── Grid: # | Jogador | Origem | Destino | Tipo | Valor | Fontes ── */
-    .tr-list-header, .tr-card {{
-      display: grid;
-      grid-template-columns: 44px 160px 145px 145px 120px 60px 1fr;
-      gap: 0 10px;
-    }}
-    .tr-list-header {{
-      padding: 6px 14px;
-      font-size: .63rem; font-weight: 700;
-      text-transform: uppercase; letter-spacing: .07em;
-      color: var(--c-muted-1);
-      border-bottom: 1px solid var(--c-line);
-      margin-bottom: 4px;
-    }}
-    .tr-card {{
-      align-items: center;
-      padding: 9px 14px;
-      border-radius: 8px;
-      border: 1px solid transparent;
-      transition: background .12s, border-color .12s;
-      margin-bottom: 2px;
-    }}
-    .tr-card:hover {{ background: var(--c-bg-card); border-color: var(--c-border); }}
-    .tr-unclassified {{ opacity: .5; }}
+    # ── HTML final ────────────────────────────────────────────────────────
+    CSS = """
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.4}
+:root{
+  --bg:#f0f0f5;--bg-card:#fff;--text:#1c1c1e;--muted:#6b7280;--muted2:#9ca3af;
+  --border:#e5e7eb;--border2:#d1d5db;--accent-blue:#147efb;
+  --chip-bg:#f3f4f6;--chip-border:#e5e7eb;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#0d0d0f;--bg-card:#1c1c1e;--text:#f2f2f7;--muted:#8e8e93;--muted2:#636366;
+    --border:#2c2c2e;--border2:#3a3a3c;
+    --chip-bg:#252527;--chip-border:#3a3a3c;
+  }
+}
+body{background:var(--bg);color:var(--text);min-height:100vh}
+.page{max-width:980px;margin:0 auto;padding:16px 12px 56px}
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.hdr h1{font-size:1.2rem;font-weight:800}
+.hdr-sub{font-size:.7rem;color:var(--muted);margin-top:3px}
+.hdr-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:8px;font-size:.73rem;font-weight:600;border:none;cursor:pointer;text-decoration:none;transition:opacity .15s}
+.btn-primary{background:var(--accent-blue);color:#fff}
+.btn-sec{background:var(--bg-card);color:var(--muted);border:1px solid var(--border2)}
+.btn:hover{opacity:.82}
+.filters{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+.filter-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:.70rem;font-weight:600;border:1.5px solid var(--border2);background:var(--bg-card);color:var(--muted);cursor:pointer;transition:all .15s;line-height:1.6}
+.filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
+.filter-cnt{font-weight:400;opacity:.7}
+.tc{display:flex;border-radius:11px;border:1px solid var(--border);background:var(--bg-card);overflow:hidden;margin-bottom:5px;transition:border-color .15s,box-shadow .15s}
+.tc:hover{border-color:var(--border2);box-shadow:0 1px 10px rgba(0,0,0,.07)}
+.tc-accent{width:4px;flex-shrink:0;background:var(--accent,#6b7280)}
+.tc-body{flex:1;display:flex;align-items:center;gap:10px;padding:9px 13px;min-width:0;overflow:hidden}
+.tc-rank{font-size:.62rem;font-weight:700;color:var(--muted2);min-width:20px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
+.clubs-block{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.club-logo-wrap{width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.club-crest{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.48rem;font-weight:800;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
+.club-logo-img{width:36px;height:36px;object-fit:contain;border-radius:5px}
+.clubs-sep{font-size:11px;color:var(--muted2);line-height:1}
+.tc-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.tc-player{font-size:.86rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+.tc-flag{font-size:.78rem}
+.tc-pos{font-size:.67rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc-fee{font-size:.66rem;color:var(--muted2);font-variant-numeric:tabular-nums}
+.nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:.63rem;font-weight:700;white-space:nowrap}
+.tc-badge-wrap{flex-shrink:0}
+.tc-sources{display:flex;flex-direction:column;gap:3px;align-items:flex-end;flex-shrink:0;max-width:165px;min-width:80px}
+.src-chip{display:inline-flex;align-items:center;gap:3px;font-size:.62rem;font-weight:600;color:var(--muted);background:var(--chip-bg);border:1px solid var(--chip-border);border-radius:6px;padding:2px 7px;text-decoration:none;white-space:nowrap;transition:background .12s;max-width:160px;overflow:hidden;text-overflow:ellipsis}
+.src-chip:hover{background:var(--border)}
+.tc-dim{opacity:.5}
+.tc-dim .tc-player{font-style:italic}
+.empty{text-align:center;padding:60px 16px;color:var(--muted)}
+.empty-icon{font-size:2.4rem;display:block;margin-bottom:8px}
+@media(max-width:600px){.tc-rank{display:none}.tc-sources{max-width:110px;min-width:60px}.tc-pos,.tc-fee{display:none}}
+@media(max-width:400px){.tc-sources{display:none}.tc-badge-wrap{display:none}}
+"""
 
-    .tr-rank {{ font-size: .74rem; font-weight: 700; color: var(--c-muted-2); font-variant-numeric: tabular-nums; }}
+    JS = """
+(function(){
+  var wraps = document.querySelectorAll('.club-logo-wrap[data-club]');
+  var loaded = {};
+  wraps.forEach(function(wrap){
+    var enc = wrap.dataset.club;
+    if(!enc||loaded[enc]) return;
+    loaded[enc]=true;
+    var img=new Image();
+    img.decoding='async';
+    img.onload=function(){
+      document.querySelectorAll('.club-logo-wrap[data-club="'+enc+'"]').forEach(function(w){
+        var i2=new Image();i2.className='club-logo-img';
+        i2.alt=decodeURIComponent(enc.replace(/\\+/g,' '));
+        i2.src=img.src;w.innerHTML='';w.appendChild(i2);
+      });
+    };
+    img.src='/api/club-logo?name='+enc;
+  });
+  document.querySelectorAll('.filter-btn').forEach(function(btn){
+    btn.addEventListener('click',function(){
+      var type=this.dataset.type;
+      if(type==='all'){
+        document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active')});
+        this.classList.add('active');
+        document.querySelectorAll('.tc').forEach(function(c){c.style.display=''});
+      } else {
+        document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){b.classList.remove('active')});
+        this.classList.toggle('active');
+        var active=Array.from(document.querySelectorAll('.filter-btn.active')).map(function(b){return b.dataset.type});
+        if(active.length===0){
+          document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){b.classList.add('active')});
+          document.querySelectorAll('.tc').forEach(function(c){c.style.display=''});
+        } else {
+          document.querySelectorAll('.tc[data-type]').forEach(function(c){
+            c.style.display=active.indexOf(c.dataset.type)>-1?'':'none';
+          });
+        }
+      }
+    });
+  });
+  window.rebuild=async function(btn){
+    var orig=btn.textContent;btn.textContent='⏳ Processando...';btn.disabled=true;
+    try{
+      var r=await fetch('/api/transfers/rebuild',{method:'POST'});
+      var d=await r.json();
+      btn.textContent='✅ '+d.classified+' classificados';
+      setTimeout(function(){location.reload()},1400);
+    }catch(e){
+      btn.textContent='❌ Erro';
+      setTimeout(function(){btn.textContent=orig;btn.disabled=false},2000);
+    }
+  };
+})();
+"""
 
-    .tr-player {{ display: flex; flex-direction: column; gap: 1px; min-width: 0; }}
-    .player-name {{ font-size: .87rem; font-weight: 700; color: var(--c-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    .player-meta {{ font-size: .68rem; color: var(--c-muted-2); white-space: nowrap; }}
-
-    /* Clube: escudo colorido + nome */
-    .club-cell {{ display: flex; align-items: center; gap: 6px; min-width: 0; }}
-    .club-crest {{
-      flex-shrink: 0;
-      display: inline-flex; align-items: center; justify-content: center;
-      width: 30px; height: 30px; border-radius: 6px;
-      font-size: .53rem; font-weight: 800; letter-spacing: -.02em; line-height: 1;
-    }}
-    .club-name {{ font-size: .79rem; color: var(--c-muted-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    .c-empty {{ color: var(--c-muted-2); }}
-
-    .nego-badge {{ display: inline-flex; align-items: center; gap: 4px; font-size: .67rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }}
-    {badge_css}
-
-    .tr-fee {{ font-size: .78rem; color: var(--c-muted-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-
-    .fontes-wrap {{ display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }}
-    .src-chip {{
-      display: inline-flex; align-items: center; gap: 3px;
-      font-size: .68rem; font-weight: 600;
-      color: var(--c-muted-4); background: var(--c-bg-soft);
-      border: 1px solid var(--c-border); border-radius: 6px;
-      padding: 2px 6px; text-decoration: none;
-      white-space: nowrap; transition: background .12s;
-    }}
-    .src-chip:hover {{ background: var(--c-hover-tint); color: var(--c-text); }}
-    .src-arrow {{ opacity: .45; font-size: .65rem; }}
-
-    .empty-msg {{ text-align: center; padding: 60px 0; color: var(--c-muted-1); font-size: .9rem; }}
-
-    @media (max-width: 900px) {{
-      .tr-list-header {{ display: none; }}
-      .tr-card {{
-        grid-template-columns: 36px 1fr;
-        grid-template-rows: auto auto auto auto;
-        grid-template-areas: "rank player" "rank clubs" "rank badge" "rank fontes";
-        gap: 3px 8px; padding: 10px 12px;
-      }}
-      .tr-rank     {{ grid-area: rank; align-self: start; padding-top: 3px; }}
-      .tr-player   {{ grid-area: player; }}
-      .tr-club-from, .tr-club-to {{ grid-area: clubs; display: inline-flex; }}
-      .tr-club-to  {{ margin-left: 4px; }}
-      .tr-badge    {{ grid-area: badge; }}
-      .tr-fee      {{ display: none; }}
-      .tr-fontes   {{ grid-area: fontes; }}
-    }}
-  </style>
-</head>
-<body>
-{_header("/transferencias")}
-<div class="tr-wrap">
-  <div class="tr-page-title">Monitor de Transferências</div>
-  <div class="tr-page-sub">
-    {n_groups} negociações · {classified} de {total} artigos classificados · julho de 2026
-  </div>
-
-  <div class="tr-toolbar">
-    <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
-    <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted-1);"></span>
-  </div>
-
-  <div class="tr-list-header">
-    <div>#</div>
-    <div>Jogador</div>
-    <div>Origem</div>
-    <div>Destino</div>
-    <div>Tipo</div>
-    <div>Valor</div>
-    <div>Fontes</div>
-  </div>
-
-  {cards_html}
-</div>
-
-<script>
-async function rebuild() {{
-  const btn = document.querySelector('.rebuild-btn');
-  const st  = document.getElementById('rebuild-status');
-  btn.disabled = true;
-  st.textContent = 'Processando…';
-  try {{
-    const r = await fetch('/api/transfers/rebuild', {{method:'POST'}});
-    const d = await r.json();
-    st.textContent = `Concluído: ${{d.classified}} classificados, ${{d.skipped}} ignorados de ${{d.total}} artigos.`;
-    setTimeout(() => location.reload(), 2000);
-  }} catch(e) {{
-    st.textContent = 'Erro: ' + e.message;
-  }} finally {{
-    btn.disabled = false;
-  }}
-}}
-</script>
-</body></html>"""
+    html = (
+        "<!DOCTYPE html>\n<html lang=\"pt-BR\">\n<head>\n"
+        "<meta charset=\"utf-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n"
+        "<title>🔄 Transferências – Saudi Monitor</title>\n"
+        f"<style>{CSS}</style>\n"
+        "</head>\n<body>\n<div class=\"page\">\n"
+        "<div class=\"hdr\">\n"
+        "  <div>\n"
+        "    <h1>🔄 Transferências</h1>\n"
+        f"    <div class=\"hdr-sub\">{subtitle}</div>\n"
+        "  </div>\n"
+        "  <div class=\"hdr-actions\">\n"
+        "    <button class=\"btn btn-primary\" onclick=\"rebuild(this)\">⟳ Reprocessar</button>\n"
+        "    <a class=\"btn btn-sec\" href=\"/\">← Início</a>\n"
+        "  </div>\n"
+        "</div>\n"
+        "<div class=\"filters\">\n"
+        "  <button class=\"filter-btn active\" data-type=\"all\">Todos</button>\n"
+        f"  {filter_btns}"
+        "</div>\n"
+        f"<div id=\"tc-list\">\n{cards_html}\n</div>\n"
+        "</div>\n"
+        f"<script>{JS}</script>\n"
+        "</body></html>"
+    )
     return HTMLResponse(html)
 
 
@@ -2606,3 +2590,32 @@ async def api_transfers_rebuild():
     from transfer_processor import rebuild_transfers_from_history
     result = await rebuild_transfers_from_history()
     return result
+
+
+@app.get("/api/club-logo")
+async def api_club_logo(name: str):
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", name.lower().strip())
+    name_norm = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    cached = get_club_logo(name_norm)
+    if cached is None:
+        logo_url = None
+        try:
+            async with httpx.AsyncClient(timeout=6.0) as client:
+                r = await client.get(
+                    "https://www.thesportsdb.com/api/v1/json/3/searchteams.php",
+                    params={"t": name}
+                )
+                data = r.json()
+                teams = data.get("teams") or []
+                if teams:
+                    logo_url = (teams[0].get("strTeamBadge") or
+                                teams[0].get("strBadge") or "")
+        except Exception as e:
+            print(f"\u26a0\ufe0f  Logo fetch error for '{name}': {e}")
+            logo_url = ""
+        set_club_logo(name_norm, logo_url or "")
+        cached = logo_url or ""
+    if not cached:
+        return Response(status_code=404)
+    return RedirectResponse(cached, status_code=302)
