@@ -2413,7 +2413,16 @@ async def _page_transferencias_impl(request: Request):
         pos_h = f'<div class="tc-pos">{pos}</div>' if pos else ""
         fee_h = f'<div class="tc-fee">{fee}</div>' if fee else ""
         initials = _player_initials(pname)
-        avatar = f'<span class="player-initials">{initials}</span>'
+        from urllib.parse import quote as _pq
+        _oe = "this.style.display='none'"
+        avatar = (
+            f'<span class="player-avatar">'
+            f'<span class="player-ini">{initials}</span>'
+            f'<img class="player-photo" loading="lazy"'
+            f' src="/api/player-photo?name={_pq(pname)}"'
+            f' onerror="{_oe}">'
+            f'</span>'
+        )
 
         sources = g.get("sources", [])
         n_src = len(sources)
@@ -2532,7 +2541,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .tc-accent{width:4px;flex-shrink:0;align-self:stretch;background:var(--accent,#6b7280)}
 .tc-body{flex:1;display:flex;align-items:center;gap:10px;padding:9px 13px;min-width:0;overflow:hidden}
 .tc-rank{font-size:.62rem;font-weight:700;color:inherit;opacity:.45;min-width:20px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
-.player-initials{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;background:rgba(128,128,128,.28);color:inherit;flex-shrink:0;opacity:.8;letter-spacing:-.02em}
+.player-avatar{position:relative;width:34px;height:34px;border-radius:50%;overflow:hidden;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center}.player-ini{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;background:rgba(128,128,128,.28);color:inherit;opacity:.8;letter-spacing:-.02em}.player-photo{position:absolute;inset:0;width:34px;height:34px;object-fit:cover;object-position:top center}.player-initials{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;background:rgba(128,128,128,.28);color:inherit;flex-shrink:0;opacity:.8;letter-spacing:-.02em}
 .clubs-block{display:flex;align-items:center;gap:5px;flex-shrink:0}
 .club-logo-wrap{width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 .club-crest{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.48rem;font-weight:800;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
@@ -2846,6 +2855,36 @@ async def api_debug_names(q: str | None = None):
     return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
 
 
+_SAUDI_TM_LOGO: dict[str, str] = {
+    "al hilal": "1031",
+    "al nassr": "1037",     "al nasr": "1037",
+    "al ittihad": "2197",
+    "al ahli": "1029",      "al ahly": "1029",
+    "al shabab": "4483",
+    "al ettifaq": "7490",   "al ittifaq": "7490",
+    "al fateh": "5543",     "al fath": "5543",
+    "al taawoun": "5544",   "al taawon": "5544",    "al taawun": "5544",
+    "al qadsiah": "13597",  "al qadisiyah": "13597", "al qadisiya": "13597",
+    "damac": "44049",       "dhamk": "44049",
+    "al fayha": "36764",    "al feiha": "36764",    "al faiha": "36764",
+    "al hazem": "27396",    "al hazm": "27396",
+    "al riyadh": "13237",
+    "al khaleej": "17186",  "al khalij": "17186",
+    "al akhdoud": "35089",  "al okhdood": "35089",
+    "neom": "85139",
+}
+
+
+@app.get("/api/admin/clear-photos")
+async def api_clear_photo_cache():
+    from database import get_conn
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM player_photos")
+        n = c.rowcount
+    return HTMLResponse(f"<pre>\u2705 Cache de fotos limpo \u2014 {n} entradas removidas</pre>")
+
+
 @app.get("/api/club-logo")
 async def api_club_logo(name: str):
     from urllib.parse import quote as _quote
@@ -2853,21 +2892,27 @@ async def api_club_logo(name: str):
     cached = get_club_logo(name_norm)
     if cached is None:
         logo_url = ""
-        try:
-            async with httpx.AsyncClient(timeout=7.0) as client:
-                r = await client.get(
-                    f"https://transfermarkt-api.fly.dev/clubs/search/{_quote(name)}"
-                )
-                results = r.json().get("results") or []
-                if results:
-                    # Prefer Saudi Arabia clubs
-                    saudi = [c for c in results if c.get("country") == "Saudi Arabia"]
-                    club  = saudi[0] if saudi else results[0]
-                    cid   = club.get("id")
-                    if cid:
-                        logo_url = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
-        except Exception as e:
-            print(f"Transfermarkt logo error for '{name}': {e}")
+        cid = _SAUDI_TM_LOGO.get(name_norm)
+        if not cid:
+            nm = name_norm.removeprefix("al ").removesuffix(" fc").strip()
+            cid = _SAUDI_TM_LOGO.get(nm)
+        if cid:
+            logo_url = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
+        else:
+            try:
+                async with httpx.AsyncClient(timeout=7.0) as client:
+                    r = await client.get(
+                        f"https://transfermarkt-api.fly.dev/clubs/search/{_quote(name)}"
+                    )
+                    results = r.json().get("results") or []
+                    if results:
+                        saudi = [c for c in results if c.get("country") == "Saudi Arabia"]
+                        club  = saudi[0] if saudi else results[0]
+                        cid2  = club.get("id")
+                        if cid2:
+                            logo_url = f"https://tmssl.akamaized.net//images/wappen/big/{cid2}.png"
+            except Exception as e:
+                print(f"Transfermarkt logo error for '{name}': {e}")
         set_club_logo(name_norm, logo_url)
         cached = logo_url
     if not cached:
@@ -2877,12 +2922,34 @@ async def api_club_logo(name: str):
 
 @app.get("/api/player-photo")
 async def api_player_photo(name: str):
-    import unicodedata
-    nfd = unicodedata.normalize("NFD", name.lower().strip())
-    name_norm = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    import unicodedata as _ud
+    from urllib.parse import quote as _q
+    nfd = _ud.normalize("NFD", name.lower().strip())
+    name_norm = "".join(c for c in nfd if _ud.category(c) != "Mn")
     cached = get_player_photo(name_norm)
-    if cached is None:
-        photo_url = ""
+    if cached is not None:
+        if not cached:
+            return Response(status_code=404)
+        return RedirectResponse(cached, status_code=302)
+    photo_url = ""
+    # 1) Transfermarkt portrait
+    try:
+        async with httpx.AsyncClient(timeout=7.0) as client:
+            r = await client.get(
+                f"https://transfermarkt-api.fly.dev/players/search/{_q(name)}"
+            )
+            if r.status_code == 200:
+                results = r.json().get("results") or []
+                if results:
+                    pid = str(results[0].get("id") or "")
+                    if pid:
+                        photo_url = (
+                            f"https://img.a.transfermarkt.technology/portrait/big/{pid}.jpg"
+                        )
+    except Exception as e:
+        print(f"TM photo error for '{name}': {type(e).__name__}")
+    # 2) Fotmob fallback
+    if not photo_url:
         try:
             async with httpx.AsyncClient(timeout=6.0, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -2894,37 +2961,25 @@ async def api_player_photo(name: str):
                 )
                 data = r.json()
                 players = (
-                    data.get("players") or data.get("Players") or
+                    data.get("players") or
+                    (data.get("data") or {}).get("players", {}) or
                     data.get("squad") or []
                 )
                 if isinstance(players, dict):
-                    players = players.get("players") or players.get("hits") or []
+                    players = players.get("hits") or players.get("players") or []
                 if players:
                     p = players[0]
-                    pid = (p.get("id") or p.get("Id") or
-                           p.get("playerId") or p.get("participantId"))
-                    if pid:
-                        photo_url = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
-        except Exception as e:
-            print(f"Fotmob error for '{name}': {e}")
-        if not photo_url:
-            try:
-                async with httpx.AsyncClient(timeout=6.0) as client:
-                    r = await client.get(
-                        "https://www.thesportsdb.com/api/v1/json/3/searchplayers.php",
-                        params={"p": name},
+                    pid = (
+                        p.get("id") or p.get("participantId") or
+                        p.get("playerId") or p.get("Id")
                     )
-                    data = r.json()
-                    players = data.get("player") or []
-                    if players:
+                    if pid:
                         photo_url = (
-                            players[0].get("strCutout") or
-                            players[0].get("strThumb") or ""
+                            f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
                         )
-            except Exception as e:
-                print(f"TheSportsDB error for '{name}': {e}")
-        set_player_photo(name_norm, photo_url)
-        cached = photo_url
-    if not cached:
+        except Exception as e:
+            print(f"Fotmob photo error for '{name}': {type(e).__name__}")
+    set_player_photo(name_norm, photo_url)
+    if not photo_url:
         return Response(status_code=404)
-    return RedirectResponse(cached, status_code=302)
+    return RedirectResponse(photo_url, status_code=302)
