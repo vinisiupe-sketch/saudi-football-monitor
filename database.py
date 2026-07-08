@@ -483,13 +483,10 @@ def init_transfer_meta():
                 classified_at      TEXT NOT NULL
             )
         """)
-        # Migra colunas ausentes em instâncias existentes
+        # Migra colunas ausentes em instâncias existentes (IF NOT EXISTS evita abort de transação)
         for col in ("player_position", "player_nationality",
                     "af_player_id", "af_team_from_id", "af_team_to_id"):
-            try:
-                c.execute(f"ALTER TABLE transfer_meta ADD COLUMN {col} TEXT")
-            except Exception:
-                pass  # coluna já existe
+            c.execute(f"ALTER TABLE transfer_meta ADD COLUMN IF NOT EXISTS {col} TEXT")
 
 
 def upsert_transfer_meta(article_id: str, data: dict):
