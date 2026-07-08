@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_transfer_articles
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -112,6 +112,7 @@ _ICO_TRASH2  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+_ICO_TRANSFER= '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4l4 4"/><path d="M17 8v12m0 0l4-4m-4 4l-4-4"/></svg>'
 
 _THEME_VARS_CSS = (
     "    :root { --c-bg:#edeae4; --c-bg-card:#fafaf8; --c-bg-soft:#fff; --c-text:#1a1a1a; --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555; --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc; --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04); --c-success:#166534; --c-error:#be123c; }\n"
@@ -146,8 +147,9 @@ def _header(active: str) -> str:
         ("/",           _ICO_HOME,    "Home",          "home"),
         ("/selecao",    _ICO_SELECAO, "Seleção Saudita","selecao"),
         ("/descartadas",_ICO_ARCHIVE, "Descartadas",   ""),
-        ("/lesoes",     _ICO_INJURY,  "Lesões",        ""),
-        ("/fontes",     _ICO_SOURCES, "Fontes",        ""),
+        ("/lesoes",         _ICO_INJURY,    "Lesões",          ""),
+        ("/transferencias", _ICO_TRANSFER,  "Transferências",  ""),
+        ("/fontes",         _ICO_SOURCES,   "Fontes",          ""),
         ("/lixeira",    _ICO_TRASH2,  "Lixeira",       ""),
         ("/gerador",    _ICO_PEN2,    "Criar Post",    ""),
     ]
@@ -2133,4 +2135,555 @@ async def api_injuries():
 async def api_injuries_rebuild():
     from injury_processor import rebuild_injuries_from_history
     result = await rebuild_injuries_from_history()
+    return result
+
+
+# ═══════════════════════════════════════════════════════════
+#  MONITOR DE TRANSFERÊNCIAS
+# ═══════════════════════════════════════════════════════════
+
+@app.get("/transferencias", response_class=HTMLResponse)
+async def page_transferencias(request: Request):
+    return await _page_transferencias_impl(request)
+
+
+async def _page_transferencias_impl(request: Request):
+    from transfer_processor import NEGO_TYPES
+    from sources import SOURCE_MOON
+
+    articles = get_transfer_articles()
+    total = len(articles)
+    classified = sum(1 for a in articles if a.get("nego_type"))
+
+    def _nego_badge(nego_type):
+        if not nego_type:
+            nego_type = "sondagem"
+        cfg = NEGO_TYPES.get(nego_type, NEGO_TYPES["sondagem"])
+        return (
+            '<span class="nego-badge nego-' + nego_type + '">'
+            + cfg["icon"] + "&nbsp;" + cfg["label"]
+            + "</span>"
+        )
+
+    def _source_chip(a):
+        name = (a.get("source_name") or "").lstrip("@")
+        moon = SOURCE_MOON.get(a.get("source_name", ""), "")
+        url  = a.get("url") or "#"
+        nm   = name[:12] + "…" if len(name) > 13 else name
+        return (
+            '<a class="src-chip" href="' + url + '" target="_blank" rel="noopener">'
+            + (moon + "&nbsp;" if moon else "")
+            + nm + "</a>"
+        )
+
+    def _date_fmt(iso):
+        if not iso:
+            return "—"
+        try:
+            d = iso[:10].split("-")
+            return d[2] + "/" + d[1] + "/" + d[0][2:]
+        except Exception:
+            return iso[:10]
+
+    def _clubs_html(a):
+        cf = a.get("club_from") or ""
+        ct = a.get("club_to") or ""
+        if cf and ct:
+            return ('<span class="club-from">' + cf + '</span>'
+                    + '<span class="club-arrow">→</span>'
+                    + '<span class="club-to">' + ct + "</span>")
+        if ct:
+            return '<span class="club-to">' + ct + "</span>"
+        if cf:
+            return '<span class="club-from">' + cf + "</span>"
+        return '<span class="club-unknown">—</span>'
+
+    def _card(idx, a):
+        player   = a.get("player_name") or "—"
+        fee      = a.get("fee") or "—"
+        date_str = _date_fmt(a.get("published_at"))
+        title    = (a.get("title_pt") or a.get("title_orig") or "")[:120]
+        url      = a.get("url") or "#"
+        badge    = _nego_badge(a.get("nego_type"))
+        src      = _source_chip(a)
+        clubs    = _clubs_html(a)
+        return (
+            '<div class="tr-card">'
+            + '<div class="tr-rank">#' + str(idx) + "</div>"
+            + '<div class="tr-player">' + player + "</div>"
+            + '<div class="tr-clubs">' + clubs + "</div>"
+            + '<div class="tr-badge">' + badge + "</div>"
+            + '<div class="tr-fee">' + fee + "</div>"
+            + '<div class="tr-source">' + src + "</div>"
+            + '<div class="tr-date">' + date_str + "</div>"
+            + '<div class="tr-link"><a href="' + url + '" target="_blank" rel="noopener" class="tr-link-btn" title="' + title + '">→</a></div>'
+            + "</div>"
+        )
+
+    cards_html = "".join(_card(i + 1, a) for i, a in enumerate(articles))
+    if not articles:
+        cards_html = '<div class="empty-msg">Nenhum artigo de transferência coletado ainda.</div>'
+
+    badge_css = ""
+    for key, cfg in NEGO_TYPES.items():
+        badge_css += (
+            ".nego-" + key + " { background:" + cfg["bg"] + "; color:" + cfg["color"] + "; }\n    "
+            + ":root[data-theme='dark'] .nego-" + key + " { background:" + cfg["dark_bg"] + "; color:" + cfg["dark_color"] + "; }\n    "
+        )
+
+    total_str = str(total)
+    classified_str = str(classified)
+
+    html = (
+        "<!DOCTYPE html>\n"
+        "<html lang='pt-BR'>\n"
+        "<head>\n"
+        "  <meta charset='UTF-8'>\n"
+        "  <meta name='viewport' content='width=device-width, initial-scale=1'>\n"
+        "  <title>IARABÃO — Transferências</title>\n"
+        "  " + _THEME_INIT_SCRIPT + "\n"
+        "  <link rel='preconnect' href='https://fonts.googleapis.com'>\n"
+        "  <link href='https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap' rel='stylesheet'>\n"
+        "  <style>\n"
+        "    * { box-sizing: border-box; margin: 0; padding: 0; }\n"
+        "    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }\n"
+        "    " + _HEADER_CSS + "\n"
+        "    .tr-wrap { max-width: 1300px; margin: 0 auto; padding: 24px 16px 60px; }\n"
+        "    .tr-page-title { font-size: 1.15rem; font-weight: 700; color: var(--c-text); margin: 0 0 4px; }\n"
+        "    .tr-page-sub { font-size: .78rem; color: var(--c-muted-1); margin: 0 0 20px; }\n"
+        "    .tr-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }\n"
+        "    .rebuild-btn { font-size: .75rem; font-weight: 600; padding: 5px 12px; border-radius: 6px; border: 1.5px solid var(--c-border-2); background: transparent; color: var(--c-muted-4); cursor: pointer; transition: all .15s; }\n"
+        "    .rebuild-btn:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
+        "    .rebuild-btn:disabled { opacity: .5; cursor: default; }\n"
+        "    .tr-list-header { display: grid; grid-template-columns: 44px 150px 1fr 130px 90px 110px 70px 36px; gap: 0 12px; padding: 6px 14px; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--c-muted-1); border-bottom: 1px solid var(--c-line); margin-bottom: 4px; }\n"
+        "    .tr-card { display: grid; grid-template-columns: 44px 150px 1fr 130px 90px 110px 70px 36px; gap: 0 12px; align-items: center; padding: 10px 14px; border-radius: 8px; border: 1px solid transparent; transition: background .12s, border-color .12s; margin-bottom: 2px; }\n"
+        "    .tr-card:hover { background: var(--c-bg-card); border-color: var(--c-border); }\n"
+        "    .tr-rank { font-size: .75rem; font-weight: 700; color: var(--c-muted-2); font-variant-numeric: tabular-nums; }\n"
+        "    .tr-player { font-size: .88rem; font-weight: 700; color: var(--c-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n"
+        "    .tr-clubs { font-size: .80rem; color: var(--c-muted-4); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }\n"
+        "    .club-from { color: var(--c-muted-3); white-space: nowrap; }\n"
+        "    .club-arrow { color: var(--c-muted-2); font-size: .75rem; }\n"
+        "    .club-to { color: var(--c-text); font-weight: 600; white-space: nowrap; }\n"
+        "    .club-unknown { color: var(--c-muted-2); }\n"
+        "    .nego-badge { display: inline-flex; align-items: center; gap: 4px; font-size: .67rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }\n"
+        "    " + badge_css + "\n"
+        "    .tr-fee { font-size: .78rem; color: var(--c-muted-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n"
+        "    .src-chip { display: inline-flex; align-items: center; gap: 3px; font-size: .70rem; font-weight: 600; color: var(--c-muted-4); background: var(--c-bg-soft); border: 1px solid var(--c-border); border-radius: 6px; padding: 2px 7px; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 108px; transition: background .12s; }\n"
+        "    .src-chip:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
+        "    .tr-date { font-size: .72rem; color: var(--c-muted-2); white-space: nowrap; }\n"
+        "    .tr-link { display: flex; justify-content: center; }\n"
+        "    .tr-link-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--c-border); color: var(--c-muted-3); text-decoration: none; font-size: 1rem; transition: all .12s; }\n"
+        "    .tr-link-btn:hover { background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }\n"
+        "    .empty-msg { text-align: center; padding: 60px 0; color: var(--c-muted-1); font-size: .9rem; }\n"
+        "    @media (max-width: 900px) { .tr-list-header { display: none; } .tr-card { grid-template-columns: 36px 1fr auto; grid-template-rows: auto auto auto; grid-template-areas: 'rank player link' 'rank clubs link' 'rank badge link'; gap: 2px 8px; padding: 10px 12px; } .tr-rank { grid-area: rank; align-self: start; padding-top: 2px; } .tr-player { grid-area: player; } .tr-clubs { grid-area: clubs; font-size: .75rem; } .tr-badge { grid-area: badge; } .tr-fee, .tr-source, .tr-date { display: none; } .tr-link { grid-area: link; align-self: center; } }\n"
+        "  </style>\n"
+        "</head>\n"
+        "<body>\n"
+        + _header("/transferencias") + "\n"
+        "<div class='tr-wrap'>\n"
+        "  <div class='tr-page-title'>Monitor de Transferências</div>\n"
+        "  <div class='tr-page-sub'>" + total_str + " notícias &middot; " + classified_str + " classificadas pela IA &middot; escopo: todos os tempos</div>\n"
+        "  <div class='tr-toolbar'>\n"
+        "    <button class='rebuild-btn' onclick='rebuild()'>&#x27F3; Reprocessar histórico</button>\n"
+        "    <span id='rebuild-status' style='font-size:.75rem;color:var(--c-muted-1);'></span>\n"
+        "  </div>\n"
+        "  <div class='tr-list-header'>"
+        "<div>#</div><div>Jogador</div><div>Clubes</div>"
+        "<div>Tipo</div><div>Valor</div><div>Fonte</div><div>Data</div><div></div>"
+        "</div>\n"
+        "  " + cards_html + "\n"
+        "</div>\n"
+        "<script>\n"
+        "async function rebuild() {\n"
+        "  const btn = document.querySelector('.rebuild-btn');\n"
+        "  const st  = document.getElementById('rebuild-status');\n"
+        "  btn.disabled = true;\n"
+        "  st.textContent = 'Processando…';\n"
+        "  try {\n"
+        "    const r = await fetch('/api/transfers/rebuild', {method:'POST'});\n"
+        "    const d = await r.json();\n"
+        "    st.textContent = `Concluído: ${d.classified} classificados, ${d.skipped} ignorados de ${d.total} artigos.`;\n"
+        "    setTimeout(() => location.reload(), 2000);\n"
+        "  } catch(e) {\n"
+        "    st.textContent = 'Erro: ' + e.message;\n"
+        "  } finally {\n"
+        "    btn.disabled = false;\n"
+        "  }\n"
+        "}\n"
+        "</script>\n"
+        "</body></html>"
+    )
+    return HTMLResponse(html)
+
+
+@app.get("/api/transfers")
+async def api_transfers():
+    return get_transfer_articles()
+
+
+@app.post("/api/transfers/rebuild")
+async def api_transfers_rebuild():
+    from transfer_processor import rebuild_transfers_from_history
+    result = await rebuild_transfers_from_history()
+    return result
+════════════════════════════════════
+
+@app.get("/transferencias", response_class=HTMLResponse)
+async def page_transferencias(request: Request):
+    return await _page_transferencias_impl(request)
+
+
+async def _page_transferencias_impl(request: Request):
+    from transfer_processor import NEGO_TYPES
+    from sources import SOURCE_MOON
+
+    articles = get_transfer_articles()
+
+    # Número total e contagem por tipo
+    total = len(articles)
+    classified = sum(1 for a in articles if a.get("nego_type"))
+
+    def _nego_badge(nego_type: str | None) -> str:
+        if not nego_type:
+            nego_type = "sondagem"
+        cfg = NEGO_TYPES.get(nego_type, NEGO_TYPES["sondagem"])
+        return (
+            '<span class="nego-badge nego-' + nego_type + '">'
+            + cfg["icon"] + "&nbsp;" + cfg["label"]
+            + "</span>"
+        )
+
+    def _source_chip(a: dict) -> str:
+        name = (a.get("source_name") or "").lstrip("@")
+        moon = SOURCE_MOON.get(a.get("source_name", ""), "")
+        url  = a.get("url") or "#"
+        nm   = name[:12] + "…" if len(name) > 13 else name
+        return (
+            '<a class="src-chip" href="' + url + '" target="_blank" rel="noopener">'
+            + (moon + "&nbsp;" if moon else "")
+            + nm + "</a>"
+        )
+
+    def _date_fmt(iso: str | None) -> str:
+        if not iso:
+            return "—"
+        try:
+            d = iso[:10].split("-")
+            return f"{d[2]}/{d[1]}/{d[0][2:]}"
+        except Exception:
+            return iso[:10]
+
+    def _clubs_html(a: dict) -> str:
+        cf = a.get("club_from") or ""
+        ct = a.get("club_to") or ""
+        if cf and ct:
+            return '<span class="club-from">' + cf + '</span><span class="club-arrow">→</span><span class="club-to">' + ct + "</span>"
+        if ct:
+            return '<span class="club-to">' + ct + "</span>"
+        if cf:
+            return '<span class="club-from">' + cf + "</span>"
+        return '<span class="club-unknown">—</span>'
+
+    def _card(idx: int, a: dict) -> str:
+        player   = a.get("player_name") or "—"
+        fee      = a.get("fee") or "—"
+        date_str = _date_fmt(a.get("published_at"))
+        title    = (a.get("title_pt") or a.get("title_orig") or "")[:120]
+        url      = a.get("url") or "#"
+        badge    = _nego_badge(a.get("nego_type"))
+        src      = _source_chip(a)
+        clubs    = _clubs_html(a)
+
+        return (
+            '<div class="tr-card">'
+            + '<div class="tr-rank">#' + str(idx) + "</div>"
+            + '<div class="tr-player">' + player + "</div>"
+            + '<div class="tr-clubs">' + clubs + "</div>"
+            + '<div class="tr-badge">' + badge + "</div>"
+            + '<div class="tr-fee">' + fee + "</div>"
+            + '<div class="tr-source">' + src + "</div>"
+            + '<div class="tr-date">' + date_str + "</div>"
+            + '<div class="tr-link"><a href="' + url + '" target="_blank" rel="noopener" class="tr-link-btn" title="' + title + '">→</a></div>'
+            + "</div>"
+        )
+
+    cards_html = "".join(_card(i + 1, a) for i, a in enumerate(articles))
+
+    if not articles:
+        cards_html = '<div class="empty-msg">Nenhum artigo de transferência coletado ainda.</div>'
+
+    # CSS para os badges de nego_type (gerado dinamicamente a partir de NEGO_TYPES)
+    badge_css = ""
+    for key, cfg in NEGO_TYPES.items():
+        badge_css += (
+            f".nego-{key} {{ background:{cfg['bg']}; color:{cfg['color']}; }}\n    "
+            f":root[data-theme='dark'] .nego-{key} {{ background:{cfg['dark_bg']}; color:{cfg['dark_color']}; }}\n    "
+        )
+
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IARABÃO — Transferências</title>
+  {_THEME_INIT_SCRIPT}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
+    {_HEADER_CSS}
+
+    .tr-wrap {{
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 24px 16px 60px;
+    }}
+    .tr-page-title {{
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--c-text);
+      margin: 0 0 4px;
+    }}
+    .tr-page-sub {{
+      font-size: .78rem;
+      color: var(--c-muted-1);
+      margin: 0 0 20px;
+    }}
+    .tr-toolbar {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }}
+    .rebuild-btn {{
+      font-size: .75rem;
+      font-weight: 600;
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1.5px solid var(--c-border-2);
+      background: transparent;
+      color: var(--c-muted-4);
+      cursor: pointer;
+      transition: all .15s;
+    }}
+    .rebuild-btn:hover {{ background: var(--c-hover-tint); color: var(--c-text); }}
+    .rebuild-btn:disabled {{ opacity: .5; cursor: default; }}
+
+    /* ── Cabeçalho da lista ── */
+    .tr-list-header {{
+      display: grid;
+      grid-template-columns: 44px 140px 1fr 130px 90px 110px 70px 36px;
+      gap: 0 12px;
+      padding: 6px 14px;
+      font-size: .65rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: var(--c-muted-1);
+      border-bottom: 1px solid var(--c-line);
+      margin-bottom: 4px;
+    }}
+
+    /* ── Card / linha ── */
+    .tr-card {{
+      display: grid;
+      grid-template-columns: 44px 140px 1fr 130px 90px 110px 70px 36px;
+      gap: 0 12px;
+      align-items: center;
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      transition: background .12s, border-color .12s;
+      margin-bottom: 2px;
+    }}
+    .tr-card:hover {{
+      background: var(--c-bg-card);
+      border-color: var(--c-border);
+    }}
+    .tr-rank {{
+      font-size: .75rem;
+      font-weight: 700;
+      color: var(--c-muted-2);
+      font-variant-numeric: tabular-nums;
+    }}
+    .tr-player {{
+      font-size: .88rem;
+      font-weight: 700;
+      color: var(--c-text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .tr-clubs {{
+      font-size: .80rem;
+      color: var(--c-muted-4);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-wrap: wrap;
+      min-width: 0;
+    }}
+    .club-from  {{ color: var(--c-muted-3); }}
+    .club-arrow {{ color: var(--c-muted-2); font-size: .75rem; }}
+    .club-to    {{ color: var(--c-text); font-weight: 600; }}
+    .club-unknown {{ color: var(--c-muted-2); }}
+
+    /* ── Badges de tipo ── */
+    .nego-badge {{
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: .67rem;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 99px;
+      white-space: nowrap;
+    }}
+    {badge_css}
+
+    .tr-fee {{
+      font-size: .78rem;
+      color: var(--c-muted-4);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .src-chip {{
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      font-size: .70rem;
+      font-weight: 600;
+      color: var(--c-muted-4);
+      background: var(--c-bg-soft);
+      border: 1px solid var(--c-border);
+      border-radius: 6px;
+      padding: 2px 7px;
+      text-decoration: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 108px;
+      transition: background .12s;
+    }}
+    .src-chip:hover {{ background: var(--c-hover-tint); color: var(--c-text); }}
+    .tr-date {{
+      font-size: .72rem;
+      color: var(--c-muted-2);
+      white-space: nowrap;
+    }}
+    .tr-link {{
+      display: flex;
+      justify-content: center;
+    }}
+    .tr-link-btn {{
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid var(--c-border);
+      color: var(--c-muted-3);
+      text-decoration: none;
+      font-size: 1rem;
+      transition: all .12s;
+    }}
+    .tr-link-btn:hover {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
+
+    .empty-msg {{
+      text-align: center;
+      padding: 60px 0;
+      color: var(--c-muted-1);
+      font-size: .9rem;
+    }}
+
+    @media (max-width: 900px) {{
+      .tr-list-header {{ display: none; }}
+      .tr-card {{
+        grid-template-columns: 36px 1fr auto;
+        grid-template-rows: auto auto auto;
+        grid-template-areas:
+          "rank player link"
+          "rank clubs  link"
+          "rank meta   link";
+        gap: 2px 8px;
+        padding: 10px 12px;
+      }}
+      .tr-rank   {{ grid-area: rank; align-self: start; padding-top: 2px; }}
+      .tr-player {{ grid-area: player; }}
+      .tr-clubs  {{ grid-area: clubs; font-size: .75rem; }}
+      .tr-badge, .tr-fee, .tr-source, .tr-date {{
+        grid-area: meta;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }}
+      .tr-badge  {{ display: inline-flex; }}
+      .tr-fee    {{ display: none; }}
+      .tr-source {{ display: none; }}
+      .tr-date   {{ display: none; }}
+      .tr-link   {{ grid-area: link; align-self: center; }}
+    }}
+  </style>
+</head>
+<body>
+{_header("/transferencias")}
+<div class="tr-wrap">
+  <div class="tr-page-title">Monitor de Transferências</div>
+  <div class="tr-page-sub">{total} notícias · {classified} classificadas pela IA · escopo: todos os tempos</div>
+
+  <div class="tr-toolbar">
+    <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
+    <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted-1);"></span>
+  </div>
+
+  <div class="tr-list-header">
+    <div>#</div>
+    <div>Jogador</div>
+    <div>Clubes</div>
+    <div>Tipo</div>
+    <div>Valor</div>
+    <div>Fonte</div>
+    <div>Data</div>
+    <div></div>
+  </div>
+
+  {cards_html}
+</div>
+
+<script>
+async function rebuild() {{
+  const btn = document.querySelector('.rebuild-btn');
+  const st  = document.getElementById('rebuild-status');
+  btn.disabled = true;
+  st.textContent = 'Processando…';
+  try {{
+    const r = await fetch('/api/transfers/rebuild', {{method:'POST'}});
+    const d = await r.json();
+    st.textContent = `Concluído: ${{d.classified}} classificados, ${{d.skipped}} ignorados de ${{d.total}} artigos.`;
+    setTimeout(() => location.reload(), 2000);
+  }} catch(e) {{
+    st.textContent = 'Erro: ' + e.message;
+  }} finally {{
+    btn.disabled = false;
+  }}
+}}
+</script>
+</body></html>"""
+    return HTMLResponse(html)
+
+
+@app.get("/api/transfers")
+async def api_transfers():
+    return get_transfer_articles()
+
+
+@app.post("/api/transfers/rebuild")
+async def api_transfers_rebuild():
+    from transfer_processor import rebuild_transfers_from_history
+    result = await rebuild_transfers_from_history()
     return result

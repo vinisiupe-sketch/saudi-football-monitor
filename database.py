@@ -103,6 +103,7 @@ def init_db():
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
     init_injuries()
+    init_transfer_meta()
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
@@ -434,6 +435,18 @@ def get_injuries(include_recovered: bool = True) -> list[dict]:
         return []
 
 
+def get_transfer_articles_raw() -> list[dict]:
+    """Retorna todos os artigos com category IN ('transferencia','sondagem') para reprocessamento."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT * FROM articles
+            WHERE category IN ('transferencia', 'sondagem')
+            ORDER BY published_at ASC
+        """)
+        return [dict(r) for r in c.fetchall()]
+
+
 def get_lesao_articles() -> list[dict]:
     """Retorna todos os artigos com category='lesao' para reprocessamento retroativo."""
     with get_conn() as conn:
@@ -444,6 +457,79 @@ def get_lesao_articles() -> list[dict]:
             ORDER BY published_at ASC
         """)
         return [dict(r) for r in c.fetchall()]
+
+
+# ─────────────────────────────────────────────
+#  MONITOR DE TRANSFERÊNCIAS
+# ─────────────────────────────────────────────
+
+def init_transfer_meta():
+    """Cria a tabela transfer_meta. Chamado por init_db()."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS transfer_meta (
+                article_id    TEXT PRIMARY KEY,
+                player_name   TEXT,
+                club_from     TEXT,
+                club_to       TEXT,
+                fee           TEXT,
+                nego_type     TEXT,
+                classified_at TEXT NOT NULL
+            )
+        """)
+
+
+def upsert_transfer_meta(article_id: str, data: dict):
+    """Insere ou atualiza metadados de transferência para um artigo."""
+    now = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT INTO transfer_meta (article_id, player_name, club_from, club_to, fee, nego_type, classified_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (article_id) DO UPDATE SET
+                player_name   = EXCLUDED.player_name,
+                club_from     = EXCLUDED.club_from,
+                club_to       = EXCLUDED.club_to,
+                fee           = EXCLUDED.fee,
+                nego_type     = EXCLUDED.nego_type,
+                classified_at = EXCLUDED.classified_at
+        """, (
+            article_id,
+            data.get("player_name"),
+            data.get("club_from"),
+            data.get("club_to"),
+            data.get("fee"),
+            data.get("nego_type"),
+            now,
+        ))
+
+
+def get_transfer_articles() -> list[dict]:
+    """Retorna artigos de transferência/sondagem com metadados classificados pela IA.
+    LEFT JOIN — artigos sem classificação ainda são retornados (nego_type=None).
+    Se a tabela transfer_meta não existir, cria e retorna artigos sem meta."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT
+                    a.id, a.source_name, a.source_tier, a.url,
+                    a.title_pt, a.title_orig, a.body_pt, a.body_orig,
+                    a.published_at, a.collected_at, a.relevance_score,
+                    tm.player_name, tm.club_from, tm.club_to,
+                    tm.fee, tm.nego_type, tm.classified_at
+                FROM articles a
+                LEFT JOIN transfer_meta tm ON a.id = tm.article_id
+                WHERE a.category IN ('transferencia', 'sondagem')
+                ORDER BY a.published_at DESC NULLS LAST
+            """)
+            return [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        if "transfer_meta" in str(e) and "does not exist" in str(e):
+            init_transfer_meta()
+        return []
 
 
 def make_article_id(url: str, title: str) -> str:

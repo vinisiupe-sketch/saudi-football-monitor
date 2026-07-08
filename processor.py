@@ -197,4 +197,10 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
         from injury_processor import process_injury_article
         await asyncio.gather(*[process_injury_article(a) for a in lesao_arts])
 
+    # Extrai metadados de transferência dos artigos novos com category em ('transferencia','sondagem')
+    transfer_arts = [a for a in new_saved if a.get("category") in ("transferencia", "sondagem")]
+    if transfer_arts:
+        from transfer_processor import process_transfer_article
+        await asyncio.gather(*[process_transfer_article(a) for a in transfer_arts])
+
     return {"articles_new": new_count, "articles_dup": dup_count}
