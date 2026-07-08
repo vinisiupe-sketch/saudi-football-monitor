@@ -2172,6 +2172,11 @@ async def _page_transferencias_impl(request: Request):
         "al akhdoud":          {"bg": "#1e4d1e", "color": "#fff", "abbr": "AKH"},
         "al wahda":            {"bg": "#005000", "color": "#FFD700", "abbr": "WAH"},
         "al wehda":            {"bg": "#005000", "color": "#FFD700", "abbr": "WHD"},
+        "al najma":            {"bg": "#1a1a1a", "color": "#fff", "abbr": "NJM"},
+        "al qadisiyah":        {"bg": "#006400", "color": "#fff", "abbr": "QDS"},
+        "al adalah":           {"bg": "#8B0000", "color": "#fff", "abbr": "ADA"},
+        "al tai":              {"bg": "#004080", "color": "#fff", "abbr": "TAI"},
+        "abha":                {"bg": "#005522", "color": "#fff", "abbr": "ABH"},
         "real madrid":         {"bg": "#001489", "color": "#fff", "abbr": "RM"},
         "barcelona":           {"bg": "#A50044", "color": "#004D98", "abbr": "FCB"},
         "atletico madrid":     {"bg": "#CE3524", "color": "#fff", "abbr": "ATM"},
@@ -2194,7 +2199,7 @@ async def _page_transferencias_impl(request: Request):
         "napoli":              {"bg": "#007DC5", "color": "#fff", "abbr": "NAP"},
         "roma":                {"bg": "#6B0000", "color": "#FFD700", "abbr": "ROM"},
         "lazio":               {"bg": "#6FA8CE", "color": "#1a1a1a", "abbr": "LAZ"},
-        "atalanta":            {"bg": "#1a3a80", "color": "#000", "abbr": "ATA"},
+        "atalanta":            {"bg": "#1a3a80", "color": "#fff", "abbr": "ATA"},
         "porto":               {"bg": "#003087", "color": "#FFD700", "abbr": "POR"},
         "benfica":             {"bg": "#9B0000", "color": "#fff", "abbr": "BEN"},
         "sporting cp":         {"bg": "#004D00", "color": "#FFD700", "abbr": "SPO"},
@@ -2220,44 +2225,11 @@ async def _page_transferencias_impl(request: Request):
         "river plate":         {"bg": "#9B0000", "color": "#fff", "abbr": "RIV"},
     }
 
-    _FLAG = {
-        "brasil": "🇧🇷", "brazil": "🇧🇷",
-        "argentina": "🇦🇷",
-        "franca": "🇫🇷", "france": "🇫🇷",
-        "portugal": "🇵🇹",
-        "espanha": "🇪🇸", "spain": "🇪🇸",
-        "belgica": "🇧🇪", "belgium": "🇧🇪",
-        "croacia": "🇭🇷", "croatia": "🇭🇷",
-        "nigeria": "🇳🇬", "senegal": "🇸🇳",
-        "arabia saudita": "🇸🇦", "saudi arabia": "🇸🇦",
-        "egito": "🇪🇬", "egypt": "🇪🇬",
-        "marrocos": "🇲🇦", "morocco": "🇲🇦",
-        "colombia": "🇨🇴", "uruguai": "🇺🇾", "uruguay": "🇺🇾",
-        "chile": "🇨🇱", "mexico": "🇲🇽",
-        "costa do marfim": "🇨🇮", "ivory coast": "🇨🇮",
-        "mali": "🇲🇱", "gana": "🇬🇭", "ghana": "🇬🇭", "guinea": "🇬🇳",
-        "alemanha": "🇩🇪", "germany": "🇩🇪",
-        "italia": "🇮🇹", "italy": "🇮🇹",
-        "holanda": "🇳🇱", "netherlands": "🇳🇱",
-        "polonia": "🇵🇱", "poland": "🇵🇱",
-        "austria": "🇦🇹", "suica": "🇨🇭", "switzerland": "🇨🇭",
-        "turquia": "🇹🇷", "turkey": "🇹🇷",
-        "russia": "🇷🇺", "ucrania": "🇺🇦", "ukraine": "🇺🇦",
-        "servia": "🇷🇸", "serbia": "🇷🇸",
-        "suecia": "🇸🇪", "sweden": "🇸🇪",
-        "dinamarca": "🇩🇰", "denmark": "🇩🇰",
-        "noruega": "🇳🇴", "norway": "🇳🇴",
-        "japao": "🇯🇵", "japan": "🇯🇵",
-        "coreia do sul": "🇰🇷", "south korea": "🇰🇷",
-        "china": "🇨🇳", "camaroes": "🇨🇲", "cameroon": "🇨🇲",
-        "tunisia": "🇹🇳", "argelia": "🇩🇿", "algeria": "🇩🇿",
-        "inglaterra": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "england": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-        "escocia": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
-        "gales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
-        "venezuela": "🇻🇪", "peru": "🇵🇪",
-        "paraguai": "🇵🇾", "paraguay": "🇵🇾",
-        "equador": "🇪🇨", "ecuador": "🇪🇨",
-        "estados unidos": "🇺🇸", "usa": "🇺🇸", "australia": "🇦🇺",
+    # Priority of transfer status (higher = more advanced)
+    NTYPE_RANK = {
+        "oficial": 8, "avancado": 7, "negociacoes": 6,
+        "proposta": 5, "interesse": 4, "emprestimo": 3,
+        "renovacao": 3, "sondagem": 1,
     }
 
     def _norm(s: str | None) -> str:
@@ -2288,21 +2260,17 @@ async def _page_transferencias_impl(request: Request):
         )
         return f'<div class="club-logo-wrap" data-club="{enc}" title="{title_safe}">{crest}</div>'
 
-    def _flag(nat: str | None) -> str:
-        if not nat:
-            return ""
-        return _FLAG.get(_norm(nat), "")
-
-    def _nego_badge(ntype: str | None) -> str:
+    def _nego_badge(ntype: str | None, small: bool = False) -> str:
         if not ntype:
             ntype = "sondagem"
         cfg = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])
+        cls = "nego-badge nego-badge-sm" if small else "nego-badge"
         return (
-            f'<span class="nego-badge" style="background:{cfg["bg"]};color:{cfg["color"]}">'
+            f'<span class="{cls}" style="background:{cfg["bg"]};color:{cfg["color"]}">'
             f'{cfg["icon"]} {cfg["label"]}</span>'
         )
 
-    def _date_short(iso) -> str:
+    def _date_fmt(iso) -> str:
         if not iso:
             return ""
         try:
@@ -2311,41 +2279,24 @@ async def _page_transferencias_impl(request: Request):
         except Exception:
             return ""
 
-    def _sources_html(sources: list) -> str:
-        chips = []
-        for s in sources:
-            sname = s.get("source_name", "")
-            moon = SOURCE_MOON.get(sname.lstrip("@"), "")
-            label = (sname.lstrip("@") or "?")[:16]
-            date_str = _date_short(s.get("published_at"))
-            url = s.get("url", "#")
-            chips.append(
-                f'<a class="src-chip" href="{url}" target="_blank" rel="noopener">'
-                f'{moon}{label}'
-                f'{"&nbsp;· " + date_str if date_str else ""}'
-                f'</a>'
-            )
-        return "\n".join(chips)
-
     def _player_initials(name: str) -> str:
         parts = (name or "?").split()
         if len(parts) >= 2:
             return (parts[0][0] + parts[-1][0]).upper()
         return (name[:2] if name else "?").upper()
 
-    # ── Agrupamento / deduplicação ────────────────────────────────────────
+    # ── Agrupamento por (jogador, origem, destino) — sem ntype ────────────
     seen: dict = {}
     for a in articles:
         pname = a.get("player_name") or ""
         cfrom = a.get("club_from") or ""
         cto   = a.get("club_to") or ""
         ntype = a.get("nego_type") or "sondagem"
-        key   = (_norm(pname), _norm(cfrom), _norm(cto), ntype)
+        key   = (_norm(pname), _norm(cfrom), _norm(cto))
         if key not in seen:
             seen[key] = {
                 "player_name":        pname or None,
                 "player_position":    a.get("player_position"),
-                "player_nationality": a.get("player_nationality"),
                 "club_from":          cfrom or None,
                 "club_to":            cto or None,
                 "fee":                a.get("fee"),
@@ -2353,15 +2304,24 @@ async def _page_transferencias_impl(request: Request):
                 "_unclassified":      not a.get("player_name"),
                 "sources":            [],
             }
+        # Promote to highest-rank status seen for this transfer
+        if NTYPE_RANK.get(ntype, 0) > NTYPE_RANK.get(seen[key]["nego_type"], 0):
+            seen[key]["nego_type"] = ntype
+        if a.get("fee") and not seen[key]["fee"]:
+            seen[key]["fee"] = a.get("fee")
         seen[key]["sources"].append({
             "source_name":  a.get("source_name", ""),
             "url":          a.get("url", "#"),
             "published_at": a.get("published_at"),
+            "nego_type":    ntype,
+            "title":        a.get("title_pt") or a.get("title_orig") or "",
         })
-        if a.get("fee") and not seen[key]["fee"]:
-            seen[key]["fee"] = a.get("fee")
 
     groups = list(seen.values())
+    # Sort sources within each group newest-first (for timeline)
+    for g in groups:
+        g["sources"].sort(key=lambda s: s.get("published_at") or "", reverse=True)
+
     n_groups = len(groups)
 
     type_counts: dict = {}
@@ -2372,45 +2332,79 @@ async def _page_transferencias_impl(request: Request):
     # ── Gera cards ────────────────────────────────────────────────────────
     def _card(idx: int, g: dict) -> str:
         pname  = g.get("player_name") or "?"
-        flag   = _flag(g.get("player_nationality"))
         pos    = g.get("player_position") or ""
         fee    = g.get("fee") or ""
         ntype  = g.get("nego_type") or "sondagem"
         accent = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])["color"]
         badge  = _nego_badge(ntype)
-        srcs   = _sources_html(g.get("sources", []))
         ucls   = " tc-dim" if g.get("_unclassified") else ""
         fw     = _logo_wrap(g.get("club_from"))
         tw     = _logo_wrap(g.get("club_to"))
-        # Card background = destination club color
         to_cfg   = _club_cfg(g.get("club_to"))
         card_bg  = to_cfg["bg"]
         card_txt = to_cfg["color"]
-        flag_h = f' <span class="tc-flag">{flag}</span>' if flag else ""
-        pos_h  = f'<div class="tc-pos">{pos}</div>' if pos else ""
-        fee_h  = f'<div class="tc-fee">{fee}</div>' if fee else ""
-        initials   = _player_initials(pname)
-        player_enc = quote(pname, safe="")
-        avatar = (
-            f'<div class="player-photo-wrap" data-player="{player_enc}">'
-            f'<span class="player-initials">{initials}</span>'
-            f'</div>'
-        )
+
+        pos_h = f'<div class="tc-pos">{pos}</div>' if pos else ""
+        fee_h = f'<div class="tc-fee">{fee}</div>' if fee else ""
+        initials = _player_initials(pname)
+        avatar = f'<span class="player-initials">{initials}</span>'
+
+        sources = g.get("sources", [])
+        n_src = len(sources)
+        lbl_col = f'{n_src} fonte{"s" if n_src != 1 else ""}'
+        lbl_exp = f'{lbl_col} ▴'
+        lbl_col_v = f'{lbl_col} ▾'
+
+        # Timeline entries
+        tl_rows = []
+        for s in sources:
+            sname   = s.get("source_name", "")
+            moon    = SOURCE_MOON.get(sname.lstrip("@"), "")
+            slabel  = (sname.lstrip("@") or "?")
+            url     = s.get("url", "#")
+            date_s  = _date_fmt(s.get("published_at"))
+            sntype  = s.get("nego_type") or "sondagem"
+            sbadge  = _nego_badge(sntype, small=True)
+            title   = (s.get("title") or "").strip()
+            url_esc = url.replace('"', "&quot;")
+            title_esc = (title or slabel).replace("&", "&amp;").replace("<", "&lt;")[:120]
+            tl_rows.append(
+                f'<div class="tl-entry">'
+                f'<span class="tl-dot" style="background:{accent}"></span>'
+                f'<span class="tl-date">{date_s}</span>'
+                f'{sbadge}'
+                f'<span class="tl-src">{moon} {slabel}</span>'
+                f'<a class="tl-title" href="{url_esc}" target="_blank" rel="noopener">'
+                f'{title_esc}</a>'
+                f'</div>'
+            )
+        timeline = "\n".join(tl_rows)
+
         return (
             f'<div class="tc{ucls}" data-type="{ntype}" '
             f'style="--accent:{accent};background:{card_bg};color:{card_txt};border-color:transparent">'
+            # ── main row
+            f'<div class="tc-main">'
             f'<div class="tc-accent"></div>'
             f'<div class="tc-body">'
             f'<span class="tc-rank">#{idx}</span>'
             f'{avatar}'
             f'<div class="clubs-block">{fw}<span class="clubs-sep">›</span>{tw}</div>'
             f'<div class="tc-info">'
-            f'<div class="tc-player">{pname}{flag_h}</div>'
+            f'<div class="tc-player">{pname}</div>'
             f'{pos_h}{fee_h}'
             f'</div>'
             f'<div class="tc-badge-wrap">{badge}</div>'
-            f'<div class="tc-sources">{srcs}</div>'
-            f'</div></div>'
+            f'<button class="expand-btn" onclick="toggleTl(this)" '
+            f'data-col="{lbl_col_v}" data-exp="{lbl_exp}">'
+            f'{lbl_col_v}</button>'
+            f'</div>'
+            f'</div>'
+            # ── expandable timeline
+            f'<div class="tc-timeline" hidden>'
+            f'<div class="tl-inner">{timeline}</div>'
+            f'</div>'
+            f'</div>'
         )
 
     if groups:
@@ -2445,15 +2439,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;f
 :root{
   --bg:#f0f0f5;--bg-card:#fff;--text:#1c1c1e;--muted:#6b7280;--muted2:#9ca3af;
   --border:#e5e7eb;--border2:#d1d5db;--accent-blue:#147efb;
-  --chip-bg:rgba(128,128,128,.15);--chip-border:rgba(128,128,128,.25);
 }
-@media(prefers-color-scheme:dark){
-  :root{
-    --bg:#0d0d0f;--bg-card:#1c1c1e;--text:#f2f2f7;--muted:#8e8e93;--muted2:#636366;
-    --border:#2c2c2e;--border2:#3a3a3c;
-    --chip-bg:rgba(128,128,128,.18);--chip-border:rgba(128,128,128,.28);
-  }
-}
+@media(prefers-color-scheme:dark){:root{
+  --bg:#0d0d0f;--bg-card:#1c1c1e;--text:#f2f2f7;--muted:#8e8e93;--muted2:#636366;
+  --border:#2c2c2e;--border2:#3a3a3c;
+}}
 body{background:var(--bg);color:var(--text);min-height:100vh}
 .page{max-width:980px;margin:0 auto;padding:16px 12px 56px}
 .hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border)}
@@ -2468,14 +2458,15 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .filter-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:.70rem;font-weight:600;border:1.5px solid var(--border2);background:var(--bg-card);color:var(--muted);cursor:pointer;transition:all .15s;line-height:1.6}
 .filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
 .filter-cnt{font-weight:400;opacity:.7}
-.tc{display:flex;border-radius:11px;border:1px solid var(--border);background:var(--bg-card);overflow:hidden;margin-bottom:5px;transition:border-color .15s,box-shadow .15s,transform .15s}
-.tc:hover{box-shadow:0 2px 16px rgba(0,0,0,.18);transform:translateY(-1px)}
-.tc-accent{width:4px;flex-shrink:0;background:var(--accent,#6b7280)}
+/* Card shell */
+.tc{border-radius:11px;border:1px solid transparent;overflow:hidden;margin-bottom:6px;transition:box-shadow .15s,transform .15s}
+.tc:hover{box-shadow:0 2px 16px rgba(0,0,0,.22);transform:translateY(-1px)}
+/* Main row */
+.tc-main{display:flex;align-items:center}
+.tc-accent{width:4px;flex-shrink:0;align-self:stretch;background:var(--accent,#6b7280)}
 .tc-body{flex:1;display:flex;align-items:center;gap:10px;padding:9px 13px;min-width:0;overflow:hidden}
 .tc-rank{font-size:.62rem;font-weight:700;color:inherit;opacity:.45;min-width:20px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
-.player-photo-wrap{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:50%;overflow:hidden}
-.player-initials{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;background:rgba(128,128,128,.3);color:inherit;letter-spacing:-.02em;opacity:.7}
-.player-img{width:38px;height:38px;object-fit:cover;object-position:center 8%;border-radius:50%}
+.player-initials{width:34px;height:34px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.62rem;font-weight:800;background:rgba(128,128,128,.28);color:inherit;flex-shrink:0;opacity:.8;letter-spacing:-.02em}
 .clubs-block{display:flex;align-items:center;gap:5px;flex-shrink:0}
 .club-logo-wrap{width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 .club-crest{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.48rem;font-weight:800;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
@@ -2483,44 +2474,71 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .clubs-sep{font-size:11px;color:inherit;opacity:.55;line-height:1}
 .tc-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .tc-player{font-size:.86rem;font-weight:700;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
-.tc-flag{font-size:.78rem}
 .tc-pos{font-size:.67rem;color:inherit;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tc-fee{font-size:.66rem;color:inherit;opacity:.65;font-variant-numeric:tabular-nums}
-.nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:.63rem;font-weight:700;white-space:nowrap}
+.nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:.63rem;font-weight:700;white-space:nowrap;flex-shrink:0}
+.nego-badge-sm{font-size:.54rem;padding:2px 6px}
 .tc-badge-wrap{flex-shrink:0}
-.tc-sources{display:flex;flex-direction:column;gap:3px;align-items:flex-end;flex-shrink:0;max-width:165px;min-width:80px}
-.src-chip{display:inline-flex;align-items:center;gap:3px;font-size:.62rem;font-weight:600;color:inherit;opacity:.82;background:var(--chip-bg);border:1px solid var(--chip-border);border-radius:6px;padding:2px 7px;text-decoration:none;white-space:nowrap;transition:opacity .12s;max-width:160px;overflow:hidden;text-overflow:ellipsis}
-.src-chip:hover{opacity:1}
+/* Expand button */
+.expand-btn{flex-shrink:0;padding:4px 10px;border-radius:20px;background:rgba(128,128,128,.22);border:none;color:inherit;cursor:pointer;font-size:.64rem;font-weight:600;white-space:nowrap;opacity:.82;transition:opacity .12s}
+.expand-btn:hover{opacity:1}
+.expand-btn.open{opacity:1}
+/* Timeline */
+.tc-timeline{border-top:1px solid rgba(128,128,128,.18)}
+.tl-inner{padding:8px 16px 12px 18px;display:flex;flex-direction:column;gap:0}
+.tl-entry{display:flex;align-items:flex-start;gap:8px;padding:7px 0;border-bottom:1px solid rgba(128,128,128,.12)}
+.tl-entry:last-child{border-bottom:none}
+.tl-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:5px}
+.tl-date{font-size:.63rem;opacity:.6;flex-shrink:0;min-width:32px;font-variant-numeric:tabular-nums;margin-top:2px}
+.tl-src{font-size:.63rem;opacity:.75;flex-shrink:0;white-space:nowrap;margin-top:2px}
+.tl-title{flex:1;font-size:.72rem;color:inherit;opacity:.88;text-decoration:none;min-width:0;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tl-title:hover{opacity:1;text-decoration:underline}
+/* Misc */
 .tc-dim{opacity:.5}
 .tc-dim .tc-player{font-style:italic}
 .empty{text-align:center;padding:60px 16px;color:var(--muted)}
 .empty-icon{font-size:2.4rem;display:block;margin-bottom:8px}
-@media(max-width:600px){.tc-rank{display:none}.tc-sources{max-width:110px;min-width:60px}.tc-pos,.tc-fee{display:none}}
-@media(max-width:400px){.tc-sources{display:none}.tc-badge-wrap{display:none}}
+@media(max-width:600px){
+  .tc-rank{display:none}
+  .tc-pos,.tc-fee{display:none}
+  .tl-src{display:none}
+}
+@media(max-width:400px){
+  .tc-badge-wrap{display:none}
+}
 """
 
     JS = """
 (function(){
-  function loadImgs(sel, attr, endpoint, cls) {
-    var done = {};
-    document.querySelectorAll(sel+'['+attr+']').forEach(function(w){
-      var enc = attr==='data-club' ? w.dataset.club : w.dataset.player;
-      if(!enc||done[enc]) return;
+  // ── Club logos async load ────────────────────────────────────────────
+  (function(){
+    var done={};
+    document.querySelectorAll('.club-logo-wrap[data-club]').forEach(function(w){
+      var enc=w.dataset.club;
+      if(!enc||done[enc])return;
       done[enc]=true;
       var img=new Image();img.decoding='async';
       img.onload=function(){
-        document.querySelectorAll(sel+'['+attr+'="'+enc+'"]').forEach(function(w2){
-          var i2=new Image();i2.className=cls;i2.src=img.src;
+        document.querySelectorAll('.club-logo-wrap[data-club="'+enc+'"]').forEach(function(w2){
+          var i2=new Image();i2.className='club-logo-img';i2.src=img.src;
           i2.alt=decodeURIComponent(enc.replace(/[+]/g,' '));
           w2.innerHTML='';w2.appendChild(i2);
         });
       };
-      img.src=endpoint+enc;
+      img.src='/api/club-logo?name='+enc;
     });
-  }
-  loadImgs('.club-logo-wrap','data-club','/api/club-logo?name=','club-logo-img');
-  loadImgs('.player-photo-wrap','data-player','/api/player-photo?name=','player-img');
+  })();
 
+  // ── Timeline toggle ──────────────────────────────────────────────────
+  window.toggleTl=function(btn){
+    var tl=btn.closest('.tc').querySelector('.tc-timeline');
+    var hidden=tl.hidden;
+    tl.hidden=!hidden;
+    btn.textContent=hidden?btn.dataset.exp:btn.dataset.col;
+    btn.classList.toggle('open',hidden);
+  };
+
+  // ── Filter buttons ───────────────────────────────────────────────────
   document.querySelectorAll('.filter-btn').forEach(function(btn){
     btn.addEventListener('click',function(){
       var type=this.dataset.type;
@@ -2544,6 +2562,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
     });
   });
 
+  // ── Reprocessar ──────────────────────────────────────────────────────
   window.rebuild=async function(btn){
     var orig=btn.textContent;btn.textContent='⏳ Processando...';btn.disabled=true;
     try{
@@ -2588,7 +2607,6 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
     return HTMLResponse(html)
 
 
-
 @app.get("/api/transfers")
 async def api_transfers():
     return get_transfer_articles()
@@ -2599,6 +2617,23 @@ async def api_transfers_rebuild():
     from transfer_processor import rebuild_transfers_from_history
     result = await rebuild_transfers_from_history()
     return result
+
+
+@app.delete("/api/club-logo/cache")
+async def api_clear_logo_cache(name: str | None = None):
+    """Remove entradas do cache de logos. ?name=X limpa só aquele clube; sem param limpa tudo."""
+    from database import get_conn
+    with get_conn() as conn:
+        c = conn.cursor()
+        if name:
+            import unicodedata as _ud
+            nfd = _ud.normalize("NFD", name.lower().strip())
+            nn = "".join(ch for ch in nfd if _ud.category(ch) != "Mn")
+            c.execute("DELETE FROM club_logos WHERE name_norm = %s", (nn,))
+            return {"deleted": c.rowcount, "name": name}
+        else:
+            c.execute("DELETE FROM club_logos")
+            return {"deleted": c.rowcount}
 
 
 @app.get("/api/club-logo")
@@ -2618,8 +2653,16 @@ async def api_club_logo(name: str):
                 data = r.json()
                 teams = data.get("teams") or []
                 if teams:
-                    logo_url = (teams[0].get("strTeamBadge") or
-                                teams[0].get("strBadge") or "")
+                    # Prefer Saudi Arabia teams to avoid wrong matches
+                    # (e.g. Al Hilal Sudan, Al Najma Bahrain)
+                    saudi = [
+                        t for t in teams
+                        if (t.get("strCountry") or "").lower() == "saudi arabia"
+                        or "saudi" in (t.get("strLeague") or "").lower()
+                    ]
+                    team = saudi[0] if saudi else teams[0]
+                    logo_url = (team.get("strTeamBadge") or
+                                team.get("strBadge") or "")
         except Exception as e:
             print(f"Logo fetch error for '{name}': {e}")
             logo_url = ""
@@ -2657,7 +2700,7 @@ async def api_player_photo(name: str):
                 if players:
                     p = players[0]
                     pid = (p.get("id") or p.get("Id") or
-                           p.get("playerId") or p.get("participantId"))
+                           p.get("playerId") or                           p.get("participantId"))
                     if pid:
                         photo_url = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
         except Exception as e:
