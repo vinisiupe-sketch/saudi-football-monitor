@@ -2619,6 +2619,39 @@ async def api_transfers_rebuild():
     return result
 
 
+@app.get("/api/admin/warm-logos")
+async def api_warm_logos():
+    """Pré-popula cache com logos corretos da Saudi Pro League (busca por liga, sem ambiguidade)."""
+    import unicodedata as _ud
+    results = {}
+    errors = []
+    leagues = ["Saudi Pro League", "Saudi First Division League"]
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for league in leagues:
+            try:
+                r = await client.get(
+                    "https://www.thesportsdb.com/api/v1/json/3/search_all_teams.php",
+                    params={"l": league}
+                )
+                teams = (r.json().get("teams") or [])
+                for team in teams:
+                    name = team.get("strTeam") or ""
+                    logo = team.get("strTeamBadge") or team.get("strBadge") or ""
+                    if name:
+                        nfd = _ud.normalize("NFD", name.lower().strip())
+                        nn = "".join(c for c in nfd if _ud.category(c) != "Mn")
+                        set_club_logo(nn, logo or "")
+                        results[name] = logo or "(sem logo)"
+            except Exception as e:
+                errors.append(f"{league}: {e}")
+    lines = [f"✅ {len(results)} times da SPL cacheados com logos corretos"]
+    for k, v in results.items():
+        lines.append(f"  {k}: {v[:60] if v else '(sem logo)'}")
+    if errors:
+        lines += ["", "⚠️ Erros:"] + errors
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+
+
 @app.get("/api/admin/clear-logos")
 async def api_clear_logo_cache(name: str | None = None):
     """Limpa cache de logos (abrível no browser).
@@ -2703,7 +2736,7 @@ async def api_player_photo(name: str):
                 if players:
                     p = players[0]
                     pid = (p.get("id") or p.get("Id") or
-                           p.get("playerId") or                           p.get("participantId"))
+                           p.get("playerId") or p.get("participantId"))
                     if pid:
                         photo_url = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
         except Exception as e:
