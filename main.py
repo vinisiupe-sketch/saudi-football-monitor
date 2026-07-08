@@ -2318,6 +2318,72 @@ async def _page_transferencias_impl(request: Request):
         })
 
     groups = list(seen.values())
+
+    # ── Fuzzy dedup: merge cards com nomes parecidos + mesmo destino ─────
+    # Executa múltiplos passes para capturar merges transitivos
+    # (ex: A≈B e B≈C mas A não foi comparado diretamente com C no mesmo passe)
+    from difflib import SequenceMatcher as _SM
+
+    def _name_sim(a: str, b: str) -> bool:
+        """True se a e b são provavelmente o mesmo jogador (variações de transliteração)."""
+        if not a or not b:
+            return False
+        if _SM(None, a, b).ratio() > 0.82:
+            return True
+        ap, bp = a.split(), b.split()
+        if not ap or not bp:
+            return False
+        last_sim  = _SM(None, ap[-1], bp[-1]).ratio()
+        first_sim = _SM(None, ap[0][:4], bp[0][:4]).ratio()
+        return last_sim > 0.72 and first_sim > 0.70
+
+    for _pass in range(4):  # até 4 passes para merges transitivos
+        _used: set = set()
+        _merged: list = []
+        _any_merge = False
+        for _i, _g in enumerate(groups):
+            if _i in _used:
+                continue
+            _ni = _norm(_g.get("player_name") or "")
+            _fi = _norm(_g.get("club_from") or "")
+            _ti = _norm(_g.get("club_to") or "")
+            for _j in range(_i + 1, len(groups)):
+                if _j in _used:
+                    continue
+                _g2 = groups[_j]
+                _nj = _norm(_g2.get("player_name") or "")
+                _fj = _norm(_g2.get("club_from") or "")
+                _tj = _norm(_g2.get("club_to") or "")
+                _to_ok  = (not _ti or not _tj or _ti == _tj)
+                _frm_ok = (not _fi or not _fj or _fi == _fj)
+                if _to_ok and _frm_ok and _name_sim(_ni, _nj):
+                    # Merge _g2 into _g
+                    _g["sources"].extend(_g2["sources"])
+                    if NTYPE_RANK.get(_g2.get("nego_type"), 0) > NTYPE_RANK.get(_g.get("nego_type"), 0):
+                        _g["nego_type"] = _g2["nego_type"]
+                    if _g2.get("fee") and not _g.get("fee"):
+                        _g["fee"] = _g2["fee"]
+                    if _g2.get("player_position") and not _g.get("player_position"):
+                        _g["player_position"] = _g2["player_position"]
+                    # Keep the longer/more complete name
+                    if len(_nj) > len(_ni):
+                        _g["player_name"] = _g2["player_name"]
+                        _ni = _nj
+                    # Absorve club_to/from do merged se o atual estiver vazio
+                    if not _ti and _tj:
+                        _g["club_to"] = _g2["club_to"]
+                        _ti = _tj
+                    if not _fi and _fj:
+                        _g["club_from"] = _g2["club_from"]
+                        _fi = _fj
+                    _used.add(_j)
+                    _any_merge = True
+            _merged.append(_g)
+            _used.add(_i)
+        groups = _merged
+        if not _any_merge:
+            break
+
     # Sort sources within each group newest-first (for timeline)
     for g in groups:
         g["sources"].sort(key=lambda s: s.get("published_at") or "", reverse=True)
@@ -2720,6 +2786,64 @@ async def api_clear_logo_cache(name: str | None = None):
         else:
             c.execute("DELETE FROM club_logos")
             return HTMLResponse(f"<pre>✅ Cache limpo — {c.rowcount} entradas removidas</pre>")
+
+
+@app.get("/api/admin/debug-names")
+async def api_debug_names(q: str | None = None):
+    """Inspeciona player_name_cache. ?q=nome faz lookup ao vivo no Transfermarkt."""
+    from database import get_conn, get_player_name_cache
+    from urllib.parse import quote as _quote
+    import unicodedata as _ud, re as _re
+
+    def _nkey(s: str) -> str:
+        s = (s or "").strip().lower()
+        nfd = _ud.normalize("NFD", s)
+        s = "".join(c for c in nfd if _ud.category(c) != "Mn")
+        return _re.sub(r"\s+", " ", _re.sub(r"[^\w\s]", "", s)).strip()
+
+    lines = []
+
+    if q:
+        # Lookup ao vivo no Transfermarkt
+        key = _nkey(q)
+        lines.append(f"Query original : {q}")
+        lines.append(f"Cache key      : {key}")
+        cached = get_player_name_cache(key)
+        lines.append(f"Cache atual    : {cached!r}")
+        lines.append("")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(
+                    f"https://transfermarkt-api.fly.dev/players/search/{_quote(q)}"
+                )
+                lines.append(f"TM status: {r.status_code}")
+                data = r.json()
+                results = data.get("results") or []
+                lines.append(f"TM resultados: {len(results)}")
+                for i, p in enumerate(results[:5]):
+                    club = (p.get("club") or {}).get("name", "?")
+                    lines.append(f"  [{i}] {p.get('name')!r}  id={p.get('id')}  clube={club!r}")
+        except Exception as e:
+            lines.append(f"Erro TM: {e}")
+    else:
+        # Lista entradas do cache
+        try:
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute(
+                    "SELECT name_query, tm_name, tm_id, fetched_at FROM player_name_cache "
+                    "ORDER BY fetched_at DESC LIMIT 50"
+                )
+                rows = c.fetchall()
+                lines.append(f"player_name_cache — {len(rows)} entradas recentes:")
+                lines.append("")
+                for r in rows:
+                    found = r[1] or "(não encontrado)"
+                    lines.append(f"{r[0]!r:40s}  →  {found!r}  (id={r[2]})")
+        except Exception as e:
+            lines.append(f"Erro ao ler cache: {e}")
+
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
 
 
 @app.get("/api/club-logo")
