@@ -2864,7 +2864,7 @@ def _af_headers() -> dict:
 
 AF_BASE         = "https://v3.football.api-sports.io"
 AF_SAUDI_LEAGUE = "307"
-AF_SEASON       = "2025"
+AF_SEASON       = "2024"  # api-football usa ano de início da temporada
 
 
 @app.get("/api/admin/clear-photos")
@@ -2885,11 +2885,16 @@ async def api_warm_saudi_teams():
     lines = []
     try:
         async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
-            r = await client.get(
-                f"{AF_BASE}/teams",
-                params={"league": AF_SAUDI_LEAGUE, "season": AF_SEASON},
-            )
-            teams = (r.json().get("response") or [])
+            teams = []
+            for _s in ("2025", "2024", "2023"):
+                r = await client.get(
+                    f"{AF_BASE}/teams",
+                    params={"league": AF_SAUDI_LEAGUE, "season": _s},
+                )
+                teams = r.json().get("response") or []
+                if teams:
+                    lines.append(f"Season: {_s} ({len(teams)} times)")
+                    break
         for t in teams:
             team = t.get("team") or {}
             tname = team.get("name") or ""
