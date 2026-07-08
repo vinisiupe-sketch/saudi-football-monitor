@@ -2659,86 +2659,93 @@ async def api_debug_logo(name: str):
 
 @app.get("/api/admin/warm-logos")
 async def api_warm_logos():
-    """Pré-popula cache com logos corretos da Saudi Pro League."""
-    import unicodedata as _ud, re as _re
+    """Pré-popula cache com logos da Saudi Pro League via Transfermarkt (SA1)."""
+    from urllib.parse import quote as _quote
     results = {}
-    errors = []
-    leagues = ["Saudi Pro League", "Saudi Professional League", "Saudi First Division League"]
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        for league in leagues:
-            try:
-                r = await client.get(
-                    "https://www.thesportsdb.com/api/v1/json/3/search_all_teams.php",
-                    params={"l": league}
-                )
-                teams = (r.json().get("teams") or [])
-                for team in teams:
-                    raw_name = team.get("strTeam") or ""
-                    logo = team.get("strTeamBadge") or team.get("strBadge") or ""
-                    if raw_name:
-                        nn = _logo_norm(raw_name)
-                        set_club_logo(nn, logo or "")
-                        results[raw_name] = (nn, logo or "(sem logo)")
-            except Exception as e:
-                errors.append(f"{league}: {e}")
-    lines = [f"✅ {len(results)} times cacheados"]
+    errors  = []
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        try:
+            r = await client.get(
+                "https://transfermarkt-api.fly.dev/competitions/SA1/clubs",
+                params={"season_id": "2025"},
+            )
+            clubs = (r.json().get("clubs") or [])
+            for club in clubs:
+                cid  = club.get("id")
+                name = club.get("name") or ""
+                if cid and name:
+                    nn   = _logo_norm(name)
+                    logo = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
+                    set_club_logo(nn, logo)
+                    results[name] = (nn, logo)
+        except Exception as e:
+            errors.append(f"SA1: {e}")
+    lines = [f"✅ {len(results)} times da SPL cacheados"]
     for raw, (nn, logo) in results.items():
-        lines.append(f"  '{raw}' → key='{nn}' | {logo[:55]}")
+        lines.append(f"  '{raw}' → key='{nn}' | {logo}")
     if errors:
         lines += ["", "⚠️ Erros:"] + errors
     return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
 
 
+@app.get("/api/admin/debug-logo")
+async def api_debug_logo(name: str):
+    """Debug: mostra o que Transfermarkt retorna para um nome de clube."""
+    from urllib.parse import quote as _quote
+    lines = [f"Buscando: {name!r}", ""]
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        r = await client.get(
+            f"https://transfermarkt-api.fly.dev/clubs/search/{_quote(name)}"
+        )
+        results = r.json().get("results") or []
+        lines.append(f"Transfermarkt retornou {len(results)} clube(s):")
+        for i, c in enumerate(results[:5]):
+            lines.append(
+                f"  [{i}] id={c.get('id')} | {c.get('name')} | country={c.get('country')} "
+                f"| logo=https://tmssl.akamaized.net//images/wappen/big/{c.get('id')}.png"
+            )
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+
+
 @app.get("/api/admin/clear-logos")
 async def api_clear_logo_cache(name: str | None = None):
-    """Limpa cache de logos (abrível no browser).
-    ?name=Al+Hilal  → limpa só aquele clube
-    sem parâmetro   → limpa tudo
-    """
+    """Limpa cache de logos. Sem ?name → limpa tudo."""
     from database import get_conn
     with get_conn() as conn:
         c = conn.cursor()
         if name:
-            import unicodedata as _ud
-            nfd = _ud.normalize("NFD", name.lower().strip())
-            nn = "".join(ch for ch in nfd if _ud.category(ch) != "Mn")
+            nn = _logo_norm(name)
             c.execute("DELETE FROM club_logos WHERE name_norm = %s", (nn,))
             return HTMLResponse(f"<pre>✅ Deletado {c.rowcount} entrada(s) para '{name}'</pre>")
         else:
             c.execute("DELETE FROM club_logos")
-            return HTMLResponse(f"<pre>✅ Cache de logos limpo — {c.rowcount} entradas removidas</pre>")
+            return HTMLResponse(f"<pre>✅ Cache limpo — {c.rowcount} entradas removidas</pre>")
 
 
 @app.get("/api/club-logo")
 async def api_club_logo(name: str):
+    from urllib.parse import quote as _quote
     name_norm = _logo_norm(name)
     cached = get_club_logo(name_norm)
     if cached is None:
-        logo_url = None
+        logo_url = ""
         try:
-            async with httpx.AsyncClient(timeout=6.0) as client:
+            async with httpx.AsyncClient(timeout=7.0) as client:
                 r = await client.get(
-                    "https://www.thesportsdb.com/api/v1/json/3/searchteams.php",
-                    params={"t": name}
+                    f"https://transfermarkt-api.fly.dev/clubs/search/{_quote(name)}"
                 )
-                data = r.json()
-                teams = data.get("teams") or []
-                if teams:
-                    # Prefer Saudi Arabia teams to avoid wrong matches
-                    # (e.g. Al Hilal Sudan, Al Najma Bahrain)
-                    saudi = [
-                        t for t in teams
-                        if (t.get("strCountry") or "").lower() == "saudi arabia"
-                        or "saudi" in (t.get("strLeague") or "").lower()
-                    ]
-                    team = saudi[0] if saudi else teams[0]
-                    logo_url = (team.get("strTeamBadge") or
-                                team.get("strBadge") or "")
+                results = r.json().get("results") or []
+                if results:
+                    # Prefer Saudi Arabia clubs
+                    saudi = [c for c in results if c.get("country") == "Saudi Arabia"]
+                    club  = saudi[0] if saudi else results[0]
+                    cid   = club.get("id")
+                    if cid:
+                        logo_url = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
         except Exception as e:
-            print(f"Logo fetch error for '{name}': {e}")
-            logo_url = ""
-        set_club_logo(name_norm, logo_url or "")
-        cached = logo_url or ""
+            print(f"Transfermarkt logo error for '{name}': {e}")
+        set_club_logo(name_norm, logo_url)
+        cached = logo_url
     if not cached:
         return Response(status_code=404)
     return RedirectResponse(cached, status_code=302)
