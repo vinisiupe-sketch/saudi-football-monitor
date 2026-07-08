@@ -105,6 +105,7 @@ def init_db():
     init_injuries()
     init_transfer_meta()
     init_club_logos()
+    init_player_photos()
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
@@ -567,6 +568,57 @@ def set_club_logo(name_norm: str, logo_url: str):
                     logo_url   = EXCLUDED.logo_url,
                     fetched_at = EXCLUDED.fetched_at
             """, (name_norm, logo_url, now))
+    except Exception:
+        pass
+
+
+# ─────────────────────────────────────────────
+#  CACHE DE FOTOS DE JOGADORES
+# ─────────────────────────────────────────────
+
+def init_player_photos():
+    """Cria tabela de cache de fotos de jogadores. Chamado por init_db()."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS player_photos (
+                name_norm  TEXT PRIMARY KEY,
+                photo_url  TEXT,
+                fetched_at TEXT NOT NULL
+            )
+        """)
+
+
+def get_player_photo(name_norm: str) -> str | None:
+    """Retorna URL cacheada da foto.
+    - str (url ou ''): já foi buscado antes
+    - None: nunca buscado
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT photo_url FROM player_photos WHERE name_norm = %s", (name_norm,))
+            row = c.fetchone()
+            if row is None:
+                return None
+            return row[0] if row[0] else ""
+    except Exception:
+        return None
+
+
+def set_player_photo(name_norm: str, photo_url: str):
+    """Armazena URL da foto ('' se não encontrado)."""
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO player_photos (name_norm, photo_url, fetched_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (name_norm) DO UPDATE SET
+                    photo_url  = EXCLUDED.photo_url,
+                    fetched_at = EXCLUDED.fetched_at
+            """, (name_norm, photo_url, now))
     except Exception:
         pass
 

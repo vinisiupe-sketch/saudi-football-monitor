@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_transfer_articles, get_club_logo, set_club_logo
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_transfer_articles, get_club_logo, set_club_logo, get_player_photo, set_player_photo
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -2381,6 +2381,12 @@ async def _page_transferencias_impl(request: Request):
         type_counts[t] = type_counts.get(t, 0) + 1
 
     # ── Gera cards ────────────────────────────────────────────────────────
+    def _player_initials(name: str) -> str:
+        parts = (name or "?").split()
+        if len(parts) >= 2:
+            return (parts[0][0] + parts[-1][0]).upper()
+        return (name[:2] if name else "?").upper()
+
     def _card(idx: int, g: dict) -> str:
         pname  = g.get("player_name") or "?"
         flag   = _flag(g.get("player_nationality"))
@@ -2396,11 +2402,20 @@ async def _page_transferencias_impl(request: Request):
         flag_h = f' <span class="tc-flag">{flag}</span>' if flag else ""
         pos_h  = f'<div class="tc-pos">{pos}</div>' if pos else ""
         fee_h  = f'<div class="tc-fee">{fee}</div>' if fee else ""
+        # Avatar do jogador
+        initials   = _player_initials(pname)
+        player_enc = quote(pname, safe="")
+        avatar = (
+            f'<div class="player-photo-wrap" data-player="{player_enc}">'
+            f'<span class="player-initials">{initials}</span>'
+            f'</div>'
+        )
         return (
             f'<div class="tc{ucls}" data-type="{ntype}" style="--accent:{accent}">'
             f'<div class="tc-accent"></div>'
             f'<div class="tc-body">'
             f'<span class="tc-rank">#{idx}</span>'
+            f'{avatar}'
             f'<div class="clubs-block">{fw}<span class="clubs-sep">›</span>{tw}</div>'
             f'<div class="tc-info">'
             f'<div class="tc-player">{pname}{flag_h}</div>'
@@ -2472,6 +2487,9 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .tc-accent{width:4px;flex-shrink:0;background:var(--accent,#6b7280)}
 .tc-body{flex:1;display:flex;align-items:center;gap:10px;padding:9px 13px;min-width:0;overflow:hidden}
 .tc-rank{font-size:.62rem;font-weight:700;color:var(--muted2);min-width:20px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
+.player-photo-wrap{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:50%;overflow:hidden}
+.player-initials{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;background:var(--border2);color:var(--muted);letter-spacing:-.02em}
+.player-img{width:38px;height:38px;object-fit:cover;object-position:center 8%;border-radius:50%}
 .clubs-block{display:flex;align-items:center;gap:5px;flex-shrink:0}
 .club-logo-wrap{width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 .club-crest{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.48rem;font-weight:800;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
@@ -2497,23 +2515,28 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 
     JS = """
 (function(){
-  var wraps = document.querySelectorAll('.club-logo-wrap[data-club]');
-  var loaded = {};
-  wraps.forEach(function(wrap){
-    var enc = wrap.dataset.club;
-    if(!enc||loaded[enc]) return;
-    loaded[enc]=true;
-    var img=new Image();
-    img.decoding='async';
-    img.onload=function(){
-      document.querySelectorAll('.club-logo-wrap[data-club="'+enc+'"]').forEach(function(w){
-        var i2=new Image();i2.className='club-logo-img';
-        i2.alt=decodeURIComponent(enc.replace(/\\+/g,' '));
-        i2.src=img.src;w.innerHTML='';w.appendChild(i2);
-      });
-    };
-    img.src='/api/club-logo?name='+enc;
-  });
+  function loadImages(selector, attr, endpoint, imgClass, extraStyle) {
+    var items = document.querySelectorAll(selector+'['+attr+']');
+    var loaded = {};
+    items.forEach(function(wrap){
+      var enc = wrap.dataset[attr === 'data-club' ? 'club' : 'player'];
+      if(!enc||loaded[enc]) return;
+      loaded[enc]=true;
+      var img=new Image();
+      img.decoding='async';
+      img.onload=function(){
+        document.querySelectorAll(selector+'['+attr+'="'+enc+'"]').forEach(function(w){
+          var i2=new Image();i2.className=imgClass;
+          if(extraStyle) i2.style.cssText=extraStyle;
+          i2.alt=decodeURIComponent(enc.replace(/[+]/g,' '));
+          i2.src=img.src;w.innerHTML='';w.appendChild(i2);
+        });
+      };
+      img.src=endpoint+enc;
+    });
+  }
+  loadImages('.club-logo-wrap','data-club','/api/club-logo?name=','club-logo-img','');
+  loadImages('.player-photo-wrap','data-player','/api/player-photo?name=','player-img','');
   document.querySelectorAll('.filter-btn').forEach(function(btn){
     btn.addEventListener('click',function(){
       var type=this.dataset.type;
@@ -2616,6 +2639,75 @@ async def api_club_logo(name: str):
             logo_url = ""
         set_club_logo(name_norm, logo_url or "")
         cached = logo_url or ""
+    if not cached:
+        return Response(status_code=404)
+    return RedirectResponse(cached, status_code=302)
+
+
+@app.get("/api/player-photo")
+async def api_player_photo(name: str):
+    """Proxy de foto de jogador: Fotmob → TheSportsDB → 404.
+    Cacheia o resultado em player_photos para evitar buscas repetidas."""
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", name.lower().strip())
+    name_norm = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+
+    cached = get_player_photo(name_norm)
+
+    if cached is None:
+        photo_url = ""
+
+        # 1. Fotmob search API
+        try:
+            async with httpx.AsyncClient(timeout=6.0, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "application/json",
+            }) as client:
+                r = await client.get(
+                    "https://www.fotmob.com/api/search",
+                    params={"term": name, "lang": "en"},
+                )
+                data = r.json()
+                # Fotmob retorna diferentes formatos — tenta os mais comuns
+                players = (
+                    data.get("players") or
+                    data.get("Players") or
+                    data.get("squad") or
+                    []
+                )
+                # Às vezes está aninhado
+                if isinstance(players, dict):
+                    players = players.get("players") or players.get("hits") or []
+                if players:
+                    p = players[0]
+                    pid = (p.get("id") or p.get("Id") or
+                           p.get("playerId") or p.get("participantId"))
+                    if pid:
+                        photo_url = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
+        except Exception as e:
+            print(f"⚠️  Fotmob player error for '{name}': {e}")
+
+        # 2. Fallback: TheSportsDB
+        if not photo_url:
+            try:
+                async with httpx.AsyncClient(timeout=6.0) as client:
+                    r = await client.get(
+                        "https://www.thesportsdb.com/api/v1/json/3/searchplayers.php",
+                        params={"p": name},
+                    )
+                    data = r.json()
+                    players = data.get("player") or []
+                    if players:
+                        photo_url = (
+                            players[0].get("strCutout") or
+                            players[0].get("strThumb") or ""
+                        )
+            except Exception as e:
+                print(f"⚠️  TheSportsDB player error for '{name}': {e}")
+
+        set_player_photo(name_norm, photo_url)
+        cached = photo_url
+
     if not cached:
         return Response(status_code=404)
     return RedirectResponse(cached, status_code=302)
