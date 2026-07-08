@@ -2139,7 +2139,7 @@ async def api_injuries_rebuild():
 
 
 # ═══════════════════════════════════════════════════════════
-#  MONITOR DE TRANSFERÊNCIAS
+#  MONITOR DE TRANSFERÊNCIAS  (versão f-string abaixo)
 # ═══════════════════════════════════════════════════════════
 
 @app.get("/transferencias", response_class=HTMLResponse)
@@ -2326,7 +2326,6 @@ async def api_transfers_rebuild():
     from transfer_processor import rebuild_transfers_from_history
     result = await rebuild_transfers_from_history()
     return result
-════════════════════════════════════
 
 @app.get("/transferencias", response_class=HTMLResponse)
 async def page_transferencias(request: Request):
