@@ -2855,24 +2855,16 @@ async def api_debug_names(q: str | None = None):
     return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
 
 
-_SAUDI_TM_LOGO: dict[str, str] = {
-    "al hilal": "1031",
-    "al nassr": "1037",     "al nasr": "1037",
-    "al ittihad": "2197",
-    "al ahli": "1029",      "al ahly": "1029",
-    "al shabab": "4483",
-    "al ettifaq": "7490",   "al ittifaq": "7490",
-    "al fateh": "5543",     "al fath": "5543",
-    "al taawoun": "5544",   "al taawon": "5544",    "al taawun": "5544",
-    "al qadsiah": "13597",  "al qadisiyah": "13597", "al qadisiya": "13597",
-    "damac": "44049",       "dhamk": "44049",
-    "al fayha": "36764",    "al feiha": "36764",    "al faiha": "36764",
-    "al hazem": "27396",    "al hazm": "27396",
-    "al riyadh": "13237",
-    "al khaleej": "17186",  "al khalij": "17186",
-    "al akhdoud": "35089",  "al okhdood": "35089",
-    "neom": "85139",
-}
+# ──────────────────────────────────────────────────────────────────────────────
+#  API-FOOTBALL  (v3.football.api-sports.io)
+# ──────────────────────────────────────────────────────────────────────────────
+def _af_headers() -> dict:
+    key = os.getenv("API_FOOTBALL_KEY", "")
+    return {"X-Apisports-Key": key} if key else {}
+
+AF_BASE         = "https://v3.football.api-sports.io"
+AF_SAUDI_LEAGUE = "307"
+AF_SEASON       = "2025"
 
 
 @app.get("/api/admin/clear-photos")
@@ -2882,37 +2874,61 @@ async def api_clear_photo_cache():
         c = conn.cursor()
         c.execute("DELETE FROM player_photos")
         n = c.rowcount
-    return HTMLResponse(f"<pre>\u2705 Cache de fotos limpo \u2014 {n} entradas removidas</pre>")
+    return HTMLResponse(f"<pre>✅ Cache de fotos limpo — {n} entradas removidas</pre>")
+
+
+@app.get("/api/admin/warm-saudi-teams")
+async def api_warm_saudi_teams():
+    hdrs = _af_headers()
+    if not hdrs:
+        return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
+    lines = []
+    try:
+        async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
+            r = await client.get(
+                f"{AF_BASE}/teams",
+                params={"league": AF_SAUDI_LEAGUE, "season": AF_SEASON},
+            )
+            teams = (r.json().get("response") or [])
+        for t in teams:
+            team = t.get("team") or {}
+            tname = team.get("name") or ""
+            logo  = team.get("logo") or ""
+            if tname and logo:
+                nn = _logo_norm(tname)
+                set_club_logo(nn, logo)
+                lines.append(f"{nn}: {logo}")
+        return HTMLResponse(
+            f"<pre>✅ {len(teams)} times cacheados\n" + "\n".join(lines) + "</pre>"
+        )
+    except Exception as e:
+        return HTMLResponse(f"<pre>❌ Erro: {e}</pre>")
 
 
 @app.get("/api/club-logo")
 async def api_club_logo(name: str):
-    from urllib.parse import quote as _quote
     name_norm = _logo_norm(name)
     cached = get_club_logo(name_norm)
     if cached is None:
         logo_url = ""
-        cid = _SAUDI_TM_LOGO.get(name_norm)
-        if not cid:
-            nm = name_norm.removeprefix("al ").removesuffix(" fc").strip()
-            cid = _SAUDI_TM_LOGO.get(nm)
-        if cid:
-            logo_url = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
-        else:
+        hdrs = _af_headers()
+        if hdrs:
             try:
-                async with httpx.AsyncClient(timeout=7.0) as client:
+                async with httpx.AsyncClient(timeout=7.0, headers=hdrs) as client:
                     r = await client.get(
-                        f"https://transfermarkt-api.fly.dev/clubs/search/{_quote(name)}"
+                        f"{AF_BASE}/teams",
+                        params={"search": name},
                     )
-                    results = r.json().get("results") or []
+                    results = r.json().get("response") or []
                     if results:
-                        saudi = [c for c in results if c.get("country") == "Saudi Arabia"]
-                        club  = saudi[0] if saudi else results[0]
-                        cid2  = club.get("id")
-                        if cid2:
-                            logo_url = f"https://tmssl.akamaized.net//images/wappen/big/{cid2}.png"
+                        saudi = [
+                            t for t in results
+                            if (t.get("team") or {}).get("country") == "Saudi Arabia"
+                        ]
+                        chosen = (saudi[0] if saudi else results[0]).get("team") or {}
+                        logo_url = chosen.get("logo") or ""
             except Exception as e:
-                print(f"Transfermarkt logo error for '{name}': {e}")
+                print(f"api-football logo error for '{name}': {e}")
         set_club_logo(name_norm, logo_url)
         cached = logo_url
     if not cached:
@@ -2923,7 +2939,6 @@ async def api_club_logo(name: str):
 @app.get("/api/player-photo")
 async def api_player_photo(name: str):
     import unicodedata as _ud
-    from urllib.parse import quote as _q
     nfd = _ud.normalize("NFD", name.lower().strip())
     name_norm = "".join(c for c in nfd if _ud.category(c) != "Mn")
     cached = get_player_photo(name_norm)
@@ -2932,53 +2947,25 @@ async def api_player_photo(name: str):
             return Response(status_code=404)
         return RedirectResponse(cached, status_code=302)
     photo_url = ""
-    # 1) Transfermarkt portrait
-    try:
-        async with httpx.AsyncClient(timeout=7.0) as client:
-            r = await client.get(
-                f"https://transfermarkt-api.fly.dev/players/search/{_q(name)}"
-            )
-            if r.status_code == 200:
-                results = r.json().get("results") or []
-                if results:
-                    pid = str(results[0].get("id") or "")
-                    if pid:
-                        photo_url = (
-                            f"https://img.a.transfermarkt.technology/portrait/big/{pid}.jpg"
-                        )
-    except Exception as e:
-        print(f"TM photo error for '{name}': {type(e).__name__}")
-    # 2) Fotmob fallback
-    if not photo_url:
+    hdrs = _af_headers()
+    if hdrs:
         try:
-            async with httpx.AsyncClient(timeout=6.0, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "application/json",
-            }) as client:
+            async with httpx.AsyncClient(timeout=8.0, headers=hdrs) as client:
                 r = await client.get(
-                    "https://www.fotmob.com/api/search",
-                    params={"term": name, "lang": "en"},
+                    f"{AF_BASE}/players",
+                    params={"search": name, "league": AF_SAUDI_LEAGUE, "season": AF_SEASON},
                 )
-                data = r.json()
-                players = (
-                    data.get("players") or
-                    (data.get("data") or {}).get("players", {}) or
-                    data.get("squad") or []
-                )
-                if isinstance(players, dict):
-                    players = players.get("hits") or players.get("players") or []
-                if players:
-                    p = players[0]
-                    pid = (
-                        p.get("id") or p.get("participantId") or
-                        p.get("playerId") or p.get("Id")
+                results = r.json().get("response") or []
+                if not results:
+                    r = await client.get(
+                        f"{AF_BASE}/players",
+                        params={"search": name, "season": AF_SEASON},
                     )
-                    if pid:
-                        photo_url = (
-                            f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
-                        )
+                    results = r.json().get("response") or []
+                if results:
+                    photo_url = (results[0].get("player") or {}).get("photo") or ""
         except Exception as e:
-            print(f"Fotmob photo error for '{name}': {type(e).__name__}")
+            print(f"api-football photo error for '{name}': {type(e).__name__}")
     set_player_photo(name_norm, photo_url)
     if not photo_url:
         return Response(status_code=404)
