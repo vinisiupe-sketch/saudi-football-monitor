@@ -1,0 +1,12 @@
+# Imagens locais de jogadores — não são servidas pelo app no Railway
+public/player-images/
+
+# Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Scripts de download local (não fazem parte do app)
+download_from_urls.py
+download_twitter_media.py
+synctest2.txt
