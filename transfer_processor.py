@@ -44,6 +44,8 @@ Responda com este JSON exato (sem texto extra):
 {{
   "is_transfer": true,
   "player_name": "nome do jogador em português ou transliteração latina",
+  "player_position": "posição em português (ex: Atacante, Meia, Zagueiro, Lateral Direito, Lateral Esquerdo, Volante, Goleiro) ou null se não mencionado",
+  "player_nationality": "país de origem do jogador em português (ex: Brasil, Argentina, França) ou null se não mencionado",
   "club_from": "clube de origem (de onde o jogador SAI) ou null",
   "club_to": "clube de destino (para onde o jogador VAI) ou null",
   "fee": "valor da transferência se mencionado (ex: '€50M', 'free', 'empréstimo') ou null",
@@ -63,7 +65,7 @@ Definições de nego_type:
 Se o artigo NÃO envolver negociação de jogador identificável, responda apenas: {{"is_transfer": false}}"""
 
     try:
-        raw = await call_claude(prompt, TRANSFER_SYSTEM, client, max_tokens=350)
+        raw = await call_claude(prompt, TRANSFER_SYSTEM, client, max_tokens=400)
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -92,11 +94,13 @@ async def process_transfer_article(article: dict):
         return
 
     upsert_transfer_meta(article["id"], {
-        "player_name": data.get("player_name"),
-        "club_from":   data.get("club_from"),
-        "club_to":     data.get("club_to"),
-        "fee":         data.get("fee"),
-        "nego_type":   data.get("nego_type"),
+        "player_name":        data.get("player_name"),
+        "player_position":    data.get("player_position"),
+        "player_nationality": data.get("player_nationality"),
+        "club_from":          data.get("club_from"),
+        "club_to":            data.get("club_to"),
+        "fee":                data.get("fee"),
+        "nego_type":          data.get("nego_type"),
     })
     print(f"   🔄 Transferência: {data.get('player_name')} ({data.get('nego_type')}) — {data.get('club_from')} → {data.get('club_to')}")
 
@@ -124,11 +128,13 @@ async def rebuild_transfers_from_history():
                     skipped += 1
                     continue
                 upsert_transfer_meta(art["id"], {
-                    "player_name": data.get("player_name"),
-                    "club_from":   data.get("club_from"),
-                    "club_to":     data.get("club_to"),
-                    "fee":         data.get("fee"),
-                    "nego_type":   data.get("nego_type"),
+                    "player_name":        data.get("player_name"),
+                    "player_position":    data.get("player_position"),
+                    "player_nationality": data.get("player_nationality"),
+                    "club_from":          data.get("club_from"),
+                    "club_to":            data.get("club_to"),
+                    "fee":                data.get("fee"),
+                    "nego_type":          data.get("nego_type"),
                 })
                 created += 1
             print(f"   🔄 Lote {i//BATCH+1}/{(len(articles)-1)//BATCH+1 if articles else 1}: {created} classificados, {skipped} ignorados")

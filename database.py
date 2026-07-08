@@ -469,15 +469,23 @@ def init_transfer_meta():
         c = conn.cursor()
         c.execute("""
             CREATE TABLE IF NOT EXISTS transfer_meta (
-                article_id    TEXT PRIMARY KEY,
-                player_name   TEXT,
-                club_from     TEXT,
-                club_to       TEXT,
-                fee           TEXT,
-                nego_type     TEXT,
-                classified_at TEXT NOT NULL
+                article_id         TEXT PRIMARY KEY,
+                player_name        TEXT,
+                player_position    TEXT,
+                player_nationality TEXT,
+                club_from          TEXT,
+                club_to            TEXT,
+                fee                TEXT,
+                nego_type          TEXT,
+                classified_at      TEXT NOT NULL
             )
         """)
+        # Migra colunas ausentes em instâncias existentes
+        for col in ("player_position", "player_nationality"):
+            try:
+                c.execute(f"ALTER TABLE transfer_meta ADD COLUMN {col} TEXT")
+            except Exception:
+                pass  # coluna já existe
 
 
 def upsert_transfer_meta(article_id: str, data: dict):
@@ -486,18 +494,23 @@ def upsert_transfer_meta(article_id: str, data: dict):
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT INTO transfer_meta (article_id, player_name, club_from, club_to, fee, nego_type, classified_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO transfer_meta (article_id, player_name, player_position, player_nationality,
+                                       club_from, club_to, fee, nego_type, classified_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (article_id) DO UPDATE SET
-                player_name   = EXCLUDED.player_name,
-                club_from     = EXCLUDED.club_from,
-                club_to       = EXCLUDED.club_to,
-                fee           = EXCLUDED.fee,
-                nego_type     = EXCLUDED.nego_type,
-                classified_at = EXCLUDED.classified_at
+                player_name        = EXCLUDED.player_name,
+                player_position    = EXCLUDED.player_position,
+                player_nationality = EXCLUDED.player_nationality,
+                club_from          = EXCLUDED.club_from,
+                club_to            = EXCLUDED.club_to,
+                fee                = EXCLUDED.fee,
+                nego_type          = EXCLUDED.nego_type,
+                classified_at      = EXCLUDED.classified_at
         """, (
             article_id,
             data.get("player_name"),
+            data.get("player_position"),
+            data.get("player_nationality"),
             data.get("club_from"),
             data.get("club_to"),
             data.get("fee"),
@@ -507,9 +520,9 @@ def upsert_transfer_meta(article_id: str, data: dict):
 
 
 def get_transfer_articles() -> list[dict]:
-    """Retorna artigos de transferência/sondagem com metadados classificados pela IA.
+    """Retorna artigos de transferência/sondagem de julho de 2026 com metadados classificados pela IA.
     LEFT JOIN — artigos sem classificação ainda são retornados (nego_type=None).
-    Se a tabela transfer_meta não existir, cria e retorna artigos sem meta."""
+    Se a tabela transfer_meta não existir, cria e retorna lista vazia."""
     try:
         with get_conn() as conn:
             c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -518,11 +531,13 @@ def get_transfer_articles() -> list[dict]:
                     a.id, a.source_name, a.source_tier, a.url,
                     a.title_pt, a.title_orig, a.body_pt, a.body_orig,
                     a.published_at, a.collected_at, a.relevance_score,
-                    tm.player_name, tm.club_from, tm.club_to,
+                    tm.player_name, tm.player_position, tm.player_nationality,
+                    tm.club_from, tm.club_to,
                     tm.fee, tm.nego_type, tm.classified_at
                 FROM articles a
                 LEFT JOIN transfer_meta tm ON a.id = tm.article_id
                 WHERE a.category IN ('transferencia', 'sondagem')
+                  AND a.published_at >= '2026-07-01'
                 ORDER BY a.published_at DESC NULLS LAST
             """)
             return [dict(r) for r in c.fetchall()]

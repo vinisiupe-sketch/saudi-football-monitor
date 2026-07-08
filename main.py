@@ -2138,9 +2138,7 @@ async def api_injuries_rebuild():
     return result
 
 
-# ═══════════════════════════════════════════════════════════
-#  MONITOR DE TRANSFERÊNCIAS  (versão f-string abaixo)
-# ═══════════════════════════════════════════════════════════
+# ── MONITOR DE TRANSFERÊNCIAS ────────────────────────────────────────────────
 
 @app.get("/transferencias", response_class=HTMLResponse)
 async def page_transferencias(request: Request):
@@ -2148,6 +2146,7 @@ async def page_transferencias(request: Request):
 
 
 async def _page_transferencias_impl(request: Request):
+    import unicodedata
     from transfer_processor import NEGO_TYPES
     from sources import SOURCE_MOON
 
@@ -2155,263 +2154,284 @@ async def _page_transferencias_impl(request: Request):
     total = len(articles)
     classified = sum(1 for a in articles if a.get("nego_type"))
 
-    def _nego_badge(nego_type):
-        if not nego_type:
-            nego_type = "sondagem"
-        cfg = NEGO_TYPES.get(nego_type, NEGO_TYPES["sondagem"])
+    # ── Tabela de cores por clube ─────────────────────────────────────────
+    _CLUB_COLORS = {
+        "al hilal":            {"bg": "#1a3a8f", "color": "#fff", "abbr": "HIL"},
+        "al nassr":            {"bg": "#FFD700", "color": "#003087", "abbr": "NAS"},
+        "al ittihad":          {"bg": "#FFD700", "color": "#000", "abbr": "ITT"},
+        "al ahli":             {"bg": "#006400", "color": "#fff", "abbr": "AHL"},
+        "al shabab":           {"bg": "#E00000", "color": "#fff", "abbr": "SHB"},
+        "al ettifaq":          {"bg": "#0038A8", "color": "#FFD700", "abbr": "ETT"},
+        "al fateh":            {"bg": "#3B2B82", "color": "#fff", "abbr": "FAT"},
+        "al taawoun":          {"bg": "#FFD700", "color": "#000", "abbr": "TAA"},
+        "al qadsiah":          {"bg": "#1e3a5f", "color": "#fff", "abbr": "QAD"},
+        "damac":               {"bg": "#C41E3A", "color": "#fff", "abbr": "DAM"},
+        "al fayha":            {"bg": "#006400", "color": "#FFD700", "abbr": "FAY"},
+        "al hazem":            {"bg": "#e00000", "color": "#fff", "abbr": "HAZ"},
+        "al kholood":          {"bg": "#800080", "color": "#fff", "abbr": "KHL"},
+        "al riyadh":           {"bg": "#006400", "color": "#fff", "abbr": "RIY"},
+        "al akhdoud":          {"bg": "#2d6e2d", "color": "#000", "abbr": "AKH"},
+        "al wahda":            {"bg": "#FFD700", "color": "#006400", "abbr": "WAH"},
+        "real madrid":         {"bg": "#000080", "color": "#fff", "abbr": "RM"},
+        "barcelona":           {"bg": "#A50044", "color": "#004D98", "abbr": "FCB"},
+        "atletico madrid":     {"bg": "#CE3524", "color": "#fff", "abbr": "ATM"},
+        "sevilla":             {"bg": "#D52B1E", "color": "#fff", "abbr": "SEV"},
+        "psg":                 {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
+        "paris saint-germain": {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
+        "paris sg":            {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
+        "manchester city":     {"bg": "#6CABDD", "color": "#1C2C5B", "abbr": "MCI"},
+        "manchester united":   {"bg": "#DA291C", "color": "#FBE122", "abbr": "MUN"},
+        "liverpool":           {"bg": "#C8102E", "color": "#F6EB61", "abbr": "LIV"},
+        "chelsea":             {"bg": "#034694", "color": "#fff", "abbr": "CHE"},
+        "arsenal":             {"bg": "#EF0107", "color": "#fff", "abbr": "ARS"},
+        "tottenham":           {"bg": "#132257", "color": "#fff", "abbr": "TOT"},
+        "newcastle united":    {"bg": "#1d1d1b", "color": "#fff", "abbr": "NEW"},
+        "newcastle":           {"bg": "#1d1d1b", "color": "#fff", "abbr": "NEW"},
+        "aston villa":         {"bg": "#95BFE5", "color": "#670E36", "abbr": "AVL"},
+        "west ham":            {"bg": "#7A263A", "color": "#1BB1E7", "abbr": "WHU"},
+        "juventus":            {"bg": "#1d1d1b", "color": "#fff", "abbr": "JUV"},
+        "inter":               {"bg": "#003399", "color": "#000", "abbr": "INT"},
+        "inter milan":         {"bg": "#003399", "color": "#000", "abbr": "INT"},
+        "ac milan":            {"bg": "#FB090B", "color": "#000", "abbr": "MIL"},
+        "napoli":              {"bg": "#12A0D7", "color": "#fff", "abbr": "NAP"},
+        "as roma":             {"bg": "#8E1F2F", "color": "#FFD700", "abbr": "ROM"},
+        "roma":                {"bg": "#8E1F2F", "color": "#FFD700", "abbr": "ROM"},
+        "lazio":               {"bg": "#87CEEB", "color": "#003366", "abbr": "LAZ"},
+        "atalanta":            {"bg": "#1a3a8f", "color": "#000", "abbr": "ATA"},
+        "fiorentina":          {"bg": "#6A0DAD", "color": "#fff", "abbr": "FIO"},
+        "porto":               {"bg": "#003087", "color": "#FFD700", "abbr": "FCP"},
+        "benfica":             {"bg": "#CC0000", "color": "#fff", "abbr": "SLB"},
+        "sporting":            {"bg": "#005E27", "color": "#FFD700", "abbr": "SCP"},
+        "sporting cp":         {"bg": "#005E27", "color": "#FFD700", "abbr": "SCP"},
+        "ajax":                {"bg": "#CC0000", "color": "#fff", "abbr": "AJX"},
+        "borussia dortmund":   {"bg": "#FDE100", "color": "#000", "abbr": "BVB"},
+        "dortmund":            {"bg": "#FDE100", "color": "#000", "abbr": "BVB"},
+        "bayern munich":       {"bg": "#DC052D", "color": "#fff", "abbr": "BAY"},
+        "bayern":              {"bg": "#DC052D", "color": "#fff", "abbr": "BAY"},
+        "bayer leverkusen":    {"bg": "#E32221", "color": "#000", "abbr": "B04"},
+        "rb leipzig":          {"bg": "#DD0741", "color": "#fff", "abbr": "RBL"},
+        "monaco":              {"bg": "#CC0000", "color": "#fff", "abbr": "ASM"},
+        "lyon":                {"bg": "#0048A0", "color": "#fff", "abbr": "OL"},
+        "marseille":           {"bg": "#2196F3", "color": "#fff", "abbr": "OM"},
+        "galatasaray":         {"bg": "#CC0000", "color": "#FFD700", "abbr": "GS"},
+        "fenerbahce":          {"bg": "#FFD700", "color": "#003087", "abbr": "FB"},
+        "besiktas":            {"bg": "#1a1a1a", "color": "#fff", "abbr": "BJK"},
+        "villarreal":          {"bg": "#FFD700", "color": "#1a1a1a", "abbr": "VIL"},
+        "valencia":            {"bg": "#FF8C00", "color": "#000", "abbr": "VCF"},
+        "celtic":              {"bg": "#006400", "color": "#fff", "abbr": "CEL"},
+        "rangers":             {"bg": "#003082", "color": "#fff", "abbr": "RFC"},
+        "flamengo":            {"bg": "#CC0000", "color": "#000", "abbr": "FLA"},
+        "fluminense":          {"bg": "#8B0000", "color": "#006400", "abbr": "FLU"},
+        "corinthians":         {"bg": "#1a1a1a", "color": "#fff", "abbr": "COR"},
+        "palmeiras":           {"bg": "#006400", "color": "#fff", "abbr": "PAL"},
+        "sao paulo":           {"bg": "#CC0000", "color": "#fff", "abbr": "SPF"},
+        "boca juniors":        {"bg": "#0033A0", "color": "#FFD700", "abbr": "BOC"},
+        "river plate":         {"bg": "#CC0000", "color": "#fff", "abbr": "RIV"},
+    }
+    _FLAG = {
+        "brasil": "🇧🇷", "brazil": "🇧🇷",
+        "argentina": "🇦🇷",
+        "franca": "🇫🇷", "france": "🇫🇷",
+        "portugal": "🇵🇹",
+        "espanha": "🇪🇸", "spain": "🇪🇸",
+        "belgica": "🇧🇪", "belgium": "🇧🇪",
+        "croacia": "🇭🇷", "croatia": "🇭🇷",
+        "nigeria": "🇳🇬",
+        "senegal": "🇸🇳",
+        "arabia saudita": "🇸🇦", "saudi arabia": "🇸🇦",
+        "egito": "🇪🇬", "egypt": "🇪🇬",
+        "marrocos": "🇲🇦", "morocco": "🇲🇦",
+        "colombia": "🇨🇴",
+        "uruguai": "🇺🇾", "uruguay": "🇺🇾",
+        "chile": "🇨🇱",
+        "mexico": "🇲🇽",
+        "costa do marfim": "🇨🇮", "ivory coast": "🇨🇮",
+        "mali": "🇲🇱",
+        "gana": "🇬🇭", "ghana": "🇬🇭",
+        "alemanha": "🇩🇪", "germany": "🇩🇪",
+        "italia": "🇮🇹", "italy": "🇮🇹",
+        "holanda": "🇳🇱", "netherlands": "🇳🇱",
+        "polonia": "🇵🇱", "poland": "🇵🇱",
+        "austria": "🇦🇹",
+        "suica": "🇨🇭", "switzerland": "🇨🇭",
+        "turquia": "🇹🇷", "turkey": "🇹🇷",
+        "russia": "🇷🇺",
+        "ucrania": "🇺🇦", "ukraine": "🇺🇦",
+        "servia": "🇷🇸", "serbia": "🇷🇸",
+        "suecia": "🇸🇪", "sweden": "🇸🇪",
+        "dinamarca": "🇩🇰", "denmark": "🇩🇰",
+        "noruega": "🇳🇴", "norway": "🇳🇴",
+        "japao": "🇯🇵", "japan": "🇯🇵",
+        "coreia do sul": "🇰🇷", "south korea": "🇰🇷",
+        "china": "🇨🇳",
+        "camaroes": "🇨🇲", "cameroon": "🇨🇲",
+        "tunisia": "🇹🇳",
+        "argelia": "🇩🇿", "algeria": "🇩🇿",
+        "inglaterra": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "england": "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+        "escocia": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
+        "gales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿", "wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
+        "venezuela": "🇻🇪",
+        "peru": "🇵🇪",
+        "paraguai": "🇵🇾", "paraguay": "🇵🇾",
+        "equador": "🇪🇨", "ecuador": "🇪🇨",
+        "jamaica": "🇯🇲",
+        "costa rica": "🇨🇷",
+        "estados unidos": "🇺🇸", "usa": "🇺🇸",
+        "australia": "🇦🇺",
+    }
+
+    # ── Normalização ──────────────────────────────────────────────────────
+    def _norm(s: str) -> str:
+        s = (s or "").lower().strip()
+        nfd = unicodedata.normalize("NFD", s)
+        return "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+
+    def _club_cfg(name: str) -> dict:
+        n = _norm(name)
+        if n in _CLUB_COLORS:
+            return _CLUB_COLORS[n]
+        for k, v in _CLUB_COLORS.items():
+            if k in n or (len(n) > 4 and n in k):
+                return v
+        return {"bg": "#6b7280", "color": "#fff", "abbr": (n[:3].upper() or "?")}
+
+    def _club_cell(name: str | None) -> str:
+        if not name:
+            return '<div class="club-cell"><span class="club-name c-empty">—</span></div>'
+        cfg = _club_cfg(name)
+        disp = name if len(name) <= 17 else name[:16] + "…"
         return (
-            '<span class="nego-badge nego-' + nego_type + '">'
-            + cfg["icon"] + "&nbsp;" + cfg["label"]
-            + "</span>"
+            '<div class="club-cell">'
+            f'<span class="club-crest" style="background:{cfg["bg"]};color:{cfg["color"]}">{cfg["abbr"]}</span>'
+            f'<span class="club-name">{disp}</span>'
+            '</div>'
         )
 
-    def _source_chip(a):
-        name = (a.get("source_name") or "").lstrip("@")
-        moon = SOURCE_MOON.get(a.get("source_name", ""), "")
-        url  = a.get("url") or "#"
-        nm   = name[:12] + "…" if len(name) > 13 else name
+    def _flag(nat: str | None) -> str:
+        if not nat:
+            return ""
+        return _FLAG.get(_norm(nat), "")
+
+    def _nego_badge(ntype: str | None) -> str:
+        if not ntype:
+            ntype = "sondagem"
+        cfg = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])
         return (
-            '<a class="src-chip" href="' + url + '" target="_blank" rel="noopener">'
-            + (moon + "&nbsp;" if moon else "")
-            + nm + "</a>"
+            f'<span class="nego-badge nego-{ntype}">'
+            f'{cfg["icon"]}&nbsp;{cfg["label"]}'
+            f'</span>'
         )
 
-    def _date_fmt(iso):
+    def _date_short(iso: str | None) -> str:
         if not iso:
-            return "—"
+            return ""
         try:
             d = iso[:10].split("-")
-            return d[2] + "/" + d[1] + "/" + d[0][2:]
+            return f"{d[2]}/{d[1]}"
         except Exception:
-            return iso[:10]
+            return ""
 
-    def _clubs_html(a):
-        cf = a.get("club_from") or ""
-        ct = a.get("club_to") or ""
-        if cf and ct:
-            return ('<span class="club-from">' + cf + '</span>'
-                    + '<span class="club-arrow">→</span>'
-                    + '<span class="club-to">' + ct + "</span>")
-        if ct:
-            return '<span class="club-to">' + ct + "</span>"
-        if cf:
-            return '<span class="club-from">' + cf + "</span>"
-        return '<span class="club-unknown">—</span>'
+    # ── Agrupamento: mesmo jogador + clubes + tipo → 1 linha, múltiplas fontes ──
+    groups: list[dict] = []
+    seen: dict = {}
 
-    def _card(idx, a):
-        player   = a.get("player_name") or "—"
-        fee      = a.get("fee") or "—"
-        date_str = _date_fmt(a.get("published_at"))
-        title    = (a.get("title_pt") or a.get("title_orig") or "")[:120]
-        url      = a.get("url") or "#"
-        badge    = _nego_badge(a.get("nego_type"))
-        src      = _source_chip(a)
-        clubs    = _clubs_html(a)
+    for a in articles:
+        pname = (a.get("player_name") or "").strip()
+        ntype = (a.get("nego_type") or "").strip()
+        cfrom = (a.get("club_from") or "").strip()
+        cto   = (a.get("club_to") or "").strip()
+        sname = (a.get("source_name") or "")
+        src_entry = {
+            "source_name":  sname,
+            "url":          a.get("url") or "#",
+            "published_at": a.get("published_at") or "",
+            "moon":         SOURCE_MOON.get(sname.lstrip("@"), ""),
+        }
+
+        if pname and ntype:
+            key = (_norm(pname), _norm(cfrom), _norm(cto), ntype)
+            if key in seen:
+                groups[seen[key]]["sources"].append(src_entry)
+                continue
+            seen[key] = len(groups)
+            groups.append({
+                "player_name":        pname,
+                "player_position":    a.get("player_position"),
+                "player_nationality": a.get("player_nationality"),
+                "club_from":          cfrom or None,
+                "club_to":            cto or None,
+                "nego_type":          ntype,
+                "fee":                a.get("fee"),
+                "sources":            [src_entry],
+            })
+        else:
+            title = (a.get("title_pt") or a.get("title_orig") or "")
+            groups.append({
+                "player_name":        title[:55] + ("…" if len(title) > 55 else ""),
+                "player_position":    None,
+                "player_nationality": None,
+                "club_from":          cfrom or None,
+                "club_to":            cto or None,
+                "nego_type":          "sondagem",
+                "fee":                None,
+                "sources":            [src_entry],
+                "_unclassified":      True,
+            })
+
+    n_groups = len(groups)
+
+    def _sources_html(sources: list[dict]) -> str:
+        chips = []
+        for s in sources:
+            sn   = (s["source_name"] or "").lstrip("@")
+            moon = s["moon"]
+            url  = s["url"]
+            date = _date_short(s["published_at"])
+            nm   = sn[:11] + "…" if len(sn) > 12 else sn
+            parts = []
+            if moon:
+                parts.append(moon)
+            parts.append(nm)
+            if date:
+                parts.append("·")
+                parts.append(date)
+            label = " ".join(parts)
+            chips.append(
+                f'<a class="src-chip" href="{url}" target="_blank" rel="noopener">'
+                f'{label} <span class="src-arrow">→</span></a>'
+            )
+        return '<div class="fontes-wrap">' + "".join(chips) + "</div>"
+
+    def _card(idx: int, g: dict) -> str:
+        pname   = g["player_name"]
+        pos     = g.get("player_position") or ""
+        flag_em = _flag(g.get("player_nationality"))
+        meta    = " · ".join(filter(None, [pos, flag_em]))
+        fee     = g.get("fee") or "—"
+        badge   = _nego_badge(g.get("nego_type"))
+        cfrom   = _club_cell(g.get("club_from"))
+        cto_    = _club_cell(g.get("club_to"))
+        srcs    = _sources_html(g["sources"])
+        ucls    = " tr-unclassified" if g.get("_unclassified") else ""
         return (
-            '<div class="tr-card">'
-            + '<div class="tr-rank">#' + str(idx) + "</div>"
-            + '<div class="tr-player">' + player + "</div>"
-            + '<div class="tr-clubs">' + clubs + "</div>"
-            + '<div class="tr-badge">' + badge + "</div>"
-            + '<div class="tr-fee">' + fee + "</div>"
-            + '<div class="tr-source">' + src + "</div>"
-            + '<div class="tr-date">' + date_str + "</div>"
-            + '<div class="tr-link"><a href="' + url + '" target="_blank" rel="noopener" class="tr-link-btn" title="' + title + '">→</a></div>'
-            + "</div>"
+            f'<div class="tr-card{ucls}">'
+            f'<div class="tr-rank">#{idx}</div>'
+            f'<div class="tr-player">'
+            f'<span class="player-name">{pname}</span>'
+            + (f'<span class="player-meta">{meta}</span>' if meta else "")
+            + f'</div>'
+            f'<div class="tr-club-from">{cfrom}</div>'
+            f'<div class="tr-club-to">{cto_}</div>'
+            f'<div class="tr-badge">{badge}</div>'
+            f'<div class="tr-fee">{fee}</div>'
+            f'<div class="tr-fontes">{srcs}</div>'
+            f'</div>'
         )
 
-    cards_html = "".join(_card(i + 1, a) for i, a in enumerate(articles))
-    if not articles:
-        cards_html = '<div class="empty-msg">Nenhum artigo de transferência coletado ainda.</div>'
+    cards_html = "".join(_card(i + 1, g) for i, g in enumerate(groups))
+    if not groups:
+        cards_html = '<div class="empty-msg">Nenhuma transferência registrada em julho de 2026.</div>'
 
-    badge_css = ""
-    for key, cfg in NEGO_TYPES.items():
-        badge_css += (
-            ".nego-" + key + " { background:" + cfg["bg"] + "; color:" + cfg["color"] + "; }\n    "
-            + ":root[data-theme='dark'] .nego-" + key + " { background:" + cfg["dark_bg"] + "; color:" + cfg["dark_color"] + "; }\n    "
-        )
-
-    total_str = str(total)
-    classified_str = str(classified)
-
-    html = (
-        "<!DOCTYPE html>\n"
-        "<html lang='pt-BR'>\n"
-        "<head>\n"
-        "  <meta charset='UTF-8'>\n"
-        "  <meta name='viewport' content='width=device-width, initial-scale=1'>\n"
-        "  <title>IARABÃO — Transferências</title>\n"
-        "  " + _THEME_INIT_SCRIPT + "\n"
-        "  <link rel='preconnect' href='https://fonts.googleapis.com'>\n"
-        "  <link href='https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap' rel='stylesheet'>\n"
-        "  <style>\n"
-        "    * { box-sizing: border-box; margin: 0; padding: 0; }\n"
-        "    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }\n"
-        "    " + _HEADER_CSS + "\n"
-        "    .tr-wrap { max-width: 1300px; margin: 0 auto; padding: 24px 16px 60px; }\n"
-        "    .tr-page-title { font-size: 1.15rem; font-weight: 700; color: var(--c-text); margin: 0 0 4px; }\n"
-        "    .tr-page-sub { font-size: .78rem; color: var(--c-muted-1); margin: 0 0 20px; }\n"
-        "    .tr-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }\n"
-        "    .rebuild-btn { font-size: .75rem; font-weight: 600; padding: 5px 12px; border-radius: 6px; border: 1.5px solid var(--c-border-2); background: transparent; color: var(--c-muted-4); cursor: pointer; transition: all .15s; }\n"
-        "    .rebuild-btn:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
-        "    .rebuild-btn:disabled { opacity: .5; cursor: default; }\n"
-        "    .tr-list-header { display: grid; grid-template-columns: 44px 150px 1fr 130px 90px 110px 70px 36px; gap: 0 12px; padding: 6px 14px; font-size: .65rem; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--c-muted-1); border-bottom: 1px solid var(--c-line); margin-bottom: 4px; }\n"
-        "    .tr-card { display: grid; grid-template-columns: 44px 150px 1fr 130px 90px 110px 70px 36px; gap: 0 12px; align-items: center; padding: 10px 14px; border-radius: 8px; border: 1px solid transparent; transition: background .12s, border-color .12s; margin-bottom: 2px; }\n"
-        "    .tr-card:hover { background: var(--c-bg-card); border-color: var(--c-border); }\n"
-        "    .tr-rank { font-size: .75rem; font-weight: 700; color: var(--c-muted-2); font-variant-numeric: tabular-nums; }\n"
-        "    .tr-player { font-size: .88rem; font-weight: 700; color: var(--c-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n"
-        "    .tr-clubs { font-size: .80rem; color: var(--c-muted-4); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; min-width: 0; }\n"
-        "    .club-from { color: var(--c-muted-3); white-space: nowrap; }\n"
-        "    .club-arrow { color: var(--c-muted-2); font-size: .75rem; }\n"
-        "    .club-to { color: var(--c-text); font-weight: 600; white-space: nowrap; }\n"
-        "    .club-unknown { color: var(--c-muted-2); }\n"
-        "    .nego-badge { display: inline-flex; align-items: center; gap: 4px; font-size: .67rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }\n"
-        "    " + badge_css + "\n"
-        "    .tr-fee { font-size: .78rem; color: var(--c-muted-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }\n"
-        "    .src-chip { display: inline-flex; align-items: center; gap: 3px; font-size: .70rem; font-weight: 600; color: var(--c-muted-4); background: var(--c-bg-soft); border: 1px solid var(--c-border); border-radius: 6px; padding: 2px 7px; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 108px; transition: background .12s; }\n"
-        "    .src-chip:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
-        "    .tr-date { font-size: .72rem; color: var(--c-muted-2); white-space: nowrap; }\n"
-        "    .tr-link { display: flex; justify-content: center; }\n"
-        "    .tr-link-btn { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--c-border); color: var(--c-muted-3); text-decoration: none; font-size: 1rem; transition: all .12s; }\n"
-        "    .tr-link-btn:hover { background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }\n"
-        "    .empty-msg { text-align: center; padding: 60px 0; color: var(--c-muted-1); font-size: .9rem; }\n"
-        "    @media (max-width: 900px) { .tr-list-header { display: none; } .tr-card { grid-template-columns: 36px 1fr auto; grid-template-rows: auto auto auto; grid-template-areas: 'rank player link' 'rank clubs link' 'rank badge link'; gap: 2px 8px; padding: 10px 12px; } .tr-rank { grid-area: rank; align-self: start; padding-top: 2px; } .tr-player { grid-area: player; } .tr-clubs { grid-area: clubs; font-size: .75rem; } .tr-badge { grid-area: badge; } .tr-fee, .tr-source, .tr-date { display: none; } .tr-link { grid-area: link; align-self: center; } }\n"
-        "  </style>\n"
-        "</head>\n"
-        "<body>\n"
-        + _header("/transferencias") + "\n"
-        "<div class='tr-wrap'>\n"
-        "  <div class='tr-page-title'>Monitor de Transferências</div>\n"
-        "  <div class='tr-page-sub'>" + total_str + " notícias &middot; " + classified_str + " classificadas pela IA &middot; escopo: todos os tempos</div>\n"
-        "  <div class='tr-toolbar'>\n"
-        "    <button class='rebuild-btn' onclick='rebuild()'>&#x27F3; Reprocessar histórico</button>\n"
-        "    <span id='rebuild-status' style='font-size:.75rem;color:var(--c-muted-1);'></span>\n"
-        "  </div>\n"
-        "  <div class='tr-list-header'>"
-        "<div>#</div><div>Jogador</div><div>Clubes</div>"
-        "<div>Tipo</div><div>Valor</div><div>Fonte</div><div>Data</div><div></div>"
-        "</div>\n"
-        "  " + cards_html + "\n"
-        "</div>\n"
-        "<script>\n"
-        "async function rebuild() {\n"
-        "  const btn = document.querySelector('.rebuild-btn');\n"
-        "  const st  = document.getElementById('rebuild-status');\n"
-        "  btn.disabled = true;\n"
-        "  st.textContent = 'Processando…';\n"
-        "  try {\n"
-        "    const r = await fetch('/api/transfers/rebuild', {method:'POST'});\n"
-        "    const d = await r.json();\n"
-        "    st.textContent = `Concluído: ${d.classified} classificados, ${d.skipped} ignorados de ${d.total} artigos.`;\n"
-        "    setTimeout(() => location.reload(), 2000);\n"
-        "  } catch(e) {\n"
-        "    st.textContent = 'Erro: ' + e.message;\n"
-        "  } finally {\n"
-        "    btn.disabled = false;\n"
-        "  }\n"
-        "}\n"
-        "</script>\n"
-        "</body></html>"
-    )
-    return HTMLResponse(html)
-
-
-@app.get("/api/transfers")
-async def api_transfers():
-    return get_transfer_articles()
-
-
-@app.post("/api/transfers/rebuild")
-async def api_transfers_rebuild():
-    from transfer_processor import rebuild_transfers_from_history
-    result = await rebuild_transfers_from_history()
-    return result
-
-@app.get("/transferencias", response_class=HTMLResponse)
-async def page_transferencias(request: Request):
-    return await _page_transferencias_impl(request)
-
-
-async def _page_transferencias_impl(request: Request):
-    from transfer_processor import NEGO_TYPES
-    from sources import SOURCE_MOON
-
-    articles = get_transfer_articles()
-
-    # Número total e contagem por tipo
-    total = len(articles)
-    classified = sum(1 for a in articles if a.get("nego_type"))
-
-    def _nego_badge(nego_type: str | None) -> str:
-        if not nego_type:
-            nego_type = "sondagem"
-        cfg = NEGO_TYPES.get(nego_type, NEGO_TYPES["sondagem"])
-        return (
-            '<span class="nego-badge nego-' + nego_type + '">'
-            + cfg["icon"] + "&nbsp;" + cfg["label"]
-            + "</span>"
-        )
-
-    def _source_chip(a: dict) -> str:
-        name = (a.get("source_name") or "").lstrip("@")
-        moon = SOURCE_MOON.get(a.get("source_name", ""), "")
-        url  = a.get("url") or "#"
-        nm   = name[:12] + "…" if len(name) > 13 else name
-        return (
-            '<a class="src-chip" href="' + url + '" target="_blank" rel="noopener">'
-            + (moon + "&nbsp;" if moon else "")
-            + nm + "</a>"
-        )
-
-    def _date_fmt(iso: str | None) -> str:
-        if not iso:
-            return "—"
-        try:
-            d = iso[:10].split("-")
-            return f"{d[2]}/{d[1]}/{d[0][2:]}"
-        except Exception:
-            return iso[:10]
-
-    def _clubs_html(a: dict) -> str:
-        cf = a.get("club_from") or ""
-        ct = a.get("club_to") or ""
-        if cf and ct:
-            return '<span class="club-from">' + cf + '</span><span class="club-arrow">→</span><span class="club-to">' + ct + "</span>"
-        if ct:
-            return '<span class="club-to">' + ct + "</span>"
-        if cf:
-            return '<span class="club-from">' + cf + "</span>"
-        return '<span class="club-unknown">—</span>'
-
-    def _card(idx: int, a: dict) -> str:
-        player   = a.get("player_name") or "—"
-        fee      = a.get("fee") or "—"
-        date_str = _date_fmt(a.get("published_at"))
-        title    = (a.get("title_pt") or a.get("title_orig") or "")[:120]
-        url      = a.get("url") or "#"
-        badge    = _nego_badge(a.get("nego_type"))
-        src      = _source_chip(a)
-        clubs    = _clubs_html(a)
-
-        return (
-            '<div class="tr-card">'
-            + '<div class="tr-rank">#' + str(idx) + "</div>"
-            + '<div class="tr-player">' + player + "</div>"
-            + '<div class="tr-clubs">' + clubs + "</div>"
-            + '<div class="tr-badge">' + badge + "</div>"
-            + '<div class="tr-fee">' + fee + "</div>"
-            + '<div class="tr-source">' + src + "</div>"
-            + '<div class="tr-date">' + date_str + "</div>"
-            + '<div class="tr-link"><a href="' + url + '" target="_blank" rel="noopener" class="tr-link-btn" title="' + title + '">→</a></div>'
-            + "</div>"
-        )
-
-    cards_html = "".join(_card(i + 1, a) for i, a in enumerate(articles))
-
-    if not articles:
-        cards_html = '<div class="empty-msg">Nenhum artigo de transferência coletado ainda.</div>'
-
-    # CSS para os badges de nego_type (gerado dinamicamente a partir de NEGO_TYPES)
     badge_css = ""
     for key, cfg in NEGO_TYPES.items():
         badge_css += (
@@ -2434,198 +2454,97 @@ async def _page_transferencias_impl(request: Request):
     {_HEADER_CSS}
 
     .tr-wrap {{
-      max-width: 1300px;
+      max-width: 1440px;
       margin: 0 auto;
       padding: 24px 16px 60px;
     }}
-    .tr-page-title {{
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: var(--c-text);
-      margin: 0 0 4px;
-    }}
-    .tr-page-sub {{
-      font-size: .78rem;
-      color: var(--c-muted-1);
-      margin: 0 0 20px;
-    }}
-    .tr-toolbar {{
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }}
+    .tr-page-title {{ font-size: 1.15rem; font-weight: 700; color: var(--c-text); margin: 0 0 4px; }}
+    .tr-page-sub   {{ font-size: .78rem; color: var(--c-muted-1); margin: 0 0 20px; }}
+    .tr-toolbar {{ display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }}
     .rebuild-btn {{
-      font-size: .75rem;
-      font-weight: 600;
-      padding: 5px 12px;
-      border-radius: 6px;
-      border: 1.5px solid var(--c-border-2);
-      background: transparent;
-      color: var(--c-muted-4);
-      cursor: pointer;
-      transition: all .15s;
+      font-size: .75rem; font-weight: 600; padding: 5px 12px; border-radius: 6px;
+      border: 1.5px solid var(--c-border-2); background: transparent; color: var(--c-muted-4);
+      cursor: pointer; transition: all .15s;
     }}
-    .rebuild-btn:hover {{ background: var(--c-hover-tint); color: var(--c-text); }}
+    .rebuild-btn:hover   {{ background: var(--c-hover-tint); color: var(--c-text); }}
     .rebuild-btn:disabled {{ opacity: .5; cursor: default; }}
 
-    /* ── Cabeçalho da lista ── */
-    .tr-list-header {{
+    /* ── Grid: # | Jogador | Origem | Destino | Tipo | Valor | Fontes ── */
+    .tr-list-header, .tr-card {{
       display: grid;
-      grid-template-columns: 44px 140px 1fr 130px 90px 110px 70px 36px;
-      gap: 0 12px;
+      grid-template-columns: 44px 160px 145px 145px 120px 60px 1fr;
+      gap: 0 10px;
+    }}
+    .tr-list-header {{
       padding: 6px 14px;
-      font-size: .65rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .07em;
+      font-size: .63rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .07em;
       color: var(--c-muted-1);
       border-bottom: 1px solid var(--c-line);
       margin-bottom: 4px;
     }}
-
-    /* ── Card / linha ── */
     .tr-card {{
-      display: grid;
-      grid-template-columns: 44px 140px 1fr 130px 90px 110px 70px 36px;
-      gap: 0 12px;
       align-items: center;
-      padding: 10px 14px;
+      padding: 9px 14px;
       border-radius: 8px;
       border: 1px solid transparent;
       transition: background .12s, border-color .12s;
       margin-bottom: 2px;
     }}
-    .tr-card:hover {{
-      background: var(--c-bg-card);
-      border-color: var(--c-border);
-    }}
-    .tr-rank {{
-      font-size: .75rem;
-      font-weight: 700;
-      color: var(--c-muted-2);
-      font-variant-numeric: tabular-nums;
-    }}
-    .tr-player {{
-      font-size: .88rem;
-      font-weight: 700;
-      color: var(--c-text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }}
-    .tr-clubs {{
-      font-size: .80rem;
-      color: var(--c-muted-4);
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      flex-wrap: wrap;
-      min-width: 0;
-    }}
-    .club-from  {{ color: var(--c-muted-3); }}
-    .club-arrow {{ color: var(--c-muted-2); font-size: .75rem; }}
-    .club-to    {{ color: var(--c-text); font-weight: 600; }}
-    .club-unknown {{ color: var(--c-muted-2); }}
+    .tr-card:hover {{ background: var(--c-bg-card); border-color: var(--c-border); }}
+    .tr-unclassified {{ opacity: .5; }}
 
-    /* ── Badges de tipo ── */
-    .nego-badge {{
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      font-size: .67rem;
-      font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 99px;
-      white-space: nowrap;
+    .tr-rank {{ font-size: .74rem; font-weight: 700; color: var(--c-muted-2); font-variant-numeric: tabular-nums; }}
+
+    .tr-player {{ display: flex; flex-direction: column; gap: 1px; min-width: 0; }}
+    .player-name {{ font-size: .87rem; font-weight: 700; color: var(--c-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .player-meta {{ font-size: .68rem; color: var(--c-muted-2); white-space: nowrap; }}
+
+    /* Clube: escudo colorido + nome */
+    .club-cell {{ display: flex; align-items: center; gap: 6px; min-width: 0; }}
+    .club-crest {{
+      flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 30px; height: 30px; border-radius: 6px;
+      font-size: .53rem; font-weight: 800; letter-spacing: -.02em; line-height: 1;
     }}
+    .club-name {{ font-size: .79rem; color: var(--c-muted-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .c-empty {{ color: var(--c-muted-2); }}
+
+    .nego-badge {{ display: inline-flex; align-items: center; gap: 4px; font-size: .67rem; font-weight: 700; padding: 3px 8px; border-radius: 99px; white-space: nowrap; }}
     {badge_css}
 
-    .tr-fee {{
-      font-size: .78rem;
-      color: var(--c-muted-4);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }}
+    .tr-fee {{ font-size: .78rem; color: var(--c-muted-4); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+
+    .fontes-wrap {{ display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }}
     .src-chip {{
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      font-size: .70rem;
-      font-weight: 600;
-      color: var(--c-muted-4);
-      background: var(--c-bg-soft);
-      border: 1px solid var(--c-border);
-      border-radius: 6px;
-      padding: 2px 7px;
-      text-decoration: none;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 108px;
-      transition: background .12s;
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: .68rem; font-weight: 600;
+      color: var(--c-muted-4); background: var(--c-bg-soft);
+      border: 1px solid var(--c-border); border-radius: 6px;
+      padding: 2px 6px; text-decoration: none;
+      white-space: nowrap; transition: background .12s;
     }}
     .src-chip:hover {{ background: var(--c-hover-tint); color: var(--c-text); }}
-    .tr-date {{
-      font-size: .72rem;
-      color: var(--c-muted-2);
-      white-space: nowrap;
-    }}
-    .tr-link {{
-      display: flex;
-      justify-content: center;
-    }}
-    .tr-link-btn {{
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 28px;
-      height: 28px;
-      border-radius: 6px;
-      border: 1px solid var(--c-border);
-      color: var(--c-muted-3);
-      text-decoration: none;
-      font-size: 1rem;
-      transition: all .12s;
-    }}
-    .tr-link-btn:hover {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
+    .src-arrow {{ opacity: .45; font-size: .65rem; }}
 
-    .empty-msg {{
-      text-align: center;
-      padding: 60px 0;
-      color: var(--c-muted-1);
-      font-size: .9rem;
-    }}
+    .empty-msg {{ text-align: center; padding: 60px 0; color: var(--c-muted-1); font-size: .9rem; }}
 
     @media (max-width: 900px) {{
       .tr-list-header {{ display: none; }}
       .tr-card {{
-        grid-template-columns: 36px 1fr auto;
-        grid-template-rows: auto auto auto;
-        grid-template-areas:
-          "rank player link"
-          "rank clubs  link"
-          "rank meta   link";
-        gap: 2px 8px;
-        padding: 10px 12px;
+        grid-template-columns: 36px 1fr;
+        grid-template-rows: auto auto auto auto;
+        grid-template-areas: "rank player" "rank clubs" "rank badge" "rank fontes";
+        gap: 3px 8px; padding: 10px 12px;
       }}
-      .tr-rank   {{ grid-area: rank; align-self: start; padding-top: 2px; }}
-      .tr-player {{ grid-area: player; }}
-      .tr-clubs  {{ grid-area: clubs; font-size: .75rem; }}
-      .tr-badge, .tr-fee, .tr-source, .tr-date {{
-        grid-area: meta;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-      }}
-      .tr-badge  {{ display: inline-flex; }}
-      .tr-fee    {{ display: none; }}
-      .tr-source {{ display: none; }}
-      .tr-date   {{ display: none; }}
-      .tr-link   {{ grid-area: link; align-self: center; }}
+      .tr-rank     {{ grid-area: rank; align-self: start; padding-top: 3px; }}
+      .tr-player   {{ grid-area: player; }}
+      .tr-club-from, .tr-club-to {{ grid-area: clubs; display: inline-flex; }}
+      .tr-club-to  {{ margin-left: 4px; }}
+      .tr-badge    {{ grid-area: badge; }}
+      .tr-fee      {{ display: none; }}
+      .tr-fontes   {{ grid-area: fontes; }}
     }}
   </style>
 </head>
@@ -2633,7 +2552,9 @@ async def _page_transferencias_impl(request: Request):
 {_header("/transferencias")}
 <div class="tr-wrap">
   <div class="tr-page-title">Monitor de Transferências</div>
-  <div class="tr-page-sub">{total} notícias · {classified} classificadas pela IA · escopo: todos os tempos</div>
+  <div class="tr-page-sub">
+    {n_groups} negociações · {classified} de {total} artigos classificados · julho de 2026
+  </div>
 
   <div class="tr-toolbar">
     <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
@@ -2643,12 +2564,11 @@ async def _page_transferencias_impl(request: Request):
   <div class="tr-list-header">
     <div>#</div>
     <div>Jogador</div>
-    <div>Clubes</div>
+    <div>Origem</div>
+    <div>Destino</div>
     <div>Tipo</div>
     <div>Valor</div>
-    <div>Fonte</div>
-    <div>Data</div>
-    <div></div>
+    <div>Fontes</div>
   </div>
 
   {cards_html}
