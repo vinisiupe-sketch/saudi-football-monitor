@@ -97,6 +97,89 @@ async def normalize_player_name(raw_name: str, client: httpx.AsyncClient,
     return canonical if canonical else raw_name
 
 
+async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
+    """Busca IDs de jogador e clubes na api-football e enriquece data com af_player_id,
+    af_team_from_id, af_team_to_id para que logos e fotos possam ser servidos por URL direta."""
+    import os
+    key = os.getenv("API_FOOTBALL_KEY", "")
+    if not key:
+        return data
+    hdrs = {"X-Apisports-Key": key}
+    AF = "https://v3.football.api-sports.io"
+
+    # ── Jogador ──────────────────────────────────────────────────────────
+    pname = data.get("player_name") or ""
+    if pname and not data.get("af_player_id"):
+        try:
+            # Tenta primeiro filtrando pela Saudi Pro League (temporadas recentes)
+            for _season in ("2025", "2024"):
+                r = await client.get(f"{AF}/players",
+                    params={"search": pname, "league": "307", "season": _season},
+                    headers=hdrs, timeout=8.0)
+                results = r.json().get("response") or []
+                if results:
+                    break
+            if not results:
+                # Busca ampla sem filtro de liga
+                r = await client.get(f"{AF}/players",
+                    params={"search": pname, "season": "2024"},
+                    headers=hdrs, timeout=8.0)
+                results = r.json().get("response") or []
+            if results:
+                pid = str((results[0].get("player") or {}).get("id") or "")
+                if pid:
+                    data["af_player_id"] = pid
+                    print(f"   📸 AF player: '{pname}' → id {pid}")
+        except Exception as e:
+            print(f"   ⚠️  AF player search error for '{pname}': {type(e).__name__}")
+
+    # ── Clube de origem (qualquer país) ──────────────────────────────────
+    cfrom = data.get("club_from") or ""
+    if cfrom and not data.get("af_team_from_id"):
+        try:
+            r = await client.get(f"{AF}/teams",
+                params={"search": cfrom}, headers=hdrs, timeout=7.0)
+            results = r.json().get("response") or []
+            if results:
+                # Prefere correspondência exata de nome
+                cfrom_low = cfrom.lower().strip()
+                chosen = None
+                for t in results[:5]:
+                    if (t.get("team") or {}).get("name", "").lower().strip() == cfrom_low:
+                        chosen = t; break
+                if not chosen:
+                    chosen = results[0]
+                tid = str((chosen.get("team") or {}).get("id") or "")
+                if tid:
+                    data["af_team_from_id"] = tid
+                    print(f"   🔵 AF team_from: '{cfrom}' → id {tid}")
+        except Exception as e:
+            print(f"   ⚠️  AF team_from search error for '{cfrom}': {type(e).__name__}")
+
+    # ── Clube de destino (prefere Arábia Saudita) ────────────────────────
+    cto = data.get("club_to") or ""
+    if cto and not data.get("af_team_to_id"):
+        try:
+            r = await client.get(f"{AF}/teams",
+                params={"search": cto}, headers=hdrs, timeout=7.0)
+            results = r.json().get("response") or []
+            if results:
+                # Prefere times sauditas no destino (contexto Saudi Pro League)
+                saudi = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
+                # Também verifica correspondência exata
+                cto_low = cto.lower().strip()
+                exact = [t for t in results if (t.get("team") or {}).get("name", "").lower().strip() == cto_low]
+                chosen = (exact[0] if exact else (saudi[0] if saudi else results[0]))
+                tid = str((chosen.get("team") or {}).get("id") or "")
+                if tid:
+                    data["af_team_to_id"] = tid
+                    print(f"   🔴 AF team_to: '{cto}' → id {tid}")
+        except Exception as e:
+            print(f"   ⚠️  AF team_to search error for '{cto}': {type(e).__name__}")
+
+    return data
+
+
 async def extract_transfer_meta(article: dict, client: httpx.AsyncClient) -> dict | None:
     """Extrai metadados de negociação. Retorna None se o artigo não envolver transferência de jogador."""
     title = article.get("title_pt") or article.get("title_orig", "")
@@ -153,6 +236,9 @@ Se o artigo NÃO envolver negociação de jogador identificável, responda apena
         data["player_name"] = await normalize_player_name(
             data["player_name"], client, club_hint=club_hint
         )
+
+        # Enriquece com IDs da api-football para logos e fotos diretas
+        data = await enrich_with_af_ids(data, client)
 
         return data
     except Exception as e:

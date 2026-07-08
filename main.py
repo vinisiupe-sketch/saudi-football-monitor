@@ -2248,12 +2248,25 @@ async def _page_transferencias_impl(request: Request):
                 return v
         return {"bg": "#3a3a3c", "color": "#fff", "abbr": (n[:3].upper() or "?")}
 
-    def _logo_wrap(name: str | None) -> str:
+    def _logo_wrap(name: str | None, af_id: str | None = None) -> str:
         if not name:
             return '<div class="club-logo-wrap"><span class="club-crest" style="background:#3a3a3c;color:#fff">?</span></div>'
         cfg = _club_cfg(name)
         enc = quote(name, safe="")
         title_safe = name.replace('"', "&quot;").replace("&", "&amp;")
+        if af_id:
+            img_url = f"https://media.api-sports.io/football/teams/{af_id}.png"
+            fallback_html = (
+                f"<span class=\'club-crest\' "
+                f"style=\'background:{cfg['bg']};color:{cfg['color']}\'>"
+                f"{cfg['abbr']}</span>"
+            )
+            return (
+                f'<div class="club-logo-wrap" title="{title_safe}">'
+                f'<img class="club-logo-img" src="{img_url}" alt="{title_safe}" loading="lazy"'
+                f' onerror="this.parentNode.innerHTML=\'{fallback_html}\'">'
+                f'</div>'
+            )
         crest = (
             f'<span class="club-crest" style="background:{cfg["bg"]};color:{cfg["color"]}">'
             f'{cfg["abbr"]}</span>'
@@ -2404,8 +2417,8 @@ async def _page_transferencias_impl(request: Request):
         accent = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])["color"]
         badge  = _nego_badge(ntype)
         ucls   = " tc-dim" if g.get("_unclassified") else ""
-        fw     = _logo_wrap(g.get("club_from"))
-        tw     = _logo_wrap(g.get("club_to"))
+        fw     = _logo_wrap(g.get("club_from"), g.get("af_team_from_id"))
+        tw     = _logo_wrap(g.get("club_to"),   g.get("af_team_to_id"))
         to_cfg   = _club_cfg(g.get("club_to"))
         card_bg  = to_cfg["bg"]
         card_txt = to_cfg["color"]
@@ -2415,11 +2428,17 @@ async def _page_transferencias_impl(request: Request):
         initials = _player_initials(pname)
         from urllib.parse import quote as _pq
         _oe = "this.style.display='none'"
+        _af_pid = g.get("af_player_id") or ""
+        _photo_src = (
+            f"https://media.api-sports.io/football/players/{_af_pid}.png"
+            if _af_pid else
+            f"/api/player-photo?name={_pq(pname)}"
+        )
         avatar = (
             f'<span class="player-avatar">'
             f'<span class="player-ini">{initials}</span>'
             f'<img class="player-photo" loading="lazy"'
-            f' src="/api/player-photo?name={_pq(pname)}"'
+            f' src="{_photo_src}"'
             f' onerror="{_oe}">'
             f'</span>'
         )
@@ -2875,6 +2894,73 @@ async def api_clear_photo_cache():
         c.execute("DELETE FROM player_photos")
         n = c.rowcount
     return HTMLResponse(f"<pre>✅ Cache de fotos limpo — {n} entradas removidas</pre>")
+
+
+
+@app.get("/api/admin/enrich-af-ids")
+async def api_enrich_af_ids(limit: int = 50):
+    """Enriquece registros de transfer_meta existentes sem af_*_id com IDs da api-football.
+    Chame após /api/admin/rebuild para garantir logos e fotos nos cards."""
+    from database import get_conn
+    from transfer_processor import enrich_with_af_ids
+    hdrs = _af_headers()
+    if not hdrs:
+        return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                SELECT article_id, player_name, club_from, club_to
+                FROM transfer_meta
+                WHERE (af_player_id IS NULL OR af_team_from_id IS NULL OR af_team_to_id IS NULL)
+                  AND player_name IS NOT NULL
+                LIMIT %s
+            """, (limit,))
+            rows = c.fetchall()
+    except Exception as e:
+        return HTMLResponse(f"<pre>❌ Erro ao ler DB: {e}</pre>")
+
+    if not rows:
+        return HTMLResponse("<pre>✅ Todos os registros já têm IDs api-football</pre>")
+
+    enriched = 0
+    errors = 0
+    lines = [f"Processando {len(rows)} registros..."]
+
+    async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
+        for article_id, player_name, club_from, club_to in rows:
+            data = {
+                "player_name": player_name,
+                "club_from": club_from,
+                "club_to": club_to,
+            }
+            try:
+                data = await enrich_with_af_ids(data, client)
+                af_pid  = data.get("af_player_id") or None
+                af_fid  = data.get("af_team_from_id") or None
+                af_tid  = data.get("af_team_to_id") or None
+                if af_pid or af_fid or af_tid:
+                    with get_conn() as conn:
+                        c = conn.cursor()
+                        c.execute("""
+                            UPDATE transfer_meta SET
+                                af_player_id    = COALESCE(%s, af_player_id),
+                                af_team_from_id = COALESCE(%s, af_team_from_id),
+                                af_team_to_id   = COALESCE(%s, af_team_to_id)
+                            WHERE article_id = %s
+                        """, (af_pid, af_fid, af_tid, article_id))
+                    lines.append(
+                        f"✅ {player_name or '?'} | from={af_fid} to={af_tid} player={af_pid}"
+                    )
+                    enriched += 1
+                else:
+                    lines.append(f"⚠️  {player_name or '?'} — nenhum ID encontrado")
+            except Exception as e:
+                lines.append(f"❌ {player_name or '?'}: {e}")
+                errors += 1
+
+    lines.append(f"\n✅ {enriched} enriquecidos, {errors} erros de {len(rows)} registros")
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
 
 
 @app.get("/api/admin/warm-saudi-teams")

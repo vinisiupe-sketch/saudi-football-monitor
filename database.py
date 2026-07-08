@@ -484,7 +484,8 @@ def init_transfer_meta():
             )
         """)
         # Migra colunas ausentes em instâncias existentes
-        for col in ("player_position", "player_nationality"):
+        for col in ("player_position", "player_nationality",
+                    "af_player_id", "af_team_from_id", "af_team_to_id"):
             try:
                 c.execute(f"ALTER TABLE transfer_meta ADD COLUMN {col} TEXT")
             except Exception:
@@ -498,8 +499,9 @@ def upsert_transfer_meta(article_id: str, data: dict):
         c = conn.cursor()
         c.execute("""
             INSERT INTO transfer_meta (article_id, player_name, player_position, player_nationality,
-                                       club_from, club_to, fee, nego_type, classified_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                       club_from, club_to, fee, nego_type, classified_at,
+                                       af_player_id, af_team_from_id, af_team_to_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (article_id) DO UPDATE SET
                 player_name        = EXCLUDED.player_name,
                 player_position    = EXCLUDED.player_position,
@@ -508,7 +510,10 @@ def upsert_transfer_meta(article_id: str, data: dict):
                 club_to            = EXCLUDED.club_to,
                 fee                = EXCLUDED.fee,
                 nego_type          = EXCLUDED.nego_type,
-                classified_at      = EXCLUDED.classified_at
+                classified_at      = EXCLUDED.classified_at,
+                af_player_id       = COALESCE(EXCLUDED.af_player_id, transfer_meta.af_player_id),
+                af_team_from_id    = COALESCE(EXCLUDED.af_team_from_id, transfer_meta.af_team_from_id),
+                af_team_to_id      = COALESCE(EXCLUDED.af_team_to_id, transfer_meta.af_team_to_id)
         """, (
             article_id,
             data.get("player_name"),
@@ -519,6 +524,9 @@ def upsert_transfer_meta(article_id: str, data: dict):
             data.get("fee"),
             data.get("nego_type"),
             now,
+            data.get("af_player_id") or None,
+            data.get("af_team_from_id") or None,
+            data.get("af_team_to_id") or None,
         ))
 
 
@@ -692,7 +700,8 @@ def get_transfer_articles() -> list[dict]:
                     a.published_at, a.collected_at, a.relevance_score,
                     tm.player_name, tm.player_position, tm.player_nationality,
                     tm.club_from, tm.club_to,
-                    tm.fee, tm.nego_type, tm.classified_at
+                    tm.fee, tm.nego_type, tm.classified_at,
+                    tm.af_player_id, tm.af_team_from_id, tm.af_team_to_id
                 FROM articles a
                 LEFT JOIN transfer_meta tm ON a.id = tm.article_id
                 WHERE a.category IN ('transferencia', 'sondagem')
