@@ -2619,9 +2619,12 @@ async def api_transfers_rebuild():
     return result
 
 
-@app.delete("/api/club-logo/cache")
+@app.get("/api/admin/clear-logos")
 async def api_clear_logo_cache(name: str | None = None):
-    """Remove entradas do cache de logos. ?name=X limpa só aquele clube; sem param limpa tudo."""
+    """Limpa cache de logos (abrível no browser).
+    ?name=Al+Hilal  → limpa só aquele clube
+    sem parâmetro   → limpa tudo
+    """
     from database import get_conn
     with get_conn() as conn:
         c = conn.cursor()
@@ -2630,10 +2633,10 @@ async def api_clear_logo_cache(name: str | None = None):
             nfd = _ud.normalize("NFD", name.lower().strip())
             nn = "".join(ch for ch in nfd if _ud.category(ch) != "Mn")
             c.execute("DELETE FROM club_logos WHERE name_norm = %s", (nn,))
-            return {"deleted": c.rowcount, "name": name}
+            return HTMLResponse(f"<pre>✅ Deletado {c.rowcount} entrada(s) para '{name}'</pre>")
         else:
             c.execute("DELETE FROM club_logos")
-            return {"deleted": c.rowcount}
+            return HTMLResponse(f"<pre>✅ Cache de logos limpo — {c.rowcount} entradas removidas</pre>")
 
 
 @app.get("/api/club-logo")
