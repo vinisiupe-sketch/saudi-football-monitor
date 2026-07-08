@@ -2619,13 +2619,51 @@ async def api_transfers_rebuild():
     return result
 
 
+def _logo_norm(s: str) -> str:
+    """Normalização agressiva para cache de logos: minúsculo, sem acento, hífen→espaço."""
+    import unicodedata as _ud, re as _re
+    s = (s or "").lower().strip()
+    s = _re.sub(r"[-_]+", " ", s)          # Al-Hilal → al hilal
+    s = _re.sub(r"\s+", " ", s).strip()
+    nfd = _ud.normalize("NFD", s)
+    return "".join(c for c in nfd if _ud.category(c) != "Mn")
+
+
+@app.get("/api/admin/debug-logo")
+async def api_debug_logo(name: str):
+    """Mostra o que a TheSportsDB retorna para um nome de clube (debug)."""
+    lines = [f"Buscando: {name!r}", ""]
+    async with httpx.AsyncClient(timeout=8.0) as client:
+        r = await client.get(
+            "https://www.thesportsdb.com/api/v1/json/3/searchteams.php",
+            params={"t": name}
+        )
+        teams = (r.json().get("teams") or [])
+        lines.append(f"TheSportsDB retornou {len(teams)} time(s):")
+        for i, t in enumerate(teams):
+            lines.append(
+                f"  [{i}] {t.get('strTeam')} | country={t.get('strCountry')} "
+                f"| league={t.get('strLeague')} | badge={str(t.get('strTeamBadge',''))[:60]}"
+            )
+        lines.append("")
+        # Also try league search
+        for league in ["Saudi Pro League", "Saudi Professional League"]:
+            r2 = await client.get(
+                "https://www.thesportsdb.com/api/v1/json/3/search_all_teams.php",
+                params={"l": league}
+            )
+            lt = r2.json().get("teams") or []
+            lines.append(f"League '{league}' → {len(lt)} times")
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+
+
 @app.get("/api/admin/warm-logos")
 async def api_warm_logos():
-    """Pré-popula cache com logos corretos da Saudi Pro League (busca por liga, sem ambiguidade)."""
-    import unicodedata as _ud
+    """Pré-popula cache com logos corretos da Saudi Pro League."""
+    import unicodedata as _ud, re as _re
     results = {}
     errors = []
-    leagues = ["Saudi Pro League", "Saudi First Division League"]
+    leagues = ["Saudi Pro League", "Saudi Professional League", "Saudi First Division League"]
     async with httpx.AsyncClient(timeout=10.0) as client:
         for league in leagues:
             try:
@@ -2635,18 +2673,17 @@ async def api_warm_logos():
                 )
                 teams = (r.json().get("teams") or [])
                 for team in teams:
-                    name = team.get("strTeam") or ""
+                    raw_name = team.get("strTeam") or ""
                     logo = team.get("strTeamBadge") or team.get("strBadge") or ""
-                    if name:
-                        nfd = _ud.normalize("NFD", name.lower().strip())
-                        nn = "".join(c for c in nfd if _ud.category(c) != "Mn")
+                    if raw_name:
+                        nn = _logo_norm(raw_name)
                         set_club_logo(nn, logo or "")
-                        results[name] = logo or "(sem logo)"
+                        results[raw_name] = (nn, logo or "(sem logo)")
             except Exception as e:
                 errors.append(f"{league}: {e}")
-    lines = [f"✅ {len(results)} times da SPL cacheados com logos corretos"]
-    for k, v in results.items():
-        lines.append(f"  {k}: {v[:60] if v else '(sem logo)'}")
+    lines = [f"✅ {len(results)} times cacheados"]
+    for raw, (nn, logo) in results.items():
+        lines.append(f"  '{raw}' → key='{nn}' | {logo[:55]}")
     if errors:
         lines += ["", "⚠️ Erros:"] + errors
     return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
@@ -2674,9 +2711,7 @@ async def api_clear_logo_cache(name: str | None = None):
 
 @app.get("/api/club-logo")
 async def api_club_logo(name: str):
-    import unicodedata
-    nfd = unicodedata.normalize("NFD", name.lower().strip())
-    name_norm = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    name_norm = _logo_norm(name)
     cached = get_club_logo(name_norm)
     if cached is None:
         logo_url = None
