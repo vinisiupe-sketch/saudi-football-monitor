@@ -4,8 +4,12 @@ Chamado pelo pipeline de processamento e pelo endpoint de rebuild retroativo.
 """
 import json
 import asyncio
+import re
+import unicodedata
 import httpx
+from urllib.parse import quote as _url_quote
 from processor import call_claude
+from database import get_player_name_cache, set_player_name_cache
 
 TRANSFER_SYSTEM = (
     "Você é um analista de mercado de transferências especializado na Saudi Pro League. "
@@ -24,6 +28,64 @@ NEGO_TYPES = {
     "renovacao":   {"label": "Renovação",   "icon": "🔃", "color": "#6d28d9", "bg": "#ede9fe", "dark_color": "#c4b5fd", "dark_bg": "#2e1065"},
     "sondagem":    {"label": "Sondagem",    "icon": "🔍", "color": "#4b5563", "bg": "#f3f4f6", "dark_color": "#9ca3af", "dark_bg": "#1f2937"},
 }
+
+
+def _name_key(s: str) -> str:
+    """Normaliza nome para uso como chave de cache (lowercase, sem acentos, sem pontuação extra)."""
+    s = (s or "").strip().lower()
+    nfd = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^\w\s]", "", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+async def normalize_player_name(raw_name: str, client: httpx.AsyncClient,
+                                 club_hint: str = "") -> str:
+    """Busca a grafia canônica do jogador no Transfermarkt.
+    - Retorna o nome canônico se encontrado, ou raw_name caso contrário.
+    - Resultado é cacheado em player_name_cache para evitar requisições repetidas.
+    """
+    if not raw_name:
+        return raw_name
+
+    key = _name_key(raw_name)
+
+    # 1) Verifica cache
+    cached = get_player_name_cache(key)
+    if cached is not None:
+        return cached if cached else raw_name  # '' = não encontrado, retorna original
+
+    # 2) Busca no Transfermarkt
+    canonical = ""
+    tm_id = ""
+    try:
+        r = await client.get(
+            f"https://transfermarkt-api.fly.dev/players/search/{_url_quote(raw_name)}",
+            timeout=7.0,
+        )
+        if r.status_code == 200:
+            results = r.json().get("results") or []
+            if results:
+                # Prefere jogadores ligados ao clube hint (club_from ou club_to)
+                chosen = None
+                if club_hint:
+                    hint_low = club_hint.lower()
+                    for p in results[:5]:
+                        club_name = (p.get("club", {}) or {}).get("name", "") or ""
+                        if hint_low in club_name.lower() or club_name.lower() in hint_low:
+                            chosen = p
+                            break
+                if not chosen:
+                    chosen = results[0]
+                canonical = chosen.get("name") or ""
+                tm_id = str(chosen.get("id") or "")
+    except Exception as e:
+        print(f"   ⚠️  Transfermarkt name lookup error for '{raw_name}': {e}")
+
+    # 3) Armazena no cache ('' se não encontrado)
+    set_player_name_cache(key, canonical, tm_id)
+
+    return canonical if canonical else raw_name
 
 
 async def extract_transfer_meta(article: dict, client: httpx.AsyncClient) -> dict | None:
@@ -76,9 +138,16 @@ Se o artigo NÃO envolver negociação de jogador identificável, responda apena
             return None
         if not data.get("player_name"):
             return None
+
+        # Normaliza nome do jogador via Transfermarkt para grafia canônica
+        club_hint = data.get("club_to") or data.get("club_from") or ""
+        data["player_name"] = await normalize_player_name(
+            data["player_name"], client, club_hint=club_hint
+        )
+
         return data
     except Exception as e:
-        print(f"   ⚠️  Erro ao extrair transferência de '{title[:50]}': {e}")
+        print(f"   \u26a0\ufe0f  Erro ao extrair transferência de '{title[:50]}': {e}")
         return None
 
 
@@ -102,7 +171,7 @@ async def process_transfer_article(article: dict):
         "fee":                data.get("fee"),
         "nego_type":          data.get("nego_type"),
     })
-    print(f"   🔄 Transferência: {data.get('player_name')} ({data.get('nego_type')}) — {data.get('club_from')} → {data.get('club_to')}")
+    print(f"   \U0001f504 Transferência: {data.get('player_name')} ({data.get('nego_type')}) — {data.get('club_from')} \u2192 {data.get('club_to')}")
 
 
 async def rebuild_transfers_from_history():
@@ -111,7 +180,7 @@ async def rebuild_transfers_from_history():
     from database import get_transfer_articles_raw, upsert_transfer_meta
 
     articles = get_transfer_articles_raw()
-    print(f"🔄 Rebuild transferências: {len(articles)} artigos para processar...")
+    print(f"\U0001f504 Rebuild transferências: {len(articles)} artigos para processar...")
 
     BATCH = 5
     created = updated = skipped = 0
@@ -137,7 +206,7 @@ async def rebuild_transfers_from_history():
                     "nego_type":          data.get("nego_type"),
                 })
                 created += 1
-            print(f"   🔄 Lote {i//BATCH+1}/{(len(articles)-1)//BATCH+1 if articles else 1}: {created} classificados, {skipped} ignorados")
+            print(f"   \U0001f504 Lote {i//BATCH+1}/{(len(articles)-1)//BATCH+1 if articles else 1}: {created} classificados, {skipped} ignorados")
 
-    print(f"🔄 Rebuild concluído: {created} classificados, {skipped} ignorados de {len(articles)} artigos")
+    print(f"\U0001f504 Rebuild concluído: {created} classificados, {skipped} ignorados de {len(articles)} artigos")
     return {"classified": created, "skipped": skipped, "total": len(articles)}

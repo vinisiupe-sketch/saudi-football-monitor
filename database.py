@@ -106,6 +106,7 @@ def init_db():
     init_transfer_meta()
     init_club_logos()
     init_player_photos()
+    init_player_name_cache()
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
@@ -622,6 +623,60 @@ def set_player_photo(name_norm: str, photo_url: str):
     except Exception:
         pass
 
+# ── Player name cache (normalização via Transfermarkt) ────────────────────────
+
+def init_player_name_cache():
+    """Cria tabela de cache de nomes canônicos. Chamado por init_db()."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS player_name_cache (
+                name_query TEXT PRIMARY KEY,
+                tm_name    TEXT,
+                tm_id      TEXT,
+                fetched_at TEXT NOT NULL
+            )
+        """)
+
+
+def get_player_name_cache(name_query: str) -> str | None:
+    """Retorna nome canônico cacheado.
+    - None : nunca consultado
+    - ''   : consultado mas não encontrado no Transfermarkt
+    - str  : nome canônico encontrado
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT tm_name FROM player_name_cache WHERE name_query = %s",
+                (name_query,)
+            )
+            row = c.fetchone()
+            if row is None:
+                return None
+            return row[0] if row[0] is not None else ""
+    except Exception:
+        return None
+
+
+def set_player_name_cache(name_query: str, tm_name: str, tm_id: str = ""):
+    """Armazena nome canônico ('' se não encontrado no Transfermarkt)."""
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO player_name_cache (name_query, tm_name, tm_id, fetched_at)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (name_query) DO UPDATE SET
+                    tm_name    = EXCLUDED.tm_name,
+                    tm_id      = EXCLUDED.tm_id,
+                    fetched_at = EXCLUDED.fetched_at
+            """, (name_query, tm_name, tm_id, now))
+    except Exception:
+        pass
+
 
 def get_transfer_articles() -> list[dict]:
     """Retorna artigos de transferência/sondagem de julho de 2026 com metadados classificados pela IA.
@@ -662,8 +717,7 @@ def save_article(article: dict) -> bool:
         try:
             article.setdefault("image_url", None)
             article.setdefault("category", None)
-            c.execute("""
-                INSERT INTO articles
+            c.execute("""                INSERT INTO articles
                   (id, source_name, source_tier, source_type, url,
                    title_orig, title_pt, body_orig, body_pt,
                    language, published_at, collected_at, relevance_score, image_url, category)
@@ -699,8 +753,7 @@ def update_article_title(article_id: str, title_pt: str):
 def get_low_score_articles(hours: int = 24, limit: int = 200):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("""
-            SELECT * FROM articles
+        c.execute("""            SELECT * FROM articles
             WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::TEXT
               AND is_duplicate = 0
               AND relevance_score < 0.34
@@ -730,8 +783,7 @@ def get_recent_articles(hours: int = 24, tier: str = None, limit: int = 100):
 def save_summary(summary: dict):
     with get_conn() as conn:
         c = conn.cursor()
-        c.execute("""
-            INSERT INTO summaries (generated_at, period_start, period_end, summary_pt, article_ids)
+        c.execute("""            INSERT INTO summaries (generated_at, period_start, period_end, summary_pt, article_ids)
             VALUES (%(generated_at)s, %(period_start)s, %(period_end)s, %(summary_pt)s, %(article_ids)s)
         """, {**summary, "article_ids": json.dumps(summary["article_ids"])})
 
@@ -747,8 +799,7 @@ def get_latest_summary():
 def log_collection(log: dict):
     with get_conn() as conn:
         c = conn.cursor()
-        c.execute("""
-            INSERT INTO collection_logs (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
+        c.execute("""            INSERT INTO collection_logs (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
             VALUES (%(ran_at)s, %(sources_ok)s, %(sources_fail)s, %(articles_new)s, %(articles_dup)s, %(error_msg)s)
         """, log)
 
