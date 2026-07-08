@@ -2154,76 +2154,70 @@ async def _page_transferencias_impl(request: Request):
     total = len(articles)
     classified = sum(1 for a in articles if a.get("nego_type"))
 
-    # ── Cores por clube ───────────────────────────────────────────────────
     _CLUB_COLORS = {
         "al hilal":            {"bg": "#1a3a8f", "color": "#fff", "abbr": "HIL"},
-        "al nassr":            {"bg": "#FFD700", "color": "#003087", "abbr": "NAS"},
-        "al ittihad":          {"bg": "#FFD700", "color": "#000", "abbr": "ITT"},
-        "al ahli":             {"bg": "#006400", "color": "#fff", "abbr": "AHL"},
-        "al shabab":           {"bg": "#E00000", "color": "#fff", "abbr": "SHB"},
-        "al ettifaq":          {"bg": "#0038A8", "color": "#FFD700", "abbr": "ETT"},
-        "al fateh":            {"bg": "#3B2B82", "color": "#fff", "abbr": "FAT"},
-        "al taawoun":          {"bg": "#FFD700", "color": "#000", "abbr": "TAA"},
-        "al qadsiah":          {"bg": "#1e3a5f", "color": "#fff", "abbr": "QAD"},
-        "damac":               {"bg": "#C41E3A", "color": "#fff", "abbr": "DAM"},
-        "al fayha":            {"bg": "#006400", "color": "#FFD700", "abbr": "FAY"},
-        "al hazem":            {"bg": "#e00000", "color": "#fff", "abbr": "HAZ"},
-        "al kholood":          {"bg": "#800080", "color": "#fff", "abbr": "KHL"},
-        "al riyadh":           {"bg": "#006400", "color": "#fff", "abbr": "RIY"},
-        "al akhdoud":          {"bg": "#2d6e2d", "color": "#000", "abbr": "AKH"},
-        "al wahda":            {"bg": "#FFD700", "color": "#006400", "abbr": "WAH"},
-        "al wehda":            {"bg": "#FFD700", "color": "#006400", "abbr": "WHD"},
-        "al qadisiyah":        {"bg": "#1e3a5f", "color": "#fff", "abbr": "QDY"},
-        "al batin":            {"bg": "#006400", "color": "#fff", "abbr": "BAT"},
-        "al tai":              {"bg": "#006400", "color": "#fff", "abbr": "TAI"},
-        "abha":                {"bg": "#cc0000", "color": "#fff", "abbr": "ABH"},
-        "al okhdood":          {"bg": "#2d6e2d", "color": "#000", "abbr": "OKH"},
-        "real madrid":         {"bg": "#000080", "color": "#fff", "abbr": "RM"},
+        "al nassr":            {"bg": "#C8990A", "color": "#fff", "abbr": "NAS"},
+        "al ittihad":          {"bg": "#1a1a1a", "color": "#FFD700", "abbr": "ITT"},
+        "al ahli":             {"bg": "#005522", "color": "#fff", "abbr": "AHL"},
+        "al shabab":           {"bg": "#B30000", "color": "#fff", "abbr": "SHB"},
+        "al ettifaq":          {"bg": "#0033AA", "color": "#FFD700", "abbr": "ETT"},
+        "al fateh":            {"bg": "#2d1b82", "color": "#fff", "abbr": "FAT"},
+        "al taawoun":          {"bg": "#997700", "color": "#fff", "abbr": "TAA"},
+        "al qadsiah":          {"bg": "#14284e", "color": "#fff", "abbr": "QAD"},
+        "damac":               {"bg": "#8B0020", "color": "#fff", "abbr": "DAM"},
+        "al fayha":            {"bg": "#004d00", "color": "#FFD700", "abbr": "FAY"},
+        "al hazem":            {"bg": "#8B0000", "color": "#fff", "abbr": "HAZ"},
+        "al kholood":          {"bg": "#5c0080", "color": "#fff", "abbr": "KHL"},
+        "al riyadh":           {"bg": "#004d00", "color": "#fff", "abbr": "RIY"},
+        "al akhdoud":          {"bg": "#1e4d1e", "color": "#fff", "abbr": "AKH"},
+        "al wahda":            {"bg": "#005000", "color": "#FFD700", "abbr": "WAH"},
+        "al wehda":            {"bg": "#005000", "color": "#FFD700", "abbr": "WHD"},
+        "real madrid":         {"bg": "#001489", "color": "#fff", "abbr": "RM"},
         "barcelona":           {"bg": "#A50044", "color": "#004D98", "abbr": "FCB"},
         "atletico madrid":     {"bg": "#CE3524", "color": "#fff", "abbr": "ATM"},
         "sevilla":             {"bg": "#D52B1E", "color": "#fff", "abbr": "SEV"},
-        "villarreal":          {"bg": "#FFD700", "color": "#003087", "abbr": "VIL"},
-        "valencia":            {"bg": "#FF8C00", "color": "#000", "abbr": "VCF"},
-        "psg":                 {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
-        "paris saint-germain": {"bg": "#003087", "color": "#DA291C", "abbr": "PSG"},
-        "manchester city":     {"bg": "#6CABDD", "color": "#fff", "abbr": "MCI"},
-        "manchester united":   {"bg": "#DA291C", "color": "#FBE122", "abbr": "MNU"},
+        "villarreal":          {"bg": "#C8990A", "color": "#fff", "abbr": "VIL"},
+        "valencia":            {"bg": "#c05a00", "color": "#fff", "abbr": "VCF"},
+        "psg":                 {"bg": "#002B5C", "color": "#DA291C", "abbr": "PSG"},
+        "paris saint-germain": {"bg": "#002B5C", "color": "#DA291C", "abbr": "PSG"},
+        "manchester city":     {"bg": "#5BADDD", "color": "#fff", "abbr": "MCI"},
+        "manchester united":   {"bg": "#BA1313", "color": "#fff", "abbr": "MNU"},
         "chelsea":             {"bg": "#034694", "color": "#fff", "abbr": "CHE"},
-        "arsenal":             {"bg": "#EF0107", "color": "#fff", "abbr": "ARS"},
+        "arsenal":             {"bg": "#9B1016", "color": "#fff", "abbr": "ARS"},
         "liverpool":           {"bg": "#C8102E", "color": "#fff", "abbr": "LIV"},
         "tottenham":           {"bg": "#132257", "color": "#fff", "abbr": "TOT"},
-        "aston villa":         {"bg": "#670E36", "color": "#C5A028", "abbr": "AVL"},
-        "newcastle":           {"bg": "#241F20", "color": "#fff", "abbr": "NEW"},
-        "juventus":            {"bg": "#000000", "color": "#fff", "abbr": "JUV"},
+        "aston villa":         {"bg": "#5e0019", "color": "#C5A028", "abbr": "AVL"},
+        "newcastle":           {"bg": "#1a1a1a", "color": "#fff", "abbr": "NEW"},
+        "juventus":            {"bg": "#1a1a1a", "color": "#fff", "abbr": "JUV"},
         "inter milan":         {"bg": "#010E80", "color": "#fff", "abbr": "INT"},
-        "ac milan":            {"bg": "#FB090B", "color": "#000", "abbr": "ACM"},
-        "napoli":              {"bg": "#12A0D7", "color": "#fff", "abbr": "NAP"},
-        "roma":                {"bg": "#8B0000", "color": "#FFD700", "abbr": "ROM"},
-        "lazio":               {"bg": "#87CEEB", "color": "#003087", "abbr": "LAZ"},
-        "atalanta":            {"bg": "#1E40AF", "color": "#000", "abbr": "ATA"},
+        "ac milan":            {"bg": "#8B0000", "color": "#fff", "abbr": "ACM"},
+        "napoli":              {"bg": "#007DC5", "color": "#fff", "abbr": "NAP"},
+        "roma":                {"bg": "#6B0000", "color": "#FFD700", "abbr": "ROM"},
+        "lazio":               {"bg": "#6FA8CE", "color": "#1a1a1a", "abbr": "LAZ"},
+        "atalanta":            {"bg": "#1a3a80", "color": "#000", "abbr": "ATA"},
         "porto":               {"bg": "#003087", "color": "#FFD700", "abbr": "POR"},
-        "benfica":             {"bg": "#CC0000", "color": "#fff", "abbr": "BEN"},
-        "sporting cp":         {"bg": "#006400", "color": "#FFD700", "abbr": "SPO"},
-        "ajax":                {"bg": "#CC0000", "color": "#fff", "abbr": "AJX"},
-        "psv":                 {"bg": "#CC0000", "color": "#fff", "abbr": "PSV"},
-        "bayer leverkusen":    {"bg": "#E32219", "color": "#000", "abbr": "B04"},
-        "borussia dortmund":   {"bg": "#FDE100", "color": "#000", "abbr": "BVB"},
-        "bayern munich":       {"bg": "#DC052D", "color": "#fff", "abbr": "BAY"},
-        "rb leipzig":          {"bg": "#CC0000", "color": "#fff", "abbr": "RBL"},
+        "benfica":             {"bg": "#9B0000", "color": "#fff", "abbr": "BEN"},
+        "sporting cp":         {"bg": "#004D00", "color": "#FFD700", "abbr": "SPO"},
+        "ajax":                {"bg": "#9B0000", "color": "#fff", "abbr": "AJX"},
+        "psv":                 {"bg": "#9B0000", "color": "#fff", "abbr": "PSV"},
+        "bayer leverkusen":    {"bg": "#B80000", "color": "#000", "abbr": "B04"},
+        "borussia dortmund":   {"bg": "#C8A800", "color": "#000", "abbr": "BVB"},
+        "bayern munich":       {"bg": "#A00020", "color": "#fff", "abbr": "BAY"},
+        "rb leipzig":          {"bg": "#9B0000", "color": "#fff", "abbr": "RBL"},
         "lyon":                {"bg": "#1B2148", "color": "#D00000", "abbr": "OL"},
         "marseille":           {"bg": "#009FD4", "color": "#fff", "abbr": "OM"},
-        "monaco":              {"bg": "#CC0000", "color": "#fff", "abbr": "ASM"},
-        "celtic":              {"bg": "#006400", "color": "#fff", "abbr": "CEL"},
+        "monaco":              {"bg": "#9B0000", "color": "#fff", "abbr": "ASM"},
+        "celtic":              {"bg": "#005000", "color": "#fff", "abbr": "CEL"},
         "rangers":             {"bg": "#003082", "color": "#fff", "abbr": "RFC"},
-        "galatasaray":         {"bg": "#CC0000", "color": "#FFD700", "abbr": "GAL"},
-        "fenerbahce":          {"bg": "#FFD700", "color": "#003087", "abbr": "FEN"},
-        "flamengo":            {"bg": "#CC0000", "color": "#000", "abbr": "FLA"},
-        "fluminense":          {"bg": "#8B0000", "color": "#006400", "abbr": "FLU"},
+        "galatasaray":         {"bg": "#9B0000", "color": "#FFD700", "abbr": "GAL"},
+        "fenerbahce":          {"bg": "#C8A800", "color": "#1a1a1a", "abbr": "FEN"},
+        "flamengo":            {"bg": "#9B0000", "color": "#000", "abbr": "FLA"},
+        "fluminense":          {"bg": "#6B0000", "color": "#006400", "abbr": "FLU"},
         "corinthians":         {"bg": "#1a1a1a", "color": "#fff", "abbr": "COR"},
-        "palmeiras":           {"bg": "#006400", "color": "#fff", "abbr": "PAL"},
-        "sao paulo":           {"bg": "#CC0000", "color": "#fff", "abbr": "SPF"},
-        "boca juniors":        {"bg": "#0033A0", "color": "#FFD700", "abbr": "BOC"},
-        "river plate":         {"bg": "#CC0000", "color": "#fff", "abbr": "RIV"},
+        "palmeiras":           {"bg": "#005000", "color": "#fff", "abbr": "PAL"},
+        "sao paulo":           {"bg": "#9B0000", "color": "#fff", "abbr": "SPF"},
+        "boca juniors":        {"bg": "#003087", "color": "#FFD700", "abbr": "BOC"},
+        "river plate":         {"bg": "#9B0000", "color": "#fff", "abbr": "RIV"},
     }
 
     _FLAG = {
@@ -2277,6 +2271,27 @@ async def _page_transferencias_impl(request: Request):
         "australia": "🇦🇺",
     }
 
+    _BADGE_BG = {
+        "oficial":     "#15803d",
+        "avancado":    "#1d4ed8",
+        "negociacoes": "#b45309",
+        "proposta":    "#c2410c",
+        "interesse":   "#374151",
+        "emprestimo":  "#0e7490",
+        "renovacao":   "#7c3aed",
+        "sondagem":    "#4b5563",
+    }
+
+    SILHOUETTE = (
+        '<svg class="player-silhouette" viewBox="0 0 44 90" '
+        'xmlns="http://www.w3.org/2000/svg" fill="currentColor" opacity=".18">'
+        '<ellipse cx="22" cy="10" rx="8.5" ry="9.5"/>'
+        '<path d="M13 21 Q22 17 31 21 L34 54 L28 54 L26 82 L18 82 L16 54 L10 54 Z"/>'
+        '<path d="M13 25 L5 44 Q6 47 10 46 L17 29 Z"/>'
+        '<path d="M31 25 L39 44 Q38 47 34 46 L27 29 Z"/>'
+        '</svg>'
+    )
+
     def _norm(s: str | None) -> str:
         s = (s or "").lower().strip()
         nfd = unicodedata.normalize("NFD", s)
@@ -2284,18 +2299,18 @@ async def _page_transferencias_impl(request: Request):
 
     def _club_cfg(name: str | None) -> dict:
         if not name:
-            return {"bg": "#6b7280", "color": "#fff", "abbr": "?"}
+            return {"bg": "#2a2a2e", "color": "#fff", "abbr": "?"}
         n = _norm(name)
         if n in _CLUB_COLORS:
             return _CLUB_COLORS[n]
         for k, v in _CLUB_COLORS.items():
             if k in n or (len(n) > 4 and n in k):
                 return v
-        return {"bg": "#6b7280", "color": "#fff", "abbr": (n[:3].upper() or "?")}
+        return {"bg": "#2a2a2e", "color": "#fff", "abbr": (n[:3].upper() or "?")}
 
     def _logo_wrap(name: str | None) -> str:
         if not name:
-            return '<div class="club-logo-wrap"><span class="club-crest" style="background:#6b7280;color:#fff">?</span></div>'
+            return '<div class="club-logo-wrap"><span class="club-crest" style="background:#3a3a3c;color:#fff">?</span></div>'
         cfg = _club_cfg(name)
         enc = quote(name, safe="")
         title_safe = name.replace('"', "&quot;").replace("&", "&amp;")
@@ -2314,9 +2329,10 @@ async def _page_transferencias_impl(request: Request):
         if not ntype:
             ntype = "sondagem"
         cfg = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])
+        bg = _BADGE_BG.get(ntype, "#4b5563")
         return (
-            f'<span class="nego-badge" style="background:{cfg["bg"]};color:{cfg["color"]}">'
-            f'{cfg["icon"]} {cfg["label"]}</span>'
+            f'<span class="nego-badge" style="background:{bg}">'
+            f'{cfg["icon"]} {cfg["label"].upper()}</span>'
         )
 
     def _date_short(iso) -> str:
@@ -2329,20 +2345,26 @@ async def _page_transferencias_impl(request: Request):
             return ""
 
     def _sources_html(sources: list) -> str:
-        chips = []
-        for s in sources:
+        links = []
+        for s in sources[:4]:
             sname = s.get("source_name", "")
             moon = SOURCE_MOON.get(sname.lstrip("@"), "")
-            label = (sname.lstrip("@") or "?")[:16]
-            date_str = _date_short(s.get("published_at"))
+            label = (sname.lstrip("@") or "?")[:14]
             url = s.get("url", "#")
-            chips.append(
-                f'<a class="src-chip" href="{url}" target="_blank" rel="noopener">'
-                f'{moon}{label}'
-                f'{"&nbsp;· " + date_str if date_str else ""}'
+            date_str = _date_short(s.get("published_at"))
+            links.append(
+                f'<a class="src-link" href="{url}" target="_blank" rel="noopener">'
+                f'{moon} {label}'
+                f'{"  " + date_str if date_str else ""}'
                 f'</a>'
             )
-        return "\n".join(chips)
+        return "\n".join(links)
+
+    def _player_initials(name: str) -> str:
+        parts = (name or "?").split()
+        if len(parts) >= 2:
+            return (parts[0][0] + parts[-1][0]).upper()
+        return (name[:2] if name else "?").upper()
 
     # ── Agrupamento / deduplicação ────────────────────────────────────────
     seen: dict = {}
@@ -2381,49 +2403,42 @@ async def _page_transferencias_impl(request: Request):
         type_counts[t] = type_counts.get(t, 0) + 1
 
     # ── Gera cards ────────────────────────────────────────────────────────
-    def _player_initials(name: str) -> str:
-        parts = (name or "?").split()
-        if len(parts) >= 2:
-            return (parts[0][0] + parts[-1][0]).upper()
-        return (name[:2] if name else "?").upper()
-
     def _card(idx: int, g: dict) -> str:
         pname  = g.get("player_name") or "?"
         flag   = _flag(g.get("player_nationality"))
         pos    = g.get("player_position") or ""
         fee    = g.get("fee") or ""
         ntype  = g.get("nego_type") or "sondagem"
-        accent = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])["color"]
         badge  = _nego_badge(ntype)
         srcs   = _sources_html(g.get("sources", []))
         ucls   = " tc-dim" if g.get("_unclassified") else ""
-        fw     = _logo_wrap(g.get("club_from"))
-        tw     = _logo_wrap(g.get("club_to"))
+        # Card bg = destination club color
+        to_cfg   = _club_cfg(g.get("club_to"))
+        card_bg  = to_cfg["bg"]
+        card_txt = to_cfg["color"]
+        fw = _logo_wrap(g.get("club_from"))
+        tw = _logo_wrap(g.get("club_to"))
         flag_h = f' <span class="tc-flag">{flag}</span>' if flag else ""
         pos_h  = f'<div class="tc-pos">{pos}</div>' if pos else ""
         fee_h  = f'<div class="tc-fee">{fee}</div>' if fee else ""
-        # Avatar do jogador
-        initials   = _player_initials(pname)
         player_enc = quote(pname, safe="")
-        avatar = (
+        photo_wrap = (
             f'<div class="player-photo-wrap" data-player="{player_enc}">'
-            f'<span class="player-initials">{initials}</span>'
-            f'</div>'
+            f'{SILHOUETTE}</div>'
         )
         return (
-            f'<div class="tc{ucls}" data-type="{ntype}" style="--accent:{accent}">'
-            f'<div class="tc-accent"></div>'
-            f'<div class="tc-body">'
-            f'<span class="tc-rank">#{idx}</span>'
-            f'{avatar}'
-            f'<div class="clubs-block">{fw}<span class="clubs-sep">›</span>{tw}</div>'
-            f'<div class="tc-info">'
+            f'<div class="tc{ucls}" data-type="{ntype}" '
+            f'style="background:{card_bg};color:{card_txt}">'
+            f'<div class="tc-left">{photo_wrap}'
+            f'<div class="tc-clubs">{fw}<span class="clubs-sep">›</span>{tw}</div>'
+            f'</div>'
+            f'<div class="tc-mid">'
             f'<div class="tc-player">{pname}{flag_h}</div>'
             f'{pos_h}{fee_h}'
+            f'<div class="tc-badge">{badge}</div>'
             f'</div>'
-            f'<div class="tc-badge-wrap">{badge}</div>'
-            f'<div class="tc-sources">{srcs}</div>'
-            f'</div></div>'
+            f'<div class="tc-right">{srcs}</div>'
+            f'</div>'
         )
 
     if groups:
@@ -2440,8 +2455,10 @@ async def _page_transferencias_impl(request: Request):
         cnt = type_counts.get(ntype, 0)
         if cnt == 0:
             continue
+        bg = _BADGE_BG.get(ntype, "#4b5563")
         filter_btns += (
-            f'<button class="filter-btn" data-type="{ntype}">'
+            f'<button class="filter-btn" data-type="{ntype}" '
+            f'data-activebg="{bg}">'
             f'{cfg["icon"]} {cfg["label"]} <span class="filter-cnt">{cnt}</span>'
             f'</button>\n'
         )
@@ -2452,104 +2469,107 @@ async def _page_transferencias_impl(request: Request):
         "julho 2026"
     )
 
-    # ── HTML final ────────────────────────────────────────────────────────
     CSS = """
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.4}
-:root{
-  --bg:#f0f0f5;--bg-card:#fff;--text:#1c1c1e;--muted:#6b7280;--muted2:#9ca3af;
-  --border:#e5e7eb;--border2:#d1d5db;--accent-blue:#147efb;
-  --chip-bg:#f3f4f6;--chip-border:#e5e7eb;
-}
-@media(prefers-color-scheme:dark){
-  :root{
-    --bg:#0d0d0f;--bg-card:#1c1c1e;--text:#f2f2f7;--muted:#8e8e93;--muted2:#636366;
-    --border:#2c2c2e;--border2:#3a3a3c;
-    --chip-bg:#252527;--chip-border:#3a3a3c;
-  }
-}
-body{background:var(--bg);color:var(--text);min-height:100vh}
-.page{max-width:980px;margin:0 auto;padding:16px 12px 56px}
-.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:18px;padding-bottom:16px;border-bottom:1px solid var(--border)}
-.hdr h1{font-size:1.2rem;font-weight:800}
-.hdr-sub{font-size:.7rem;color:var(--muted);margin-top:3px}
-.hdr-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
-.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 11px;border-radius:8px;font-size:.73rem;font-weight:600;border:none;cursor:pointer;text-decoration:none;transition:opacity .15s}
-.btn-primary{background:var(--accent-blue);color:#fff}
-.btn-sec{background:var(--bg-card);color:var(--muted);border:1px solid var(--border2)}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px;background:#080810;color:#f2f2f7;min-height:100vh}
+.page{max-width:940px;margin:0 auto;padding:16px 12px 56px}
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid rgba(255,255,255,.1)}
+.hdr h1{font-size:1.25rem;font-weight:800}
+.hdr-sub{font-size:.7rem;color:#636366;margin-top:3px}
+.hdr-actions{display:flex;gap:6px;flex-shrink:0}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border-radius:8px;font-size:.73rem;font-weight:600;border:none;cursor:pointer;text-decoration:none;transition:opacity .15s}
+.btn-primary{background:#147efb;color:#fff}
+.btn-sec{background:#1c1c1e;color:#8e8e93;border:1px solid #3a3a3c}
 .btn:hover{opacity:.82}
-.filters{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
-.filter-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:.70rem;font-weight:600;border:1.5px solid var(--border2);background:var(--bg-card);color:var(--muted);cursor:pointer;transition:all .15s;line-height:1.6}
-.filter-btn.active{background:var(--text);color:var(--bg);border-color:var(--text)}
-.filter-cnt{font-weight:400;opacity:.7}
-.tc{display:flex;border-radius:11px;border:1px solid var(--border);background:var(--bg-card);overflow:hidden;margin-bottom:5px;transition:border-color .15s,box-shadow .15s}
-.tc:hover{border-color:var(--border2);box-shadow:0 1px 10px rgba(0,0,0,.07)}
-.tc-accent{width:4px;flex-shrink:0;background:var(--accent,#6b7280)}
-.tc-body{flex:1;display:flex;align-items:center;gap:10px;padding:9px 13px;min-width:0;overflow:hidden}
-.tc-rank{font-size:.62rem;font-weight:700;color:var(--muted2);min-width:20px;flex-shrink:0;text-align:right;font-variant-numeric:tabular-nums}
-.player-photo-wrap{width:38px;height:38px;flex-shrink:0;display:flex;align-items:center;justify-content:center;border-radius:50%;overflow:hidden}
-.player-initials{width:38px;height:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:800;background:var(--border2);color:var(--muted);letter-spacing:-.02em}
-.player-img{width:38px;height:38px;object-fit:cover;object-position:center 8%;border-radius:50%}
-.clubs-block{display:flex;align-items:center;gap:5px;flex-shrink:0}
-.club-logo-wrap{width:36px;height:36px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
-.club-crest{width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:.48rem;font-weight:800;letter-spacing:-.02em;line-height:1;text-transform:uppercase}
-.club-logo-img{width:36px;height:36px;object-fit:contain;border-radius:5px}
-.clubs-sep{font-size:11px;color:var(--muted2);line-height:1}
-.tc-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
-.tc-player{font-size:.86rem;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
-.tc-flag{font-size:.78rem}
-.tc-pos{font-size:.67rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.tc-fee{font-size:.66rem;color:var(--muted2);font-variant-numeric:tabular-nums}
-.nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:.63rem;font-weight:700;white-space:nowrap}
-.tc-badge-wrap{flex-shrink:0}
-.tc-sources{display:flex;flex-direction:column;gap:3px;align-items:flex-end;flex-shrink:0;max-width:165px;min-width:80px}
-.src-chip{display:inline-flex;align-items:center;gap:3px;font-size:.62rem;font-weight:600;color:var(--muted);background:var(--chip-bg);border:1px solid var(--chip-border);border-radius:6px;padding:2px 7px;text-decoration:none;white-space:nowrap;transition:background .12s;max-width:160px;overflow:hidden;text-overflow:ellipsis}
-.src-chip:hover{background:var(--border)}
-.tc-dim{opacity:.5}
-.tc-dim .tc-player{font-style:italic}
-.empty{text-align:center;padding:60px 16px;color:var(--muted)}
+.filters{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:14px}
+.filter-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 12px;border-radius:20px;font-size:.70rem;font-weight:600;border:1.5px solid #3a3a3c;background:#1c1c1e;color:#8e8e93;cursor:pointer;transition:all .2s;line-height:1.6}
+.filter-btn.active{color:#fff;border-color:transparent}
+.filter-cnt{font-weight:400;opacity:.6}
+/* Cards */
+.tc{display:flex;align-items:stretch;border-radius:14px;overflow:hidden;margin-bottom:6px;min-height:100px;transition:transform .15s,box-shadow .15s;cursor:default}
+.tc:hover{transform:translateY(-2px);box-shadow:0 6px 28px rgba(0,0,0,.55)}
+.tc-dim{opacity:.45}
+.tc-left{width:88px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;padding:0 0 8px}
+.player-photo-wrap{flex:1;width:88px;display:flex;align-items:flex-end;justify-content:center;overflow:hidden;padding-top:6px}
+.player-silhouette{width:54px;height:auto;display:block}
+.player-img{width:88px;height:100%;object-fit:cover;object-position:center 10%}
+.tc-clubs{display:flex;align-items:center;gap:3px;padding-bottom:2px}
+.club-logo-wrap{width:22px;height:22px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;flex-shrink:0;border:1.5px solid rgba(255,255,255,.25)}
+.club-crest{width:22px;height:22px;border-radius:50%;font-size:.36rem;font-weight:800;display:inline-flex;align-items:center;justify-content:center;text-transform:uppercase;line-height:1}
+.club-logo-img{width:22px;height:22px;object-fit:contain;border-radius:50%}
+.clubs-sep{font-size:9px;opacity:.7;margin:0 2px}
+.tc-mid{flex:1;display:flex;flex-direction:column;justify-content:center;padding:12px 16px;gap:2px;min-width:0}
+.tc-player{font-size:1.05rem;font-weight:800;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc-flag{font-size:.85rem}
+.tc-pos{font-size:.72rem;opacity:.75;margin-top:1px}
+.tc-fee{font-size:.73rem;font-weight:700;opacity:.9;margin-top:1px}
+.tc-badge{margin-top:7px}
+.nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 10px;border-radius:20px;font-size:.58rem;font-weight:800;color:#fff;text-transform:uppercase;letter-spacing:.05em;border:1.5px solid rgba(255,255,255,.3)}
+.tc-right{width:106px;flex-shrink:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;padding:12px 14px 12px 6px;gap:7px;border-left:1px solid rgba(255,255,255,.12)}
+.src-link{display:block;font-size:.65rem;font-weight:600;color:inherit;opacity:.8;text-decoration:none;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:92px;line-height:1.4}
+.src-link:hover{opacity:1;text-decoration:underline}
+.empty{text-align:center;padding:60px 16px;color:#4a4a4e}
 .empty-icon{font-size:2.4rem;display:block;margin-bottom:8px}
-@media(max-width:600px){.tc-rank{display:none}.tc-sources{max-width:110px;min-width:60px}.tc-pos,.tc-fee{display:none}}
-@media(max-width:400px){.tc-sources{display:none}.tc-badge-wrap{display:none}}
+@media(max-width:620px){
+  .tc-left{width:68px}
+  .player-photo-wrap{width:68px}
+  .player-silhouette{width:42px}
+  .player-img{width:68px}
+  .tc-right{width:80px;padding:10px 10px 10px 4px}
+  .tc-player{font-size:.9rem}
+}
+@media(max-width:420px){
+  .tc-right{display:none}
+  .tc-left{width:58px}
+  .player-photo-wrap{width:58px}
+  .player-silhouette{width:36px}
+  .player-img{width:58px}
+}
 """
 
     JS = """
 (function(){
-  function loadImages(selector, attr, endpoint, imgClass, extraStyle) {
-    var items = document.querySelectorAll(selector+'['+attr+']');
-    var loaded = {};
-    items.forEach(function(wrap){
-      var enc = wrap.dataset[attr === 'data-club' ? 'club' : 'player'];
-      if(!enc||loaded[enc]) return;
-      loaded[enc]=true;
-      var img=new Image();
-      img.decoding='async';
+  function loadImgs(sel, attr, endpoint, cls) {
+    var done = {};
+    document.querySelectorAll(sel+'['+attr+']').forEach(function(w){
+      var enc = attr==='data-club' ? w.dataset.club : w.dataset.player;
+      if(!enc||done[enc]) return;
+      done[enc]=true;
+      var img=new Image();img.decoding='async';
       img.onload=function(){
-        document.querySelectorAll(selector+'['+attr+'="'+enc+'"]').forEach(function(w){
-          var i2=new Image();i2.className=imgClass;
-          if(extraStyle) i2.style.cssText=extraStyle;
+        document.querySelectorAll(sel+'['+attr+'="'+enc+'"]').forEach(function(w2){
+          var i2=new Image();i2.className=cls;i2.src=img.src;
           i2.alt=decodeURIComponent(enc.replace(/[+]/g,' '));
-          i2.src=img.src;w.innerHTML='';w.appendChild(i2);
+          w2.innerHTML='';w2.appendChild(i2);
         });
       };
       img.src=endpoint+enc;
     });
   }
-  loadImages('.club-logo-wrap','data-club','/api/club-logo?name=','club-logo-img','');
-  loadImages('.player-photo-wrap','data-player','/api/player-photo?name=','player-img','');
+  loadImgs('.club-logo-wrap','data-club','/api/club-logo?name=','club-logo-img');
+  loadImgs('.player-photo-wrap','data-player','/api/player-photo?name=','player-img');
+
   document.querySelectorAll('.filter-btn').forEach(function(btn){
     btn.addEventListener('click',function(){
       var type=this.dataset.type;
       if(type==='all'){
-        document.querySelectorAll('.filter-btn').forEach(function(b){b.classList.remove('active')});
-        this.classList.add('active');
+        document.querySelectorAll('.filter-btn').forEach(function(b){
+          b.classList.remove('active');b.style.background='';
+        });
+        this.classList.add('active');this.style.background='#f2f2f7';
         document.querySelectorAll('.tc').forEach(function(c){c.style.display=''});
       } else {
-        document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){b.classList.remove('active')});
+        document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){
+          b.classList.remove('active');b.style.background='';
+        });
         this.classList.toggle('active');
+        var bg=this.dataset.activebg||'#333';
+        this.style.background=this.classList.contains('active')?bg:'';
         var active=Array.from(document.querySelectorAll('.filter-btn.active')).map(function(b){return b.dataset.type});
         if(active.length===0){
-          document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){b.classList.add('active')});
+          document.querySelectorAll('.filter-btn[data-type="all"]').forEach(function(b){
+            b.classList.add('active');b.style.background='#f2f2f7';
+          });
           document.querySelectorAll('.tc').forEach(function(c){c.style.display=''});
         } else {
           document.querySelectorAll('.tc[data-type]').forEach(function(c){
@@ -2559,6 +2579,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
       }
     });
   });
+
   window.rebuild=async function(btn){
     var orig=btn.textContent;btn.textContent='⏳ Processando...';btn.disabled=true;
     try{
@@ -2592,7 +2613,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
         "  </div>\n"
         "</div>\n"
         "<div class=\"filters\">\n"
-        "  <button class=\"filter-btn active\" data-type=\"all\">Todos</button>\n"
+        "  <button class=\"filter-btn active\" data-type=\"all\" style=\"background:#f2f2f7;color:#080810;border-color:transparent\">Todos</button>\n"
         f"  {filter_btns}"
         "</div>\n"
         f"<div id=\"tc-list\">\n{cards_html}\n</div>\n"
@@ -2635,7 +2656,7 @@ async def api_club_logo(name: str):
                     logo_url = (teams[0].get("strTeamBadge") or
                                 teams[0].get("strBadge") or "")
         except Exception as e:
-            print(f"\u26a0\ufe0f  Logo fetch error for '{name}': {e}")
+            print(f"Logo fetch error for '{name}': {e}")
             logo_url = ""
         set_club_logo(name_norm, logo_url or "")
         cached = logo_url or ""
@@ -2646,18 +2667,12 @@ async def api_club_logo(name: str):
 
 @app.get("/api/player-photo")
 async def api_player_photo(name: str):
-    """Proxy de foto de jogador: Fotmob → TheSportsDB → 404.
-    Cacheia o resultado em player_photos para evitar buscas repetidas."""
     import unicodedata
     nfd = unicodedata.normalize("NFD", name.lower().strip())
     name_norm = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
-
     cached = get_player_photo(name_norm)
-
     if cached is None:
         photo_url = ""
-
-        # 1. Fotmob search API
         try:
             async with httpx.AsyncClient(timeout=6.0, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -2668,14 +2683,10 @@ async def api_player_photo(name: str):
                     params={"term": name, "lang": "en"},
                 )
                 data = r.json()
-                # Fotmob retorna diferentes formatos — tenta os mais comuns
                 players = (
-                    data.get("players") or
-                    data.get("Players") or
-                    data.get("squad") or
-                    []
+                    data.get("players") or data.get("Players") or
+                    data.get("squad") or []
                 )
-                # Às vezes está aninhado
                 if isinstance(players, dict):
                     players = players.get("players") or players.get("hits") or []
                 if players:
@@ -2685,9 +2696,7 @@ async def api_player_photo(name: str):
                     if pid:
                         photo_url = f"https://images.fotmob.com/image_resources/playerimages/{pid}.png"
         except Exception as e:
-            print(f"⚠️  Fotmob player error for '{name}': {e}")
-
-        # 2. Fallback: TheSportsDB
+            print(f"Fotmob error for '{name}': {e}")
         if not photo_url:
             try:
                 async with httpx.AsyncClient(timeout=6.0) as client:
@@ -2703,11 +2712,9 @@ async def api_player_photo(name: str):
                             players[0].get("strThumb") or ""
                         )
             except Exception as e:
-                print(f"⚠️  TheSportsDB player error for '{name}': {e}")
-
+                print(f"TheSportsDB error for '{name}': {e}")
         set_player_photo(name_norm, photo_url)
         cached = photo_url
-
     if not cached:
         return Response(status_code=404)
     return RedirectResponse(cached, status_code=302)
