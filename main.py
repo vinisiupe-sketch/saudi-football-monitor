@@ -1758,15 +1758,24 @@ async def reprocess_articles(request: Request):
     from database import update_article_body, update_article_title
     import json
 
+    force = body.get("force", False)
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("""
-            SELECT * FROM articles
-            WHERE collected_at >= %s
-              AND (title_pt IS NULL OR title_pt = title_orig)
-              AND is_duplicate = 0
-            ORDER BY collected_at ASC
-        """, (since,))
+        if force:
+            c.execute("""
+                SELECT * FROM articles
+                WHERE collected_at >= %s
+                  AND is_duplicate = 0
+                ORDER BY collected_at ASC
+            """, (since,))
+        else:
+            c.execute("""
+                SELECT * FROM articles
+                WHERE collected_at >= %s
+                  AND (title_pt IS NULL OR title_pt = title_orig)
+                  AND is_duplicate = 0
+                ORDER BY collected_at ASC
+            """, (since,))
         rows = [dict(r) for r in c.fetchall()]
 
     if not rows:
