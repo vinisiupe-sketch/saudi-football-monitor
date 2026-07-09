@@ -2607,19 +2607,26 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
   // ── Club logos async load ────────────────────────────────────────────
   (function(){
     var done={};
+    var items=[];
     document.querySelectorAll('.club-logo-wrap[data-club]').forEach(function(w){
       var enc=w.dataset.club;
       if(!enc||done[enc])return;
       done[enc]=true;
-      var img=new Image();img.decoding='async';
-      img.onload=function(){
-        document.querySelectorAll('.club-logo-wrap[data-club="'+enc+'"]').forEach(function(w2){
-          var i2=new Image();i2.className='club-logo-img';i2.src=img.src;
-          i2.alt=decodeURIComponent(enc.replace(/[+]/g,' '));
-          w2.innerHTML='';w2.appendChild(i2);
-        });
-      };
-      img.src='/api/club-logo?name='+enc;
+      items.push(enc);
+    });
+    // Escalonar requests: 1 por vez a cada 300ms para evitar rate limit
+    items.forEach(function(enc,i){
+      setTimeout(function(){
+        var img=new Image();img.decoding='async';
+        img.onload=function(){
+          document.querySelectorAll('.club-logo-wrap[data-club="'+enc+'"]').forEach(function(w2){
+            var i2=new Image();i2.className='club-logo-img';i2.src=img.src;
+            i2.alt=decodeURIComponent(enc.replace(/[+]/g,' '));
+            w2.innerHTML='';w2.appendChild(i2);
+          });
+        };
+        img.src='/api/club-logo?name='+enc;
+      }, i*300);
     });
   })();
 
@@ -2923,6 +2930,15 @@ async def api_warm_saudi_teams():
                 nn = _logo_norm(tname)
                 set_club_logo(nn, logo)
                 lines.append(f"{nn}: {logo}")
+                # Também armazena nome curto sem sufixos de país/tipo
+                import re as _re2
+                nn_short = _re2.sub(
+                    r"\b(saudi fc|saudi sc|fc|sc|cf|united|city|club|football|sporting)\b",
+                    "", nn
+                ).strip()
+                if nn_short and nn_short != nn:
+                    set_club_logo(nn_short, logo)
+                    lines.append(f"  alias: {nn_short}")
         return HTMLResponse(
             f"<pre>✅ {len(teams)} times cacheados\n" + "\n".join(lines) + "</pre>"
         )
