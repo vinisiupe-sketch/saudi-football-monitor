@@ -756,6 +756,23 @@ def update_article_title(article_id: str, title_pt: str):
         )
 
 
+def update_article_meta(article_id: str, category: str = None, relevance_score: float = None):
+    """Atualiza category e/ou relevance_score de um artigo existente."""
+    if category is None and relevance_score is None:
+        return
+    with get_conn() as conn:
+        c = conn.cursor()
+        if category is not None and relevance_score is not None:
+            c.execute(
+                "UPDATE articles SET category = %s, relevance_score = %s WHERE id = %s",
+                (category, relevance_score, article_id)
+            )
+        elif category is not None:
+            c.execute("UPDATE articles SET category = %s WHERE id = %s", (category, article_id))
+        else:
+            c.execute("UPDATE articles SET relevance_score = %s WHERE id = %s", (relevance_score, article_id))
+
+
 def get_low_score_articles(hours: int = 24, limit: int = 200):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)

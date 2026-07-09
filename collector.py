@@ -77,6 +77,16 @@ def compute_relevance(text: str, tier: str) -> float:
     text_lower = text.lower()
     all_keywords = [kw for lang_kws in KEYWORDS.values() for kw in lang_kws]
     hits = sum(1 for kw in all_keywords if _contains_word(text_lower, kw))
+    # Nomes de clubes sauditas são sinal forte — consistente com is_relevant().
+    # Antes, um tweet como "Al Diriyah closing in on Diogo Leite 🇸🇦" recebia
+    # score 0.44 (apenas 1 keyword: o emoji) e ficava abaixo do corte de 0.45
+    # da página principal, apesar de passar em is_relevant(). A inconsistência
+    # existia porque compute_relevance() ignorava club_hit enquanto is_relevant()
+    # o usava. Agora os dois usam a mesma lógica.
+    if match_saudi_club(text_lower):
+        hits += 2
+    elif match_saudi_club_risky(text_lower):
+        hits += 1
     keyword_score = min(hits / 5.0, 1.0)
     tier_bonus = TIER_WEIGHTS.get(tier, 1) / 3.0
     return round((keyword_score * 0.7) + (tier_bonus * 0.3), 3)

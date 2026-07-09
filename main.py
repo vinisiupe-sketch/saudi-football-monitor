@@ -1755,7 +1755,8 @@ async def reprocess_articles(request: Request, background_tasks: BackgroundTasks
 
     from processor import call_claude
     from glossary import GLOSSARY_PROMPT, apply_glossary
-    from database import update_article_body, update_article_title
+    from database import update_article_body, update_article_title, update_article_meta
+    from collector import compute_relevance
     import json
 
     force = body.get("force", False)
@@ -1830,6 +1831,13 @@ async def reprocess_articles(request: Request, background_tasks: BackgroundTasks
                         body_pt  = apply_glossary(t.get("body_pt")  or a.get("body_orig", ""))
                         update_article_title(a["id"], title_pt)
                         update_article_body(a["id"], a.get("body_orig", ""), body_pt)
+                        # Salva category e recalcula relevance_score com a lógica atualizada
+                        category = t.get("category") or None
+                        new_score = compute_relevance(
+                            f"{a.get('title_orig', '')} {a.get('body_orig', '')}",
+                            a.get("source_tier", "C")
+                        )
+                        update_article_meta(a["id"], category=category, relevance_score=new_score)
                         updated += 1
             except Exception as e:
                 err = f"Lote {i//BATCH_SIZE+1}: {type(e).__name__}: {e}"
@@ -1850,7 +1858,8 @@ async def reprocess_articles_bg(request: Request, background_tasks: BackgroundTa
 
     from processor import call_claude
     from glossary import GLOSSARY_PROMPT, apply_glossary
-    from database import update_article_body, update_article_title
+    from database import update_article_body, update_article_title, update_article_meta
+    from collector import compute_relevance
     import json as _json
 
     async def _run():
@@ -1910,6 +1919,12 @@ async def reprocess_articles_bg(request: Request, background_tasks: BackgroundTa
                             body_pt  = apply_glossary(t.get("body_pt")  or a.get("body_orig", ""))
                             update_article_title(a["id"], title_pt)
                             update_article_body(a["id"], a.get("body_orig", ""), body_pt)
+                            category = t.get("category") or None
+                            new_score = compute_relevance(
+                                f"{a.get('title_orig', '')} {a.get('body_orig', '')}",
+                                a.get("source_tier", "C")
+                            )
+                            update_article_meta(a["id"], category=category, relevance_score=new_score)
                             updated += 1
                 except Exception as e:
                     print(f"   ⚠️  Reprocess BG lote {i//BATCH_SIZE+1}: {e}")

@@ -14,7 +14,7 @@ from database import log_collection, get_state, set_state
 BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
 INACTIVE_START = 1   # 01:00 BRT
 INACTIVE_END   = 6   # 06:00 BRT
-COLLECT_INTERVAL = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 360))
+COLLECT_INTERVAL = int(os.environ.get("COLLECT_INTERVAL_MINUTES", 30))
 LAST_COLLECT_KEY = "last_collect_at"
 # Teto da janela de "olhar pra trás" — mesmo limite que collector.py usa pra
 # descartar artigos antigos (ARTICLE_MAX_AGE_HOURS). Pedir mais que isso não
