@@ -153,12 +153,4 @@ SOURCE_MOON = {
     "AHADI4":          "🌗",
     "OKAZ_online":     "🌗",
     "ahmed_aljadi68":  "🌗",
-    "SultanALotaibi0": "🌗",
-    "samialqadi800":   "🌗",
-    "k7aled_otb":      "🌗",
-    "lequipe":         "🌗",
-    "NicoSchira":      "🌗",
-    "Glongari":        "🌗",
-    "yagosabuncuoglu": "🌗",
-    "ahmad2man":       "🌗",
-}
+    "Sult
