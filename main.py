@@ -1746,12 +1746,12 @@ async def api_fontes(request: Request):
 
 
 @app.post("/api/reprocess")
-async def reprocess_articles(request: Request):
-    """Retraduzi artigos sem title_pt (em árabe) a partir de uma data/hora."""
+async def reprocess_articles(request: Request, background_tasks: BackgroundTasks):
+    """Retraduzi artigos a partir de uma data/hora. Roda em background para evitar timeout."""
     body = await request.json()
-    since = body.get("since", "")  # ex: "2025-06-06 18:37:00"
+    since = body.get("since", "")  # ex: "2026-07-01 00:00:00"
     if not since:
-        return JSONResponse({"error": "Campo 'since' obrigatório (ex: '2025-06-06 18:37:00')"}, status_code=400)
+        return JSONResponse({"error": "Campo 'since' obrigatório (ex: '2026-07-01 00:00:00')"}, status_code=400)
 
     from processor import call_claude
     from glossary import GLOSSARY_PROMPT, apply_glossary
@@ -1837,6 +1837,93 @@ async def reprocess_articles(request: Request):
                 errors.append(err)
 
     return JSONResponse({"ok": True, "found": len(rows), "reprocessed": updated, "errors": errors})
+
+
+@app.post("/api/reprocess-bg")
+async def reprocess_articles_bg(request: Request, background_tasks: BackgroundTasks):
+    """Versão background do reprocess — retorna imediatamente e processa em segundo plano."""
+    body = await request.json()
+    since = body.get("since", "")
+    force = body.get("force", False)
+    if not since:
+        return JSONResponse({"error": "Campo 'since' obrigatório"}, status_code=400)
+
+    from processor import call_claude
+    from glossary import GLOSSARY_PROMPT, apply_glossary
+    from database import update_article_body, update_article_title
+    import json as _json
+
+    async def _run():
+        if force:
+            with get_conn() as conn:
+                c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                c.execute("""
+                    SELECT * FROM articles
+                    WHERE collected_at >= %s AND is_duplicate = 0
+                    ORDER BY collected_at ASC
+                """, (since,))
+                rows = [dict(r) for r in c.fetchall()]
+        else:
+            with get_conn() as conn:
+                c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                c.execute("""
+                    SELECT * FROM articles
+                    WHERE collected_at >= %s
+                      AND (title_pt IS NULL OR title_pt = title_orig)
+                      AND is_duplicate = 0
+                    ORDER BY collected_at ASC
+                """, (since,))
+                rows = [dict(r) for r in c.fetchall()]
+
+        print(f"🔄 Reprocess BG: {len(rows)} artigos desde {since} (force={force})")
+        system = (
+            "Você é um redator esportivo brasileiro especializado na Saudi Pro League. "
+            "Adapte o texto para o português brasileiro com estilo jornalístico natural. "
+            f"{GLOSSARY_PROMPT}"
+        )
+        prompt_header = (
+            "Traduza os artigos abaixo para português brasileiro.\n"
+            'Responda SOMENTE com JSON: {"translations": [{"title_pt": "...", "body_pt": "...", "category": "..."}]}\n'
+            "Categorias: transferencia, resultado, lesao, geral\n\n"
+        )
+        updated = 0
+        BATCH_SIZE = 3
+        async with httpx.AsyncClient() as client:
+            for i in range(0, len(rows), BATCH_SIZE):
+                batch = rows[i:i + BATCH_SIZE]
+                items_text = ""
+                for idx, a in enumerate(batch):
+                    items_text += f"\nARTIGO {idx+1}:\nTítulo: {a.get('title_orig','')}\nTexto: {a.get('body_orig','')[:1200]}\n---"
+                try:
+                    raw = await call_claude(system=system, prompt=prompt_header + items_text, max_tokens=2000, client=client)
+                    raw = raw.strip()
+                    if raw.startswith("```"):
+                        parts = raw.split("```")
+                        raw = parts[1] if len(parts) > 1 else raw
+                        if raw.startswith("json"): raw = raw[4:]
+                    raw = raw.strip()
+                    translations = _json.loads(raw).get("translations", [])
+                    for idx, a in enumerate(batch):
+                        if idx < len(translations):
+                            t = translations[idx]
+                            title_pt = apply_glossary(t.get("title_pt") or a["title_orig"])
+                            body_pt  = apply_glossary(t.get("body_pt")  or a.get("body_orig", ""))
+                            update_article_title(a["id"], title_pt)
+                            update_article_body(a["id"], a.get("body_orig", ""), body_pt)
+                            updated += 1
+                except Exception as e:
+                    print(f"   ⚠️  Reprocess BG lote {i//BATCH_SIZE+1}: {e}")
+        print(f"✅ Reprocess BG concluído: {updated}/{len(rows)} artigos reprocessados")
+
+    background_tasks.add_task(_run)
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT COUNT(*) FROM articles
+            WHERE collected_at >= %s AND is_duplicate = 0
+        """, (since,))
+        total = c.fetchone()[0]
+    return JSONResponse({"ok": True, "msg": f"Processando {total} artigos em background com Opus 4.6", "since": since, "force": force})
 
 
 # ═══════════════════════════════════════════════════════════
