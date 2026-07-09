@@ -3015,6 +3015,68 @@ async def api_clear_photo_cache():
     return HTMLResponse(f"<pre>✅ Cache de fotos limpo — {n} entradas removidas</pre>")
 
 
+@app.post("/api/admin/fix-article")
+async def admin_fix_article(request: Request):
+    """Força reprocessamento de um artigo específico por ID."""
+    from processor import call_claude
+    from glossary import GLOSSARY_PROMPT, apply_glossary
+    from database import update_article_body, update_article_title, update_article_meta
+    from collector import compute_relevance
+    import json as _json
+
+    body = await request.json()
+    article_id = body.get("id")
+    if not article_id:
+        return JSONResponse({"error": "Campo 'id' obrigatório"}, status_code=400)
+
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT * FROM articles WHERE id = %s", (article_id,))
+        row = c.fetchone()
+
+    if not row:
+        return JSONResponse({"error": "Artigo não encontrado"}, status_code=404)
+
+    a = dict(row)
+    system = (
+        "Você é um redator esportivo brasileiro especializado na Saudi Pro League. "
+        "Adapte o texto para o português brasileiro com estilo jornalístico natural. "
+        f"{GLOSSARY_PROMPT}"
+    )
+    prompt = (
+        "Traduza o artigo abaixo para português brasileiro.\n"
+        'Responda SOMENTE com JSON: {"translations": [{"title_pt": "...", "body_pt": "...", "category": "..."}]}\n'
+        "Categorias: transferencia, resultado, lesao, geral\n\n"
+        f"ARTIGO 1:\nTítulo: {a.get('title_orig','')}\nTexto: {a.get('body_orig','')[:1200]}\n---"
+    )
+    try:
+        async with httpx.AsyncClient() as client:
+            raw = await call_claude(system=system, prompt=prompt, max_tokens=500, client=client)
+        raw = raw.strip()
+        if raw.startswith("```"):
+            parts = raw.split("```")
+            raw = parts[1] if len(parts) > 1 else raw
+            if raw.startswith("json"): raw = raw[4:]
+        raw = raw.strip()
+        translations = _json.loads(raw).get("translations", [])
+        if not translations:
+            return JSONResponse({"error": "Claude não retornou traduções", "raw": raw}, status_code=500)
+        t = translations[0]
+        title_pt = apply_glossary(t.get("title_pt") or a["title_orig"])
+        body_pt  = apply_glossary(t.get("body_pt")  or a.get("body_orig", ""))
+        category = t.get("category") or None
+        new_score = compute_relevance(
+            f"{a.get('title_orig', '')} {a.get('body_orig', '')}",
+            a.get("source_tier", "C")
+        )
+        update_article_title(article_id, title_pt)
+        update_article_body(article_id, a.get("body_orig", ""), body_pt)
+        update_article_meta(article_id, category=category, relevance_score=new_score)
+        return JSONResponse({"ok": True, "category": category, "relevance_score": new_score, "title_pt": title_pt[:80]})
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 @app.get("/api/admin/test-af")
 async def api_test_af():
     """Diagnóstico: testa conexão com api-football e busca Mohamed Salah."""
