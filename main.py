@@ -2999,6 +2999,50 @@ async def api_clear_photo_cache():
     return HTMLResponse(f"<pre>✅ Cache de fotos limpo — {n} entradas removidas</pre>")
 
 
+@app.get("/api/admin/test-af")
+async def api_test_af():
+    """Diagnóstico: testa conexão com api-football e busca Mohamed Salah."""
+    import unicodedata as _ud
+    key = os.getenv("API_FOOTBALL_KEY", "")
+    lines = []
+    if not key:
+        lines.append("❌ API_FOOTBALL_KEY NÃO CONFIGURADO no Railway")
+        return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+    masked = key[:6] + "..." + key[-4:] if len(key) > 10 else "***"
+    lines.append(f"✅ Chave encontrada: {masked} (len={len(key)})")
+    hdrs = {"X-Apisports-Key": key}
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=hdrs) as client:
+            # 1. Status da conta
+            r_status = await client.get(f"{AF_BASE}/status")
+            status_json = r_status.json()
+            acct = status_json.get("response") or {}
+            lines.append(f"Conta: {acct.get('account', {}).get('email','?')}")
+            lines.append(f"Plano: {acct.get('subscription', {}).get('plan','?')}")
+            requests_info = acct.get('requests', {})
+            lines.append(f"Requests: {requests_info.get('current','?')} / {requests_info.get('limit_day','?')} hoje")
+            errors = status_json.get("errors") or {}
+            if errors:
+                lines.append(f"⚠️ Erros API: {errors}")
+
+            # 2. Busca Mohamed Salah (deve sempre ter resultado)
+            r_salah = await client.get(f"{AF_BASE}/players",
+                params={"search": "Mohamed Salah", "season": "2024"})
+            salah_json = r_salah.json()
+            salah_results = salah_json.get("response") or []
+            lines.append(f"\nBusca 'Mohamed Salah' (2024): {len(salah_results)} resultado(s)")
+            if salah_results:
+                p = salah_results[0].get("player", {})
+                lines.append(f"  → {p.get('name')} | foto: {p.get('photo','')[:60]}")
+            else:
+                lines.append(f"  → Sem resultados. Erros: {salah_json.get('errors')}")
+                lines.append(f"  → Paging: {salah_json.get('paging')}")
+                lines.append(f"  → HTTP status: {r_salah.status_code}")
+    except Exception as e:
+        lines.append(f"❌ Exceção: {type(e).__name__}: {e}")
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+
+
 
 @app.get("/api/admin/warm-saudi-teams")
 async def api_warm_saudi_teams():
@@ -3079,40 +3123,58 @@ async def api_club_logo(name: str):
 
 
 @app.get("/api/player-photo")
-async def api_player_photo(name: str):
+async def api_player_photo(name: str, debug: str = ""):
     import unicodedata as _ud
     nfd = _ud.normalize("NFD", name.lower().strip())
     name_norm = "".join(c for c in nfd if _ud.category(c) != "Mn")
     cached = get_player_photo(name_norm)
-    if cached is not None:
+    if cached is not None and not debug:
         if not cached:
             return Response(status_code=404)
         return RedirectResponse(cached, status_code=302)
     photo_url = ""
+    debug_lines = [f"name={name!r}  name_norm={name_norm!r}"]
     hdrs = _af_headers()
-    if hdrs:
-        try:
-            import unicodedata as _ud3
-            def _af_name(s):
-                nfd = _ud3.normalize("NFD", (s or "").strip())
-                return "".join(c for c in nfd if _ud3.category(c) != "Mn")
-            search_name = _af_name(name)
-            async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
-                results = []
-                # Tenta: nome normalizado sem acentos, temporadas 2025/2024/2023
-                for _season in ("2025", "2024", "2023"):
-                    r = await client.get(
-                        f"{AF_BASE}/players",
-                        params={"search": search_name, "season": _season},
-                    )
-                    results = r.json().get("response") or []
-                    if results:
-                        break
+    if not hdrs:
+        if debug:
+            return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
+        return Response(status_code=404)
+    try:
+        import unicodedata as _ud3
+        def _af_name(s):
+            nfd2 = _ud3.normalize("NFD", (s or "").strip())
+            return "".join(c for c in nfd2 if _ud3.category(c) != "Mn")
+        search_name = _af_name(name)
+        debug_lines.append(f"search_name={search_name!r}")
+        async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
+            results = []
+            last_raw = {}
+            for _season in ("2025", "2024", "2023"):
+                r = await client.get(
+                    f"{AF_BASE}/players",
+                    params={"search": search_name, "season": _season},
+                )
+                last_raw = r.json()
+                results = last_raw.get("response") or []
+                debug_lines.append(
+                    f"season={_season} → HTTP {r.status_code}  "
+                    f"results={len(results)}  "
+                    f"errors={last_raw.get('errors')}  "
+                    f"paging={last_raw.get('paging')}"
+                )
                 if results:
-                    photo_url = (results[0].get("player") or {}).get("photo") or ""
-        except Exception as e:
-            print(f"api-football photo error for '{name}': {type(e).__name__}")
-    # Só cacheia se encontrou foto real — falhas serão retentadas na próxima carga
+                    break
+            if results:
+                p = results[0].get("player") or {}
+                photo_url = p.get("photo") or ""
+                debug_lines.append(f"✅ player={p.get('name')}  photo={photo_url}")
+            else:
+                debug_lines.append("❌ Nenhum resultado em nenhuma temporada")
+    except Exception as e:
+        debug_lines.append(f"❌ Exceção: {type(e).__name__}: {e}")
+    if debug:
+        return HTMLResponse("<pre>" + "\n".join(debug_lines) + "</pre>")
+    # Só cacheia se encontrou foto real
     if photo_url:
         set_player_photo(name_norm, photo_url)
     if not photo_url:
