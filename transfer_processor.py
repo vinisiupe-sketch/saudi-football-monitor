@@ -240,9 +240,6 @@ Se o artigo NÃO envolver negociação de jogador identificável, responda apena
             data["player_name"], client, club_hint=club_hint
         )
 
-        # Enriquece com IDs da api-football para logos e fotos diretas
-        data = await enrich_with_af_ids(data, client)
-
         return data
     except Exception as e:
         print(f"   \u26a0\ufe0f  Erro ao extrair transferência de '{title[:50]}': {e}")
