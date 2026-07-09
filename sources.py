@@ -46,9 +46,12 @@ TIER_C = {
 
 TWITTER_RSS_PROVIDERS = [
     # RSSHub próprio (self-hosted no Railway com credenciais do X) — prioridade máxima
-    "https://rsshub-production-794a.up.railway.app/twitter/user/{username}",
+    # limit=50: Fabrizio Romano e outros jornalistas de alto volume podem postar 20+
+    # tweets em poucas horas (ex: live-tweet de jogos da Copa), empurrando tweets
+    # sauditas para fora da janela padrão de 20 itens.
+    "https://rsshub-production-794a.up.railway.app/twitter/user/{username}?limit=50",
     # Fallbacks públicos (podem falhar de cloud)
-    "https://rsshub.app/twitter/user/{username}",
+    "https://rsshub.app/twitter/user/{username}?limit=50",
     "https://nitter.poast.org/{username}/rss",
 ]
 

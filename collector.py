@@ -224,7 +224,7 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
     account_handle = source_name.lstrip("@").lower()
 
     articles = []
-    for entry in feed.entries[:30]:
+    for entry in feed.entries[:50]:
         title = getattr(entry, "title", "") or ""
         # Ignora retweets de terceiros; permite auto-retweet/repost da própria conta monitorada
         if title.startswith("RT ") or title.startswith("RT@"):
