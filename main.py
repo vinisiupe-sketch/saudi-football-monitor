@@ -2541,7 +2541,7 @@ async def _page_transferencias_impl(request: Request):
 
         sources = g.get("sources", [])
         n_src = len(sources)
-        lbl_col = f'{n_src} fonte{"s" if n_src != 1 else ""}'
+        lbl_col = f'{n_src}'
         lbl_exp = f'{lbl_col} ▴'
         lbl_col_v = f'{lbl_col} ▾'
 
@@ -2584,7 +2584,6 @@ async def _page_transferencias_impl(request: Request):
             f'<div class="tc-player">{pname}</div>'
             f'{pos_h}{fee_h}'
             f'</div>'
-            f'<div class="tc-badge-wrap">{badge}</div>'
             f'<button class="expand-btn" onclick="toggleTl(this)" '
             f'data-col="{lbl_col_v}" data-exp="{lbl_exp}">'
             f'{lbl_col_v}</button>'
@@ -2592,6 +2591,7 @@ async def _page_transferencias_impl(request: Request):
             f'</div>'
             # ── expandable timeline
             f'<div class="tc-timeline" hidden>'
+            f'<div class="tc-badge-wrap tc-badge-exp">{badge}</div>'
             f'<div class="tl-inner">{timeline}</div>'
             f'</div>'
             f'</div>'
@@ -2669,6 +2669,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .nego-badge{display:inline-flex;align-items:center;gap:3px;padding:3px 8px;border-radius:20px;font-size:.63rem;font-weight:700;white-space:nowrap;flex-shrink:0}
 .nego-badge-sm{font-size:.54rem;padding:2px 6px}
 .tc-badge-wrap{flex-shrink:0}
+.tc-badge-exp{padding:8px 16px 4px 18px}
 /* Expand button */
 .expand-btn{flex-shrink:0;padding:4px 10px;border-radius:20px;background:rgba(128,128,128,.22);border:none;color:inherit;cursor:pointer;font-size:.64rem;font-weight:600;white-space:nowrap;opacity:.82;transition:opacity .12s}
 .expand-btn:hover{opacity:1}
@@ -2694,7 +2695,7 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
   .tl-src{display:none}
 }
 @media(max-width:400px){
-  .tc-badge-wrap{display:none}
+  .tc-badge-exp{padding:6px 12px 2px 14px}
 }
 """
 
@@ -3149,15 +3150,16 @@ async def api_player_photo(name: str, debug: str = ""):
         async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
             results = []
             last_raw = {}
-            for _season in ("2025", "2024", "2023"):
+            # Free plan: precisa de league+season. Tenta liga saudita 2024/2023.
+            for _season in ("2024", "2023"):
                 r = await client.get(
                     f"{AF_BASE}/players",
-                    params={"search": search_name, "season": _season},
+                    params={"search": search_name, "season": _season, "league": AF_SAUDI_LEAGUE},
                 )
                 last_raw = r.json()
                 results = last_raw.get("response") or []
                 debug_lines.append(
-                    f"season={_season} → HTTP {r.status_code}  "
+                    f"season={_season} league=307 → HTTP {r.status_code}  "
                     f"results={len(results)}  "
                     f"errors={last_raw.get('errors')}  "
                     f"paging={last_raw.get('paging')}"
