@@ -22,19 +22,9 @@ TIER_B = {
         "FabriceHawkins", "DiMarzio", "Plettigoal", "sebsousapinto",
     ],
     "rss_feeds": [
-        # Google News Saudi-específico — query restrita, filtra bem
-        "https://news.google.com/rss/search?q=Saudi+Pro+League+football&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=Saudi+Arabia+football+transfer&hl=en&gl=US&ceid=US:en",
-        "https://news.google.com/rss/search?q=futebol+Arabia+Saudita+Saudi+Pro+League&hl=pt-BR&gl=BR&ceid=BR:pt-419",
-        "https://news.google.com/rss/search?q=%D9%83%D8%B1%D8%A9+%D8%A7%D9%84%D9%82%D8%AF%D9%85+%D8%A7%D9%84%D8%B3%D8%B9%D9%88%D8%AF%D9%8A%D8%A9&hl=ar&gl=SA&ceid=SA:ar",
-        # arriyadiyah.com — principal jornal esportivo saudita. Coletado via Google
-        # News (site:) em vez do Twitter @ariyadhiah porque hashtags em excesso nos
-        # tweets quebravam/impediam a coleta. Google News indexa o conteúdo completo
-        # do site, sem a limitação de 280 chars + hashtags do Twitter.
+        # arriyadiyah.com — principal jornal esportivo saudita. Única fonte RSS ativa.
+        # Coletado via Google News (site:) para obter conteúdo completo dos artigos.
         "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar",
-        # Sites Saudi-específicos (sem BBC/Goal/Globo — cobrem futebol global)
-        "https://www.arabnews.com/taxonomy/term/305/feed",
-        "https://saudigazette.com.sa/section/sports/feed",
     ],
 }
 
