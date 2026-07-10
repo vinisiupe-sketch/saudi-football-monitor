@@ -2427,7 +2427,18 @@ async def _page_transferencias_impl(request: Request):
                 "nego_type":          ntype,
                 "_unclassified":      not a.get("player_name"),
                 "sources":            [],
+                "af_player_id":       a.get("af_player_id") or None,
+                "af_team_from_id":    a.get("af_team_from_id") or None,
+                "af_team_to_id":      a.get("af_team_to_id") or None,
             }
+        else:
+            # Absorve IDs de api-football se o grupo ainda não os tem
+            if not seen[key].get("af_player_id") and a.get("af_player_id"):
+                seen[key]["af_player_id"] = a["af_player_id"]
+            if not seen[key].get("af_team_from_id") and a.get("af_team_from_id"):
+                seen[key]["af_team_from_id"] = a["af_team_from_id"]
+            if not seen[key].get("af_team_to_id") and a.get("af_team_to_id"):
+                seen[key]["af_team_to_id"] = a["af_team_to_id"]
         # Promote to highest-rank status seen for this transfer
         if NTYPE_RANK.get(ntype, 0) > NTYPE_RANK.get(seen[key]["nego_type"], 0):
             seen[key]["nego_type"] = ntype
