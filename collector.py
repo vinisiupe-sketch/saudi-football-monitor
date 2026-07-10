@@ -373,4 +373,14 @@ async def _collect_rss(client, tier, name, url) -> Optional[list]:
     return articles
 
 
-async def _
+async def _collect_twitter(client, tier, name, username) -> Optional[list]:
+    print(f"  🐦 Twitter [{tier}] {name}")
+    result = await resolve_twitter_rss(username, client)
+    if result is None:
+        print(f"     → ⛔ todos os provedores falharam para {name}")
+        return None
+    rss_url, provider = result
+    feed = feedparser.parse((await client.get(rss_url, headers=HEADERS, timeout=15, follow_redirects=True)).text)
+    articles = parse_entries(feed, name, tier, "twitter")
+    print(f"     → {len(articles)} posts relevantes via {provider}")
+    return articles
