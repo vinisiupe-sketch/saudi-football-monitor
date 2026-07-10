@@ -2365,17 +2365,21 @@ async def _page_transferencias_impl(request: Request):
         cfg = _club_cfg(name)
         enc = quote(name, safe="")
         title_safe = name.replace('"', "&quot;").replace("&", "&amp;")
-        if af_id:
-            img_url = f"https://media.api-sports.io/football/teams/{af_id}.png"
+        # Prioridade 1: logo cacheado via warm-saudi-teams (IDs corretos, season 2025)
+        cached_logo = get_club_logo(_logo_norm(name))
+        img_url = cached_logo or (
+            f"https://media.api-sports.io/football/teams/{af_id}.png" if af_id else None
+        )
+        if img_url:
             fallback_html = (
                 f"<span class=\'club-crest\' "
-                f"style=\'background:{cfg['bg']};color:{cfg['color']}\'>"
+                f"style=\'background:{cfg['bg']};color:{cfg['color']}\'>" 
                 f"{cfg['abbr']}</span>"
             )
             return (
                 f'<div class="club-logo-wrap" title="{title_safe}">'
                 f'<img class="club-logo-img" src="{img_url}" alt="{title_safe}" loading="lazy"'
-                f' onerror="this.parentNode.innerHTML=\'{fallback_html}\'">'
+                f' onerror="this.parentNode.innerHTML=\'{fallback_html}\'" >'
                 f'</div>'
             )
         crest = (
@@ -2383,6 +2387,7 @@ async def _page_transferencias_impl(request: Request):
             f'{cfg["abbr"]}</span>'
         )
         return f'<div class="club-logo-wrap" data-club="{enc}" title="{title_safe}">{crest}</div>'
+
 
     def _nego_badge(ntype: str | None, small: bool = False) -> str:
         if not ntype:
