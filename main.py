@@ -3166,28 +3166,60 @@ async def api_warm_saudi_teams():
                 if teams:
                     lines.append(f"Season: {_s} ({len(teams)} times)")
                     break
+        import re as _re2
+        # Mapeamento: nome normalizado → team_id correto (SPL 2025)
+        saudi_id_map: dict = {}  # nn e aliases → team_id
+
         for t in teams:
             team = t.get("team") or {}
             tname = team.get("name") or ""
             logo  = team.get("logo") or ""
-            if tname and logo:
+            tid   = str(team.get("id") or "")
+            if tname and logo and tid:
                 nn = _logo_norm(tname)
                 set_club_logo(nn, logo)
-                lines.append(f"{nn}: {logo}")
-                # Aliases: remove sufixos, cidades sauditas e variações
-                import re as _re2
+                lines.append(f"{nn} (id={tid}): {logo}")
+                saudi_id_map[nn] = tid
+                # Aliases: remove sufixos e cidades sauditas
                 _STRIP = (
-                    r"\b(saudi fc|saudi sc|fc|sc|cf|united|city|club|football|sporting"  # sufixos
-                    r"|jeddah|riyadh|mecca|medina|dammam|khobar|abha|taif|tabuk|hail|jizan)\b"  # cidades
+                    r"\b(saudi fc|saudi sc|fc|sc|cf|united|city|club|football|sporting"
+                    r"|jeddah|riyadh|mecca|medina|dammam|khobar|abha|taif|tabuk|hail|jizan)\b"
                 )
                 nn_alias = _re2.sub(_STRIP, "", nn, flags=_re2.I).strip()
                 nn_alias = _re2.sub(r"\s+", " ", nn_alias).strip()
                 for _alias in [nn_alias, " ".join(nn.split()[:2])]:
                     if _alias and _alias != nn and len(_alias) >= 3:
                         set_club_logo(_alias, logo)
+                        saudi_id_map[_alias] = tid
                         lines.append(f"  alias: {_alias}")
+
+        # Atualiza transfer_meta com os IDs corretos da SPL 2025
+        # (sobrescreve IDs errados do backfill genérico)
+        updated_from = updated_to = 0
+        with get_conn() as conn:
+            c = conn.cursor()
+            for nn_key, correct_tid in saudi_id_map.items():
+                # club_to (destino = clube saudita) — caso mais comum
+                c.execute("""
+                    UPDATE transfer_meta
+                    SET af_team_to_id = %s
+                    WHERE lower(regexp_replace(club_to, '[^a-zA-Z0-9 ]', '', 'g')) LIKE %s
+                      AND af_team_to_id IS DISTINCT FROM %s
+                """, (correct_tid, f"%{nn_key}%", correct_tid))
+                updated_to += c.rowcount
+                # club_from (origem = clube saudita)
+                c.execute("""
+                    UPDATE transfer_meta
+                    SET af_team_from_id = %s
+                    WHERE lower(regexp_replace(club_from, '[^a-zA-Z0-9 ]', '', 'g')) LIKE %s
+                      AND af_team_from_id IS DISTINCT FROM %s
+                """, (correct_tid, f"%{nn_key}%", correct_tid))
+                updated_from += c.rowcount
+
+        lines.append(f"")
+        lines.append(f"✅ transfer_meta atualizado: {updated_to} club_to + {updated_from} club_from")
         return HTMLResponse(
-            f"<pre>✅ {len(teams)} times cacheados\n" + "\n".join(lines) + "</pre>"
+            f"<pre>✅ {len(teams)} times SPL 2025 cacheados\n" + "\n".join(lines) + "</pre>"
         )
     except Exception as e:
         return HTMLResponse(f"<pre>❌ Erro: {e}</pre>")
