@@ -3193,13 +3193,38 @@ async def api_warm_saudi_teams():
                         saudi_id_map[_alias] = tid
                         lines.append(f"  alias: {_alias}")
 
+        # Popula entity_aliases com todos os clubes da SPL
+        from database import set_entity_alias
+        aliases_added = 0
+        import re as _re3
+        _STRIP2 = (
+            r"\b(saudi fc|saudi sc|fc|sc|cf|united|city|club|football|sporting"
+            r"|jeddah|riyadh|mecca|medina|dammam|khobar|abha|taif|tabuk|hail|jizan)\b"
+        )
+        for t in teams:
+            team = t.get("team") or {}
+            tname = team.get("name") or ""
+            tid   = str(team.get("id") or "")
+            if not tname or not tid:
+                continue
+            norm_name = _logo_norm(tname)
+            set_entity_alias("club", norm_name, tname, tid, notes="SPL 2025")
+            aliases_added += 1
+            stripped = _re3.sub(_STRIP2, "", norm_name, flags=_re3.I).strip()
+            stripped = _re3.sub(r"\s+", " ", stripped).strip()
+            if stripped and stripped != norm_name and len(stripped) >= 3:
+                set_entity_alias("club", stripped, tname, tid, notes="SPL 2025 alias")
+                aliases_added += 1
+            short = " ".join(norm_name.split()[:2])
+            if short and short != norm_name and short != stripped and len(short) >= 3:
+                set_entity_alias("club", short, tname, tid, notes="SPL 2025 short")
+                aliases_added += 1
+
         # Atualiza transfer_meta com os IDs corretos da SPL 2025
-        # (sobrescreve IDs errados do backfill genérico)
         updated_from = updated_to = 0
         with get_conn() as conn:
             c = conn.cursor()
             for nn_key, correct_tid in saudi_id_map.items():
-                # club_to (destino = clube saudita) — caso mais comum
                 c.execute("""
                     UPDATE transfer_meta
                     SET af_team_to_id = %s
@@ -3207,7 +3232,6 @@ async def api_warm_saudi_teams():
                       AND af_team_to_id IS DISTINCT FROM %s
                 """, (correct_tid, f"%{nn_key}%", correct_tid))
                 updated_to += c.rowcount
-                # club_from (origem = clube saudita)
                 c.execute("""
                     UPDATE transfer_meta
                     SET af_team_from_id = %s
@@ -3217,7 +3241,8 @@ async def api_warm_saudi_teams():
                 updated_from += c.rowcount
 
         lines.append(f"")
-        lines.append(f"✅ transfer_meta atualizado: {updated_to} club_to + {updated_from} club_from")
+        lines.append(f"entity_aliases SPL: {aliases_added} adicionados")
+        lines.append(f"transfer_meta: {updated_to} club_to + {updated_from} club_from")
         return HTMLResponse(
             f"<pre>✅ {len(teams)} times SPL 2025 cacheados\n" + "\n".join(lines) + "</pre>"
         )
@@ -3321,75 +3346,182 @@ async def admin_set_player_af_id(request: Request):
 
 
 @app.get("/api/admin/backfill-af-ids")
-async def api_backfill_af_ids(
-    limit: int = 200,
-    dry_run: str = "",
-    background_tasks: BackgroundTasks = None,
-):
-    """Backfill af_player_id / af_team_from_id / af_team_to_id.
-    Roda em background para não sofrer timeout do proxy.
-    Acompanhe o progresso nos logs do Railway.
-    """
+async def api_backfill_af_ids(limit: int = 300, dry_run: str = ""):
+    """Backfill usando entity_resolver. Background task — ver logs Railway.
+    Parametros: limit=N, dry_run=1"""
     from database import get_transfers_missing_af_ids, update_transfer_af_ids
-    from transfer_processor import enrich_with_af_ids
+    from entity_resolver import resolve_transfer_entities
 
     hdrs = _af_headers()
     if not hdrs:
-        return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
+        return HTMLResponse("<pre>API_FOOTBALL_KEY nao configurado</pre>")
 
     rows = get_transfers_missing_af_ids()[:limit]
     if not rows:
-        return HTMLResponse("<pre>✅ Nenhum registro com IDs faltando.</pre>")
+        return HTMLResponse("<pre>Nenhum registro com IDs faltando ou ambiguos.</pre>")
 
     async def _run_backfill():
-        updated = skipped = 0
-        team_cache: dict = {}  # cache compartilhado para evitar buscas repetidas do mesmo clube
-        async with httpx.AsyncClient(timeout=15.0, headers=hdrs) as client:
+        updated = skipped = ambiguous = 0
+        session_cache: dict = {}
+        async with httpx.AsyncClient(timeout=15.0) as client:
             for row in rows:
                 aid = row["article_id"]
-                before_pid = row.get("af_player_id")
-                before_fid = row.get("af_team_from_id")
-                before_tid = row.get("af_team_to_id")
-                if before_pid and before_fid and before_tid:
-                    continue
-                data = {
-                    "player_name":     row.get("player_name") or "",
-                    "club_from":       row.get("club_from") or "",
-                    "club_to":         row.get("club_to") or "",
-                    "player_nationality": row.get("player_nationality") or "",
-                    "af_player_id":    before_pid,
-                    "af_team_from_id": before_fid,
-                    "af_team_to_id":   before_tid,
-                }
+                pname = row.get("player_name") or ""
                 try:
-                    enriched = await enrich_with_af_ids(data, client, _team_cache=team_cache)
+                    data = {
+                        "player_name":        pname,
+                        "player_position":    row.get("player_position") or "",
+                        "player_nationality": row.get("player_nationality") or "",
+                        "player_age":         row.get("player_age") or "",
+                        "club_from":          row.get("club_from") or "",
+                        "club_to":            row.get("club_to") or "",
+                        "context_country":    row.get("context_country") or "",
+                        "context_league":     row.get("context_league") or "",
+                        "af_player_id":       row.get("af_player_id") or "",
+                        "af_team_from_id":    row.get("af_team_from_id") or "",
+                        "af_team_to_id":      row.get("af_team_to_id") or "",
+                        "club_from_status":   row.get("club_from_status") or "",
+                        "club_to_status":     row.get("club_to_status") or "",
+                        "player_status":      row.get("player_status") or "",
+                    }
+                    print(f"\n Backfill {aid[:12]} | {pname} | {data['club_from']} -> {data['club_to']}")
+                    enriched = await resolve_transfer_entities(
+                        data, client, hdrs, _session_cache=session_cache
+                    )
                 except Exception as e:
-                    print(f"   ❌ backfill {aid[:12]}: {e}")
+                    print(f"   ERRO backfill {aid[:12]}: {e}")
+                    import traceback; traceback.print_exc()
                     skipped += 1
                     continue
-                new_pid = enriched.get("af_player_id")
-                new_fid = enriched.get("af_team_from_id")
-                new_tid = enriched.get("af_team_to_id")
-                changed = (
-                    (new_pid and not before_pid) or
-                    (new_fid and not before_fid) or
-                    (new_tid and not before_tid)
-                )
-                if changed and not dry_run:
+
+                new_pid  = enriched.get("af_player_id") or None
+                new_fid  = enriched.get("af_team_from_id") or None
+                new_tid  = enriched.get("af_team_to_id") or None
+                p_status = enriched.get("player_status") or None
+                f_status = enriched.get("club_from_status") or None
+                t_status = enriched.get("club_to_status") or None
+
+                if not dry_run:
                     update_transfer_af_ids(aid, new_pid, new_fid, new_tid)
-                    print(f"   ✅ {aid[:12]} | {data['player_name']} | "
-                          f"player={new_pid} from={new_fid} to={new_tid}")
+                    with get_conn() as conn:
+                        _c = conn.cursor()
+                        _c.execute(
+                            "UPDATE transfer_meta SET "
+                            "club_from_status = COALESCE(%s, club_from_status), "
+                            "club_to_status   = COALESCE(%s, club_to_status), "
+                            "player_status    = COALESCE(%s, player_status) "
+                            "WHERE article_id = %s",
+                            (f_status, t_status, p_status, aid)
+                        )
+
+                if new_pid or new_fid or new_tid:
                     updated += 1
+                elif "ambiguous" in (p_status or "", f_status or "", t_status or ""):
+                    ambiguous += 1
                 else:
                     skipped += 1
-        print(f"🏁 Backfill concluído: {updated} atualizados, {skipped} sem dados/inalterados")
+
+        print(f"Backfill concluido: {updated} resolvidos, {ambiguous} ambiguos, {skipped} sem dados"
+              + (" (DRY RUN)" if dry_run else ""))
 
     import asyncio
     asyncio.create_task(_run_backfill())
     return HTMLResponse(
-        f"<pre>🚀 Backfill iniciado em background: {len(rows)} registros.\n"
-        f"Acompanhe nos logs do Railway.\n"
-        f"(dry_run={'sim' if dry_run else 'não'})</pre>"
+        "<pre>Backfill iniciado: " + str(len(rows)) + " registros.\n"
+        "Acompanhe nos logs Railway.\n"
+        "dry_run=" + ("sim" if dry_run else "nao") + "\n"
+        "score_min=75, gap_min=20</pre>"
+    )
+
+
+@app.get("/api/admin/entity-override")
+async def api_entity_override(
+    type: str = "", name: str = "", af_id: str = "",
+    canonical: str = "", reason: str = ""
+):
+    """Override manual de entidade. Params: type=player|club, name, af_id, canonical, reason"""
+    from database import set_entity_override
+    from entity_resolver import normalize_name as _enorm
+    if not type or not name or not af_id:
+        return HTMLResponse(
+            "<pre>Params: type=player|club, name=..., af_id=...\n"
+            "Exemplo: /api/admin/entity-override?type=club&name=Sporting&af_id=228&canonical=Sporting+CP</pre>"
+        )
+    if type not in ("player", "club"):
+        return HTMLResponse("<pre>type deve ser 'player' ou 'club'</pre>")
+    set_entity_override(type, name, af_id,
+                        canonical_name=canonical or name,
+                        reason=reason or "admin override",
+                        overridden_by="admin")
+    norm = _enorm(name)
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE entity_resolutions SET status = 'stale' WHERE entity_type = %s AND normalized_name = %s",
+            (type, norm)
+        )
+        invalidated = c.rowcount
+    return HTMLResponse(
+        "<pre>Override adicionado:\n"
+        "  type=" + type + " name=" + name + " af_id=" + af_id + "\n"
+        "  canonical=" + (canonical or name) + "\n"
+        "  cache invalidado: " + str(invalidated) + " entrada(s)\n"
+        "Rode /api/admin/backfill-af-ids para aplicar.</pre>"
+    )
+
+
+@app.get("/api/admin/entity-alias")
+async def api_entity_alias(
+    type: str = "", alias: str = "", af_id: str = "",
+    canonical: str = "", notes: str = ""
+):
+    """Adiciona alias de entidade. Params: type=player|club, alias, af_id, canonical, notes"""
+    from database import set_entity_alias
+    from entity_resolver import normalize_name as _enorm
+    if not type or not alias or not af_id or not canonical:
+        return HTMLResponse(
+            "<pre>Params: type=player|club, alias=..., af_id=..., canonical=...\n"
+            "Exemplo: /api/admin/entity-alias?type=club&alias=sporting+cp&af_id=228&canonical=Sporting+CP</pre>"
+        )
+    if type not in ("player", "club"):
+        return HTMLResponse("<pre>type deve ser 'player' ou 'club'</pre>")
+    norm_alias = _enorm(alias)
+    set_entity_alias(type, norm_alias, canonical, af_id, notes=notes or "")
+    return HTMLResponse(
+        "<pre>Alias adicionado: [" + type + "] '" + norm_alias + "' -> " + af_id + " (" + canonical + ")</pre>"
+    )
+
+
+@app.get("/api/admin/entity-list")
+async def api_entity_list(type: str = ""):
+    """Lista overrides e aliases. Param opcional: type=player|club"""
+    from database import list_entity_overrides, list_entity_aliases
+    overrides = list_entity_overrides()
+    aliases   = list_entity_aliases()
+    if type:
+        overrides = [o for o in overrides if o["entity_type"] == type]
+        aliases   = [a for a in aliases   if a["entity_type"] == type]
+    lines = ["=== OVERRIDES MANUAIS ==="]
+    for o in overrides:
+        lines.append(f"  [{o['entity_type']}] '{o['raw_name']}' -> {o['af_id']} ({o.get('canonical_name','')}) {o.get('reason','')}")
+    if not overrides:
+        lines.append("  (nenhum)")
+    lines += ["", "=== ALIASES ==="]
+    for a in aliases:
+        lines.append(f"  [{a['entity_type']}] '{a['alias']}' -> {a['af_id']} ({a['canonical_name']}) {a.get('notes','')}")
+    if not aliases:
+        lines.append("  (nenhum)")
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+
+
+@app.get("/api/admin/entity-invalidate")
+async def api_entity_invalidate(type: str = ""):
+    """Invalida cache de resolucoes. Param opcional: type=player|club"""
+    from database import invalidate_entity_cache
+    n = invalidate_entity_cache(type or None)
+    return HTMLResponse(
+        "<pre>" + str(n) + " resolucoes marcadas como stale.\n"
+        "Rode /api/admin/backfill-af-ids para re-resolver.</pre>"
     )
 
 

@@ -104,6 +104,7 @@ def init_db():
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
     init_injuries()
     init_transfer_meta()
+    init_entity_tables()
     init_club_logos()
     init_player_photos()
     init_player_name_cache()
@@ -483,9 +484,14 @@ def init_transfer_meta():
                 classified_at      TEXT NOT NULL
             )
         """)
-        # Migra colunas ausentes em instâncias existentes (IF NOT EXISTS evita abort de transação)
-        for col in ("player_position", "player_nationality",
-                    "af_player_id", "af_team_from_id", "af_team_to_id"):
+        # Migra colunas ausentes em instâncias existentes
+        for col in (
+            "player_position", "player_nationality",
+            "af_player_id", "af_team_from_id", "af_team_to_id",
+            # Novas colunas — entity resolution
+            "player_age", "context_country", "context_league",
+            "club_from_status", "club_to_status", "player_status",
+        ):
             c.execute(f"ALTER TABLE transfer_meta ADD COLUMN IF NOT EXISTS {col} TEXT")
 
 
@@ -495,51 +501,73 @@ def upsert_transfer_meta(article_id: str, data: dict):
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("""
-            INSERT INTO transfer_meta (article_id, player_name, player_position, player_nationality,
-                                       club_from, club_to, fee, nego_type, classified_at,
-                                       af_player_id, af_team_from_id, af_team_to_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO transfer_meta (
+                article_id, player_name, player_position, player_nationality,
+                player_age, club_from, club_to, fee, nego_type, classified_at,
+                context_country, context_league,
+                af_player_id, af_team_from_id, af_team_to_id,
+                club_from_status, club_to_status, player_status
+            )
+            VALUES (%s,%s,%s,%s, %s,%s,%s,%s,%s,%s, %s,%s, %s,%s,%s, %s,%s,%s)
             ON CONFLICT (article_id) DO UPDATE SET
                 player_name        = EXCLUDED.player_name,
                 player_position    = EXCLUDED.player_position,
                 player_nationality = EXCLUDED.player_nationality,
+                player_age         = EXCLUDED.player_age,
                 club_from          = EXCLUDED.club_from,
                 club_to            = EXCLUDED.club_to,
                 fee                = EXCLUDED.fee,
                 nego_type          = EXCLUDED.nego_type,
                 classified_at      = EXCLUDED.classified_at,
-                af_player_id       = COALESCE(EXCLUDED.af_player_id, transfer_meta.af_player_id),
+                context_country    = COALESCE(EXCLUDED.context_country, transfer_meta.context_country),
+                context_league     = COALESCE(EXCLUDED.context_league,  transfer_meta.context_league),
+                af_player_id       = COALESCE(EXCLUDED.af_player_id,    transfer_meta.af_player_id),
                 af_team_from_id    = COALESCE(EXCLUDED.af_team_from_id, transfer_meta.af_team_from_id),
-                af_team_to_id      = COALESCE(EXCLUDED.af_team_to_id, transfer_meta.af_team_to_id)
+                af_team_to_id      = COALESCE(EXCLUDED.af_team_to_id,   transfer_meta.af_team_to_id),
+                club_from_status   = COALESCE(EXCLUDED.club_from_status, transfer_meta.club_from_status),
+                club_to_status     = COALESCE(EXCLUDED.club_to_status,   transfer_meta.club_to_status),
+                player_status      = COALESCE(EXCLUDED.player_status,    transfer_meta.player_status)
         """, (
             article_id,
             data.get("player_name"),
             data.get("player_position"),
             data.get("player_nationality"),
+            data.get("player_age") or None,
             data.get("club_from"),
             data.get("club_to"),
             data.get("fee"),
             data.get("nego_type"),
             now,
+            data.get("context_country") or None,
+            data.get("context_league") or None,
             data.get("af_player_id") or None,
             data.get("af_team_from_id") or None,
             data.get("af_team_to_id") or None,
+            data.get("club_from_status") or None,
+            data.get("club_to_status") or None,
+            data.get("player_status") or None,
         ))
 
 
 
 def get_transfers_missing_af_ids() -> list[dict]:
-    """Retorna transfer_meta onde pelo menos um af_id está ausente.
-    Inclui campos necessários para chamar enrich_with_af_ids()."""
+    """Retorna transfer_meta onde pelo menos um af_id está ausente ou status ambiguous/unresolved.
+    Inclui todos os campos de contexto necessários para resolve_transfer_entities()."""
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("""
-            SELECT article_id, player_name, club_from, club_to,
-                   af_player_id, af_team_from_id, af_team_to_id
+            SELECT article_id, player_name, player_position, player_nationality,
+                   player_age, club_from, club_to,
+                   context_country, context_league,
+                   af_player_id, af_team_from_id, af_team_to_id,
+                   club_from_status, club_to_status, player_status
             FROM transfer_meta
             WHERE af_player_id IS NULL
                OR af_team_from_id IS NULL
                OR af_team_to_id IS NULL
+               OR club_from_status IN ('ambiguous', 'unresolved')
+               OR club_to_status   IN ('ambiguous', 'unresolved')
+               OR player_status    IN ('ambiguous', 'unresolved')
             ORDER BY classified_at DESC
         """)
         return [dict(r) for r in c.fetchall()]
@@ -560,6 +588,236 @@ def update_transfer_af_ids(article_id: str, af_player_id: str | None,
         """, (af_player_id or None, af_team_from_id or None, af_team_to_id or None, article_id))
 
 
+
+
+# ─────────────────────────────────────────────
+#  ENTITY RESOLUTION — tabelas, CRUD
+# ─────────────────────────────────────────────
+
+def init_entity_tables():
+    """Cria tabelas de entity resolution. Chamado por init_db()."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS entity_resolutions (
+                id              SERIAL PRIMARY KEY,
+                entity_type     TEXT NOT NULL,
+                normalized_name TEXT NOT NULL,
+                ctx1            TEXT NOT NULL DEFAULT '',
+                ctx2            TEXT NOT NULL DEFAULT '',
+                af_id           TEXT,
+                top_name        TEXT,
+                status          TEXT NOT NULL DEFAULT 'unresolved',
+                score           FLOAT,
+                score_gap       FLOAT,
+                score_log       TEXT,
+                stale_after     TIMESTAMPTZ,
+                created_at      TIMESTAMPTZ DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(entity_type, normalized_name, ctx1, ctx2)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS entity_aliases (
+                id             SERIAL PRIMARY KEY,
+                entity_type    TEXT NOT NULL,
+                alias          TEXT NOT NULL,
+                canonical_name TEXT NOT NULL,
+                af_id          TEXT NOT NULL,
+                notes          TEXT,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(entity_type, alias)
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS entity_overrides (
+                id             SERIAL PRIMARY KEY,
+                entity_type    TEXT NOT NULL,
+                raw_name       TEXT NOT NULL,
+                canonical_name TEXT,
+                af_id          TEXT NOT NULL,
+                reason         TEXT,
+                overridden_by  TEXT,
+                created_at     TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE(entity_type, raw_name)
+            )
+        """)
+
+
+def get_entity_resolution(entity_type: str, normalized_name: str,
+                           ctx1: str = "", ctx2: str = "") -> dict | None:
+    """Retorna resolução cacheada. None = nunca resolvido. Verifica stale_after."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT af_id, top_name, status, score, score_gap, score_log, stale_after
+                FROM entity_resolutions
+                WHERE entity_type = %s AND normalized_name = %s
+                  AND ctx1 = %s AND ctx2 = %s
+            """, (entity_type, normalized_name, ctx1 or "", ctx2 or ""))
+            row = c.fetchone()
+            if row is None:
+                return None
+            r = dict(row)
+            # Marca como stale se expirou
+            if r.get("stale_after") and r["stale_after"] < datetime.now(timezone.utc):
+                r["status"] = "stale"
+            return r
+    except Exception:
+        return None
+
+
+def cache_entity_resolution(entity_type: str, normalized_name: str,
+                              ctx1: str, ctx2: str, result) -> None:
+    """Salva ou atualiza resultado de resolução no cache DB."""
+    try:
+        score_log = json.dumps([c.to_dict() for c in result.candidates]) if result.candidates else "[]"
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO entity_resolutions
+                    (entity_type, normalized_name, ctx1, ctx2,
+                     af_id, top_name, status, score, score_gap, score_log, stale_after, updated_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
+                ON CONFLICT (entity_type, normalized_name, ctx1, ctx2) DO UPDATE SET
+                    af_id       = EXCLUDED.af_id,
+                    top_name    = EXCLUDED.top_name,
+                    status      = EXCLUDED.status,
+                    score       = EXCLUDED.score,
+                    score_gap   = EXCLUDED.score_gap,
+                    score_log   = EXCLUDED.score_log,
+                    stale_after = EXCLUDED.stale_after,
+                    updated_at  = NOW()
+            """, (
+                entity_type, normalized_name, ctx1 or "", ctx2 or "",
+                result.af_id, result.top_name, result.status,
+                result.score, result.gap,
+                score_log,
+                result.stale_after,
+            ))
+    except Exception as e:
+        print(f"   ⚠️  cache_entity_resolution error: {e}")
+
+
+def get_entity_alias(entity_type: str, alias_norm: str) -> dict | None:
+    """Retorna alias conhecido para entidade. None = não existe alias."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT af_id, canonical_name, notes
+                FROM entity_aliases
+                WHERE entity_type = %s AND alias = %s
+            """, (entity_type, alias_norm))
+            row = c.fetchone()
+            return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def set_entity_alias(entity_type: str, alias: str, canonical_name: str,
+                      af_id: str, notes: str = "") -> None:
+    """Insere ou atualiza alias de entidade."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO entity_aliases (entity_type, alias, canonical_name, af_id, notes)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (entity_type, alias) DO UPDATE SET
+                    canonical_name = EXCLUDED.canonical_name,
+                    af_id          = EXCLUDED.af_id,
+                    notes          = EXCLUDED.notes
+            """, (entity_type, alias, canonical_name, af_id, notes or ""))
+    except Exception as e:
+        print(f"   ⚠️  set_entity_alias error: {e}")
+
+
+def get_entity_override(entity_type: str, raw_name: str) -> dict | None:
+    """Retorna override manual para entidade. None = sem override."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT af_id, canonical_name, reason
+                FROM entity_overrides
+                WHERE entity_type = %s AND lower(raw_name) = lower(%s)
+            """, (entity_type, raw_name))
+            row = c.fetchone()
+            return dict(row) if row else None
+    except Exception:
+        return None
+
+
+def set_entity_override(entity_type: str, raw_name: str, af_id: str,
+                         canonical_name: str = "", reason: str = "",
+                         overridden_by: str = "admin") -> None:
+    """Insere ou atualiza override manual."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO entity_overrides
+                    (entity_type, raw_name, af_id, canonical_name, reason, overridden_by)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (entity_type, raw_name) DO UPDATE SET
+                    af_id          = EXCLUDED.af_id,
+                    canonical_name = EXCLUDED.canonical_name,
+                    reason         = EXCLUDED.reason,
+                    overridden_by  = EXCLUDED.overridden_by,
+                    created_at     = NOW()
+            """, (entity_type, raw_name, af_id, canonical_name or "", reason or "", overridden_by))
+    except Exception as e:
+        print(f"   ⚠️  set_entity_override error: {e}")
+
+
+def list_entity_overrides() -> list[dict]:
+    """Lista todos os overrides manuais."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT entity_type, raw_name, af_id, canonical_name, reason, created_at
+                FROM entity_overrides ORDER BY created_at DESC
+            """)
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
+def list_entity_aliases() -> list[dict]:
+    """Lista todos os aliases."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT entity_type, alias, canonical_name, af_id, notes, created_at
+                FROM entity_aliases ORDER BY entity_type, alias
+            """)
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
+def invalidate_entity_cache(entity_type: str | None = None) -> int:
+    """Marca resoluções como stale para forçar re-resolução. Retorna nº afetados."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            if entity_type:
+                c.execute("""
+                    UPDATE entity_resolutions SET status = 'stale', stale_after = NOW()
+                    WHERE entity_type = %s AND status NOT IN ('manually_resolved')
+                """, (entity_type,))
+            else:
+                c.execute("""
+                    UPDATE entity_resolutions SET status = 'stale', stale_after = NOW()
+                    WHERE status NOT IN ('manually_resolved')
+                """)
+            return c.rowcount
+    except Exception:
+        return 0
 # ─────────────────────────────────────────────
 #  CACHE DE LOGOS DE CLUBES
 # ─────────────────────────────────────────────
@@ -731,7 +989,8 @@ def get_transfer_articles() -> list[dict]:
                     tm.player_name, tm.player_position, tm.player_nationality,
                     tm.club_from, tm.club_to,
                     tm.fee, tm.nego_type, tm.classified_at,
-                    tm.af_player_id, tm.af_team_from_id, tm.af_team_to_id
+                    tm.af_player_id, tm.af_team_from_id, tm.af_team_to_id,
+                    tm.club_from_status, tm.club_to_status, tm.player_status
                 FROM articles a
                 LEFT JOIN transfer_meta tm ON a.id = tm.article_id
                 WHERE a.category IN ('transferencia', 'sondagem')

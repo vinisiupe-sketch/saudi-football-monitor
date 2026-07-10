@@ -308,21 +308,29 @@ async def extract_transfer_meta(article: dict, client: httpx.AsyncClient) -> dic
     prompt = f"""Analise o artigo abaixo e extraia dados de transferência/negociação envolvendo jogador da Saudi Pro League.
 
 Título: {title}
-Texto: {body[:800]}
+Texto: {body[:900]}
 Fonte: {source}
 Data publicação: {published}
 
-Responda com este JSON exato (sem texto extra):
+Responda com este JSON exato (sem texto extra, sem inventar informações ausentes):
 {{
   "is_transfer": true,
-  "player_name": "nome do jogador em português ou transliteração latina",
+  "player_name": "nome do jogador EXATAMENTE como escrito no texto",
   "player_position": "posição em português (ex: Atacante, Meia, Zagueiro, Lateral Direito, Lateral Esquerdo, Volante, Goleiro) ou null se não mencionado",
-  "player_nationality": "país de origem do jogador em português (ex: Brasil, Argentina, França) ou null se não mencionado",
-  "club_from": "clube de origem (de onde o jogador SAI) ou null",
-  "club_to": "clube de destino (para onde o jogador VAI) ou null",
+  "player_nationality": "gentílico ou país de origem em português (ex: brasileiro, português, francês) ou null se não mencionado",
+  "player_age": idade numérica do jogador se mencionada explicitamente ou null,
+  "club_from": "clube de origem EXATAMENTE como escrito no texto ou null",
+  "club_to": "clube de destino EXATAMENTE como escrito no texto ou null",
+  "context_country": "país do clube de origem se mencionado explicitamente (ex: Portugal, Espanha, França) ou null",
+  "context_league": "liga/campeonato do clube de origem se mencionado explicitamente (ex: Primeira Liga, La Liga) ou null",
   "fee": "valor da transferência se mencionado (ex: '€50M', 'free', 'empréstimo') ou null",
   "nego_type": "um de: oficial|avancado|negociacoes|proposta|interesse|emprestimo|renovacao|sondagem"
 }}
+
+Regras importantes:
+- Copie nomes de jogador e clube EXATAMENTE como aparecem no texto — não traduza nem normalize
+- Extraia country/league APENAS se explicitamente mencionados no artigo
+- Não invente IDs, imagens ou escolha entre clubes homônimos
 
 Definições de nego_type:
 - oficial: transferência confirmada/assinada/anunciada
@@ -410,8 +418,11 @@ async def rebuild_transfers_from_history():
                     "player_name":        data.get("player_name"),
                     "player_position":    data.get("player_position"),
                     "player_nationality": data.get("player_nationality"),
+                    "player_age":         data.get("player_age"),
                     "club_from":          data.get("club_from"),
                     "club_to":            data.get("club_to"),
+                    "context_country":    data.get("context_country"),
+                    "context_league":     data.get("context_league"),
                     "fee":                data.get("fee"),
                     "nego_type":          data.get("nego_type"),
                 })
