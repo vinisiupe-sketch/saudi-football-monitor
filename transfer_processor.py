@@ -97,28 +97,32 @@ async def normalize_player_name(raw_name: str, client: httpx.AsyncClient,
     return canonical if canonical else raw_name
 
 
-async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
+async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient,
+                              _team_cache: dict | None = None) -> dict:
     """Busca IDs de jogador e clubes na api-football.
-    Usa nome sem acentos (api-football não normaliza Unicode).
 
-    IMPORTANTE: api-football exige 'league' OU 'team' na busca por nome de jogador.
-    Encontramos IDs de clube PRIMEIRO, depois usamos esses IDs para buscar o jogador.
-    Fallback: ligas europeias conhecidas + Saudi Pro League (307).
+    _team_cache: dict compartilhado entre chamadas do backfill para
+    evitar buscas repetidas do mesmo nome de clube (economiza API calls).
+
+    ORÇAMENTO por registro (sem cache hit):
+      club_from: 1 call, club_to: 1 call, player: 1-4 calls → max ~6 calls
     """
-    import os, unicodedata as _ud
+    import os, unicodedata as _ud, re as _re2
+    from difflib import SequenceMatcher as _SQT
 
     key = os.getenv("API_FOOTBALL_KEY", "")
     if not key:
         return data
     hdrs = {"X-Apisports-Key": key}
     AF = "https://v3.football.api-sports.io"
+    if _team_cache is None:
+        _team_cache = {}
 
     def _af_norm(s: str) -> str:
-        """Remove acentos para busca na api-football."""
         nfd = _ud.normalize("NFD", (s or "").strip())
         return "".join(c for c in nfd if _ud.category(c) != "Mn")
 
-    # Pontuação de país para seleção de time (evita times de países obscuros)
+    # ── Pontuação de país ────────────────────────────────────────────────
     _COUNTRY_SCORE = {
         "Saudi Arabia": 200,
         "England": 90, "Spain": 90, "Germany": 90, "France": 90, "Italy": 90,
@@ -128,10 +132,6 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
         "Japan": 50, "South Korea": 48, "Morocco": 48, "Egypt": 45,
         "Qatar": 42, "UAE": 42, "Bahrain": 38, "Kuwait": 38, "Oman": 35,
     }
-
-    from difflib import SequenceMatcher as _SQT
-
-    # Mapeamento: nacionalidade em português → nome de país na api-football
     _NAT_MAP = {
         "português": "Portugal", "portugal": "Portugal",
         "brasileiro": "Brazil", "brasil": "Brazil",
@@ -150,19 +150,13 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
         "sérvio": "Serbia", "sérvia": "Serbia",
         "holandês": "Netherlands", "países baixos": "Netherlands",
         "belga": "Belgium", "bélgica": "Belgium",
-        "japonês": "Japan", "japão": "Japan",
     }
 
-    def _pick_team(results: list, target_name: str, nationality_hint: str = "") -> dict:
-        """Seleciona o melhor time por scoring: país + similaridade de nome.
-        nationality_hint: nationalidade do jogador em português (ex: 'Portugal')
-        → usada para dar bônus ao país de origem do jogador quando não é saudita.
-        """
-        import unicodedata as _udn2
-        def _simp(s):
-            nfd = _udn2.normalize("NFD", (s or "").lower().strip())
-            return "".join(c for c in nfd if _udn2.category(c) != "Mn")
+    def _simp(s):
+        nfd = _ud.normalize("NFD", (s or "").lower().strip())
+        return "".join(c for c in nfd if _ud.category(c) != "Mn")
 
+    def _pick_team(results: list, target_name: str, nationality_hint: str = "") -> dict:
         hint_country = _NAT_MAP.get(_simp(nationality_hint), "")
         target_low = _af_norm(target_name).lower()
         best_t, best_score = {}, -1.0
@@ -171,94 +165,75 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
             tname = _af_norm(t.get("name") or "").lower()
             country = t.get("country") or ""
             c_score = _COUNTRY_SCORE.get(country, 5)
-            # Bônus por nacionalidade do jogador (clube de origem provável)
             if hint_country and country == hint_country:
                 c_score += 120
-            # Similaridade entre o nome buscado e o nome retornado
             sim = _SQT(None, target_low, tname).ratio()
-            # Bônus se um contém o outro (ex: "Sporting" ⊂ "Sporting CP")
             if target_low in tname or tname in target_low:
                 sim = max(sim, 0.82)
-            total = (c_score * 1.5) + (sim * 100)
+            total = c_score * 1.5 + sim * 100
             if total > best_score:
                 best_score = total
                 best_t = t
         return best_t
 
+    async def _find_team(name: str, nat_hint: str = "") -> str:
+        """Busca time por nome. Usa cache para evitar chamadas repetidas."""
+        cache_key = f"{_af_norm(name).lower()}|{nat_hint}"
+        if cache_key in _team_cache:
+            return _team_cache[cache_key]
+        try:
+            r = await client.get(f"{AF}/teams",
+                params={"search": _af_norm(name)}, headers=hdrs, timeout=8.0)
+            results = r.json().get("response") or []
+            if results:
+                chosen = _pick_team(results, name, nat_hint)
+                tid = str(chosen.get("id") or "")
+                _team_cache[cache_key] = tid
+                return tid
+        except Exception as e:
+            print(f"   ⚠️  AF team '{name}': {type(e).__name__}")
+        _team_cache[cache_key] = ""
+        return ""
+
+    nat = data.get("player_nationality") or ""
+
     # ── Clube de origem ──────────────────────────────────────────────────
     cfrom = data.get("club_from") or ""
     if cfrom and not data.get("af_team_from_id"):
-        for _search in (_af_norm(cfrom), cfrom):
-            try:
-                r = await client.get(f"{AF}/teams",
-                    params={"search": _search}, headers=hdrs, timeout=8.0)
-                results = r.json().get("response") or []
-                if results:
-                    chosen = _pick_team(results, cfrom, data.get('player_nationality') or '')
-                    tid = str(chosen.get("id") or "")
-                    if tid:
-                        data["af_team_from_id"] = tid
-                        print(f"   🔵 AF team_from: '{cfrom}' → id {tid} ({chosen.get('name')})")
-                        break
-            except Exception as e:
-                print(f"   ⚠️  AF team_from '{cfrom}': {type(e).__name__}")
+        tid = await _find_team(cfrom, nat)
+        if tid:
+            data["af_team_from_id"] = tid
+            print(f"   🔵 AF team_from: '{cfrom}' → {tid}")
 
-    # ── Clube de destino (prefere Arábia Saudita) ────────────────────────
+    # ── Clube de destino ─────────────────────────────────────────────────
     cto = data.get("club_to") or ""
     if cto and not data.get("af_team_to_id"):
-        for _search in (_af_norm(cto), cto):
-            try:
-                r = await client.get(f"{AF}/teams",
-                    params={"search": _search}, headers=hdrs, timeout=8.0)
-                results = r.json().get("response") or []
-                if results:
-                    chosen = _pick_team(results, cto, '')
-                    tid = str(chosen.get("id") or "")
-                    if tid:
-                        data["af_team_to_id"] = tid
-                        print(f"   🔴 AF team_to: '{cto}' → id {tid} ({chosen.get('name')})")
-                        break
-            except Exception as e:
-                print(f"   ⚠️  AF team_to '{cto}': {type(e).__name__}")
+        tid = await _find_team(cto, "")  # destino = clube saudita, sem nat_hint
+        if tid:
+            data["af_team_to_id"] = tid
+            print(f"   🔴 AF team_to: '{cto}' → {tid}")
 
-    # ── Jogador (requer league ou team — usa IDs dos clubes acima) ───────
+    # ── Jogador ──────────────────────────────────────────────────────────
     pname = data.get("player_name") or ""
     if pname and not data.get("af_player_id"):
         pname_norm = _af_norm(pname)
         pid_found = ""
-        team_ids = [tid for tid in [data.get("af_team_from_id"), data.get("af_team_to_id")] if tid]
-        # Fallback: Saudi(307), Premier(39), La Liga(140), Serie A(135), Bundesliga(78), Ligue1(61), Primeira(94)
-        FALLBACK_LEAGUES = ["307", "39", "140", "135", "78", "61", "94", "88"]
-
-        import re as _re2
-        from difflib import SequenceMatcher as _SQ
+        team_ids = [t for t in [data.get("af_team_from_id"), data.get("af_team_to_id")] if t]
 
         def _name_variants(name_norm: str) -> list:
-            """Variantes de busca para lidar com transliterações árabes divergentes."""
             parts = name_norm.split()
             variants = [name_norm]
             if len(parts) >= 2:
                 last = parts[-1]
-                if len(last) >= 3 and last != name_norm:
+                if len(last) >= 3:
                     variants.append(last)
-                # Sobrenome sem prefixo Al-/El-
                 last_stripped = _re2.sub(r"^(al|el)([-\s])", "", last, flags=_re2.I).strip()
                 if last_stripped and last_stripped != last and len(last_stripped) >= 3:
                     variants.append(last_stripped)
-                # Primeiro nome como último recurso
-                first = parts[0]
-                if len(first) >= 4 and first != name_norm:
-                    variants.append(first)
             return list(dict.fromkeys(variants))
 
         def _best_player_match(results: list, target_norm: str) -> str:
-            """Retorna ID do melhor match fuzzy com foco em SOBRENOME.
-            
-            Estratégia: sobrenome é o identificador primário (peso 70%).
-            - Se sobrenomes diferem muito (score < 0.65), rejeita o candidato.
-            - Evita confundir 'Trincao' com 'Conceicao'.
-            Mínimo de confiança final: 0.60.
-            """
+            from difflib import SequenceMatcher as _SQ2
             best_id, best_score = "", 0.0
             target_low = target_norm.lower()
             t_parts = target_low.split()
@@ -270,13 +245,11 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                 r_parts = rname.split()
                 r_surname = r_parts[-1] if r_parts else ""
                 r_first   = r_parts[0] if r_parts else ""
-                # Sobrenome: identificador primário (descarta se muito diferente)
-                sur_score = _SQ(None, t_surname, r_surname).ratio()
+                sur_score = _SQ2(None, t_surname, r_surname).ratio()
                 if sur_score < 0.62:
-                    continue  # sobrenomes incompatíveis → rejeita
-                full_score = _SQ(None, target_low, rname).ratio()
-                first_score = _SQ(None, t_first, r_first).ratio() if t_first and r_first else 0.5
-                # Score composto: sobrenome (60%) + nome completo (30%) + primeiro nome (10%)
+                    continue
+                full_score = _SQ2(None, target_low, rname).ratio()
+                first_score = _SQ2(None, t_first, r_first).ratio() if t_first and r_first else 0.5
                 score = sur_score * 0.60 + full_score * 0.30 + first_score * 0.10
                 if score > best_score:
                     best_score = score
@@ -285,51 +258,45 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
 
         search_variants = _name_variants(pname_norm)
 
-        for _season in ("2025", "2024", "2023"):
+        # 1. Busca por time (mais precisa, usa o time encontrado acima)
+        # Apenas season 2025 — economiza 2/3 das chamadas
+        for tid in team_ids:
+            for _sv in search_variants[:2]:  # máximo 2 variantes
+                try:
+                    r = await client.get(f"{AF}/players",
+                        params={"search": _sv, "team": tid, "season": "2025"},
+                        headers=hdrs, timeout=10.0)
+                    results = r.json().get("response") or []
+                    if results:
+                        pid_found = _best_player_match(results, pname_norm)
+                        if pid_found:
+                            print(f"   📸 AF player: '{pname}' → {pid_found} (team={tid})")
+                            break
+                except Exception as e:
+                    print(f"   ⚠️  AF player '{pname}' team={tid}: {type(e).__name__}")
             if pid_found:
                 break
-            for tid in team_ids:
-                for _sv in search_variants:
-                    try:
-                        r = await client.get(f"{AF}/players",
-                            params={"search": _sv, "team": tid, "season": _season},
-                            headers=hdrs, timeout=10.0)
-                        results = r.json().get("response") or []
-                        if results:
-                            pid_found = _best_player_match(results, pname_norm)
-                            if pid_found:
-                                print(f"   📸 AF player: '{pname}' → id {pid_found} (team={tid} s={_season} q='{_sv}')")
-                                break
-                    except Exception as e:
-                        print(f"   ⚠️  AF player '{pname}' team={tid} s={_season}: {type(e).__name__}")
-                if pid_found:
-                    break
-            if pid_found:
-                break
-            for league in FALLBACK_LEAGUES:
-                for _sv in search_variants:
-                    try:
-                        r = await client.get(f"{AF}/players",
-                            params={"search": _sv, "league": league, "season": _season},
-                            headers=hdrs, timeout=10.0)
-                        results = r.json().get("response") or []
-                        if results:
-                            pid_found = _best_player_match(results, pname_norm)
-                            if pid_found:
-                                print(f"   📸 AF player: '{pname}' → id {pid_found} (league={league} s={_season} q='{_sv}')")
-                                break
-                    except Exception as e:
-                        print(f"   ⚠️  AF player '{pname}' league={league} s={_season}: {type(e).__name__}")
-                if pid_found:
-                    break
-            if pid_found:
-                break
+
+        # 2. Fallback: apenas SPL (307) — evita percorrer todas as ligas europeias
+        if not pid_found:
+            for _sv in search_variants[:2]:
+                try:
+                    r = await client.get(f"{AF}/players",
+                        params={"search": _sv, "league": "307", "season": "2025"},
+                        headers=hdrs, timeout=10.0)
+                    results = r.json().get("response") or []
+                    if results:
+                        pid_found = _best_player_match(results, pname_norm)
+                        if pid_found:
+                            print(f"   📸 AF player: '{pname}' → {pid_found} (league=307)")
+                            break
+                except Exception as e:
+                    print(f"   ⚠️  AF player '{pname}' league=307: {type(e).__name__}")
 
         if pid_found:
             data["af_player_id"] = pid_found
 
     return data
-
 
 async def extract_transfer_meta(article: dict, client: httpx.AsyncClient) -> dict | None:
     """Extrai metadados de negociação. Retorna None se o artigo não envolver transferência de jogador."""

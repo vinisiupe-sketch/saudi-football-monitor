@@ -3321,13 +3321,14 @@ async def admin_set_player_af_id(request: Request):
 
 
 @app.get("/api/admin/backfill-af-ids")
-async def api_backfill_af_ids(limit: int = 200, dry_run: str = ""):
-    """Backfill af_player_id / af_team_from_id / af_team_to_id para transfer_meta
-    existentes que foram criados antes do plano Pro (ficaram com IDs nulos).
-
-    Parâmetros:
-      limit   — máximo de registros a processar (padrão 200)
-      dry_run — qualquer valor ativa modo somente-leitura (mostra o que seria feito)
+async def api_backfill_af_ids(
+    limit: int = 200,
+    dry_run: str = "",
+    background_tasks: BackgroundTasks = None,
+):
+    """Backfill af_player_id / af_team_from_id / af_team_to_id.
+    Roda em background para não sofrer timeout do proxy.
+    Acompanhe o progresso nos logs do Railway.
     """
     from database import get_transfers_missing_af_ids, update_transfer_af_ids
     from transfer_processor import enrich_with_af_ids
@@ -3336,61 +3337,60 @@ async def api_backfill_af_ids(limit: int = 200, dry_run: str = ""):
     if not hdrs:
         return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
 
-    rows = get_transfers_missing_af_ids()
-    rows = rows[:limit]
-    lines = [f"📋 {len(rows)} registros sem af_ids (limit={limit}, dry_run={'sim' if dry_run else 'não'})"]
-    updated = skipped = already = 0
+    rows = get_transfers_missing_af_ids()[:limit]
+    if not rows:
+        return HTMLResponse("<pre>✅ Nenhum registro com IDs faltando.</pre>")
 
-    async with httpx.AsyncClient(timeout=12.0, headers=hdrs) as client:
-        for row in rows:
-            aid = row["article_id"]
-            before = {
-                "af_player_id":    row.get("af_player_id"),
-                "af_team_from_id": row.get("af_team_from_id"),
-                "af_team_to_id":   row.get("af_team_to_id"),
-            }
-            # Só busca se ainda há algum campo null
-            if all(before[k] for k in before):
-                already += 1
-                continue
-
-            data = {
-                "player_name":  row.get("player_name") or "",
-                "club_from":    row.get("club_from") or "",
-                "club_to":      row.get("club_to") or "",
-                "af_player_id":    row.get("af_player_id"),
-                "af_team_from_id": row.get("af_team_from_id"),
-                "af_team_to_id":   row.get("af_team_to_id"),
-            }
-            try:
-                enriched = await enrich_with_af_ids(data, client)
-            except Exception as e:
-                lines.append(f"  ❌ {aid[:12]} erro: {e}")
-                skipped += 1
-                continue
-
-            new_pid  = enriched.get("af_player_id")
-            new_fid  = enriched.get("af_team_from_id")
-            new_tid  = enriched.get("af_team_to_id")
-            changed = (
-                (new_pid  and not before["af_player_id"])  or
-                (new_fid  and not before["af_team_from_id"]) or
-                (new_tid  and not before["af_team_to_id"])
-            )
-            if changed:
-                if not dry_run:
-                    update_transfer_af_ids(aid, new_pid, new_fid, new_tid)
-                label = "✅" if not dry_run else "🔍(dry)"
-                lines.append(
-                    f"  {label} {aid[:12]} | {data['player_name']} | "
-                    f"player={new_pid} from={new_fid} to={new_tid}"
+    async def _run_backfill():
+        updated = skipped = 0
+        team_cache: dict = {}  # cache compartilhado para evitar buscas repetidas do mesmo clube
+        async with httpx.AsyncClient(timeout=15.0, headers=hdrs) as client:
+            for row in rows:
+                aid = row["article_id"]
+                before_pid = row.get("af_player_id")
+                before_fid = row.get("af_team_from_id")
+                before_tid = row.get("af_team_to_id")
+                if before_pid and before_fid and before_tid:
+                    continue
+                data = {
+                    "player_name":     row.get("player_name") or "",
+                    "club_from":       row.get("club_from") or "",
+                    "club_to":         row.get("club_to") or "",
+                    "player_nationality": row.get("player_nationality") or "",
+                    "af_player_id":    before_pid,
+                    "af_team_from_id": before_fid,
+                    "af_team_to_id":   before_tid,
+                }
+                try:
+                    enriched = await enrich_with_af_ids(data, client, _team_cache=team_cache)
+                except Exception as e:
+                    print(f"   ❌ backfill {aid[:12]}: {e}")
+                    skipped += 1
+                    continue
+                new_pid = enriched.get("af_player_id")
+                new_fid = enriched.get("af_team_from_id")
+                new_tid = enriched.get("af_team_to_id")
+                changed = (
+                    (new_pid and not before_pid) or
+                    (new_fid and not before_fid) or
+                    (new_tid and not before_tid)
                 )
-                updated += 1
-            else:
-                skipped += 1
+                if changed and not dry_run:
+                    update_transfer_af_ids(aid, new_pid, new_fid, new_tid)
+                    print(f"   ✅ {aid[:12]} | {data['player_name']} | "
+                          f"player={new_pid} from={new_fid} to={new_tid}")
+                    updated += 1
+                else:
+                    skipped += 1
+        print(f"🏁 Backfill concluído: {updated} atualizados, {skipped} sem dados/inalterados")
 
-    lines.append(f"\n✅ Concluído: {updated} atualizados, {skipped} sem dados, {already} já tinham ids")
-    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+    import asyncio
+    asyncio.create_task(_run_backfill())
+    return HTMLResponse(
+        f"<pre>🚀 Backfill iniciado em background: {len(rows)} registros.\n"
+        f"Acompanhe nos logs do Railway.\n"
+        f"(dry_run={'sim' if dry_run else 'não'})</pre>"
+    )
 
 
 @app.get("/api/club-logo")
@@ -3485,6 +3485,3 @@ async def api_player_photo(name: str, debug: str = ""):
     # Só cacheia se encontrou foto real
     if photo_url:
         set_player_photo(name_norm, photo_url)
-    if not photo_url:
-        return Response(status_code=404)
-    return RedirectResponse(photo_url, status_code=302)
