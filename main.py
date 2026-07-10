@@ -3099,4 +3099,237 @@ async def api_test_af():
             lines.append(f"Plano: {acct.get('subscription', {}).get('plan','?')}")
             requests_info = acct.get('requests', {})
             lines.append(f"Requests: {requests_info.get('current','?')} / {requests_info.get('limit_day','?')} hoje")
-            errors = status_json.get(
+            errors = status_json.get("errors") or {}
+            if errors:
+                lines.append(f"⚠️ Erros API: {errors}")
+
+            # 2. Busca Mohamed Salah (deve sempre ter resultado)
+            r_salah = await client.get(f"{AF_BASE}/players",
+                params={"search": "Mohamed Salah", "season": "2024"})
+            salah_json = r_salah.json()
+            salah_results = salah_json.get("response") or []
+            lines.append(f"\nBusca 'Mohamed Salah' (2024): {len(salah_results)} resultado(s)")
+            if salah_results:
+                p = salah_results[0].get("player", {})
+                lines.append(f"  → {p.get('name')} | foto: {p.get('photo','')[:60]}")
+            else:
+                lines.append(f"  → Sem resultados. Erros: {salah_json.get('errors')}")
+                lines.append(f"  → Paging: {salah_json.get('paging')}")
+                lines.append(f"  → HTTP status: {r_salah.status_code}")
+    except Exception as e:
+        lines.append(f"❌ Exceção: {type(e).__name__}: {e}")
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+
+
+
+@app.get("/api/admin/warm-saudi-teams")
+async def api_warm_saudi_teams():
+    hdrs = _af_headers()
+    if not hdrs:
+        return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
+    lines = []
+    try:
+        async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
+            teams = []
+            for _s in ("2025", "2024", "2023"):
+                r = await client.get(
+                    f"{AF_BASE}/teams",
+                    params={"league": AF_SAUDI_LEAGUE, "season": _s},
+                )
+                teams = r.json().get("response") or []
+                if teams:
+                    lines.append(f"Season: {_s} ({len(teams)} times)")
+                    break
+        for t in teams:
+            team = t.get("team") or {}
+            tname = team.get("name") or ""
+            logo  = team.get("logo") or ""
+            if tname and logo:
+                nn = _logo_norm(tname)
+                set_club_logo(nn, logo)
+                lines.append(f"{nn}: {logo}")
+                # Também armazena nome curto sem sufixos de país/tipo
+                import re as _re2
+                nn_short = _re2.sub(
+                    r"\b(saudi fc|saudi sc|fc|sc|cf|united|city|club|football|sporting)\b",
+                    "", nn
+                ).strip()
+                if nn_short and nn_short != nn:
+                    set_club_logo(nn_short, logo)
+                    lines.append(f"  alias: {nn_short}")
+        return HTMLResponse(
+            f"<pre>✅ {len(teams)} times cacheados\n" + "\n".join(lines) + "</pre>"
+        )
+    except Exception as e:
+        return HTMLResponse(f"<pre>❌ Erro: {e}</pre>")
+
+
+
+@app.get("/api/admin/backfill-af-ids")
+async def api_backfill_af_ids(limit: int = 200, dry_run: str = ""):
+    """Backfill af_player_id / af_team_from_id / af_team_to_id para transfer_meta
+    existentes que foram criados antes do plano Pro (ficaram com IDs nulos).
+
+    Parâmetros:
+      limit   — máximo de registros a processar (padrão 200)
+      dry_run — qualquer valor ativa modo somente-leitura (mostra o que seria feito)
+    """
+    from database import get_transfers_missing_af_ids, update_transfer_af_ids
+    from transfer_processor import enrich_with_af_ids
+
+    hdrs = _af_headers()
+    if not hdrs:
+        return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
+
+    rows = get_transfers_missing_af_ids()
+    rows = rows[:limit]
+    lines = [f"📋 {len(rows)} registros sem af_ids (limit={limit}, dry_run={'sim' if dry_run else 'não'})"]
+    updated = skipped = already = 0
+
+    async with httpx.AsyncClient(timeout=12.0, headers=hdrs) as client:
+        for row in rows:
+            aid = row["article_id"]
+            before = {
+                "af_player_id":    row.get("af_player_id"),
+                "af_team_from_id": row.get("af_team_from_id"),
+                "af_team_to_id":   row.get("af_team_to_id"),
+            }
+            # Só busca se ainda há algum campo null
+            if all(before[k] for k in before):
+                already += 1
+                continue
+
+            data = {
+                "player_name":  row.get("player_name") or "",
+                "club_from":    row.get("club_from") or "",
+                "club_to":      row.get("club_to") or "",
+                "af_player_id":    row.get("af_player_id"),
+                "af_team_from_id": row.get("af_team_from_id"),
+                "af_team_to_id":   row.get("af_team_to_id"),
+            }
+            try:
+                enriched = await enrich_with_af_ids(data, client)
+            except Exception as e:
+                lines.append(f"  ❌ {aid[:12]} erro: {e}")
+                skipped += 1
+                continue
+
+            new_pid  = enriched.get("af_player_id")
+            new_fid  = enriched.get("af_team_from_id")
+            new_tid  = enriched.get("af_team_to_id")
+            changed = (
+                (new_pid  and not before["af_player_id"])  or
+                (new_fid  and not before["af_team_from_id"]) or
+                (new_tid  and not before["af_team_to_id"])
+            )
+            if changed:
+                if not dry_run:
+                    update_transfer_af_ids(aid, new_pid, new_fid, new_tid)
+                label = "✅" if not dry_run else "🔍(dry)"
+                lines.append(
+                    f"  {label} {aid[:12]} | {data['player_name']} | "
+                    f"player={new_pid} from={new_fid} to={new_tid}"
+                )
+                updated += 1
+            else:
+                skipped += 1
+
+    lines.append(f"\n✅ Concluído: {updated} atualizados, {skipped} sem dados, {already} já tinham ids")
+    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+
+
+@app.get("/api/club-logo")
+async def api_club_logo(name: str):
+    name_norm = _logo_norm(name)
+    cached = get_club_logo(name_norm)
+    if cached is None:
+        logo_url = ""
+        hdrs = _af_headers()
+        if hdrs:
+            try:
+                import unicodedata as _ud2
+                def _af_n(s):
+                    nfd = _ud2.normalize("NFD", (s or "").strip())
+                    return "".join(c for c in nfd if _ud2.category(c) != "Mn").lower()
+                async with httpx.AsyncClient(timeout=7.0, headers=hdrs) as client:
+                    r = await client.get(
+                        f"{AF_BASE}/teams",
+                        params={"search": _af_n(name)},
+                    )
+                    results = r.json().get("response") or []
+                    if results:
+                        saudi  = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
+                        name_l = _af_n(name)
+                        exact  = [t for t in results if _af_n((t.get("team") or {}).get("name","")) == name_l]
+                        chosen = (exact[0] if exact else (saudi[0] if saudi else results[0])).get("team") or {}
+                        logo_url = chosen.get("logo") or ""
+            except Exception as e:
+                print(f"api-football logo error for '{name}': {e}")
+        # Só cacheia se encontrou logo real — falhas serão retentadas na próxima carga
+        if logo_url:
+            set_club_logo(name_norm, logo_url)
+            cached = logo_url
+    if not cached:
+        return Response(status_code=404)
+    return RedirectResponse(cached, status_code=302)
+
+
+@app.get("/api/player-photo")
+async def api_player_photo(name: str, debug: str = ""):
+    import unicodedata as _ud
+    nfd = _ud.normalize("NFD", name.lower().strip())
+    name_norm = "".join(c for c in nfd if _ud.category(c) != "Mn")
+    cached = get_player_photo(name_norm)
+    if cached is not None and not debug:
+        if not cached:
+            return Response(status_code=404)
+        return RedirectResponse(cached, status_code=302)
+    photo_url = ""
+    debug_lines = [f"name={name!r}  name_norm={name_norm!r}"]
+    hdrs = _af_headers()
+    if not hdrs:
+        if debug:
+            return HTMLResponse("<pre>❌ API_FOOTBALL_KEY não configurado</pre>")
+        return Response(status_code=404)
+    try:
+        import unicodedata as _ud3
+        def _af_name(s):
+            nfd2 = _ud3.normalize("NFD", (s or "").strip())
+            return "".join(c for c in nfd2 if _ud3.category(c) != "Mn")
+        search_name = _af_name(name)
+        debug_lines.append(f"search_name={search_name!r}")
+        async with httpx.AsyncClient(timeout=10.0, headers=hdrs) as client:
+            results = []
+            last_raw = {}
+            # Pro plan: sem restrição de liga — tenta temporadas 2025/2024/2023
+            for _season in ("2025", "2024", "2023"):
+                r = await client.get(
+                    f"{AF_BASE}/players",
+                    params={"search": search_name, "season": _season},
+                )
+                last_raw = r.json()
+                results = last_raw.get("response") or []
+                debug_lines.append(
+                    f"season={_season} (sem league) → HTTP {r.status_code}  "
+                    f"results={len(results)}  "
+                    f"errors={last_raw.get('errors')}  "
+                    f"paging={last_raw.get('paging')}"
+                )
+                if results:
+                    break
+            if results:
+                p = results[0].get("player") or {}
+                photo_url = p.get("photo") or ""
+                debug_lines.append(f"✅ player={p.get('name')}  photo={photo_url}")
+            else:
+                debug_lines.append("❌ Nenhum resultado em nenhuma temporada")
+    except Exception as e:
+        debug_lines.append(f"❌ Exceção: {type(e).__name__}: {e}")
+    if debug:
+        return HTMLResponse("<pre>" + "\n".join(debug_lines) + "</pre>")
+    # Só cacheia se encontrou foto real
+    if photo_url:
+        set_player_photo(name_norm, photo_url)
+    if not photo_url:
+        return Response(status_code=404)
+    return RedirectResponse(photo_url, status_code=302)

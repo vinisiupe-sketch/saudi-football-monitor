@@ -527,6 +527,7 @@ def upsert_transfer_meta(article_id: str, data: dict):
         ))
 
 
+
 def get_transfers_missing_af_ids() -> list[dict]:
     """Retorna transfer_meta onde pelo menos um af_id está ausente.
     Inclui campos necessários para chamar enrich_with_af_ids()."""
@@ -809,4 +810,58 @@ def get_low_score_articles(hours: int = 24, limit: int = 200):
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("""            SELECT * FROM articles
-            WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::
+            WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::TEXT
+              AND is_duplicate = 0
+              AND relevance_score < 0.34
+            ORDER BY relevance_score DESC, collected_at DESC LIMIT %s
+        """, (hours, limit))
+        return [dict(r) for r in c.fetchall()]
+
+
+def get_recent_articles(hours: int = 24, tier: str = None, limit: int = 100):
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        query = """
+            SELECT * FROM articles
+            WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::TEXT
+              AND is_duplicate = 0
+        """
+        params = [hours]
+        if tier:
+            query += " AND source_tier = %s"
+            params.append(tier)
+        query += " ORDER BY source_tier ASC, relevance_score DESC, collected_at DESC LIMIT %s"
+        params.append(limit)
+        c.execute(query, params)
+        return [dict(r) for r in c.fetchall()]
+
+
+def save_summary(summary: dict):
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""            INSERT INTO summaries (generated_at, period_start, period_end, summary_pt, article_ids)
+            VALUES (%(generated_at)s, %(period_start)s, %(period_end)s, %(summary_pt)s, %(article_ids)s)
+        """, {**summary, "article_ids": json.dumps(summary["article_ids"])})
+
+
+def get_latest_summary():
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT * FROM summaries ORDER BY generated_at DESC LIMIT 1")
+        row = c.fetchone()
+        return dict(row) if row else None
+
+
+def log_collection(log: dict):
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""            INSERT INTO collection_logs (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
+            VALUES (%(ran_at)s, %(sources_ok)s, %(sources_fail)s, %(articles_new)s, %(articles_dup)s, %(error_msg)s)
+        """, log)
+
+
+def get_collection_logs(limit: int = 20):
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("SELECT * FROM collection_logs ORDER BY ran_at DESC LIMIT %s", (limit,))
+        return [dict(r) for r in c.fetchall()]
