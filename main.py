@@ -3227,25 +3227,34 @@ async def api_warm_saudi_teams():
 
 
 @app.get("/api/admin/reset-team-ids")
-async def api_reset_team_ids(confirm: str = ""):
-    """Limpa af_team_from_id e af_team_to_id para forçar reprocessamento com lógica corrigida.
-    Requer confirm=yes para executar.
+async def api_reset_team_ids(confirm: str = "", include_players: str = ""):
+    """Limpa af_team_from/to_id (e opcionalmente af_player_id) para reprocessamento.
+    Parâmetros:
+      confirm=yes          — obrigatório para executar
+      include_players=yes  — também reseta af_player_id (necessário quando time estava errado)
     """
     if confirm.lower() != "yes":
         return HTMLResponse(
-            "<pre>\u26a0\ufe0f  Isso vai apagar TODOS os IDs de time (af_team_from_id, af_team_to_id).\n"
+            "<pre>\u26a0\ufe0f  Isso vai apagar TODOS os IDs de time.\n"
             "Para confirmar: /api/admin/reset-team-ids?confirm=yes\n"
-            "Depois rode /api/admin/warm-saudi-teams e /api/admin/backfill-af-ids</pre>"
+            "Para também resetar fotos: ?confirm=yes&include_players=yes\n"
+            "Depois: warm-saudi-teams → backfill-af-ids</pre>"
         )
     with get_conn() as conn:
         c = conn.cursor()
-        c.execute("UPDATE transfer_meta SET af_team_from_id = NULL, af_team_to_id = NULL")
+        if include_players.lower() == "yes":
+            c.execute("UPDATE transfer_meta SET af_team_from_id = NULL, af_team_to_id = NULL, af_player_id = NULL")
+            label = "IDs de time E jogador"
+        else:
+            c.execute("UPDATE transfer_meta SET af_team_from_id = NULL, af_team_to_id = NULL")
+            label = "IDs de time"
         n = c.rowcount
     return HTMLResponse(
-        f"<pre>\u2705 {n} registros com IDs de time resetados.\n"
-        "Agora rode:\n"
-        "  1. /api/admin/warm-saudi-teams\n"
-        "  2. /api/admin/backfill-af-ids</pre>"
+        f"<pre>\u2705 {n} registros: {label} resetados.\n"
+        "Agora rode em ordem:\n"
+        "  1. /api/admin/reset-team-ids?confirm=yes&include_players=yes  (ja rodou)\n"
+        "  2. /api/admin/warm-saudi-teams\n"
+        "  3. /api/admin/backfill-af-ids</pre>"
     )
 
 
