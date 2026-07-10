@@ -131,11 +131,39 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
 
     from difflib import SequenceMatcher as _SQT
 
-    def _pick_team(results: list, target_name: str) -> dict:
+    # Mapeamento: nacionalidade em português → nome de país na api-football
+    _NAT_MAP = {
+        "português": "Portugal", "portugal": "Portugal",
+        "brasileiro": "Brazil", "brasil": "Brazil",
+        "espanhol": "Spain", "espanha": "Spain",
+        "inglês": "England", "england": "England",
+        "alemão": "Germany", "alemanha": "Germany",
+        "italiano": "Italy", "itália": "Italy", "italia": "Italy",
+        "francês": "France", "franca": "France", "france": "France",
+        "argentino": "Argentina", "argentina": "Argentina",
+        "uruguaio": "Uruguay", "uruguai": "Uruguay",
+        "colombiano": "Colombia", "colombia": "Colombia",
+        "marroquino": "Morocco", "marrocos": "Morocco",
+        "egípcio": "Egypt", "egito": "Egypt",
+        "saudita": "Saudi Arabia", "arabia saudita": "Saudi Arabia",
+        "croata": "Croatia", "croácia": "Croatia",
+        "sérvio": "Serbia", "sérvia": "Serbia",
+        "holandês": "Netherlands", "países baixos": "Netherlands",
+        "belga": "Belgium", "bélgica": "Belgium",
+        "japonês": "Japan", "japão": "Japan",
+    }
+
+    def _pick_team(results: list, target_name: str, nationality_hint: str = "") -> dict:
         """Seleciona o melhor time por scoring: país + similaridade de nome.
-        Evita que um time de país obscuro (Aruba, etc.) ganhe apenas por nome exato
-        quando existe um homônimo de liga maior.
+        nationality_hint: nationalidade do jogador em português (ex: 'Portugal')
+        → usada para dar bônus ao país de origem do jogador quando não é saudita.
         """
+        import unicodedata as _udn2
+        def _simp(s):
+            nfd = _udn2.normalize("NFD", (s or "").lower().strip())
+            return "".join(c for c in nfd if _udn2.category(c) != "Mn")
+
+        hint_country = _NAT_MAP.get(_simp(nationality_hint), "")
         target_low = _af_norm(target_name).lower()
         best_t, best_score = {}, -1.0
         for r in results:
@@ -143,11 +171,14 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
             tname = _af_norm(t.get("name") or "").lower()
             country = t.get("country") or ""
             c_score = _COUNTRY_SCORE.get(country, 5)
+            # Bônus por nacionalidade do jogador (clube de origem provável)
+            if hint_country and country == hint_country:
+                c_score += 120
             # Similaridade entre o nome buscado e o nome retornado
             sim = _SQT(None, target_low, tname).ratio()
             # Bônus se um contém o outro (ex: "Sporting" ⊂ "Sporting CP")
             if target_low in tname or tname in target_low:
-                sim = max(sim, 0.80)
+                sim = max(sim, 0.82)
             total = (c_score * 1.5) + (sim * 100)
             if total > best_score:
                 best_score = total
@@ -163,7 +194,7 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                     params={"search": _search}, headers=hdrs, timeout=8.0)
                 results = r.json().get("response") or []
                 if results:
-                    chosen = _pick_team(results, cfrom)
+                    chosen = _pick_team(results, cfrom, data.get('player_nationality') or '')
                     tid = str(chosen.get("id") or "")
                     if tid:
                         data["af_team_from_id"] = tid
@@ -181,7 +212,7 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                     params={"search": _search}, headers=hdrs, timeout=8.0)
                 results = r.json().get("response") or []
                 if results:
-                    chosen = _pick_team(results, cto)
+                    chosen = _pick_team(results, cto, '')
                     tid = str(chosen.get("id") or "")
                     if tid:
                         data["af_team_to_id"] = tid
@@ -221,23 +252,36 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
             return list(dict.fromkeys(variants))
 
         def _best_player_match(results: list, target_norm: str) -> str:
-            """Retorna ID do melhor match fuzzy. Mínimo de confiança: 0.55."""
+            """Retorna ID do melhor match fuzzy com foco em SOBRENOME.
+            
+            Estratégia: sobrenome é o identificador primário (peso 70%).
+            - Se sobrenomes diferem muito (score < 0.65), rejeita o candidato.
+            - Evita confundir 'Trincao' com 'Conceicao'.
+            Mínimo de confiança final: 0.60.
+            """
             best_id, best_score = "", 0.0
             target_low = target_norm.lower()
             t_parts = target_low.split()
+            t_surname = t_parts[-1] if t_parts else ""
+            t_first   = t_parts[0] if t_parts else ""
             for item in results:
                 p = item.get("player") or {}
                 rname = _af_norm(p.get("name") or "").lower()
-                score = _SQ(None, target_low, rname).ratio()
-                # Sobrenome vs sobrenome (mais estável em transliterações)
                 r_parts = rname.split()
-                if t_parts and r_parts:
-                    last_score = _SQ(None, t_parts[-1], r_parts[-1]).ratio()
-                    score = max(score, last_score * 0.9)
+                r_surname = r_parts[-1] if r_parts else ""
+                r_first   = r_parts[0] if r_parts else ""
+                # Sobrenome: identificador primário (descarta se muito diferente)
+                sur_score = _SQ(None, t_surname, r_surname).ratio()
+                if sur_score < 0.62:
+                    continue  # sobrenomes incompatíveis → rejeita
+                full_score = _SQ(None, target_low, rname).ratio()
+                first_score = _SQ(None, t_first, r_first).ratio() if t_first and r_first else 0.5
+                # Score composto: sobrenome (60%) + nome completo (30%) + primeiro nome (10%)
+                score = sur_score * 0.60 + full_score * 0.30 + first_score * 0.10
                 if score > best_score:
                     best_score = score
                     best_id = str(p.get("id") or "")
-            return best_id if best_score >= 0.55 else ""
+            return best_id if best_score >= 0.60 else ""
 
         search_variants = _name_variants(pname_norm)
 

@@ -2495,7 +2495,9 @@ async def _page_transferencias_impl(request: Request):
                 _fj = _norm(_g2.get("club_from") or "")
                 _tj = _norm(_g2.get("club_to") or "")
                 _to_ok  = (not _ti or not _tj or _ti == _tj)
-                _frm_ok = (not _fi or not _fj or _fi == _fj or _name_sim(_fi, _fj))
+                # Substring check: "Lens" ⊂ "RC Lens" → mesmo clube
+                _fi_in_fj = bool(_fi) and bool(_fj) and (_fi in _fj or _fj in _fi)
+                _frm_ok = (not _fi or not _fj or _fi == _fj or _name_sim(_fi, _fj) or _fi_in_fj)
                 if _to_ok and _frm_ok and _name_sim(_ni, _nj):
                     # Merge _g2 into _g
                     _g["sources"].extend(_g2["sources"])
