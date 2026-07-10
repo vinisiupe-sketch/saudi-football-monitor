@@ -100,7 +100,11 @@ async def normalize_player_name(raw_name: str, client: httpx.AsyncClient,
 async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
     """Busca IDs de jogador e clubes na api-football.
     Usa nome sem acentos (api-football não normaliza Unicode).
-    Tenta múltiplas temporadas sem filtro de liga (jogador pode ainda não estar na Saudi League)."""
+
+    IMPORTANTE: api-football exige 'league' OU 'team' na busca por nome de jogador.
+    Encontramos IDs de clube PRIMEIRO, depois usamos esses IDs para buscar o jogador.
+    Fallback: ligas europeias conhecidas + Saudi Pro League (307).
+    """
     import os, unicodedata as _ud
 
     key = os.getenv("API_FOOTBALL_KEY", "")
@@ -113,31 +117,6 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
         """Remove acentos para busca na api-football."""
         nfd = _ud.normalize("NFD", (s or "").strip())
         return "".join(c for c in nfd if _ud.category(c) != "Mn")
-
-    # ── Jogador ──────────────────────────────────────────────────────────
-    pname = data.get("player_name") or ""
-    if pname and not data.get("af_player_id"):
-        pname_norm = _af_norm(pname)
-        pid_found = ""
-        # Tenta: nome normalizado, temporadas 2025/2024/2023, sem filtro de liga
-        for _search_name in ([pname_norm] if pname_norm != pname else [pname_norm]):
-            if pid_found:
-                break
-            for _season in ("2025", "2024", "2023"):
-                try:
-                    r = await client.get(f"{AF}/players",
-                        params={"search": _search_name, "season": _season},
-                        headers=hdrs, timeout=10.0)
-                    results = r.json().get("response") or []
-                    if results:
-                        pid_found = str((results[0].get("player") or {}).get("id") or "")
-                        if pid_found:
-                            print(f"   📸 AF player: '{pname}' → id {pid_found} (season {_season})")
-                            break
-                except Exception as e:
-                    print(f"   ⚠️  AF player '{pname}' season {_season}: {type(e).__name__}")
-        if pid_found:
-            data["af_player_id"] = pid_found
 
     # ── Clube de origem ──────────────────────────────────────────────────
     cfrom = data.get("club_from") or ""
@@ -179,6 +158,52 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                         break
             except Exception as e:
                 print(f"   ⚠️  AF team_to '{cto}': {type(e).__name__}")
+
+    # ── Jogador (requer league ou team — usa IDs dos clubes acima) ───────
+    pname = data.get("player_name") or ""
+    if pname and not data.get("af_player_id"):
+        pname_norm = _af_norm(pname)
+        pid_found = ""
+        team_ids = [tid for tid in [data.get("af_team_from_id"), data.get("af_team_to_id")] if tid]
+        # Fallback: Saudi(307), Premier(39), La Liga(140), Serie A(135), Bundesliga(78), Ligue1(61), Primeira(94)
+        FALLBACK_LEAGUES = ["307", "39", "140", "135", "78", "61", "94", "88"]
+
+        for _season in ("2025", "2024", "2023"):
+            if pid_found:
+                break
+            for tid in team_ids:
+                try:
+                    r = await client.get(f"{AF}/players",
+                        params={"search": pname_norm, "team": tid, "season": _season},
+                        headers=hdrs, timeout=10.0)
+                    results = r.json().get("response") or []
+                    if results:
+                        pid_found = str((results[0].get("player") or {}).get("id") or "")
+                        if pid_found:
+                            print(f"   📸 AF player: '{pname}' → id {pid_found} (team={tid} s={_season})")
+                            break
+                except Exception as e:
+                    print(f"   ⚠️  AF player '{pname}' team={tid} s={_season}: {type(e).__name__}")
+            if pid_found:
+                break
+            for league in FALLBACK_LEAGUES:
+                try:
+                    r = await client.get(f"{AF}/players",
+                        params={"search": pname_norm, "league": league, "season": _season},
+                        headers=hdrs, timeout=10.0)
+                    results = r.json().get("response") or []
+                    if results:
+                        pid_found = str((results[0].get("player") or {}).get("id") or "")
+                        if pid_found:
+                            print(f"   📸 AF player: '{pname}' → id {pid_found} (league={league} s={_season})")
+                            break
+                except Exception as e:
+                    print(f"   ⚠️  AF player '{pname}' league={league} s={_season}: {type(e).__name__}")
+            if pid_found:
+                break
+
+        if pid_found:
+            data["af_player_id"] = pid_found
 
     return data
 
