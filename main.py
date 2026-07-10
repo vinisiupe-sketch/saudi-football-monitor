@@ -2490,7 +2490,7 @@ async def _page_transferencias_impl(request: Request):
                 _fj = _norm(_g2.get("club_from") or "")
                 _tj = _norm(_g2.get("club_to") or "")
                 _to_ok  = (not _ti or not _tj or _ti == _tj)
-                _frm_ok = (not _fi or not _fj or _fi == _fj)
+                _frm_ok = (not _fi or not _fj or _fi == _fj or _name_sim(_fi, _fj))
                 if _to_ok and _frm_ok and _name_sim(_ni, _nj):
                     # Merge _g2 into _g
                     _g["sources"].extend(_g2["sources"])
@@ -2511,6 +2511,13 @@ async def _page_transferencias_impl(request: Request):
                     if not _fi and _fj:
                         _g["club_from"] = _g2["club_from"]
                         _fi = _fj
+                    # Absorve af_ids se o grupo ainda não os tem
+                    if not _g.get("af_player_id") and _g2.get("af_player_id"):
+                        _g["af_player_id"] = _g2["af_player_id"]
+                    if not _g.get("af_team_from_id") and _g2.get("af_team_from_id"):
+                        _g["af_team_from_id"] = _g2["af_team_from_id"]
+                    if not _g.get("af_team_to_id") and _g2.get("af_team_to_id"):
+                        _g["af_team_to_id"] = _g2["af_team_to_id"]
                     _used.add(_j)
                     _any_merge = True
             _merged.append(_g)
@@ -3174,6 +3181,32 @@ async def api_warm_saudi_teams():
     except Exception as e:
         return HTMLResponse(f"<pre>❌ Erro: {e}</pre>")
 
+
+
+@app.post("/api/admin/set-player-af-id")
+async def admin_set_player_af_id(request: Request):
+    """Define manualmente o af_player_id para todos os registros de um jogador.
+    Body: {"player_name": "Qasim Lajami", "af_player_id": "43940"}
+    """
+    body = await request.json()
+    player_name  = (body.get("player_name") or "").strip()
+    af_player_id = str(body.get("af_player_id") or "").strip()
+    if not player_name or not af_player_id:
+        return JSONResponse({"error": "player_name e af_player_id são obrigatórios"}, status_code=400)
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE transfer_meta SET af_player_id = %s WHERE player_name ILIKE %s",
+            (af_player_id, f"%{player_name}%")
+        )
+        n = c.rowcount
+    # Limpa cache de foto para forçar reload com novo ID
+    from database import set_player_photo
+    import unicodedata as _ud2
+    nfd = _ud2.normalize("NFD", player_name.lower())
+    name_norm = "".join(c for c in nfd if _ud2.category(c) != "Mn")
+    set_player_photo(name_norm, f"https://media.api-sports.io/football/players/{af_player_id}.png")
+    return JSONResponse({"ok": True, "updated": n, "player_name": player_name, "af_player_id": af_player_id})
 
 
 @app.get("/api/admin/backfill-af-ids")

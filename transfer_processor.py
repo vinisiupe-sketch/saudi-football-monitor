@@ -128,8 +128,10 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                 results = r.json().get("response") or []
                 if results:
                     cfrom_low = _af_norm(cfrom).lower()
-                    exact = [t for t in results if _af_norm((t.get("team") or {}).get("name", "")).lower() == cfrom_low]
-                    chosen = (exact[0] if exact else results[0]).get("team") or {}
+                    exact_saudi = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cfrom_low and (t.get("team") or {}).get("country") == "Saudi Arabia"]
+                    exact_any   = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cfrom_low]
+                    saudi_any   = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
+                    chosen = (exact_saudi[0] if exact_saudi else (saudi_any[0] if saudi_any else (exact_any[0] if exact_any else results[0]))).get("team") or {}
                     tid = str(chosen.get("id") or "")
                     if tid:
                         data["af_team_from_id"] = tid
@@ -147,10 +149,11 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                     params={"search": _search}, headers=hdrs, timeout=8.0)
                 results = r.json().get("response") or []
                 if results:
-                    saudi = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
-                    cto_low = _af_norm(cto).lower()
-                    exact = [t for t in results if _af_norm((t.get("team") or {}).get("name", "")).lower() == cto_low]
-                    chosen = (exact[0] if exact else (saudi[0] if saudi else results[0])).get("team") or {}
+                    cto_low     = _af_norm(cto).lower()
+                    exact_saudi = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cto_low and (t.get("team") or {}).get("country") == "Saudi Arabia"]
+                    exact_any   = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cto_low]
+                    saudi_any   = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
+                    chosen = (exact_saudi[0] if exact_saudi else (saudi_any[0] if saudi_any else (exact_any[0] if exact_any else results[0]))).get("team") or {}
                     tid = str(chosen.get("id") or "")
                     if tid:
                         data["af_team_to_id"] = tid
