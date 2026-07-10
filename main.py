@@ -2365,11 +2365,12 @@ async def _page_transferencias_impl(request: Request):
         cfg = _club_cfg(name)
         enc = quote(name, safe="")
         title_safe = name.replace('"', "&quot;").replace("&", "&amp;")
-        # Prioridade 1: logo cacheado via warm-saudi-teams (IDs corretos, season 2025)
-        cached_logo = get_club_logo(_logo_norm(name))
-        img_url = cached_logo or (
-            f"https://media.api-sports.io/football/teams/{af_id}.png" if af_id else None
-        )
+        # Prioridade: af_id (backfill correto) > cache warm-saudi > badge JS
+        # Cache pode ter entradas stale do JS antigo — af_id do backfill é mais confiável
+        if af_id:
+            img_url = f"https://media.api-sports.io/football/teams/{af_id}.png"
+        else:
+            img_url = get_club_logo(_logo_norm(name)) or None
         if img_url:
             fallback_html = (
                 f"<span class=\'club-crest\' "
