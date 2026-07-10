@@ -3171,15 +3171,18 @@ async def api_warm_saudi_teams():
                 nn = _logo_norm(tname)
                 set_club_logo(nn, logo)
                 lines.append(f"{nn}: {logo}")
-                # Também armazena nome curto sem sufixos de país/tipo
+                # Aliases: remove sufixos, cidades sauditas e variações
                 import re as _re2
-                nn_short = _re2.sub(
-                    r"\b(saudi fc|saudi sc|fc|sc|cf|united|city|club|football|sporting)\b",
-                    "", nn
-                ).strip()
-                if nn_short and nn_short != nn:
-                    set_club_logo(nn_short, logo)
-                    lines.append(f"  alias: {nn_short}")
+                _STRIP = (
+                    r"\b(saudi fc|saudi sc|fc|sc|cf|united|city|club|football|sporting"  # sufixos
+                    r"|jeddah|riyadh|mecca|medina|dammam|khobar|abha|taif|tabuk|hail|jizan)\b"  # cidades
+                )
+                nn_alias = _re2.sub(_STRIP, "", nn, flags=_re2.I).strip()
+                nn_alias = _re2.sub(r"\s+", " ", nn_alias).strip()
+                for _alias in [nn_alias, " ".join(nn.split()[:2])]:
+                    if _alias and _alias != nn and len(_alias) >= 3:
+                        set_club_logo(_alias, logo)
+                        lines.append(f"  alias: {_alias}")
         return HTMLResponse(
             f"<pre>✅ {len(teams)} times cacheados\n" + "\n".join(lines) + "</pre>"
         )

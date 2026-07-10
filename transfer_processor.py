@@ -118,6 +118,42 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
         nfd = _ud.normalize("NFD", (s or "").strip())
         return "".join(c for c in nfd if _ud.category(c) != "Mn")
 
+    # Pontuação de país para seleção de time (evita times de países obscuros)
+    _COUNTRY_SCORE = {
+        "Saudi Arabia": 200,
+        "England": 90, "Spain": 90, "Germany": 90, "France": 90, "Italy": 90,
+        "Brazil": 88, "Portugal": 88, "Netherlands": 82, "Belgium": 78,
+        "Argentina": 75, "Uruguay": 70, "Colombia": 65, "Mexico": 62,
+        "Turkey": 60, "Russia": 58, "Ukraine": 55, "Greece": 52,
+        "Japan": 50, "South Korea": 48, "Morocco": 48, "Egypt": 45,
+        "Qatar": 42, "UAE": 42, "Bahrain": 38, "Kuwait": 38, "Oman": 35,
+    }
+
+    from difflib import SequenceMatcher as _SQT
+
+    def _pick_team(results: list, target_name: str) -> dict:
+        """Seleciona o melhor time por scoring: país + similaridade de nome.
+        Evita que um time de país obscuro (Aruba, etc.) ganhe apenas por nome exato
+        quando existe um homônimo de liga maior.
+        """
+        target_low = _af_norm(target_name).lower()
+        best_t, best_score = {}, -1.0
+        for r in results:
+            t = r.get("team") or {}
+            tname = _af_norm(t.get("name") or "").lower()
+            country = t.get("country") or ""
+            c_score = _COUNTRY_SCORE.get(country, 5)
+            # Similaridade entre o nome buscado e o nome retornado
+            sim = _SQT(None, target_low, tname).ratio()
+            # Bônus se um contém o outro (ex: "Sporting" ⊂ "Sporting CP")
+            if target_low in tname or tname in target_low:
+                sim = max(sim, 0.80)
+            total = (c_score * 1.5) + (sim * 100)
+            if total > best_score:
+                best_score = total
+                best_t = t
+        return best_t
+
     # ── Clube de origem ──────────────────────────────────────────────────
     cfrom = data.get("club_from") or ""
     if cfrom and not data.get("af_team_from_id"):
@@ -127,11 +163,7 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                     params={"search": _search}, headers=hdrs, timeout=8.0)
                 results = r.json().get("response") or []
                 if results:
-                    cfrom_low = _af_norm(cfrom).lower()
-                    exact_saudi = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cfrom_low and (t.get("team") or {}).get("country") == "Saudi Arabia"]
-                    exact_any   = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cfrom_low]
-                    saudi_any   = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
-                    chosen = (exact_saudi[0] if exact_saudi else (saudi_any[0] if saudi_any else (exact_any[0] if exact_any else results[0]))).get("team") or {}
+                    chosen = _pick_team(results, cfrom)
                     tid = str(chosen.get("id") or "")
                     if tid:
                         data["af_team_from_id"] = tid
@@ -149,11 +181,7 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
                     params={"search": _search}, headers=hdrs, timeout=8.0)
                 results = r.json().get("response") or []
                 if results:
-                    cto_low     = _af_norm(cto).lower()
-                    exact_saudi = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cto_low and (t.get("team") or {}).get("country") == "Saudi Arabia"]
-                    exact_any   = [t for t in results if _af_norm((t.get("team") or {}).get("name","")).lower() == cto_low]
-                    saudi_any   = [t for t in results if (t.get("team") or {}).get("country") == "Saudi Arabia"]
-                    chosen = (exact_saudi[0] if exact_saudi else (saudi_any[0] if saudi_any else (exact_any[0] if exact_any else results[0]))).get("team") or {}
+                    chosen = _pick_team(results, cto)
                     tid = str(chosen.get("id") or "")
                     if tid:
                         data["af_team_to_id"] = tid
