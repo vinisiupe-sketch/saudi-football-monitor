@@ -3193,6 +3193,29 @@ async def api_warm_saudi_teams():
 
 
 
+@app.get("/api/admin/reset-team-ids")
+async def api_reset_team_ids(confirm: str = ""):
+    """Limpa af_team_from_id e af_team_to_id para forçar reprocessamento com lógica corrigida.
+    Requer confirm=yes para executar.
+    """
+    if confirm.lower() != "yes":
+        return HTMLResponse(
+            "<pre>\u26a0\ufe0f  Isso vai apagar TODOS os IDs de time (af_team_from_id, af_team_to_id).\n"
+            "Para confirmar: /api/admin/reset-team-ids?confirm=yes\n"
+            "Depois rode /api/admin/warm-saudi-teams e /api/admin/backfill-af-ids</pre>"
+        )
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE transfer_meta SET af_team_from_id = NULL, af_team_to_id = NULL")
+        n = c.rowcount
+    return HTMLResponse(
+        f"<pre>\u2705 {n} registros com IDs de time resetados.\n"
+        "Agora rode:\n"
+        "  1. /api/admin/warm-saudi-teams\n"
+        "  2. /api/admin/backfill-af-ids</pre>"
+    )
+
+
 @app.get("/api/admin/set-player-af-id")
 async def admin_set_player_af_id_get(
     player_name: str = "",
