@@ -171,37 +171,85 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient) -> dict:
         # Fallback: Saudi(307), Premier(39), La Liga(140), Serie A(135), Bundesliga(78), Ligue1(61), Primeira(94)
         FALLBACK_LEAGUES = ["307", "39", "140", "135", "78", "61", "94", "88"]
 
+        import re as _re2
+        from difflib import SequenceMatcher as _SQ
+
+        def _name_variants(name_norm: str) -> list:
+            """Variantes de busca para lidar com transliterações árabes divergentes."""
+            parts = name_norm.split()
+            variants = [name_norm]
+            if len(parts) >= 2:
+                last = parts[-1]
+                if len(last) >= 3 and last != name_norm:
+                    variants.append(last)
+                # Sobrenome sem prefixo Al-/El-
+                last_stripped = _re2.sub(r"^(al|el)([-\s])", "", last, flags=_re2.I).strip()
+                if last_stripped and last_stripped != last and len(last_stripped) >= 3:
+                    variants.append(last_stripped)
+                # Primeiro nome como último recurso
+                first = parts[0]
+                if len(first) >= 4 and first != name_norm:
+                    variants.append(first)
+            return list(dict.fromkeys(variants))
+
+        def _best_player_match(results: list, target_norm: str) -> str:
+            """Retorna ID do melhor match fuzzy. Mínimo de confiança: 0.55."""
+            best_id, best_score = "", 0.0
+            target_low = target_norm.lower()
+            t_parts = target_low.split()
+            for item in results:
+                p = item.get("player") or {}
+                rname = _af_norm(p.get("name") or "").lower()
+                score = _SQ(None, target_low, rname).ratio()
+                # Sobrenome vs sobrenome (mais estável em transliterações)
+                r_parts = rname.split()
+                if t_parts and r_parts:
+                    last_score = _SQ(None, t_parts[-1], r_parts[-1]).ratio()
+                    score = max(score, last_score * 0.9)
+                if score > best_score:
+                    best_score = score
+                    best_id = str(p.get("id") or "")
+            return best_id if best_score >= 0.55 else ""
+
+        search_variants = _name_variants(pname_norm)
+
         for _season in ("2025", "2024", "2023"):
             if pid_found:
                 break
             for tid in team_ids:
-                try:
-                    r = await client.get(f"{AF}/players",
-                        params={"search": pname_norm, "team": tid, "season": _season},
-                        headers=hdrs, timeout=10.0)
-                    results = r.json().get("response") or []
-                    if results:
-                        pid_found = str((results[0].get("player") or {}).get("id") or "")
-                        if pid_found:
-                            print(f"   📸 AF player: '{pname}' → id {pid_found} (team={tid} s={_season})")
-                            break
-                except Exception as e:
-                    print(f"   ⚠️  AF player '{pname}' team={tid} s={_season}: {type(e).__name__}")
+                for _sv in search_variants:
+                    try:
+                        r = await client.get(f"{AF}/players",
+                            params={"search": _sv, "team": tid, "season": _season},
+                            headers=hdrs, timeout=10.0)
+                        results = r.json().get("response") or []
+                        if results:
+                            pid_found = _best_player_match(results, pname_norm)
+                            if pid_found:
+                                print(f"   📸 AF player: '{pname}' → id {pid_found} (team={tid} s={_season} q='{_sv}')")
+                                break
+                    except Exception as e:
+                        print(f"   ⚠️  AF player '{pname}' team={tid} s={_season}: {type(e).__name__}")
+                if pid_found:
+                    break
             if pid_found:
                 break
             for league in FALLBACK_LEAGUES:
-                try:
-                    r = await client.get(f"{AF}/players",
-                        params={"search": pname_norm, "league": league, "season": _season},
-                        headers=hdrs, timeout=10.0)
-                    results = r.json().get("response") or []
-                    if results:
-                        pid_found = str((results[0].get("player") or {}).get("id") or "")
-                        if pid_found:
-                            print(f"   📸 AF player: '{pname}' → id {pid_found} (league={league} s={_season})")
-                            break
-                except Exception as e:
-                    print(f"   ⚠️  AF player '{pname}' league={league} s={_season}: {type(e).__name__}")
+                for _sv in search_variants:
+                    try:
+                        r = await client.get(f"{AF}/players",
+                            params={"search": _sv, "league": league, "season": _season},
+                            headers=hdrs, timeout=10.0)
+                        results = r.json().get("response") or []
+                        if results:
+                            pid_found = _best_player_match(results, pname_norm)
+                            if pid_found:
+                                print(f"   📸 AF player: '{pname}' → id {pid_found} (league={league} s={_season} q='{_sv}')")
+                                break
+                    except Exception as e:
+                        print(f"   ⚠️  AF player '{pname}' league={league} s={_season}: {type(e).__name__}")
+                if pid_found:
+                    break
             if pid_found:
                 break
 

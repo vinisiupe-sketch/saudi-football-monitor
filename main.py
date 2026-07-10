@@ -3188,6 +3188,42 @@ async def api_warm_saudi_teams():
 
 
 
+@app.get("/api/admin/set-player-af-id")
+async def admin_set_player_af_id_get(
+    player_name: str = "",
+    af_player_id: str = "",
+):
+    """GET para uso no browser: /api/admin/set-player-af-id?player_name=Lajami&af_player_id=43940"""
+    player_name  = player_name.strip()
+    af_player_id = af_player_id.strip()
+    if not player_name and not af_player_id:
+        # Sem params: retorna formulário HTML
+        return HTMLResponse("""
+<html><body style="font-family:monospace;padding:24px">
+<h2>Set Player AF ID</h2>
+<form method="get">
+  <label>Player name (partial): <input name="player_name" size="30"></label><br><br>
+  <label>AF Player ID:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <input name="af_player_id" size="12"></label><br><br>
+  <button type="submit">Set ID</button>
+</form>
+</body></html>""")
+    if not player_name or not af_player_id:
+        return HTMLResponse("<pre>❌ player_name e af_player_id são obrigatórios</pre>", status_code=400)
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            "UPDATE transfer_meta SET af_player_id = %s WHERE player_name ILIKE %s",
+            (af_player_id, f"%{player_name}%")
+        )
+        n = c.rowcount
+    from database import set_player_photo
+    import unicodedata as _ud2
+    nfd = _ud2.normalize("NFD", player_name.lower())
+    name_norm = "".join(ch for ch in nfd if _ud2.category(ch) != "Mn")
+    set_player_photo(name_norm, f"https://media.api-sports.io/football/players/{af_player_id}.png")
+    return HTMLResponse(f"<pre>✅ {n} registro(s) de '{player_name}' → af_player_id={af_player_id}</pre>")
+
+
 @app.post("/api/admin/set-player-af-id")
 async def admin_set_player_af_id(request: Request):
     """Define manualmente o af_player_id para todos os registros de um jogador.
