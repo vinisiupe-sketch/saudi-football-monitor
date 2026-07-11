@@ -119,6 +119,7 @@ _ICO_TRASH2  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+_ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
 _THEME_VARS_CSS = (
     "    :root { --c-bg:#edeae4; --c-bg-card:#fafaf8; --c-bg-soft:#fff; --c-text:#1a1a1a; --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555; --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc; --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04); --c-success:#166534; --c-error:#be123c; }\n"
@@ -154,6 +155,7 @@ def _header(active: str) -> str:
         ("/selecao",    _ICO_SELECAO, "Seleção Saudita","selecao"),
         ("/descartadas",_ICO_ARCHIVE, "Descartadas",   ""),
         ("/lesoes",         _ICO_INJURY,    "Lesões",          ""),
+        ("/janela",          _ICO_JANELA,    "Janela",          ""),
         ("/fontes",         _ICO_SOURCES,   "Fontes",          ""),
         ("/lixeira",    _ICO_TRASH2,  "Lixeira",       ""),
         ("/gerador",    _ICO_PEN2,    "Criar Post",    ""),
@@ -2357,3 +2359,276 @@ async def admin_fix_article(request: Request):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+
+
+# ─── Janela de Transferências (API Football) ─────────────────────────────────
+
+_AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
+
+@app.get("/api/af-window-transfers")
+async def api_af_window_transfers(refresh: bool = False):
+    """
+    Busca todas as transferências da janela atual (>=2026-06-01) para times da SPL.
+    Usa /teams?league=307&season=2025 para obter IDs, depois /transfers?team= para cada time.
+    Resultado cacheado por 30 min.
+    """
+    import time as _time
+    global _AF_WINDOW_CACHE
+    now = _time.time()
+    if not refresh and _AF_WINDOW_CACHE["data"] is not None and now - _AF_WINDOW_CACHE["ts"] < 1800:
+        return _AF_WINDOW_CACHE["data"]
+
+    af_key = os.getenv("API_FOOTBALL_KEY", "")
+    if not af_key:
+        return JSONResponse({"error": "API_FOOTBALL_KEY não configurada"}, status_code=500)
+
+    headers = {"x-apisports-key": af_key}
+    base    = "https://v3.football.api-sports.io"
+    window_start = "2026-06-01"
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # 1. Times da SPL
+        teams_resp = await client.get(f"{base}/teams",
+            params={"league": 307, "season": 2025}, headers=headers)
+        teams_data = teams_resp.json().get("response", [])
+        team_ids   = [t["team"]["id"] for t in teams_data]
+        spl_ids    = set(team_ids)
+
+        if not team_ids:
+            return JSONResponse({"error": "Nenhum time SPL retornado pela API"}, status_code=502)
+
+        # 2. Transfers por time (paralelo em lotes de 5)
+        all_raw: list[dict] = []
+        async def _fetch(tid: int):
+            r = await client.get(f"{base}/transfers",
+                params={"team": tid}, headers=headers)
+            return r.json().get("response", [])
+
+        BATCH = 5
+        for i in range(0, len(team_ids), BATCH):
+            batch  = team_ids[i:i+BATCH]
+            results = await asyncio.gather(*[_fetch(tid) for tid in batch])
+            for res in results:
+                all_raw.extend(res)
+
+        # 3. Dedup + filtro de janela
+        seen: set[str] = set()
+        transfers: list[dict] = []
+        for item in all_raw:
+            player = item.get("player", {})
+            pid    = player.get("id")
+            pname  = player.get("name", "")
+            for tr in item.get("transfers", []):
+                date_str = (tr.get("date") or "")
+                if date_str < window_start:
+                    continue
+                team_in  = (tr.get("teams") or {}).get("in",  {}) or {}
+                team_out = (tr.get("teams") or {}).get("out", {}) or {}
+                key = f"{pid}_{date_str}_{team_in.get('id')}_{team_out.get('id')}"
+                if key in seen:
+                    continue
+                seen.add(key)
+                transfers.append({
+                    "player_id":   pid,
+                    "player_name": pname,
+                    "photo":       f"https://media.api-sports.io/football/players/{pid}.png" if pid else None,
+                    "date":        date_str,
+                    "type":        tr.get("type") or "N/A",
+                    "team_in":     {"id": team_in.get("id"),  "name": team_in.get("name"),  "logo": team_in.get("logo")},
+                    "team_out":    {"id": team_out.get("id"), "name": team_out.get("name"), "logo": team_out.get("logo")},
+                    "direction":   "in" if team_in.get("id") in spl_ids else "out",
+                })
+
+    transfers.sort(key=lambda x: x["date"], reverse=True)
+    _AF_WINDOW_CACHE["data"] = transfers
+    _AF_WINDOW_CACHE["ts"]   = now
+    return transfers
+
+
+@app.get("/janela", response_class=HTMLResponse)
+async def janela_page():
+    hdr = _header("/janela")
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Janela de Transferências · IARABÃO</title>
+<style>
+:root{{
+  --bg:#0d0d0d;--surface:#161616;--surface2:#1e1e1e;--border:#2a2a2a;
+  --text:#e8e8e8;--text2:#999;--accent:#4f9cf9;
+  --green:#22c55e;--blue:#3b82f6;--amber:#f59e0b;--red:#ef4444;--purple:#a855f7;
+}}
+[data-theme=light]{{
+  --bg:#f4f4f5;--surface:#fff;--surface2:#f0f0f0;--border:#e0e0e0;
+  --text:#111;--text2:#666;
+}}
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}}
+header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}}
+.brand{{font-weight:700;font-size:13px;letter-spacing:.08em;color:var(--text);text-decoration:none;margin-right:4px}}
+.nav-icon{{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;color:var(--text2);text-decoration:none;border:none;background:none;cursor:pointer;transition:background .15s,color .15s}}
+.nav-icon:hover,.nav-icon.active{{background:var(--surface2);color:var(--text)}}
+.nav-icon.active{{color:var(--accent)}}
+.token-dot{{width:7px;height:7px;border-radius:50%;background:#444;margin-right:2px;flex-shrink:0}}
+.token-dot.ok{{background:#22c55e}}.token-dot.broken{{background:#ef4444}}
+.main{{max-width:900px;margin:0 auto;padding:20px 16px}}
+.page-title{{font-size:22px;font-weight:700;margin-bottom:4px}}
+.page-sub{{font-size:13px;color:var(--text2);margin-bottom:20px}}
+.filters{{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;align-items:center}}
+.filter-btn{{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:13px;cursor:pointer;transition:all .15s;white-space:nowrap}}
+.filter-btn.active,.filter-btn:hover{{background:var(--accent);border-color:var(--accent);color:#fff}}
+.search-box{{margin-left:auto;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;outline:none;width:200px}}
+.search-box:focus{{border-color:var(--accent)}}
+.cards{{display:flex;flex-direction:column;gap:8px}}
+.card{{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:12px;position:relative;overflow:hidden;transition:border-color .15s}}
+.card:hover{{border-color:#444}}
+.card-rank{{font-size:12px;color:var(--text2);width:24px;text-align:center;flex-shrink:0;font-weight:600}}
+.player-photo{{width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--surface2);flex-shrink:0;border:2px solid var(--border)}}
+.clubs{{display:flex;align-items:center;gap:6px;flex-shrink:0}}
+.club-logo{{width:28px;height:28px;object-fit:contain;border-radius:4px}}
+.arrow{{color:var(--text2);font-size:14px}}
+.card-body{{flex:1;min-width:0}}
+.player-name{{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.transfer-meta{{display:flex;gap:8px;align-items:center;margin-top:3px;flex-wrap:wrap}}
+.badge{{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}}
+.badge-in{{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}}
+.badge-out{{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}}
+.badge-loan{{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}}
+.badge-free{{background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}}
+.badge-paid{{background:rgba(79,156,249,.15);color:#4f9cf9;border:1px solid rgba(79,156,249,.3)}}
+.transfer-date{{font-size:12px;color:var(--text2)}}
+.card-side{{margin-left:auto;flex-shrink:0;text-align:right}}
+.type-label{{font-size:12px;font-weight:700;color:var(--text2)}}
+.type-value{{font-size:13px;font-weight:700;color:var(--text)}}
+.state{{text-align:center;padding:60px 20px;color:var(--text2)}}
+.state-icon{{font-size:40px;margin-bottom:12px}}
+.refresh-btn{{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;cursor:pointer;margin-top:16px}}
+.refresh-btn:hover{{background:var(--border)}}
+.count-label{{font-size:13px;color:var(--text2)}}
+</style>
+</head>
+<body>
+{hdr}
+<div class="main">
+  <div class="page-title">Janela de Transferências</div>
+  <div class="page-sub" id="subTitle">Carregando…</div>
+
+  <div class="filters">
+    <button class="filter-btn active" onclick="setDir('all',this)">Todos</button>
+    <button class="filter-btn" onclick="setDir('in',this)">Entradas ↓</button>
+    <button class="filter-btn" onclick="setDir('out',this)">Saídas ↑</button>
+    <button class="filter-btn" onclick="setDir('loan',this)">Empréstimos</button>
+    <input class="search-box" type="text" placeholder="Buscar jogador ou clube…" oninput="applyFilters()" id="searchBox">
+  </div>
+
+  <div id="cards" class="cards">
+    <div class="state"><div class="state-icon">⏳</div><div>Carregando transferências da janela…</div></div>
+  </div>
+</div>
+
+<script>
+let ALL = [];
+let currentDir = 'all';
+
+async function load(refresh) {{
+  try {{
+    const url = '/api/af-window-transfers' + (refresh ? '?refresh=true' : '');
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(await r.text());
+    ALL = await r.json();
+    if (!Array.isArray(ALL)) {{
+      ALL = [];
+      document.getElementById('cards').innerHTML = '<div class="state"><div class="state-icon">⚠️</div><div>' + JSON.stringify(ALL) + '</div></div>';
+      return;
+    }}
+    applyFilters();
+  }} catch(e) {{
+    document.getElementById('cards').innerHTML = '<div class="state"><div class="state-icon">❌</div><div>' + e.message + '</div><button class="refresh-btn" onclick="load(true)">Tentar novamente</button></div>';
+  }}
+}}
+
+function setDir(dir, btn) {{
+  currentDir = dir;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  applyFilters();
+}}
+
+function applyFilters() {{
+  const q = (document.getElementById('searchBox').value || '').toLowerCase();
+  let items = ALL;
+  if (currentDir === 'in')   items = items.filter(t => t.direction === 'in');
+  else if (currentDir === 'out')  items = items.filter(t => t.direction === 'out');
+  else if (currentDir === 'loan') items = items.filter(t => (t.type||'').toLowerCase().includes('loan') || t.type === 'Loan');
+  if (q) items = items.filter(t =>
+    (t.player_name||'').toLowerCase().includes(q) ||
+    (t.team_in?.name||'').toLowerCase().includes(q) ||
+    (t.team_out?.name||'').toLowerCase().includes(q)
+  );
+
+  const total = ALL.length;
+  const shown = items.length;
+  const date = ALL.length ? ALL[0].date?.slice(0,7) : '';
+  document.getElementById('subTitle').textContent =
+    `${{shown}} transferência${{shown!==1?'s':''}} · janela ${{date || 'atual'}}` +
+    (shown !== total ? ` (de ${{total}})` : '');
+
+  if (!items.length) {{
+    document.getElementById('cards').innerHTML = '<div class="state"><div class="state-icon">🔍</div><div>Nenhuma transferência encontrada</div></div>';
+    return;
+  }}
+
+  document.getElementById('cards').innerHTML = items.map((t, i) => cardHtml(t, i+1)).join('');
+}}
+
+function typeClass(t) {{
+  const v = (t.type||'').toLowerCase();
+  if (v.includes('loan')) return 'badge-loan';
+  if (v === 'free' || v === 'n/a' || !t.type) return 'badge-free';
+  return 'badge-paid';
+}}
+function typeLabel(t) {{
+  const v = t.type || 'N/A';
+  if (v.toLowerCase() === 'loan') return 'Empréstimo';
+  if (v.toLowerCase() === 'free') return 'Livre';
+  if (v === 'N/A') return '—';
+  return v;
+}}
+function dirBadge(t) {{
+  return t.direction === 'in'
+    ? '<span class="badge badge-in">Entrada</span>'
+    : '<span class="badge badge-out">Saída</span>';
+}}
+
+function cardHtml(t, rank) {{
+  const inLogo  = t.team_in?.logo  ? `<img class="club-logo" src="${{t.team_in.logo}}"  onerror="this.style.opacity=.3" alt="${{t.team_in?.name||''}}">` : '<div class="club-logo"></div>';
+  const outLogo = t.team_out?.logo ? `<img class="club-logo" src="${{t.team_out.logo}}" onerror="this.style.opacity=.3" alt="${{t.team_out?.name||''}}">` : '<div class="club-logo"></div>';
+  const photo   = t.photo ? `<img class="player-photo" src="${{t.photo}}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'44\' height=\'44\'%3E%3Ccircle cx=\'22\' cy=\'22\' r=\'22\' fill=\'%23333\'/%3E%3C/svg%3E'" alt="">` : '<div class="player-photo"></div>';
+  const dateFmt = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR', {{day:'2-digit',month:'short',year:'numeric'}}) : '';
+  const tLabel  = typeLabel(t);
+  const tClass  = typeClass(t);
+  return `<div class="card">
+    <span class="card-rank">#${{rank}}</span>
+    ${{photo}}
+    <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
+    <div class="card-body">
+      <div class="player-name">${{t.player_name || '—'}}</div>
+      <div class="transfer-meta">
+        ${{dirBadge(t)}}
+        <span class="badge ${{tClass}}">${{tLabel}}</span>
+        <span class="transfer-date">${{dateFmt}}</span>
+      </div>
+    </div>
+    <div class="card-side">
+      <div class="type-label">${{t.team_out?.name||''}}</div>
+      <div class="type-value" style="color:var(--text2);font-size:11px">${{t.team_in?.name||''}}</div>
+    </div>
+  </div>`;
+}}
+
+load(false);
+</script>
+</body>
+</html>""")
