@@ -12,8 +12,13 @@ Estados de resolucao:
   manually_resolved -- override manual pelo admin
   stale             -- resolvido anteriormente, mas cache expirou
 
+Versao do resolvedor:
+  RESOLVER_VERSION = "v3"
+  Cache keys incluem o prefixo "v3|" -- entradas de versoes anteriores sao ignoradas.
+
 Pesos de pontuacao:
-  Clube:
+
+  Clube (standalone):
     text_similarity    0-15 (escalado, nunca resolve sozinho)
     name_exact        +15
     country_correct   +50  (sinal forte -- pais correto e determinante)
@@ -21,7 +26,7 @@ Pesos de pontuacao:
     country_incompat  -40
     ambiguous_no_ctx  -20 (nome generico sem contexto de pais)
 
-  Jogador:
+  Jogador (standalone):
     squad_member      +60 (encontrado no elenco do time resolvido)
     surname_exact     +25
     surname_sim        0-15 (escalado)
@@ -33,6 +38,13 @@ Pesos de pontuacao:
     nationality_incompat -15
     surname < 0.62: rejeicao imediata
 
+  Vinculo jogador-clube (joint resolution):
+    vinculo_atual     +70 (jogador na temporada atual do clube)
+    vinculo_historico_recente +45 (temporada recente, delta <= 1 ano)
+    vinculo_historico +35 (temporada compativel, delta <= 3 anos)
+    vinculo_distante  +20 (historico distante)
+    -- Ao aplicar vinculo, a penalidade ambiguous_no_ctx e removida do clube.
+
 Limiares:
   MIN_SCORE = 75   score minimo do melhor candidato
   MIN_GAP   = 20   diferenca minima entre 1o e 2o
@@ -42,6 +54,12 @@ Raciocinio dos pesos de clube:
   "Sporting"   + Portugal = ~13 (text, sem exact) + 50 = 63 -- ambiguous (correto: pode ser Braga)
   "Sporting"   + Portugal + Primeira Liga = ~13 + 50 + 25 = 88 -- resolved
   "Sporting"   + sem ctx = ~13 - 20 (ambig) = -7 -- unresolved
+
+Raciocinio joint resolution (Trincao + Sporting):
+  Sporting CP (standalone) = ~13 - 20 = -7
+  Trincao possui vinculo com Sporting CP (temporada 2024): +70
+  Retira penalidade ambiguous_no_ctx: +20
+  Sporting CP (joint) = -7 + 70 + 20 = 83 >= MIN_SCORE(75), gap >> MIN_GAP(20) -> resolved
 """
 
 from __future__ import annotations
@@ -65,6 +83,11 @@ from database import (
 
 AF_BASE = "https://v3.football.api-sports.io"
 
+# Versao do resolvedor -- muda quando logica de scoring muda.
+# Prefixado em ctx1 de todos os registros de cache (v3|<ctx>).
+# Entradas de versoes anteriores sao ignoradas automaticamente.
+RESOLVER_VERSION = "v3"
+
 # Pesos -- clube
 W_CLUB_TEXT_SIM     = 15
 W_CLUB_NAME_EXACT   = 15
@@ -84,6 +107,12 @@ W_POSITION          = 10
 W_AGE               = 10
 W_NAT_NEG           = -15
 W_SURNAME_MIN       = 0.62  # rejeicao imediata se < este valor
+
+# Pesos -- vinculo jogador-clube (joint resolution)
+W_JOINT_CURRENT     = 70.0  # vinculo na temporada atual do artigo
+W_JOINT_RECENT      = 45.0  # temporada com delta <= 1 ano
+W_JOINT_COMPAT      = 35.0  # temporada com delta <= 3 anos
+W_JOINT_DISTANT     = 20.0  # historico distante
 
 # Limiares de resolucao
 MIN_SCORE = 75.0
@@ -198,6 +227,14 @@ class ResolutionResult:
     top_name: str | None
     candidates: list[CandidateScore] = field(default_factory=list)
     stale_after: datetime | None = None
+    resolution_method: str | None = None   # "standalone" | "joint" | "alias" | "override"
+
+
+# -- Cache versioning ----------------------------------------------------------
+
+def _versioned_ctx(ctx: str) -> str:
+    """Prefixa ctx com RESOLVER_VERSION para isolar entradas de versoes antigas."""
+    return f"{RESOLVER_VERSION}|{ctx}"
 
 
 # -- Normalizacao --------------------------------------------------------------
@@ -280,7 +317,15 @@ def score_club_candidate(
         bd["country_prior"] = prior
         score += prior
 
-    # 4. Nome generico sem contexto de pais -> penalidade
+    # 4. Liga
+    ctx_league = context.league
+    if ctx_league:
+        # Sem informacao de liga do candidato via este endpoint --
+        # bonus somente se liga explicitamente presente no contexto
+        # (usado para desambiguar quando pais esta presente)
+        pass
+
+    # 5. Nome generico sem contexto de pais -> penalidade
     if raw_norm in AMBIGUOUS_CLUB_NAMES and not ctx_country:
         bd["ambiguous_name_no_context"] = W_CLUB_AMBIG_NO_CTX
         score += W_CLUB_AMBIG_NO_CTX
@@ -393,6 +438,60 @@ def score_player_candidate(
     )
 
 
+# -- Vinculo jogador-clube (joint resolution) ----------------------------------
+
+def score_player_club_pair(
+    _player_item,          # reservado para uso futuro
+    club_af_id: str,
+    team_relations: list[dict],
+    article_year: str = "2025",
+) -> float:
+    """
+    Calcula bonus de vinculo jogador-clube usando historico de times do jogador.
+
+    team_relations: lista de {"team_id": str, "season": int|str}
+      Obtida via /players/teams?player={af_id} da api-football.
+
+    Retorna:
+      W_JOINT_CURRENT  (+70) se o jogador jogou pelo clube na temporada do artigo
+      W_JOINT_RECENT   (+45) se delta <= 1 temporada
+      W_JOINT_COMPAT   (+35) se delta <= 3 temporadas
+      W_JOINT_DISTANT  (+20) se algum vinculo historico mais antigo
+      0.0              se nenhum vinculo encontrado
+    """
+    if not team_relations or not club_af_id:
+        return 0.0
+
+    best = 0.0
+    try:
+        art_yr = int(article_year)
+    except (ValueError, TypeError):
+        art_yr = 2025
+
+    for rel in team_relations:
+        if str(rel.get("team_id", "")) != str(club_af_id):
+            continue
+        season = rel.get("season")
+        if season is None:
+            best = max(best, W_JOINT_DISTANT)
+            continue
+        try:
+            delta = abs(art_yr - int(season))
+        except (ValueError, TypeError):
+            best = max(best, W_JOINT_DISTANT)
+            continue
+        if delta == 0:
+            best = max(best, W_JOINT_CURRENT)
+        elif delta <= 1:
+            best = max(best, W_JOINT_RECENT)
+        elif delta <= 3:
+            best = max(best, W_JOINT_COMPAT)
+        else:
+            best = max(best, W_JOINT_DISTANT)
+
+    return best
+
+
 # -- Geracao de candidatos -----------------------------------------------------
 
 async def generate_club_candidates(
@@ -436,7 +535,11 @@ async def generate_player_candidates(
     """
     Busca candidatos de jogador na api-football.
     Retorna lista de (resultado_bruto, found_via_team).
-    found_via_team=True -> candidato encontrado dentro de um time resolvido.
+
+    Hierarquia de busca:
+      1. Dentro dos times resolvidos (bonus squad_member)
+      2. Liga saudita (SPL, league=307) -- fallback
+      3. Busca global (sem restricao de liga) -- fallback final, captura jogadores europeus
     """
     name_norm = _af_norm(raw_name)
     parts = name_norm.split()
@@ -501,7 +604,121 @@ async def generate_player_candidates(
             except Exception as e:
                 print(f"   [WARN] AF player SPL '{sv}': {type(e).__name__}")
 
+    # 3. Fallback global: busca sem restricao de liga -- captura jogadores europeus
+    #    Usado quando jogador ainda pertence ao clube europeu de origem
+    if not candidates:
+        for sv in variants:
+            for season in ("2025", "2024"):
+                try:
+                    r = await client.get(
+                        f"{AF_BASE}/players",
+                        params={"search": sv, "season": season},
+                        headers=headers,
+                        timeout=10.0,
+                    )
+                    for item in (r.json().get("response") or []):
+                        _add(item, False)
+                    if candidates:
+                        break  # achou na temporada, nao tenta a proxima
+                except Exception as e:
+                    print(f"   [WARN] AF player global '{sv}' season={season}: {type(e).__name__}")
+            if candidates:
+                break
+
     return candidates
+
+
+async def generate_player_candidates_global(
+    raw_name: str,
+    client: httpx.AsyncClient,
+    headers: dict,
+) -> list[tuple[dict, bool]]:
+    """
+    Busca global de candidatos de jogador -- sem restricao de time, liga ou temporada.
+    Usada na joint resolution para encontrar jogadores europeus.
+
+    Tenta: 2025 -> 2024 ate encontrar resultado.
+    Retorna lista de (resultado_bruto, found_via_team=False).
+    """
+    name_norm = _af_norm(raw_name)
+    parts = name_norm.split()
+
+    variants: list[str] = [name_norm]
+    if len(parts) >= 2:
+        surname = parts[-1]
+        if len(surname) >= 3 and surname != name_norm:
+            variants.append(surname)
+        stripped = re.sub(r"^(al|el)[-\s]", "", surname, flags=re.I).strip()
+        if stripped and stripped != surname and len(stripped) >= 3:
+            variants.append(stripped)
+
+    candidates: list[tuple[dict, bool]] = []
+    seen: set[str] = set()
+
+    def _add(item: dict):
+        pid = str((item.get("player") or {}).get("id") or "")
+        if pid and pid not in seen:
+            candidates.append((item, False))
+            seen.add(pid)
+
+    for sv in variants:
+        for season in ("2025", "2024", "2023"):
+            try:
+                r = await client.get(
+                    f"{AF_BASE}/players",
+                    params={"search": sv, "season": season},
+                    headers=headers,
+                    timeout=10.0,
+                )
+                data = r.json()
+                for item in (data.get("response") or []):
+                    _add(item)
+                if candidates:
+                    break  # achou nesta temporada
+            except Exception as e:
+                print(f"   [WARN] AF player global '{sv}' s={season}: {type(e).__name__}")
+        if candidates:
+            break  # achou com esta variante de nome
+
+    return candidates
+
+
+async def load_player_team_relations(
+    player_af_id: str,
+    client: httpx.AsyncClient,
+    headers: dict,
+) -> list[dict]:
+    """
+    Retorna historico de times do jogador via /players/teams.
+
+    Cada item: {"team_id": str, "team_name": str, "season": int}
+
+    Endpoint: GET /players/teams?player={af_id}
+    """
+    if not player_af_id:
+        return []
+    relations: list[dict] = []
+    try:
+        r = await client.get(
+            f"{AF_BASE}/players/teams",
+            params={"player": player_af_id},
+            headers=headers,
+            timeout=10.0,
+        )
+        data = r.json()
+        for entry in (data.get("response") or []):
+            team = entry.get("team") or {}
+            season = entry.get("season")
+            tid = str(team.get("id") or "")
+            if tid:
+                relations.append({
+                    "team_id": tid,
+                    "team_name": team.get("name") or "",
+                    "season": season,
+                })
+    except Exception as e:
+        print(f"   [WARN] load_player_team_relations {player_af_id}: {type(e).__name__}")
+    return relations
 
 
 # -- Decisao de resolucao ------------------------------------------------------
@@ -569,7 +786,7 @@ async def resolve_club(
         return ResolutionResult(status="unresolved", af_id=None, score=None, gap=None, top_name=None)
 
     norm = normalize_name(raw_name)
-    cache_key = f"club|{norm}|{context.country}|{context.league}"
+    cache_key = f"{RESOLVER_VERSION}|club|{norm}|{context.country}|{context.league}"
 
     if _session_cache is not None and cache_key in _session_cache:
         return _session_cache[cache_key]
@@ -582,6 +799,7 @@ async def resolve_club(
             af_id=override["af_id"],
             score=100.0, gap=100.0,
             top_name=override.get("canonical_name") or raw_name,
+            resolution_method="override",
         )
         if _session_cache is not None:
             _session_cache[cache_key] = result
@@ -596,13 +814,15 @@ async def resolve_club(
             score=95.0, gap=95.0,
             top_name=alias.get("canonical_name") or raw_name,
             stale_after=datetime.now(timezone.utc) + timedelta(days=STALE_DAYS_CLUB),
+            resolution_method="alias",
         )
         if _session_cache is not None:
             _session_cache[cache_key] = result
         return result
 
-    # 3. Cache DB (verifica stale)
-    cached = get_entity_resolution("club", norm, context.country, context.league)
+    # 3. Cache DB -- usa ctx versionado (v3|country) para ignorar entradas antigas
+    ctx1_v = _versioned_ctx(context.country)
+    cached = get_entity_resolution("club", norm, ctx1_v, context.league)
     if cached and cached.get("status") not in ("stale", None):
         result = ResolutionResult(
             status=cached["status"],
@@ -610,6 +830,7 @@ async def resolve_club(
             score=cached.get("score"),
             gap=cached.get("score_gap"),
             top_name=cached.get("top_name"),
+            resolution_method="cache",
         )
         if _session_cache is not None:
             _session_cache[cache_key] = result
@@ -619,9 +840,11 @@ async def resolve_club(
     raw_candidates = await generate_club_candidates(raw_name, context, client, headers)
     scored = [score_club_candidate(c, raw_name, context) for c in raw_candidates]
     result = _pick_winner(scored, STALE_DAYS_CLUB)
+    result.resolution_method = "standalone"
 
-    # 5. Salvar no cache DB
-    cache_entity_resolution("club", norm, context.country, context.league, result)
+    # 5. Salvar no cache DB (apenas se resolvido ou ambiguo -- nao salva unresolved)
+    if result.status != "unresolved":
+        cache_entity_resolution("club", norm, ctx1_v, context.league, result)
 
     if _session_cache is not None:
         _session_cache[cache_key] = result
@@ -645,7 +868,9 @@ async def resolve_player(
         return ResolutionResult(status="unresolved", af_id=None, score=None, gap=None, top_name=None)
 
     norm = normalize_name(raw_name)
-    cache_key = f"player|{norm}|{context.club_from_id}|{context.club_to_id}"
+    ctx1_v = _versioned_ctx(context.nationality or "")
+    ctx2 = context.club_from_id or context.club_to_id or ""
+    cache_key = f"{RESOLVER_VERSION}|player|{norm}|{context.nationality}|{ctx2}"
 
     if _session_cache is not None and cache_key in _session_cache:
         return _session_cache[cache_key]
@@ -658,6 +883,7 @@ async def resolve_player(
             af_id=override["af_id"],
             score=100.0, gap=100.0,
             top_name=override.get("canonical_name") or raw_name,
+            resolution_method="override",
         )
         if _session_cache is not None:
             _session_cache[cache_key] = result
@@ -672,13 +898,14 @@ async def resolve_player(
             score=95.0, gap=95.0,
             top_name=alias.get("canonical_name") or raw_name,
             stale_after=datetime.now(timezone.utc) + timedelta(days=STALE_DAYS_PLAYER),
+            resolution_method="alias",
         )
         if _session_cache is not None:
             _session_cache[cache_key] = result
         return result
 
     # 3. Cache DB
-    cached = get_entity_resolution("player", norm, context.club_from_id, context.club_to_id)
+    cached = get_entity_resolution("player", norm, ctx1_v, ctx2)
     if cached and cached.get("status") not in ("stale", None):
         result = ResolutionResult(
             status=cached["status"],
@@ -686,25 +913,125 @@ async def resolve_player(
             score=cached.get("score"),
             gap=cached.get("score_gap"),
             top_name=cached.get("top_name"),
+            resolution_method="cache",
         )
         if _session_cache is not None:
             _session_cache[cache_key] = result
         return result
 
-    # 4. Gerar + pontuar candidatos
+    # 4. Gerar + pontuar candidatos via API
     raw_candidates = await generate_player_candidates(raw_name, context, client, headers)
     scored = [
-        score_player_candidate(item, raw_name, context, via_team)
+        score_player_candidate(item, raw_name, context, found_via_team=via_team)
         for item, via_team in raw_candidates
     ]
     result = _pick_winner(scored, STALE_DAYS_PLAYER)
+    result.resolution_method = "standalone"
 
-    # 5. Cache DB
-    cache_entity_resolution("player", norm, context.club_from_id, context.club_to_id, result)
+    # 5. Salvar no cache DB
+    if result.status != "unresolved":
+        cache_entity_resolution("player", norm, ctx1_v, ctx2, result)
 
     if _session_cache is not None:
         _session_cache[cache_key] = result
     return result
+
+
+# -- Joint resolution: jogador + clube de origem ------------------------------
+
+async def resolve_player_and_source_club_jointly(
+    player_raw: str,
+    club_raw: str,
+    context: EntityContext,
+    client: httpx.AsyncClient,
+    headers: dict,
+    article_year: str = "2025",
+) -> tuple[ResolutionResult, ResolutionResult]:
+    """
+    Resolve jogador e clube de origem conjuntamente via historico de times.
+
+    Algoritmo:
+      1. Busca candidatos de clube (standalone) e jogador (busca global)
+      2. Para top-5 jogadores, carrega historico via /players/teams
+      3. Pontua todos os pares (jogador, clube); seleciona o melhor
+      4. Se vinculo encontrado: remove penalidade ambiguous_no_ctx, adiciona bonus
+    """
+    # Candidatos de clube
+    club_context = EntityContext(country=context.country, league=context.league)
+    raw_club_cands = await generate_club_candidates(club_raw, club_context, client, headers)
+    scored_clubs = [score_club_candidate(c, club_raw, club_context) for c in raw_club_cands]
+    scored_clubs_valid = sorted(
+        [c for c in scored_clubs if c.score > -900],
+        key=lambda c: c.score, reverse=True
+    )
+
+    # Candidatos de jogador (busca global -- sem restricao de time/liga)
+    raw_player_cands = await generate_player_candidates_global(player_raw, client, headers)
+    scored_players = [
+        score_player_candidate(item, player_raw, context, found_via_team=False)
+        for item, _ in raw_player_cands
+    ]
+    scored_players_valid = sorted(
+        [c for c in scored_players if c.score > -900],
+        key=lambda c: c.score, reverse=True
+    )
+
+    if not scored_players_valid or not scored_clubs_valid:
+        p_res = _pick_winner(scored_players_valid, STALE_DAYS_PLAYER)
+        p_res.resolution_method = "standalone"
+        c_res = _pick_winner(scored_clubs_valid, STALE_DAYS_CLUB)
+        c_res.resolution_method = "standalone"
+        return p_res, c_res
+
+    # Carrega historico de times para top-5 jogadores
+    top_players = scored_players_valid[:5]
+    player_relations: dict[str, list[dict]] = {}
+    for pc in top_players:
+        if pc.af_id:
+            player_relations[pc.af_id] = await load_player_team_relations(
+                pc.af_id, client, headers
+            )
+
+    # Pontua todos os pares
+    best_pair_score = -9999.0
+    best_pi, best_ci = 0, 0
+    best_link_bonus = 0.0
+
+    for pi, player_cand in enumerate(top_players):
+        rels = player_relations.get(player_cand.af_id, [])
+        for ci, club_cand in enumerate(scored_clubs_valid[:10]):
+            link = score_player_club_pair(player_cand, club_cand.af_id, rels, article_year)
+            pair_score = player_cand.score + club_cand.score + link
+            if pair_score > best_pair_score:
+                best_pair_score = pair_score
+                best_pi, best_ci = pi, ci
+                best_link_bonus = link
+
+    best_player = top_players[best_pi]
+    best_club   = scored_clubs_valid[best_ci]
+
+    # Ajusta score do clube se vinculo encontrado
+    if best_link_bonus > 0:
+        adj_bd = dict(best_club.breakdown)
+        ambig_penalty = adj_bd.pop("ambiguous_name_no_context", 0.0)
+        adj_bd["player_club_link"] = best_link_bonus
+        new_score = round(best_club.score - ambig_penalty + best_link_bonus, 2)
+        adj_club = CandidateScore(
+            af_id=best_club.af_id, name=best_club.name, country=best_club.country,
+            score=new_score, breakdown=adj_bd,
+        )
+        clubs_adj = list(scored_clubs_valid)
+        clubs_adj[best_ci] = adj_club
+        club_result = _pick_winner(clubs_adj, STALE_DAYS_CLUB)
+        club_result.resolution_method = "joint"
+    else:
+        club_result = _pick_winner(scored_clubs_valid, STALE_DAYS_CLUB)
+        club_result.resolution_method = "standalone"
+
+    player_result = _pick_winner(scored_players_valid, STALE_DAYS_PLAYER)
+    player_result.resolution_method = "joint" if best_link_bonus > 0 else "standalone"
+
+    return player_result, club_result
 
 
 # -- Ponto de entrada principal ------------------------------------------------
@@ -713,85 +1040,72 @@ async def resolve_transfer_entities(
     data: dict,
     client: httpx.AsyncClient,
     headers: dict,
-    _session_cache: dict | None = None,
+    article_year: str | None = None,
 ) -> dict:
     """
-    Resolve todas as entidades de um registro de transferencia.
+    Resolve todas as entidades de uma transferencia.
 
-    Atualiza data com:
-      af_team_from_id, club_from_status
-      af_team_to_id,   club_to_status
-      af_player_id,    player_status
-
-    _session_cache: compartilhado entre chamadas para evitar re-resolucao.
+    Atualiza 'data' com af_team_from_id, af_team_to_id, af_player_id e campos de status.
+    Retorna o dict atualizado.
     """
-    if _session_cache is None:
-        _session_cache = {}
+    if article_year is None:
+        article_year = str(datetime.now(timezone.utc).year)
 
-    nat         = data.get("player_nationality") or ""
-    ctx_country = data.get("context_country") or ""
-    ctx_league  = data.get("context_league") or ""
-    position    = data.get("player_position") or ""
+    player_raw    = data.get("player_name") or ""
+    club_from_raw = data.get("club_from") or ""
+    club_to_raw   = data.get("club_to") or ""
 
-    age: int | None = None
-    try:
-        age_str = data.get("player_age") or ""
-        age = int(age_str) if age_str else None
-    except (ValueError, TypeError):
-        pass
+    country = data.get("context_country") or ""
+    league  = data.get("context_league") or ""
+    nat     = data.get("player_nationality") or ""
+    pos     = data.get("player_position") or ""
 
-    # -- Clube de origem -------------------------------------------------------
-    cfrom = data.get("club_from") or ""
-    if cfrom and not data.get("af_team_from_id"):
-        ctx_from = EntityContext(
-            country=ctx_country,
-            league=ctx_league,
+    # 1. Resolve clube de destino (independente)
+    ctx_to = EntityContext(country=country, league=league)
+    club_to_result = await resolve_club(club_to_raw, ctx_to, client, headers)
+    data["af_team_to_id"]  = club_to_result.af_id
+    data["club_to_status"] = club_to_result.status
+
+    # 2. Resolve clube de origem (independente)
+    ctx_from = EntityContext(country=country, league=league)
+    club_from_result = await resolve_club(club_from_raw, ctx_from, client, headers)
+    data["af_team_from_id"]  = club_from_result.af_id
+    data["club_from_status"] = club_from_result.status
+
+    # 3. Joint resolution se clube_from for ambiguo/nao-resolvido e ha jogador
+    if player_raw and club_from_result.status in ("ambiguous", "unresolved"):
+        ctx_joint = EntityContext(
+            country=country,
+            league=league,
             nationality=nat,
+            position=pos,
+            club_from_id=club_from_result.af_id or "",
+            club_to_id=club_to_result.af_id or "",
         )
-        r_from = await resolve_club(cfrom, ctx_from, client, headers, _session_cache)
-        data["af_team_from_id"]  = r_from.af_id or ""
-        data["club_from_status"] = r_from.status
-        _log("club_from", cfrom, r_from)
+        j_player, j_club = await resolve_player_and_source_club_jointly(
+            player_raw, club_from_raw, ctx_joint, client, headers, article_year
+        )
+        if j_club.status in ("resolved", "manually_resolved"):
+            data["af_team_from_id"]  = j_club.af_id
+            data["club_from_status"] = j_club.status
+            club_from_result = j_club
+        if j_player.status in ("resolved", "manually_resolved"):
+            data["af_player_id"]  = j_player.af_id
+            data["player_status"] = j_player.status
+            return data
 
-    # -- Clube de destino ------------------------------------------------------
-    # No contexto deste monitor, o destino e sempre (ou quase sempre) clube saudita.
-    # Alias da warm-saudi-teams garante resolucao sem chamadas extras para clubes SPL.
-    cto = data.get("club_to") or ""
-    if cto and not data.get("af_team_to_id"):
-        ctx_to = EntityContext(country="Saudi Arabia", league="Saudi Pro League")
-        r_to = await resolve_club(cto, ctx_to, client, headers, _session_cache)
-        data["af_team_to_id"]   = r_to.af_id or ""
-        data["club_to_status"]  = r_to.status
-        _log("club_to", cto, r_to)
-
-    # -- Jogador ---------------------------------------------------------------
-    pname = data.get("player_name") or ""
-    if pname and not data.get("af_player_id"):
+    # 4. Resolve jogador de forma independente (se ainda nao resolvido)
+    if player_raw and not data.get("af_player_id"):
         ctx_player = EntityContext(
+            country=country,
+            league=league,
             nationality=nat,
-            club_from_id=data.get("af_team_from_id") or "",
-            club_to_id=data.get("af_team_to_id") or "",
-            position=position,
-            age=age,
+            position=pos,
+            club_from_id=club_from_result.af_id or "",
+            club_to_id=club_to_result.af_id or "",
         )
-        r_player = await resolve_player(pname, ctx_player, client, headers, _session_cache)
-        data["af_player_id"]   = r_player.af_id or ""
-        data["player_status"]  = r_player.status
-        _log("player", pname, r_player)
+        player_result = await resolve_player(player_raw, ctx_player, client, headers)
+        data["af_player_id"]  = player_result.af_id
+        data["player_status"] = player_result.status
 
     return data
-
-
-def _log(entity: str, raw_name: str, result: ResolutionResult) -> None:
-    status_icons = {
-        "resolved": "[OK]", "ambiguous": "[??]",
-        "unresolved": "[--]", "manually_resolved": "[MN]", "stale": "[ST]",
-    }
-    icon = status_icons.get(result.status, "[?]")
-    print(
-        f"   {icon} [{entity}] '{raw_name}' -> {result.status} | "
-        f"id={result.af_id} | score={result.score} | gap={result.gap}"
-    )
-    if result.candidates:
-        for c in result.candidates[:3]:
-            print(f"      [{c.score:6.1f}] {c.name} ({c.country}) {c.breakdown}")

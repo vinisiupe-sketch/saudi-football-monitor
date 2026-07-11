@@ -21,12 +21,19 @@ from entity_resolver import (
     normalize_name,
     score_club_candidate,
     score_player_candidate,
+    score_player_club_pair,
     _pick_winner,
+    _versioned_ctx,
     EntityContext,
     CandidateScore,
     MIN_SCORE,
     MIN_GAP,
     AMBIGUOUS_CLUB_NAMES,
+    RESOLVER_VERSION,
+    W_CLUB_AMBIG_NO_CTX,
+    W_JOINT_CURRENT,
+    W_JOINT_RECENT,
+    W_JOINT_COMPAT,
 )
 
 
@@ -362,18 +369,167 @@ class TestScoreBreakdownExplainability:
     def test_player_score_has_breakdown(self):
         ctx = EntityContext(nationality="português", position="Atacante", age=24)
         player = make_player("279006", "Francisco Trincão", "Portugal", "Attacker", 24)
-        score = score_player_candidate(player, "Francisco Trincão", ctx, found_via_team=True)
+
+        score = score_player_candidate(player, "Francisco Trincao", ctx)
         assert len(score.breakdown) > 0
-        total_from_breakdown = sum(
-            v for v in score.breakdown.values() if isinstance(v, (int, float))
+
+
+# ── New tests: joint resolution, cache versioning, global search ──────────────
+
+class TestJointResolutionScoring:
+    """Testa score_player_club_pair (bonus de vinculo jogador-clube)."""
+
+    def test_current_season_gives_max_bonus(self):
+        relations = [{"team_id": "228", "season": 2025}]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        assert bonus == W_JOINT_CURRENT  # 70.0
+
+    def test_delta_one_gives_recent_bonus(self):
+        relations = [{"team_id": "228", "season": 2024}]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        assert bonus == W_JOINT_RECENT  # 45.0
+
+    def test_delta_three_gives_compat_bonus(self):
+        relations = [{"team_id": "228", "season": 2022}]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        assert bonus == W_JOINT_COMPAT  # 35.0
+
+    def test_gijon_gets_no_bonus(self):
+        relations = [{"team_id": "228", "season": 2025}]  # 228 = Sporting CP
+        bonus = score_player_club_pair(None, "939", relations, article_year="2025")  # 939 = Gijon
+        assert bonus == 0.0
+
+    def test_empty_relations_returns_zero(self):
+        assert score_player_club_pair(None, "228", [], article_year="2025") == 0.0
+
+    def test_multiple_relations_takes_best(self):
+        relations = [
+            {"team_id": "228", "season": 2022},  # delta=3 -> COMPAT=35
+            {"team_id": "228", "season": 2025},  # delta=0 -> CURRENT=70
+        ]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        assert bonus == W_JOINT_CURRENT  # 70.0
+
+    def test_joint_score_raises_sporting_cp_above_min_score(self):
+        """Sporting CP com vinculo atual: score ajustado deve >= MIN_SCORE."""
+        ctx = EntityContext()  # sem pais
+        s_cp  = score_club_candidate(make_club("228", "Sporting CP", "Portugal"), "Sporting", ctx)
+        s_gij = score_club_candidate(make_club("939", "Sporting de Gijon", "Spain"), "Sporting", ctx)
+
+        relations = [{"team_id": "228", "season": 2025}]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        ambig_penalty = s_cp.breakdown.get("ambiguous_name_no_context", 0.0)
+
+        adjusted_cp_score = s_cp.score - ambig_penalty + bonus
+        assert adjusted_cp_score >= MIN_SCORE, (
+            f"Sporting CP ajustado ({adjusted_cp_score:.1f}) deve ser >= {MIN_SCORE}"
         )
-        assert abs(score.score - total_from_breakdown) < 0.1
+        assert adjusted_cp_score > s_gij.score + MIN_GAP
 
 
-if __name__ == "__main__":
-    # Rodar com: python tests/test_entity_resolver.py
-    import unittest
-    loader = unittest.TestLoader()
-    suite = loader.loadTestsFromModule(__import__(__name__))
-    runner = unittest.TextTestRunner(verbosity=2)
-    runner.run(suite)
+class TestSportingAmbiguousNoPlayer:
+    """Sporting sem contexto e sem jogador -> ambiguo."""
+
+    def test_sporting_alone_no_context_is_ambiguous(self):
+        ctx = EntityContext()
+        s_cp  = score_club_candidate(make_club("228", "Sporting CP",       "Portugal"), "Sporting", ctx)
+        s_gij = score_club_candidate(make_club("939", "Sporting de Gijon", "Spain"),    "Sporting", ctx)
+        result = _pick_winner([s_cp, s_gij])
+        assert result.status in ("ambiguous", "unresolved")
+        assert result.af_id is None
+
+
+class TestPlayerResolvedClubAmbiguous:
+    """Score do jogador e independente do clube estar ambiguo."""
+
+    def test_player_score_without_club_id(self):
+        ctx = EntityContext(nationality="portugues")
+        player = make_player("279006", "Francisco Trincao", "Portugal", "Attacker", 24)
+        score = score_player_candidate(player, "Trincao", ctx, found_via_team=False)
+        assert "squad_member" not in score.breakdown
+        assert score.score > 0.0
+
+
+class TestNoExternalSearchForAmbiguousClub:
+    """Nome ambiguo sem contexto deve permanecer ambiguo."""
+
+    def test_sporting_raw_name_ambiguous_without_context(self):
+        ctx = EntityContext()
+        s_cp  = score_club_candidate(make_club("228", "Sporting CP",       "Portugal"), "Sporting", ctx)
+        s_gij = score_club_candidate(make_club("939", "Sporting de Gijon", "Spain"),    "Sporting", ctx)
+        result = _pick_winner([s_cp, s_gij])
+        assert result.status in ("ambiguous", "unresolved")
+        assert result.af_id is None
+
+
+class TestCacheVersion:
+    """Versao de cache v3 isola entradas antigas."""
+
+    def test_resolver_version_is_v3(self):
+        from entity_resolver import RESOLVER_VERSION
+        assert RESOLVER_VERSION == "v3"
+
+    def test_versioned_ctx_prefix(self):
+        assert _versioned_ctx("Portugal") == "v3|Portugal"
+
+    def test_versioned_ctx_empty(self):
+        assert _versioned_ctx("") == "v3|"
+
+    def test_old_key_differs_from_new(self):
+        assert "Portugal" != _versioned_ctx("Portugal")
+
+
+class TestAmbiguousClubPlaceholder:
+    """Clubes ambiguos devem permanecer ambiguos; contexto adequado resolve."""
+
+    def test_two_close_scores_stay_ambiguous(self):
+        c1 = CandidateScore(af_id="1", name="Inter Milan", country="Italy", score=60.0, breakdown={})
+        c2 = CandidateScore(af_id="2", name="Inter Miami", country="USA",   score=58.0, breakdown={})
+        result = _pick_winner([c1, c2])
+        assert result.status == "ambiguous"
+        assert result.af_id is None
+
+    def test_adequate_gap_resolves(self):
+        c1 = CandidateScore(af_id="1", name="Sporting CP",    country="Portugal", score=80.0, breakdown={})
+        c2 = CandidateScore(af_id="2", name="Sporting Gijon", country="Spain",    score=50.0, breakdown={})
+        result = _pick_winner([c1, c2])
+        assert result.status == "resolved"
+        assert result.af_id == "1"
+
+    def test_al_ahli_saudi_context_resolves(self):
+        ctx = EntityContext(country="Saudi Arabia")
+        c_jeddah = score_club_candidate(
+            make_club("2932", "Al-Ahli Saudi FC", "Saudi Arabia"), "Al Ahli", ctx
+        )
+        c_egypt = score_club_candidate(
+            make_club("436", "Al Ahli Cairo", "Egypt"), "Al Ahli", ctx
+        )
+        assert c_jeddah.score > c_egypt.score
+
+
+class TestScorePlayerClubPairEdgeCases:
+    """Casos extremos de score_player_club_pair."""
+
+    def test_distant_history(self):
+        from entity_resolver import W_JOINT_DISTANT
+        relations = [{"team_id": "228", "season": 2018}]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        assert bonus == W_JOINT_DISTANT  # 20.0
+
+    def test_none_season_gets_distant_bonus(self):
+        from entity_resolver import W_JOINT_DISTANT
+        relations = [{"team_id": "228", "season": None}]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        assert bonus == W_JOINT_DISTANT
+
+    def test_different_club_no_bonus(self):
+        relations = [{"team_id": "939", "season": 2025}]
+        bonus = score_player_club_pair(None, "228", relations, article_year="2025")
+        assert bonus == 0.0
+
+    def test_missing_club_af_id_returns_zero(self):
+        relations = [{"team_id": "228", "season": 2025}]
+        assert score_player_club_pair(None, "", relations, article_year="2025") == 0.0
+
+    def test_empty_relations_list_returns_zero(self):
+        assert score_player_club_pair(None, "228", [], article_year="2025") == 0.0

@@ -2360,21 +2360,24 @@ async def _page_transferencias_impl(request: Request):
         return {"bg": "#3a3a3c", "color": "#fff", "abbr": (n[:3].upper() or "?")}
 
     def _logo_wrap(name: str | None, af_id: str | None = None) -> str:
+        """
+        Renderiza logo de clube.
+        Usa APENAS o af_id para obter logo via api-sports.io.
+        Nao faz fallback por nome -- evita mostrar escudo de clube errado
+        quando a resolucao de entidade marcou o clube como ambiguo ou nao resolvido.
+        Se af_id e None, exibe crest com iniciais como placeholder.
+        """
         if not name:
             return '<div class="club-logo-wrap"><span class="club-crest" style="background:#3a3a3c;color:#fff">?</span></div>'
         cfg = _club_cfg(name)
         enc = quote(name, safe="")
         title_safe = name.replace('"', "&quot;").replace("&", "&amp;")
-        # Prioridade: af_id (backfill correto) > cache warm-saudi > badge JS
-        # Cache pode ter entradas stale do JS antigo — af_id do backfill é mais confiável
+        # Usa logo apenas se af_id foi resolvido pelo entity resolver
         if af_id:
             img_url = f"https://media.api-sports.io/football/teams/{af_id}.png"
-        else:
-            img_url = get_club_logo(_logo_norm(name)) or None
-        if img_url:
             fallback_html = (
                 f"<span class=\'club-crest\' "
-                f"style=\'background:{cfg['bg']};color:{cfg['color']}\'>" 
+                f"style=\'background:{cfg['bg']};color:{cfg['color']}\'>"
                 f"{cfg['abbr']}</span>"
             )
             return (
@@ -2383,6 +2386,7 @@ async def _page_transferencias_impl(request: Request):
                 f' onerror="this.parentNode.innerHTML=\'{fallback_html}\'" >'
                 f'</div>'
             )
+        # af_id nao resolvido: placeholder com iniciais (nao busca por nome)
         crest = (
             f'<span class="club-crest" style="background:{cfg["bg"]};color:{cfg["color"]}">'
             f'{cfg["abbr"]}</span>'
@@ -2436,6 +2440,8 @@ async def _page_transferencias_impl(request: Request):
                 "af_player_id":       a.get("af_player_id") or None,
                 "af_team_from_id":    a.get("af_team_from_id") or None,
                 "af_team_to_id":      a.get("af_team_to_id") or None,
+                "club_from_status":   a.get("club_from_status") or None,
+                "player_status":      a.get("player_status") or None,
             }
         else:
             # Absorve IDs de api-football se o grupo ainda não os tem
@@ -2445,6 +2451,15 @@ async def _page_transferencias_impl(request: Request):
                 seen[key]["af_team_from_id"] = a["af_team_from_id"]
             if not seen[key].get("af_team_to_id") and a.get("af_team_to_id"):
                 seen[key]["af_team_to_id"] = a["af_team_to_id"]
+            # Absorve status de resolucao (resolved supera ambiguous)
+            if a.get("club_from_status") in ("resolved", "manually_resolved"):
+                seen[key]["club_from_status"] = a["club_from_status"]
+            elif not seen[key].get("club_from_status") and a.get("club_from_status"):
+                seen[key]["club_from_status"] = a["club_from_status"]
+            if a.get("player_status") in ("resolved", "manually_resolved"):
+                seen[key]["player_status"] = a["player_status"]
+            elif not seen[key].get("player_status") and a.get("player_status"):
+                seen[key]["player_status"] = a["player_status"]
         # Promote to highest-rank status seen for this transfer
         if NTYPE_RANK.get(ntype, 0) > NTYPE_RANK.get(seen[key]["nego_type"], 0):
             seen[key]["nego_type"] = ntype
@@ -2526,6 +2541,11 @@ async def _page_transferencias_impl(request: Request):
                         _g["af_team_from_id"] = _g2["af_team_from_id"]
                     if not _g.get("af_team_to_id") and _g2.get("af_team_to_id"):
                         _g["af_team_to_id"] = _g2["af_team_to_id"]
+                    # Absorve status de resolucao
+                    if _g2.get("club_from_status") in ("resolved", "manually_resolved"):
+                        _g["club_from_status"] = _g2["club_from_status"]
+                    elif not _g.get("club_from_status") and _g2.get("club_from_status"):
+                        _g["club_from_status"] = _g2["club_from_status"]
                     _used.add(_j)
                     _any_merge = True
             _merged.append(_g)
@@ -2870,29 +2890,29 @@ def _logo_norm(s: str) -> str:
 
 @app.get("/api/admin/debug-logo")
 async def api_debug_logo(name: str):
-    """Mostra o que a TheSportsDB retorna para um nome de clube (debug)."""
+    """Mostra informacoes de logo para um clube via api-football (debug)."""
     lines = [f"Buscando: {name!r}", ""]
-    async with httpx.AsyncClient(timeout=8.0) as client:
+    hdrs = _af_headers()
+    if not hdrs:
+        return HTMLResponse("<pre>API_FOOTBALL_KEY nao configurado</pre>", status_code=500)
+    async with httpx.AsyncClient(timeout=8.0, headers=hdrs) as client:
+        from entity_resolver import _af_norm as _er_norm
         r = await client.get(
-            "https://www.thesportsdb.com/api/v1/json/3/searchteams.php",
-            params={"t": name}
+            f"{AF_BASE}/teams",
+            params={"search": _er_norm(name)},
         )
-        teams = (r.json().get("teams") or [])
-        lines.append(f"TheSportsDB retornou {len(teams)} time(s):")
-        for i, t in enumerate(teams):
+        teams = (r.json().get("response") or [])
+        lines.append(f"api-football retornou {len(teams)} time(s):")
+        for i, t in enumerate(teams[:10]):
+            team = t.get("team") or {}
             lines.append(
-                f"  [{i}] {t.get('strTeam')} | country={t.get('strCountry')} "
-                f"| league={t.get('strLeague')} | badge={str(t.get('strTeamBadge',''))[:60]}"
+                f"  [{i}] id={team.get('id')} | {team.get('name')} "
+                f"| country={team.get('country')} "
+                f"| logo=https://media.api-sports.io/football/teams/{team.get('id')}.png"
             )
+        # Mostra logo URL direta
         lines.append("")
-        # Also try league search
-        for league in ["Saudi Pro League", "Saudi Professional League"]:
-            r2 = await client.get(
-                "https://www.thesportsdb.com/api/v1/json/3/search_all_teams.php",
-                params={"l": league}
-            )
-            lt = r2.json().get("teams") or []
-            lines.append(f"League '{league}' → {len(lt)} times")
+        lines.append(f"Logo cache (club_logos): {get_club_logo(_logo_norm(name)) or 'nao encontrado'}")
     return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
 
 
@@ -2961,62 +2981,66 @@ async def api_clear_logo_cache(name: str | None = None):
             return HTMLResponse(f"<pre>✅ Cache limpo — {c.rowcount} entradas removidas</pre>")
 
 
-@app.get("/api/admin/debug-names")
-async def api_debug_names(q: str | None = None):
-    """Inspeciona player_name_cache. ?q=nome faz lookup ao vivo no Transfermarkt."""
-    from database import get_conn, get_player_name_cache
-    from urllib.parse import quote as _quote
-    import unicodedata as _ud, re as _re
+@app.get("/api/admin/invalidate-entity-cache")
+async def api_invalidate_entity_cache(confirm: str = "", name: str = ""):
+    """
+    Invalida o cache de resolucao de entidades.
+    Isso forcara o sistema a re-resolver entidades na proxima execucao de backfill.
 
-    def _nkey(s: str) -> str:
-        s = (s or "").strip().lower()
-        nfd = _ud.normalize("NFD", s)
-        s = "".join(c for c in nfd if _ud.category(c) != "Mn")
-        return _re.sub(r"\s+", " ", _re.sub(r"[^\w\s]", "", s)).strip()
+    Parametros:
+      confirm=yes  -- obrigatorio para executar
+      name=X       -- opcional: invalida apenas entradas com normalized_name = X
+                       (ex: ?confirm=yes&name=sporting)
+
+    Remove entradas de versoes antigas do resolver (ctx1 sem prefixo 'v3|').
+    Tambem limpa club_logos de clubes nao-sauditas (dados possivelmente stale).
+
+    Depois de executar: rode /api/admin/backfill-af-ids para re-resolver.
+    """
+    from database import get_conn
+    from entity_resolver import RESOLVER_VERSION
+
+    if confirm.lower() != "yes":
+        return HTMLResponse(
+            f"<pre>Isso vai invalidar o cache de entity_resolutions "
+            f"(versoes antigas e/ou nome especifico).\n"
+            f"Para confirmar: /api/admin/invalidate-entity-cache?confirm=yes\n"
+            f"Para invalidar nome especifico: ?confirm=yes&name=sporting\n"
+            f"Depois: /api/admin/backfill-af-ids</pre>"
+        )
 
     lines = []
+    version_prefix = f"{RESOLVER_VERSION}|"
 
-    if q:
-        # Lookup ao vivo no Transfermarkt
-        key = _nkey(q)
-        lines.append(f"Query original : {q}")
-        lines.append(f"Cache key      : {key}")
-        cached = get_player_name_cache(key)
-        lines.append(f"Cache atual    : {cached!r}")
-        lines.append("")
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(
-                    f"https://transfermarkt-api.fly.dev/players/search/{_quote(q)}"
-                )
-                lines.append(f"TM status: {r.status_code}")
-                data = r.json()
-                results = data.get("results") or []
-                lines.append(f"TM resultados: {len(results)}")
-                for i, p in enumerate(results[:5]):
-                    club = (p.get("club") or {}).get("name", "?")
-                    lines.append(f"  [{i}] {p.get('name')!r}  id={p.get('id')}  clube={club!r}")
-        except Exception as e:
-            lines.append(f"Erro TM: {e}")
-    else:
-        # Lista entradas do cache
-        try:
-            with get_conn() as conn:
-                c = conn.cursor()
-                c.execute(
-                    "SELECT name_query, tm_name, tm_id, fetched_at FROM player_name_cache "
-                    "ORDER BY fetched_at DESC LIMIT 50"
-                )
-                rows = c.fetchall()
-                lines.append(f"player_name_cache — {len(rows)} entradas recentes:")
-                lines.append("")
-                for r in rows:
-                    found = r[1] or "(não encontrado)"
-                    lines.append(f"{r[0]!r:40s}  →  {found!r}  (id={r[2]})")
-        except Exception as e:
-            lines.append(f"Erro ao ler cache: {e}")
+    with get_conn() as conn:
+        c = conn.cursor()
+        if name:
+            norm = name.strip().lower()
+            # Remove entradas do nome especifico (todas as versoes)
+            c.execute(
+                "DELETE FROM entity_resolutions WHERE normalized_name = %s",
+                (norm,)
+            )
+            lines.append(f"Removidas {c.rowcount} entradas para '{norm}' (todas as versoes)")
+        else:
+            # Remove entradas de versoes antigas (ctx1 nao comeca com v3|)
+            c.execute(
+                "DELETE FROM entity_resolutions WHERE ctx1 NOT LIKE %s",
+                (f"{version_prefix}%",)
+            )
+            n_old = c.rowcount
+            lines.append(f"Removidas {n_old} entradas de versoes antigas (sem prefixo '{version_prefix}')")
 
-    return HTMLResponse("<pre>" + "\n".join(lines) + "</pre>")
+            # Remove entradas ambiguous/unresolved de qualquer versao (serao re-resolvidos)
+            c.execute(
+                "DELETE FROM entity_resolutions WHERE status IN ('ambiguous', 'unresolved')"
+            )
+            n_ambig = c.rowcount
+            lines.append(f"Removidas {n_ambig} entradas ambiguous/unresolved")
+
+    lines.append("")
+    lines.append("Cache invalidado. Execute /api/admin/backfill-af-ids para re-resolver.")
+    return HTMLResponse("<pre>\n".join(lines) + "</pre>")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
