@@ -107,8 +107,62 @@ def init_db():
     init_entity_tables()
     init_club_logos()
     init_player_photos()
-    init_player_name_cache()
     print("✅ Banco de dados PostgreSQL inicializado.")
+
+
+def get_recent_articles(hours: int = 24, limit: int = 100, tier: str = None) -> list[dict]:
+    """Retorna artigos recentes ordenados por published_at DESC."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        if tier:
+            c.execute(
+                """
+                SELECT * FROM articles
+                WHERE is_duplicate = 0
+                  AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
+                  AND source_tier = %s
+                ORDER BY published_at DESC
+                LIMIT %s
+                """, (hours, tier, limit)
+            )
+        else:
+            c.execute(
+                """
+                SELECT * FROM articles
+                WHERE is_duplicate = 0
+                  AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
+                ORDER BY published_at DESC
+                LIMIT %s
+                """, (hours, limit)
+            )
+        return [dict(r) for r in c.fetchall()]
+
+
+def get_low_score_articles(hours: int = 24, limit: int = 200) -> list[dict]:
+    """Retorna artigos com relevance_score baixo (para re-scoring)."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute(
+            """
+            SELECT * FROM articles
+            WHERE is_duplicate = 0
+              AND relevance_score < 5.0
+              AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
+            ORDER BY published_at DESC
+            LIMIT %s
+            """, (hours, limit)
+        )
+        return [dict(r) for r in c.fetchall()]
+
+
+def get_collection_logs(limit: int = 10) -> list[dict]:
+    """Retorna os ultimos N logs de colecao."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute(
+            "SELECT * FROM collection_logs ORDER BY ran_at DESC LIMIT %s", (limit,)
+        )
+        return [dict(r) for r in c.fetchall()]
 
 
 def get_flagged_articles(flag: str) -> list[dict]:
