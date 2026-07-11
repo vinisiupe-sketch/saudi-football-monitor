@@ -647,6 +647,24 @@ def init_entity_tables():
                 UNIQUE(entity_type, raw_name)
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS window_transfers (
+                id              TEXT PRIMARY KEY,
+                player_id       TEXT,
+                player_name     TEXT NOT NULL,
+                photo           TEXT,
+                age             TEXT,
+                position        TEXT,
+                market_value    TEXT,
+                fee             TEXT,
+                team_in_name    TEXT,
+                team_in_logo    TEXT,
+                team_out_name   TEXT,
+                team_out_logo   TEXT,
+                direction       TEXT NOT NULL DEFAULT 'in',
+                scraped_at      TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
 
 
 def get_entity_resolution(entity_type: str, normalized_name: str,
@@ -826,3 +844,78 @@ def invalidate_entity_cache(entity_type: str | None = None) -> int:
 # ─────────────────────────────────────────────
 #  CACHE DE LOGOS DE CLUBES
 # ─────────────────────────────────────────────
+
+
+# ── Window Transfers (Janela de Transferências) ──────────────────────────────
+
+def upsert_window_transfers(transfers: list[dict]) -> int:
+    """Insere/atualiza lista de transferências; retorna quantidade upserted."""
+    if not transfers:
+        return 0
+    import hashlib
+    with get_conn() as conn:
+        c = conn.cursor()
+        count = 0
+        for t in transfers:
+            key = f"{t.get('player_id','')}_{t.get('direction','')}_{t.get('team_in',{}).get('name','')}"
+            tid = hashlib.md5(key.encode()).hexdigest()[:16]
+            c.execute("""
+                INSERT INTO window_transfers
+                    (id, player_id, player_name, photo, age, position,
+                     market_value, fee, team_in_name, team_in_logo,
+                     team_out_name, team_out_logo, direction, scraped_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                    player_name   = EXCLUDED.player_name,
+                    photo         = EXCLUDED.photo,
+                    age           = EXCLUDED.age,
+                    position      = EXCLUDED.position,
+                    market_value  = EXCLUDED.market_value,
+                    fee           = EXCLUDED.fee,
+                    team_in_name  = EXCLUDED.team_in_name,
+                    team_in_logo  = EXCLUDED.team_in_logo,
+                    team_out_name = EXCLUDED.team_out_name,
+                    team_out_logo = EXCLUDED.team_out_logo,
+                    scraped_at    = NOW()
+            """, [
+                tid,
+                t.get("player_id"), t.get("player_name", ""),
+                t.get("photo"), t.get("age"), t.get("position"),
+                t.get("market_value"), t.get("fee"),
+                t.get("team_in", {}).get("name"), t.get("team_in", {}).get("logo"),
+                t.get("team_out", {}).get("name"), t.get("team_out", {}).get("logo"),
+                t.get("direction", "in"),
+            ])
+            count += 1
+    return count
+
+
+def get_window_transfers() -> list[dict]:
+    """Retorna todas as transferências da janela ordenadas por clube e jogador."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT id, player_id, player_name, photo, age, position,
+                       market_value, fee, team_in_name, team_in_logo,
+                       team_out_name, team_out_logo, direction,
+                       scraped_at::text
+                FROM window_transfers
+                ORDER BY team_in_name, direction, player_name
+            """)
+            rows = c.fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+
+
+def get_window_transfers_last_scraped() -> str | None:
+    """Retorna o timestamp da última raspagem, ou None."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT MAX(scraped_at) FROM window_transfers")
+            row = c.fetchone()
+        return row[0].isoformat() if row and row[0] else None
+    except Exception:
+        return None

@@ -11,7 +11,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -2366,83 +2366,44 @@ async def admin_fix_article(request: Request):
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 
 @app.get("/api/af-window-transfers")
-async def api_af_window_transfers(refresh: bool = False, season: int = 2025):
+async def api_af_window_transfers(refresh: bool = False):
     """
-    Busca chegadas da janela de verão SPL via Transfermarkt API.
-    Usa /clubs/{id}/players?season_id=2025, filtra joinedOn >= 2025-07-01.
-    Cacheado 30 min.
+    Retorna transferências da janela SPL scrapeadas do Transfermarkt.
+    Lê do banco de dados (populado pelo janela_scraper.py diariamente).
+    refresh=true dispara novo scrape imediato.
     """
-    import time as _time
-    global _AF_WINDOW_CACHE
-    now = _time.time()
-    if not refresh and _AF_WINDOW_CACHE["data"] is not None and now - _AF_WINDOW_CACHE["ts"] < 1800:
-        return _AF_WINDOW_CACHE["data"]
+    if refresh:
+        from janela_scraper import run_janela_scrape
+        result = await run_janela_scrape()
+        if not result.get("ok"):
+            return JSONResponse({"error": result.get("error", "Scrape falhou")}, status_code=502)
+    rows = get_window_transfers()
+    # Normaliza para o formato que o frontend espera
+    return [
+        {
+            "player_id":    r["player_id"],
+            "player_name":  r["player_name"],
+            "photo":        r["photo"],
+            "age":          r["age"],
+            "position":     r["position"],
+            "market_value": r["market_value"],
+            "type":         r["fee"] or "N/A",
+            "team_in":      {"name": r["team_in_name"],  "logo": r["team_in_logo"]},
+            "team_out":     {"name": r["team_out_name"], "logo": r["team_out_logo"]},
+            "direction":    r["direction"],
+            "date":         (r.get("scraped_at") or "")[:10],
+        }
+        for r in rows
+    ]
 
-    TM_BASE      = "https://transfermarkt-api.fly.dev"
-    WINDOW_START = "2025-07-01"
 
-    async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
-        # 1. Clubes da SPL
-        r = await client.get(f"{TM_BASE}/competitions/SA1/clubs",
-            params={"season_id": str(season)})
-        clubs = r.json().get("clubs") or []
-        if not clubs:
-            return JSONResponse({"error": f"Nenhum clube SPL para season_id={season}"}, status_code=502)
-
-        # 2. Plantel de cada clube (paralelo em lotes de 4)
-        async def _fetch_club_players(club: dict):
-            cid  = club.get("id")
-            name = club.get("name") or ""
-            logo = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
-            if not cid:
-                return []
-            try:
-                r2   = await client.get(f"{TM_BASE}/clubs/{cid}/players",
-                    params={"season_id": str(season)})
-                data = r2.json()
-                out  = []
-                for p in (data.get("players") or []):
-                    joined_on = p.get("joinedOn") or ""
-                    if not joined_on or joined_on < WINDOW_START:
-                        continue
-                    pid  = p.get("id") or ""
-                    mv   = p.get("marketValue")
-                    out.append({
-                        "player_id":    str(pid),
-                        "player_name":  p.get("name") or "",
-                        "photo":        f"https://img.a.transfermarkt.technology/portrait/big/{pid}.jpg" if pid else None,
-                        "date":         joined_on,
-                        "type":         f"€{mv//1_000_000}M" if mv and mv >= 1_000_000
-                                        else (f"€{mv//1000}K" if mv and mv > 0 else "N/A"),
-                        "position":     p.get("position") or "",
-                        "age":          p.get("age"),
-                        "market_value": mv,
-                        "nationality":  (p.get("nationality") or [None])[0],
-                        "team_in":      {"name": name, "logo": logo},
-                        "team_out":     {"name": p.get("signedFrom") or "—", "logo": None},
-                        "direction":    "in",
-                    })
-                return out
-            except Exception:
-                return []
-
-        transfers: list[dict] = []
-        seen: set[str] = set()
-        BATCH = 4
-        for i in range(0, len(clubs), BATCH):
-            batch   = clubs[i:i+BATCH]
-            results = await asyncio.gather(*[_fetch_club_players(c) for c in batch])
-            for lst in results:
-                for tr in lst:
-                    key = f"{tr['player_id']}_{tr['team_in']['name']}"
-                    if key not in seen:
-                        seen.add(key)
-                        transfers.append(tr)
-
-    transfers.sort(key=lambda x: x["date"] or "", reverse=True)
-    _AF_WINDOW_CACHE["data"] = transfers
-    _AF_WINDOW_CACHE["ts"]   = now
-    return transfers
+@app.post("/api/admin/scrape-janela")
+async def api_admin_scrape_janela():
+    """Dispara scrape manual do Transfermarkt para atualizar a janela."""
+    from janela_scraper import run_janela_scrape
+    result = await run_janela_scrape()
+    last = get_window_transfers_last_scraped()
+    return {**result, "last_scraped": last}
 
 
 @app.get("/api/debug-tm")

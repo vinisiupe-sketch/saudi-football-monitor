@@ -10,6 +10,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from collector import collect_all
 from processor import process_and_save
 from database import log_collection, get_state, set_state
+from janela_scraper import run_janela_scrape
 
 BRASILIA_TZ = ZoneInfo("America/Sao_Paulo")
 INACTIVE_START = 1   # 01:00 BRT
@@ -54,7 +55,15 @@ def lookback_hours() -> int:
             gap_hours = (now - last_dt).total_seconds() / 3600
             hours = max(configured_floor, gap_hours + 1)
     except Exception as e:
-        print(f"  ⚠️  Não foi possível ler last_collect_at, usando piso padrão: {e}")
+        scheduler.add_job(
+        run_janela_scrape,
+        trigger="cron",
+        hour=7,
+        minute=0,
+        id="janela_scrape_daily",
+        replace_existing=True,
+    )
+    print(f"  ⚠️  Não foi possível ler last_collect_at, usando piso padrão: {e}")
     return min(int(hours) + 1, MAX_LOOKBACK_HOURS)
 
 
@@ -105,5 +114,4 @@ def create_scheduler() -> AsyncIOScheduler:
         id="collect_pipeline",
         replace_existing=True,
     )
-    print(f"⏰ Scheduler: coleta a cada {COLLECT_INTERVAL} minutos | inativo 01h–06h BRT")
-    return scheduler
+    prin
