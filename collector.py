@@ -378,4 +378,10 @@ async def _collect_twitter(client, tier, name, username) -> Optional[list]:
     result = await resolve_twitter_rss(username, client)
     if result is None:
         return None
-    return result
+    url, provider = result
+    feed = await fetch_feed(url, client)
+    if feed is None:
+        return None
+    articles = parse_entries(feed, name, tier, "twitter")
+    print(f"     → {len(articles)} artigos ({provider})")
+    return articles
