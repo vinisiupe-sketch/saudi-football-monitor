@@ -236,7 +236,7 @@ def get_low_score_articles(hours: int = 24, limit: int = 200) -> list[dict]:
             """
             SELECT * FROM articles
             WHERE is_duplicate = 0
-              AND relevance_score < 5.0
+              AND relevance_score < 0.45
               AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
             ORDER BY published_at DESC
             LIMIT %s
