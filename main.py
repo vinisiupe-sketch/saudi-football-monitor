@@ -2474,6 +2474,20 @@ def _tm_transfer(tr: dict, *, club_in_name: str = "", club_in_logo: str = "",
     }
 
 
+@app.get("/api/debug-tm")
+async def api_debug_tm(club_id: str = "583", season: int = 2025):
+    """Debug: retorna resposta RAW da Transfermarkt API para um clube."""
+    TM_BASE = "https://transfermarkt-api.fly.dev"
+    async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        r_clubs = await client.get(f"{TM_BASE}/competitions/SA1/clubs",
+            params={"season_id": str(season)})
+        clubs_raw = r_clubs.json()
+        r_tr = await client.get(f"{TM_BASE}/clubs/{club_id}/transfers",
+            params={"season_id": str(season)})
+        tr_raw = r_tr.json()
+    return {"clubs_sample": clubs_raw, "transfers_raw": tr_raw}
+
+
 @app.get("/janela", response_class=HTMLResponse)
 async def janela_page():
     hdr = _header("/janela")
