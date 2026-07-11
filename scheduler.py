@@ -63,7 +63,8 @@ def lookback_hours() -> int:
         id="janela_scrape_daily",
         replace_existing=True,
     )
-    print(f"  ⚠️  Não foi possível ler last_collect_at, usando piso padrão: {e}")
+    print(f"⏰ Scheduler iniciado: coleta a cada {COLLECT_INTERVAL}min + scrape janela às 07h")
+    return schedulert(f"  ⚠️  Não foi possível ler last_collect_at, usando piso padrão: {e}")
     return min(int(hours) + 1, MAX_LOOKBACK_HOURS)
 
 
