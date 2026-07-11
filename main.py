@@ -2431,8 +2431,12 @@ async def _page_transferencias_impl(request: Request):
             seen[key] = {
                 "player_name":        pname or None,
                 "player_position":    a.get("player_position"),
+                "player_nationality": a.get("player_nationality"),
+                "player_age":         a.get("player_age"),
                 "club_from":          cfrom or None,
                 "club_to":            cto or None,
+                "context_country":    a.get("context_country"),
+                "context_league":     a.get("context_league"),
                 "fee":                a.get("fee"),
                 "nego_type":          ntype,
                 "_unclassified":      not a.get("player_name"),
@@ -2444,6 +2448,11 @@ async def _page_transferencias_impl(request: Request):
                 "player_status":      a.get("player_status") or None,
             }
         else:
+            # Absorve campos de enriquecimento se o grupo ainda não os tem
+            for _fld in ("player_nationality", "player_age", "context_country", "context_league",
+                         "player_position"):
+                if not seen[key].get(_fld) and a.get(_fld):
+                    seen[key][_fld] = a[_fld]
             # Absorve IDs de api-football se o grupo ainda não os tem
             if not seen[key].get("af_player_id") and a.get("af_player_id"):
                 seen[key]["af_player_id"] = a["af_player_id"]
@@ -2583,22 +2592,38 @@ async def _page_transferencias_impl(request: Request):
         pos_h = f'<div class="tc-pos">{pos}</div>' if pos else ""
         fee_h = f'<div class="tc-fee">{fee}</div>' if fee else ""
         initials = _player_initials(pname)
-        from urllib.parse import quote as _pq
         _oe = "this.style.display='none'"
         _af_pid = g.get("af_player_id") or ""
-        _photo_src = (
-            f"https://media.api-sports.io/football/players/{_af_pid}.png"
-            if _af_pid else
-            f"/api/player-photo?name={_pq(pname)}"
-        )
+        # Só usa foto se tiver ID válido — sem fallback para endpoint inexistente
         avatar = (
             f'<span class="player-avatar">'
             f'<span class="player-ini">{initials}</span>'
-            f'<img class="player-photo" loading="lazy"'
-            f' src="{_photo_src}"'
-            f' onerror="{_oe}">'
-            f'</span>'
+            + (f'<img class="player-photo" loading="lazy" src="https://media.api-sports.io/football/players/{_af_pid}.png" onerror="{_oe}">'
+               if _af_pid else "")
+            + f'</span>'
         )
+
+        # ── Chips de tags IA ──────────────────────────────────────────────
+        def _chip(icon: str, label: str, val, bg: str = "#1f2937", color: str = "#9ca3af") -> str:
+            if not val:
+                return ""
+            val_s = str(val).replace("&", "&amp;").replace("<", "&lt;")[:40]
+            return (f'<span class="tc-chip" style="background:{bg};color:{color}" '
+                    f'title="{label}">{icon} {val_s}</span>')
+
+        st_cfg = NEGO_TYPES.get(ntype, NEGO_TYPES["sondagem"])
+        chips_html = (
+            '<span class="tc-chip tc-chip-ok" title="É transferência">🔀 Transferência</span>'
+            f'<span class="tc-chip" style="background:{st_cfg["bg"]};color:{st_cfg["color"]}" '
+            f'title="Status">{st_cfg["icon"]} {st_cfg["label"]}</span>'
+            + _chip("👤", "Jogador",       pname,                    "#374151", "#e5e7eb")
+            + _chip("🏟️", "Clube origem",  g.get("club_from"),        "#374151", "#d1d5db")
+            + _chip("🌍", "País",          g.get("context_country"),  "#1e3a5f", "#93c5fd")
+            + _chip("🏆", "Liga",          g.get("context_league"),   "#2e1065", "#c4b5fd")
+            + _chip("🎯", "Clube destino", g.get("club_to"),          "#374151", "#d1d5db")
+            + _chip("🏳️", "Nacionalidade", g.get("player_nationality"), "#1f2937", "#9ca3af")
+        )
+        chips_row = f'<div class="tc-chips">{chips_html}</div>' if not g.get("_unclassified") else ""
 
         sources = g.get("sources", [])
         n_src = len(sources)
@@ -2650,6 +2675,8 @@ async def _page_transferencias_impl(request: Request):
             f'{lbl_col_v}</button>'
             f'</div>'
             f'</div>'
+            # ── chips de IA
+            + chips_row +
             # ── expandable timeline
             f'<div class="tc-timeline" hidden>'
             f'<div class="tc-badge-wrap tc-badge-exp">{badge}</div>'
@@ -2735,6 +2762,10 @@ body{background:var(--bg);color:var(--text);min-height:100vh}
 .expand-btn{flex-shrink:0;padding:4px 10px;border-radius:20px;background:rgba(128,128,128,.22);border:none;color:inherit;cursor:pointer;font-size:.64rem;font-weight:600;white-space:nowrap;opacity:.82;transition:opacity .12s}
 .expand-btn:hover{opacity:1}
 .expand-btn.open{opacity:1}
+/* Chips de IA */
+.tc-chips{display:flex;flex-wrap:wrap;gap:4px;padding:6px 14px 8px;border-top:1px solid rgba(128,128,128,.12)}
+.tc-chip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:12px;font-size:.58rem;font-weight:600;white-space:nowrap;opacity:.92}
+.tc-chip-ok{background:#14532d;color:#4ade80}
 /* Timeline */
 .tc-timeline{border-top:1px solid rgba(128,128,128,.18)}
 .tl-inner{padding:8px 16px 12px 18px;display:flex;flex-direction:column;gap:0}

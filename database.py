@@ -451,6 +451,44 @@ def get_transfer_articles_raw() -> list[dict]:
         return [dict(r) for r in c.fetchall()]
 
 
+def get_transfer_articles() -> list[dict]:
+    """Retorna artigos de transferência JOINados com transfer_meta (para o /transferencias)."""
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT
+                a.id            AS id,
+                a.title_orig    AS title_orig,
+                a.title_pt      AS title_pt,
+                a.body_pt       AS body_pt,
+                a.url           AS url,
+                a.source_name   AS source_name,
+                a.published_at  AS published_at,
+                a.category      AS category,
+                tm.player_name,
+                tm.player_position,
+                tm.player_nationality,
+                tm.player_age,
+                tm.club_from,
+                tm.club_to,
+                tm.fee,
+                tm.nego_type,
+                tm.context_country,
+                tm.context_league,
+                tm.af_player_id,
+                tm.af_team_from_id,
+                tm.af_team_to_id,
+                tm.club_from_status,
+                tm.club_to_status,
+                tm.player_status
+            FROM articles a
+            LEFT JOIN transfer_meta tm ON tm.article_id = a.id
+            WHERE a.category IN ('transferencia', 'sondagem')
+            ORDER BY a.published_at DESC
+        """)
+        return [dict(r) for r in c.fetchall()]
+
+
 def get_lesao_articles() -> list[dict]:
     """Retorna todos os artigos com category='lesao' para reprocessamento retroativo."""
     with get_conn() as conn:
@@ -853,7 +891,7 @@ def get_club_logo(name_norm: str) -> str | None:
 
 
 def set_club_logo(name_norm: str, logo_url: str):
-    """Armazena URL do logo ('' se não encontrado)."""
+    """Armazena URL do logo (\'\'\' se nao encontrado)."""
     now = datetime.now(timezone.utc).isoformat()
     try:
         with get_conn() as conn:
@@ -869,9 +907,7 @@ def set_club_logo(name_norm: str, logo_url: str):
         pass
 
 
-# ─────────────────────────────────────────────
-#  CACHE DE FOTOS DE JOGADORES
-# ─────────────────────────────────────────────
+# CACHE DE FOTOS DE JOGADORES
 
 def init_player_photos():
     """Cria tabela de cache de fotos de jogadores. Chamado por init_db()."""
@@ -887,10 +923,7 @@ def init_player_photos():
 
 
 def get_player_photo(name_norm: str) -> str | None:
-    """Retorna URL cacheada da foto.
-    - str (url ou ''): já foi buscado antes
-    - None: nunca buscado
-    """
+    """Retorna URL cacheada da foto. None=nao buscado, str=buscado (vazio se nao encontrado)."""
     try:
         with get_conn() as conn:
             c = conn.cursor()
@@ -904,7 +937,7 @@ def get_player_photo(name_norm: str) -> str | None:
 
 
 def set_player_photo(name_norm: str, photo_url: str):
-    """Armazena URL da foto ('' se não encontrado)."""
+    """Armazena URL da foto do jogador."""
     now = datetime.now(timezone.utc).isoformat()
     try:
         with get_conn() as conn:
@@ -918,209 +951,3 @@ def set_player_photo(name_norm: str, photo_url: str):
             """, (name_norm, photo_url, now))
     except Exception:
         pass
-
-# ── Player name cache (normalização via Transfermarkt) ────────────────────────
-
-def init_player_name_cache():
-    """Cria tabela de cache de nomes canônicos. Chamado por init_db()."""
-    with get_conn() as conn:
-        c = conn.cursor()
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS player_name_cache (
-                name_query TEXT PRIMARY KEY,
-                tm_name    TEXT,
-                tm_id      TEXT,
-                fetched_at TEXT NOT NULL
-            )
-        """)
-
-
-def get_player_name_cache(name_query: str) -> str | None:
-    """Retorna nome canônico cacheado.
-    - None : nunca consultado
-    - ''   : consultado mas não encontrado no Transfermarkt
-    - str  : nome canônico encontrado
-    """
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            c.execute(
-                "SELECT tm_name FROM player_name_cache WHERE name_query = %s",
-                (name_query,)
-            )
-            row = c.fetchone()
-            if row is None:
-                return None
-            return row[0] if row[0] is not None else ""
-    except Exception:
-        return None
-
-
-def set_player_name_cache(name_query: str, tm_name: str, tm_id: str = ""):
-    """Armazena nome canônico ('' se não encontrado no Transfermarkt)."""
-    now = datetime.now(timezone.utc).isoformat()
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            c.execute("""
-                INSERT INTO player_name_cache (name_query, tm_name, tm_id, fetched_at)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (name_query) DO UPDATE SET
-                    tm_name    = EXCLUDED.tm_name,
-                    tm_id      = EXCLUDED.tm_id,
-                    fetched_at = EXCLUDED.fetched_at
-            """, (name_query, tm_name, tm_id, now))
-    except Exception:
-        pass
-
-
-def get_transfer_articles() -> list[dict]:
-    """Retorna artigos de transferência/sondagem de julho de 2026 com metadados classificados pela IA.
-    LEFT JOIN — artigos sem classificação ainda são retornados (nego_type=None).
-    Se a tabela transfer_meta não existir, cria e retorna lista vazia."""
-    try:
-        with get_conn() as conn:
-            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            c.execute("""
-                SELECT
-                    a.id, a.source_name, a.source_tier, a.url,
-                    a.title_pt, a.title_orig, a.body_pt, a.body_orig,
-                    a.published_at, a.collected_at, a.relevance_score,
-                    tm.player_name, tm.player_position, tm.player_nationality,
-                    tm.club_from, tm.club_to,
-                    tm.fee, tm.nego_type, tm.classified_at,
-                    tm.af_player_id, tm.af_team_from_id, tm.af_team_to_id,
-                    tm.club_from_status, tm.club_to_status, tm.player_status
-                FROM articles a
-                LEFT JOIN transfer_meta tm ON a.id = tm.article_id
-                WHERE a.category IN ('transferencia', 'sondagem')
-                  AND a.published_at >= '2026-07-01'
-                ORDER BY a.published_at DESC NULLS LAST
-            """)
-            return [dict(r) for r in c.fetchall()]
-    except Exception as e:
-        if "transfer_meta" in str(e) and "does not exist" in str(e):
-            init_transfer_meta()
-        return []
-
-
-def make_article_id(url: str, title: str) -> str:
-    raw = f"{url}|{title}".encode()
-    return hashlib.sha256(raw).hexdigest()[:16]
-
-
-def save_article(article: dict) -> bool:
-    with get_conn() as conn:
-        c = conn.cursor()
-        try:
-            article.setdefault("image_url", None)
-            article.setdefault("category", None)
-            c.execute("""                INSERT INTO articles
-                  (id, source_name, source_tier, source_type, url,
-                   title_orig, title_pt, body_orig, body_pt,
-                   language, published_at, collected_at, relevance_score, image_url, category)
-                VALUES
-                  (%(id)s, %(source_name)s, %(source_tier)s, %(source_type)s, %(url)s,
-                   %(title_orig)s, %(title_pt)s, %(body_orig)s, %(body_pt)s,
-                   %(language)s, %(published_at)s, %(collected_at)s, %(relevance_score)s, %(image_url)s, %(category)s)
-                ON CONFLICT (id) DO NOTHING
-            """, article)
-            return c.rowcount > 0
-        except Exception:
-            return False
-
-
-def update_article_body(article_id: str, body_orig: str, body_pt: str):
-    with get_conn() as conn:
-        c = conn.cursor()
-        c.execute(
-            "UPDATE articles SET body_orig = %s, body_pt = %s WHERE id = %s",
-            (body_orig, body_pt, article_id)
-        )
-
-
-def update_article_title(article_id: str, title_pt: str):
-    with get_conn() as conn:
-        c = conn.cursor()
-        c.execute(
-            "UPDATE articles SET title_pt = %s WHERE id = %s",
-            (title_pt, article_id)
-        )
-
-
-def update_article_meta(article_id: str, category: str = None, relevance_score: float = None):
-    """Atualiza category e/ou relevance_score de um artigo existente."""
-    if category is None and relevance_score is None:
-        return
-    with get_conn() as conn:
-        c = conn.cursor()
-        if category is not None and relevance_score is not None:
-            c.execute(
-                "UPDATE articles SET category = %s, relevance_score = %s WHERE id = %s",
-                (category, relevance_score, article_id)
-            )
-        elif category is not None:
-            c.execute("UPDATE articles SET category = %s WHERE id = %s", (category, article_id))
-        else:
-            c.execute("UPDATE articles SET relevance_score = %s WHERE id = %s", (relevance_score, article_id))
-
-
-def get_low_score_articles(hours: int = 24, limit: int = 200):
-    with get_conn() as conn:
-        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("""            SELECT * FROM articles
-            WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::TEXT
-              AND is_duplicate = 0
-              AND relevance_score < 0.34
-            ORDER BY relevance_score DESC, collected_at DESC LIMIT %s
-        """, (hours, limit))
-        return [dict(r) for r in c.fetchall()]
-
-
-def get_recent_articles(hours: int = 24, tier: str = None, limit: int = 100):
-    with get_conn() as conn:
-        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        query = """
-            SELECT * FROM articles
-            WHERE collected_at >= (NOW() AT TIME ZONE 'UTC' - INTERVAL '%s hours')::TEXT
-              AND is_duplicate = 0
-        """
-        params = [hours]
-        if tier:
-            query += " AND source_tier = %s"
-            params.append(tier)
-        query += " ORDER BY source_tier ASC, relevance_score DESC, collected_at DESC LIMIT %s"
-        params.append(limit)
-        c.execute(query, params)
-        return [dict(r) for r in c.fetchall()]
-
-
-def save_summary(summary: dict):
-    with get_conn() as conn:
-        c = conn.cursor()
-        c.execute("""            INSERT INTO summaries (generated_at, period_start, period_end, summary_pt, article_ids)
-            VALUES (%(generated_at)s, %(period_start)s, %(period_end)s, %(summary_pt)s, %(article_ids)s)
-        """, {**summary, "article_ids": json.dumps(summary["article_ids"])})
-
-
-def get_latest_summary():
-    with get_conn() as conn:
-        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("SELECT * FROM summaries ORDER BY generated_at DESC LIMIT 1")
-        row = c.fetchone()
-        return dict(row) if row else None
-
-
-def log_collection(log: dict):
-    with get_conn() as conn:
-        c = conn.cursor()
-        c.execute("""            INSERT INTO collection_logs (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
-            VALUES (%(ran_at)s, %(sources_ok)s, %(sources_fail)s, %(articles_new)s, %(articles_dup)s, %(error_msg)s)
-        """, log)
-
-
-def get_collection_logs(limit: int = 20):
-    with get_conn() as conn:
-        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        c.execute("SELECT * FROM collection_logs ORDER BY ran_at DESC LIMIT %s", (limit,))
-        return [dict(r) for r in c.fetchall()]
