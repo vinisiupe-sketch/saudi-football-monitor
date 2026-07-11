@@ -2384,7 +2384,7 @@ async def api_af_window_transfers(refresh: bool = False):
 
     headers = {"x-apisports-key": af_key}
     base    = "https://v3.football.api-sports.io"
-    window_start = "2025-06-01"
+    window_start = "2026-01-01"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # 1. Times da SPL
@@ -2397,20 +2397,19 @@ async def api_af_window_transfers(refresh: bool = False):
         if not team_ids:
             return JSONResponse({"error": "Nenhum time SPL retornado pela API"}, status_code=502)
 
-        # 2. Transfers por time (paralelo em lotes de 5, duas seasons: 2025 e 2026)
+        # 2. Transfers por time (paralelo em lotes de 5, season=2026)
         all_raw: list[dict] = []
-        async def _fetch(tid: int, season: int):
+        async def _fetch(tid: int):
             r = await client.get(f"{base}/transfers",
-                params={"team": tid, "season": season}, headers=headers)
+                params={"team": tid, "season": 2026}, headers=headers)
             return r.json().get("response", [])
 
         BATCH = 5
-        for season_year in (2025, 2026):
-            for i in range(0, len(team_ids), BATCH):
-                batch   = team_ids[i:i+BATCH]
-                results = await asyncio.gather(*[_fetch(tid, season_year) for tid in batch])
-                for res in results:
-                    all_raw.extend(res)
+        for i in range(0, len(team_ids), BATCH):
+            batch   = team_ids[i:i+BATCH]
+            results = await asyncio.gather(*[_fetch(tid) for tid in batch])
+            for res in results:
+                all_raw.extend(res)
 
         # 3. Dedup + filtro de janela
         seen: set[str] = set()
