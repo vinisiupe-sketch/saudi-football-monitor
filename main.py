@@ -2917,6 +2917,49 @@ async def api_transfers_enrich_ids():
     return result
 
 
+@app.get("/api/transfers/enrich-debug")
+async def api_transfers_enrich_debug():
+    """Diagnóstico da Phase 2: checa API key, dados no DB e faz uma chamada de teste."""
+    import os
+    from transfer_enricher import diagnose
+    from database import get_conn
+
+    api_key = os.environ.get("API_FOOTBALL_KEY", "")
+
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("""
+            SELECT
+                COUNT(*) AS total,
+                COUNT(context_league) AS with_league,
+                COUNT(context_country) AS with_country,
+                COUNT(player_name) AS with_player,
+                COUNT(af_player_id) AS already_enriched
+            FROM transfer_meta
+        """)
+        row = c.fetchone()
+        stats = {
+            "total": row[0], "with_league": row[1],
+            "with_country": row[2], "with_player": row[3],
+            "already_enriched": row[4],
+        }
+        c.execute("""
+            SELECT player_name, club_from, context_league, context_country
+            FROM transfer_meta WHERE player_name IS NOT NULL LIMIT 3
+        """)
+        samples = [{"player": r[0], "club": r[1], "league": r[2], "country": r[3]}
+                   for r in c.fetchall()]
+
+    api_result = await diagnose()
+    return {
+        "api_key_set": bool(api_key),
+        "api_key_prefix": (api_key[:4] + "...") if api_key else "",
+        "db_stats": stats,
+        "db_samples": samples,
+        "api_test": api_result,
+    }
+
+
 def _logo_norm(s: str) -> str:
     """Normalização agressiva para cache de logos: minúsculo, sem acento, hífen→espaço."""
     import unicodedata as _ud, re as _re

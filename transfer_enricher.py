@@ -132,6 +132,17 @@ def _resolve_league(league_from: str | None) -> tuple[int, int] | None:
 # ─────────────────────────────────────────────────────────────────────────────
 #  LOOKUP DE TIME VIA API-FOOTBALL
 # ─────────────────────────────────────────────────────────────────────────────
+async def _af_get(client: httpx.AsyncClient, path: str, params: dict, api_key: str) -> dict:
+    """Faz GET na API-Football e retorna o JSON completo (com errors/status)."""
+    r = await client.get(
+        f"{_AF_BASE}/{path}",
+        params=params,
+        headers={"x-apisports-key": api_key},
+        timeout=15,
+    )
+    return r.json()
+
+
 async def _find_team_id(
     client: httpx.AsyncClient,
     club_name: str,
@@ -141,64 +152,50 @@ async def _find_team_id(
     api_key: str,
 ) -> str | None:
     """Retorna o af_team_id do clube, ou None se não encontrado."""
-    headers = {"x-apisports-key": api_key}
-    search_term = club_name[:20]  # API limita a 20 chars
+    search_term = club_name[:20]
 
-    # 1ª tentativa: nome + liga (mais precisa)
+    # 1ª tentativa: nome + liga
     if league_id:
         try:
-            r = await client.get(
-                f"{_AF_BASE}/teams",
-                params={"search": search_term, "league": league_id, "season": season},
-                headers=headers, timeout=10,
-            )
-            items = r.json().get("response") or []
+            j = await _af_get(client, "teams",
+                {"search": search_term, "league": league_id, "season": season}, api_key)
+            items = j.get("response") or []
             if items:
                 return str(items[0]["team"]["id"])
-        except Exception:
-            pass
+            if j.get("errors"):
+                print(f"   AF /teams error: {j['errors']}")
+        except Exception as e:
+            print(f"   AF /teams exception (league): {e}")
 
     # 2ª tentativa: nome + país
     if country:
         try:
-            r = await client.get(
-                f"{_AF_BASE}/teams",
-                params={"search": search_term, "country": country},
-                headers=headers, timeout=10,
-            )
-            items = r.json().get("response") or []
+            j = await _af_get(client, "teams",
+                {"search": search_term, "country": country}, api_key)
+            items = j.get("response") or []
             if items:
-                # Prefere correspondência exata no nome
                 nm = _norm(club_name)
                 for item in items:
                     if _norm(item["team"]["name"]) == nm:
                         return str(item["team"]["id"])
                 return str(items[0]["team"]["id"])
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"   AF /teams exception (country): {e}")
 
-    # 3ª tentativa: só pelo nome (sem filtro)
+    # 3ª tentativa: só pelo nome
     try:
-        r = await client.get(
-            f"{_AF_BASE}/teams",
-            params={"search": search_term},
-            headers=headers, timeout=10,
-        )
-        items = r.json().get("response") or []
-        if items:
-            nm = _norm(club_name)
-            for item in items:
-                if _norm(item["team"]["name"]) == nm:
-                    return str(item["team"]["id"])
-    except Exception:
-        pass
+        j = await _af_get(client, "teams", {"search": search_term}, api_key)
+        items = j.get("response") or []
+        nm = _norm(club_name)
+        for item in items:
+            if _norm(item["team"]["name"]) == nm:
+                return str(item["team"]["id"])
+    except Exception as e:
+        print(f"   AF /teams exception (name only): {e}")
 
     return None
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  LOOKUP DE JOGADOR VIA API-FOOTBALL
-# ─────────────────────────────────────────────────────────────────────────────
 async def _find_player_id(
     client: httpx.AsyncClient,
     player_name: str,
@@ -206,44 +203,68 @@ async def _find_player_id(
     api_key: str,
 ) -> str | None:
     """Retorna o af_player_id, ou None se não encontrado."""
-    headers = {"x-apisports-key": api_key}
+    search = player_name[:20]
 
-    # Tenta com team_id (muito mais preciso)
     if team_id:
         for season in [2025, 2024, 2023]:
             try:
-                r = await client.get(
-                    f"{_AF_BASE}/players",
-                    params={"search": player_name[:20], "team": team_id, "season": season},
-                    headers=headers, timeout=10,
-                )
-                items = r.json().get("response") or []
+                j = await _af_get(client, "players",
+                    {"search": search, "team": team_id, "season": season}, api_key)
+                items = j.get("response") or []
                 if items:
                     return str(items[0]["player"]["id"])
-            except Exception:
-                pass
-            await asyncio.sleep(0.1)
+                if j.get("errors"):
+                    print(f"   AF /players error: {j['errors']}")
+                    break  # erro de auth → não tenta mais seasons
+            except Exception as e:
+                print(f"   AF /players exception (team+season {season}): {e}")
+            await asyncio.sleep(0.15)
 
-    # Fallback: só pelo nome (pode retornar falsos positivos, filtra por nome)
+    # Fallback sem team
     try:
-        r = await client.get(
-            f"{_AF_BASE}/players",
-            params={"search": player_name[:20], "season": 2025},
-            headers=headers, timeout=10,
-        )
-        items = r.json().get("response") or []
-        if items:
-            nm = _norm(player_name)
-            for item in items:
-                full = _norm(item["player"].get("name", ""))
-                first = _norm(item["player"].get("firstname", ""))
-                last = _norm(item["player"].get("lastname", ""))
-                if nm in full or nm in f"{first} {last}":
-                    return str(item["player"]["id"])
-    except Exception:
-        pass
+        j = await _af_get(client, "players", {"search": search, "season": 2025}, api_key)
+        items = j.get("response") or []
+        nm = _norm(player_name)
+        for item in items:
+            full  = _norm(item["player"].get("name", ""))
+            first = _norm(item["player"].get("firstname", ""))
+            last  = _norm(item["player"].get("lastname", ""))
+            if nm in full or nm in f"{first} {last}":
+                return str(item["player"]["id"])
+        if j.get("errors"):
+            print(f"   AF /players fallback error: {j['errors']}")
+    except Exception as e:
+        print(f"   AF /players exception (fallback): {e}")
 
     return None
+
+
+async def diagnose(player_name: str = "Neymar", club: str = "Al Hilal") -> dict:
+    """Faz chamadas de diagnóstico e retorna respostas brutas (para /api/transfers/enrich-debug)."""
+    api_key = _af_key()
+    out: dict = {"api_key_set": bool(api_key), "api_key_prefix": api_key[:4] + "..." if api_key else ""}
+    if not api_key:
+        return out
+    async with httpx.AsyncClient() as client:
+        try:
+            j = await _af_get(client, "players", {"search": player_name[:20], "season": 2025}, api_key)
+            out["players_response"] = {
+                "results": j.get("results", 0),
+                "errors": j.get("errors"),
+                "status": j.get("response", [{}])[0].get("player", {}).get("name") if j.get("response") else None,
+            }
+        except Exception as e:
+            out["players_error"] = str(e)
+        try:
+            j2 = await _af_get(client, "teams", {"search": club[:20]}, api_key)
+            out["teams_response"] = {
+                "results": j2.get("results", 0),
+                "errors": j2.get("errors"),
+                "first": j2.get("response", [{}])[0].get("team", {}).get("name") if j2.get("response") else None,
+            }
+        except Exception as e:
+            out["teams_error"] = str(e)
+    return out
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -346,5 +367,5 @@ async def enrich_all_ids() -> dict:
                 print(f"   Lote {i//BATCH+1}: {enriched} enriquecidos, {skipped} sem resultado")
             await asyncio.sleep(1.5)  # ~2 seg entre lotes = ~90 req/min seguro
 
-    print(f"✅ Phase 2 concluído: {enriched} enriquecidos, {skipped} sem resultado de {total}")
+    print(f"\u2705 Phase 2 conclu\u00eddo: {enriched} enriquecidos, {skipped} sem resultado de {total}")
     return {"enriched": enriched, "skipped": skipped, "total": total}
