@@ -81,14 +81,11 @@ async def normalize_player_name(raw_name: str, client: httpx.AsyncClient,
                     chosen = results[0]
                 canonical = chosen.get("name") or ""
                 tm_id = str(chosen.get("id") or "")
-                print(f"   ✅ TM name: '{raw_name}' → '{canonical}'")
-            else:
-                print(f"   ℹ️  TM: nenhum resultado para '{raw_name}'")
+            # else: no results, silent
         else:
-            print(f"   ⚠️  TM HTTP {r.status_code} para '{raw_name}'")
             _api_ok = False
-    except Exception as e:
-        print(f"   ⚠️  TM erro de rede para '{raw_name}': {type(e).__name__}: {e}")
+    except Exception:
+        pass  # TM unavailable -- silent
 
     # 3) Armazena no cache SÓ se a API respondeu (não cacheia erros de rede)
     if canonical or _api_ok:
@@ -203,15 +200,13 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient,
         tid = await _find_team(cfrom, nat)
         if tid:
             data["af_team_from_id"] = tid
-            print(f"   🔵 AF team_from: '{cfrom}' → {tid}")
 
     # ── Clube de destino ─────────────────────────────────────────────────
     cto = data.get("club_to") or ""
     if cto and not data.get("af_team_to_id"):
-        tid = await _find_team(cto, "")  # destino = clube saudita, sem nat_hint
+        tid = await _find_team(cto, "")
         if tid:
             data["af_team_to_id"] = tid
-            print(f"   🔴 AF team_to: '{cto}' → {tid}")
 
     # ── Jogador ──────────────────────────────────────────────────────────
     pname = data.get("player_name") or ""
@@ -270,10 +265,9 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient,
                     if results:
                         pid_found = _best_player_match(results, pname_norm)
                         if pid_found:
-                            print(f"   📸 AF player: '{pname}' → {pid_found} (team={tid})")
                             break
-                except Exception as e:
-                    print(f"   ⚠️  AF player '{pname}' team={tid}: {type(e).__name__}")
+                except Exception:
+                    pass
             if pid_found:
                 break
 
@@ -288,10 +282,9 @@ async def enrich_with_af_ids(data: dict, client: httpx.AsyncClient,
                     if results:
                         pid_found = _best_player_match(results, pname_norm)
                         if pid_found:
-                            print(f"   📸 AF player: '{pname}' → {pid_found} (league=307)")
                             break
-                except Exception as e:
-                    print(f"   ⚠️  AF player '{pname}' league=307: {type(e).__name__}")
+                except Exception:
+                    pass
 
         if pid_found:
             data["af_player_id"] = pid_found

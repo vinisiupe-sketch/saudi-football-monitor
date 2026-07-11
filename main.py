@@ -3408,13 +3408,11 @@ async def api_backfill_af_ids(limit: int = 300, dry_run: str = ""):
                         "club_to_status":     row.get("club_to_status") or "",
                         "player_status":      row.get("player_status") or "",
                     }
-                    print(f"\n Backfill {aid[:12]} | {pname} | {data['club_from']} -> {data['club_to']}")
                     enriched = await resolve_transfer_entities(
                         data, client, hdrs, _session_cache=session_cache
                     )
                 except Exception as e:
-                    print(f"   ERRO backfill {aid[:12]}: {e}")
-                    import traceback; traceback.print_exc()
+                    print(f"   ERRO backfill {aid[:12]}: {type(e).__name__}: {e}")
                     skipped += 1
                     continue
 
