@@ -16,3 +16,7 @@ data/
 
 # macOS
 .DS_Store
+
+gitlog.txt
+do_push.py
+fix_git_lock.bat
