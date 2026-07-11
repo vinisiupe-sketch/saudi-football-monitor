@@ -2368,8 +2368,9 @@ _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 @app.get("/api/af-window-transfers")
 async def api_af_window_transfers(refresh: bool = False, season: int = 2025):
     """
-    Busca transferências da SPL via Transfermarkt API (transfermarkt-api.fly.dev).
-    Sem necessidade de chave. Cacheado por 30 min.
+    Busca chegadas da janela de verão SPL via Transfermarkt API.
+    Usa /clubs/{id}/players?season_id=2025, filtra joinedOn >= 2025-07-01.
+    Cacheado 30 min.
     """
     import time as _time
     global _AF_WINDOW_CACHE
@@ -2377,7 +2378,8 @@ async def api_af_window_transfers(refresh: bool = False, season: int = 2025):
     if not refresh and _AF_WINDOW_CACHE["data"] is not None and now - _AF_WINDOW_CACHE["ts"] < 1800:
         return _AF_WINDOW_CACHE["data"]
 
-    TM_BASE = "https://transfermarkt-api.fly.dev"
+    TM_BASE      = "https://transfermarkt-api.fly.dev"
+    WINDOW_START = "2025-07-01"
 
     async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
         # 1. Clubes da SPL
@@ -2387,28 +2389,39 @@ async def api_af_window_transfers(refresh: bool = False, season: int = 2025):
         if not clubs:
             return JSONResponse({"error": f"Nenhum clube SPL para season_id={season}"}, status_code=502)
 
-        spl_names = {(c.get("name") or "").lower() for c in clubs}
-
-        # 2. Transfers por clube (paralelo em lotes de 4)
-        async def _fetch_club(club: dict):
+        # 2. Plantel de cada clube (paralelo em lotes de 4)
+        async def _fetch_club_players(club: dict):
             cid  = club.get("id")
             name = club.get("name") or ""
+            logo = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
             if not cid:
                 return []
             try:
-                r2 = await client.get(f"{TM_BASE}/clubs/{cid}/transfers",
+                r2   = await client.get(f"{TM_BASE}/clubs/{cid}/players",
                     params={"season_id": str(season)})
                 data = r2.json()
                 out  = []
-                logo = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
-                # arrivals = entradas no clube
-                for tr in (data.get("arrivals") or []):
-                    out.append(_tm_transfer(tr, club_in_name=name, club_in_logo=logo,
-                                            direction="in", spl_names=spl_names))
-                # departures = saídas do clube
-                for tr in (data.get("departures") or []):
-                    out.append(_tm_transfer(tr, club_out_name=name, club_out_logo=logo,
-                                            direction="out", spl_names=spl_names))
+                for p in (data.get("players") or []):
+                    joined_on = p.get("joinedOn") or ""
+                    if not joined_on or joined_on < WINDOW_START:
+                        continue
+                    pid  = p.get("id") or ""
+                    mv   = p.get("marketValue")
+                    out.append({
+                        "player_id":    str(pid),
+                        "player_name":  p.get("name") or "",
+                        "photo":        f"https://img.a.transfermarkt.technology/portrait/big/{pid}.jpg" if pid else None,
+                        "date":         joined_on,
+                        "type":         f"€{mv//1_000_000}M" if mv and mv >= 1_000_000
+                                        else (f"€{mv//1000}K" if mv and mv > 0 else "N/A"),
+                        "position":     p.get("position") or "",
+                        "age":          p.get("age"),
+                        "market_value": mv,
+                        "nationality":  (p.get("nationality") or [None])[0],
+                        "team_in":      {"name": name, "logo": logo},
+                        "team_out":     {"name": p.get("signedFrom") or "—", "logo": None},
+                        "direction":    "in",
+                    })
                 return out
             except Exception:
                 return []
@@ -2418,10 +2431,10 @@ async def api_af_window_transfers(refresh: bool = False, season: int = 2025):
         BATCH = 4
         for i in range(0, len(clubs), BATCH):
             batch   = clubs[i:i+BATCH]
-            results = await asyncio.gather(*[_fetch_club(c) for c in batch])
+            results = await asyncio.gather(*[_fetch_club_players(c) for c in batch])
             for lst in results:
                 for tr in lst:
-                    key = f"{tr['player_id']}_{tr['date']}_{tr.get('team_in',{}).get('name')}_{tr.get('team_out',{}).get('name')}"
+                    key = f"{tr['player_id']}_{tr['team_in']['name']}"
                     if key not in seen:
                         seen.add(key)
                         transfers.append(tr)
@@ -2430,48 +2443,6 @@ async def api_af_window_transfers(refresh: bool = False, season: int = 2025):
     _AF_WINDOW_CACHE["data"] = transfers
     _AF_WINDOW_CACHE["ts"]   = now
     return transfers
-
-
-def _tm_transfer(tr: dict, *, club_in_name: str = "", club_in_logo: str = "",
-                 club_out_name: str = "", club_out_logo: str = "",
-                 direction: str, spl_names: set) -> dict:
-    """Normaliza uma entrada/saída do Transfermarkt para o formato padrão."""
-    pid  = tr.get("id") or tr.get("player_id") or ""
-    fee  = tr.get("fee") or tr.get("market_value") or "N/A"
-    # clube de origem da transferência (de onde o jogador vem)
-    from_name = tr.get("from_club_name") or tr.get("club_name") or ""
-    from_id   = tr.get("from_club_id")  or ""
-    from_logo = f"https://tmssl.akamaized.net//images/wappen/big/{from_id}.png" if from_id else ""
-    to_name   = tr.get("to_club_name")  or ""
-    to_id     = tr.get("to_club_id")    or ""
-    to_logo   = f"https://tmssl.akamaized.net//images/wappen/big/{to_id}.png"   if to_id   else ""
-
-    if direction == "in":
-        # O clube SPL recebe o jogador
-        team_in  = {"name": club_in_name,  "logo": club_in_logo}
-        team_out = {"name": from_name or club_out_name, "logo": from_logo or club_out_logo}
-    else:
-        # O clube SPL perde o jogador
-        team_in  = {"name": to_name or club_in_name, "logo": to_logo or club_in_logo}
-        team_out = {"name": club_out_name, "logo": club_out_logo}
-
-    photo = None
-    if pid:
-        photo = f"https://img.a.transfermarkt.technology/portrait/big/{pid}.jpg"
-
-    return {
-        "player_id":   str(pid),
-        "player_name": tr.get("name") or tr.get("player_name") or "",
-        "photo":       photo,
-        "date":        tr.get("date") or "",
-        "type":        fee,
-        "position":    tr.get("position") or "",
-        "age":         tr.get("age"),
-        "market_value":tr.get("market_value") or "",
-        "team_in":     team_in,
-        "team_out":    team_out,
-        "direction":   direction,
-    }
 
 
 @app.get("/api/debug-tm")
