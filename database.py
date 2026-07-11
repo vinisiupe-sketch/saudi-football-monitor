@@ -662,9 +662,11 @@ def init_entity_tables():
                 team_out_name   TEXT,
                 team_out_logo   TEXT,
                 direction       TEXT NOT NULL DEFAULT 'in',
+                transfer_date   DATE,
                 scraped_at      TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS transfer_date DATE")
 
 
 def get_entity_resolution(entity_type: str, normalized_name: str,
