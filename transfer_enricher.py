@@ -49,7 +49,6 @@ _LEAGUE_MAP: dict[str, tuple[int, int]] = {
     # Spain
     "la liga":                   (140, 2024),
     "primera division":          (140, 2024),
-    "liga española":             (140, 2024),
     "liga espanola":             (140, 2024),
     "segunda division":          (141, 2024),
     # Italy
@@ -60,7 +59,6 @@ _LEAGUE_MAP: dict[str, tuple[int, int]] = {
     "bundesliga":                (78,  2024),
     "1. bundesliga":             (78,  2024),
     "2. bundesliga":             (79,  2024),
-    "2a bundesliga":             (79,  2024),
     # France
     "ligue 1":                   (61,  2024),
     "ligue 2":                   (62,  2024),
@@ -74,7 +72,6 @@ _LEAGUE_MAP: dict[str, tuple[int, int]] = {
     # Turkey
     "super lig":                 (203, 2024),
     "superlig":                  (203, 2024),
-    "super liga turca":          (203, 2024),
     # Belgium
     "pro league":                (144, 2024),
     "jupiler pro league":        (144, 2024),
@@ -93,7 +90,6 @@ _LEAGUE_MAP: dict[str, tuple[int, int]] = {
     "major league soccer":       (253, 2024),
     # Greece
     "super league":              (197, 2024),
-    "super league grega":        (197, 2024),
     # Russia
     "premier league russa":      (235, 2024),
     "rpl":                       (235, 2024),
@@ -108,9 +104,18 @@ _LEAGUE_MAP: dict[str, tuple[int, int]] = {
     # Japan
     "j1 league":                 (98,  2024),
     "j league":                  (98,  2024),
+    # Norway
+    "eliteserien":               (103, 2024),
+    "liga norueguesa":           (103, 2024),
+    # Sweden
+    "allsvenskan":               (113, 2024),
+    # Denmark
+    "superliga dinamarquesa":    (119, 2024),
+    "superliga":                 (119, 2024),
     # Champions League / Copa
     "champions league":          (2,   2024),
     "europa league":             (3,   2024),
+    "conference league":         (848, 2024),
 }
 
 
@@ -119,10 +124,8 @@ def _resolve_league(league_from: str | None) -> tuple[int, int] | None:
     if not league_from:
         return None
     key = _norm(league_from)
-    # Busca exata
     if key in _LEAGUE_MAP:
         return _LEAGUE_MAP[key]
-    # Busca parcial (ex: "Ligue 1 Uber Eats" → "ligue 1")
     for k, v in _LEAGUE_MAP.items():
         if k in key or key in k:
             return v
@@ -130,10 +133,9 @@ def _resolve_league(league_from: str | None) -> tuple[int, int] | None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  LOOKUP DE TIME VIA API-FOOTBALL
+#  HTTP helper
 # ─────────────────────────────────────────────────────────────────────────────
 async def _af_get(client: httpx.AsyncClient, path: str, params: dict, api_key: str) -> dict:
-    """Faz GET na API-Football e retorna o JSON completo (com errors/status)."""
     r = await client.get(
         f"{_AF_BASE}/{path}",
         params=params,
@@ -143,6 +145,9 @@ async def _af_get(client: httpx.AsyncClient, path: str, params: dict, api_key: s
     return r.json()
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  LOOKUP DE TIME
+# ─────────────────────────────────────────────────────────────────────────────
 async def _find_team_id(
     client: httpx.AsyncClient,
     club_name: str,
@@ -151,10 +156,9 @@ async def _find_team_id(
     country: str | None,
     api_key: str,
 ) -> str | None:
-    """Retorna o af_team_id do clube, ou None se não encontrado."""
     search_term = club_name[:20]
 
-    # 1ª tentativa: nome + liga
+    # 1ª: nome + liga
     if league_id:
         try:
             j = await _af_get(client, "teams",
@@ -167,7 +171,7 @@ async def _find_team_id(
         except Exception as e:
             print(f"   AF /teams exception (league): {e}")
 
-    # 2ª tentativa: nome + país
+    # 2ª: nome + país
     if country:
         try:
             j = await _af_get(client, "teams",
@@ -182,7 +186,7 @@ async def _find_team_id(
         except Exception as e:
             print(f"   AF /teams exception (country): {e}")
 
-    # 3ª tentativa: só pelo nome
+    # 3ª: só nome (sem liga/país) — API permite isso para /teams
     try:
         j = await _af_get(client, "teams", {"search": search_term}, api_key)
         items = j.get("response") or []
@@ -190,68 +194,83 @@ async def _find_team_id(
         for item in items:
             if _norm(item["team"]["name"]) == nm:
                 return str(item["team"]["id"])
+        if items:
+            return str(items[0]["team"]["id"])
     except Exception as e:
         print(f"   AF /teams exception (name only): {e}")
 
     return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  LOOKUP DE JOGADOR
+# ─────────────────────────────────────────────────────────────────────────────
 async def _find_player_id(
     client: httpx.AsyncClient,
     player_name: str,
     team_id: str | None,
     api_key: str,
+    league_id: int | None = None,
+    season: int = 2024,
 ) -> str | None:
-    """Retorna o af_player_id, ou None se não encontrado."""
     search = player_name[:20]
 
+    # Com team_id: mais preciso
     if team_id:
-        for season in [2025, 2024, 2023]:
+        for s in [2025, 2024, 2023]:
             try:
                 j = await _af_get(client, "players",
-                    {"search": search, "team": team_id, "season": season}, api_key)
+                    {"search": search, "team": team_id, "season": s}, api_key)
                 items = j.get("response") or []
                 if items:
                     return str(items[0]["player"]["id"])
-                if j.get("errors"):
-                    print(f"   AF /players error: {j['errors']}")
-                    break  # erro de auth → não tenta mais seasons
+                errs = j.get("errors")
+                if errs:
+                    print(f"   AF /players error (team): {errs}")
+                    break
             except Exception as e:
-                print(f"   AF /players exception (team+season {season}): {e}")
+                print(f"   AF /players exception (team+{s}): {e}")
             await asyncio.sleep(0.15)
 
-    # Fallback sem team
-    try:
-        j = await _af_get(client, "players", {"search": search, "season": 2025}, api_key)
-        items = j.get("response") or []
-        nm = _norm(player_name)
-        for item in items:
-            full  = _norm(item["player"].get("name", ""))
-            first = _norm(item["player"].get("firstname", ""))
-            last  = _norm(item["player"].get("lastname", ""))
-            if nm in full or nm in f"{first} {last}":
-                return str(item["player"]["id"])
-        if j.get("errors"):
-            print(f"   AF /players fallback error: {j['errors']}")
-    except Exception as e:
-        print(f"   AF /players exception (fallback): {e}")
+    # Fallback com liga (API exige team OU league; nome-só retorna erro)
+    if league_id:
+        try:
+            j = await _af_get(client, "players",
+                {"search": search, "league": league_id, "season": season}, api_key)
+            items = j.get("response") or []
+            nm = _norm(player_name)
+            for item in items:
+                full  = _norm(item["player"].get("name", ""))
+                first = _norm(item["player"].get("firstname", ""))
+                last  = _norm(item["player"].get("lastname", ""))
+                if nm in full or nm in f"{first} {last}":
+                    return str(item["player"]["id"])
+            if j.get("errors"):
+                print(f"   AF /players error (league fallback): {j['errors']}")
+        except Exception as e:
+            print(f"   AF /players exception (league fallback): {e}")
 
+    # Sem team nem league: API retornaria erro — não tenta
     return None
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  DIAGNÓSTICO
+# ─────────────────────────────────────────────────────────────────────────────
 async def diagnose(player_name: str = "Neymar", club: str = "Al Hilal") -> dict:
-    """Faz chamadas de diagnóstico e retorna respostas brutas (para /api/transfers/enrich-debug)."""
     api_key = _af_key()
     out: dict = {"api_key_set": bool(api_key), "api_key_prefix": api_key[:4] + "..." if api_key else ""}
     if not api_key:
         return out
     async with httpx.AsyncClient() as client:
         try:
-            j = await _af_get(client, "players", {"search": player_name[:20], "season": 2025}, api_key)
+            # players exige team ou league
+            j = await _af_get(client, "players",
+                {"search": player_name[:20], "league": 307, "season": 2024}, api_key)
             out["players_response"] = {
                 "results": j.get("results", 0),
                 "errors": j.get("errors"),
-                "status": j.get("response", [{}])[0].get("player", {}).get("name") if j.get("response") else None,
+                "first": j.get("response", [{}])[0].get("player", {}).get("name") if j.get("response") else None,
             }
         except Exception as e:
             out["players_error"] = str(e)
@@ -275,25 +294,21 @@ async def enrich_one(
     client: httpx.AsyncClient,
     api_key: str,
 ) -> dict:
-    """Tenta preencher af_team_from_id e af_player_id para um registro de transfer_meta.
-    Retorna dict com os campos encontrados (vazio se nada novo)."""
     result: dict = {}
 
-    player_name   = meta.get("player_name") or ""
-    club_from     = meta.get("club_from") or ""
-    country_from  = meta.get("context_country") or ""
-    league_from   = meta.get("context_league") or ""
+    player_name  = meta.get("player_name") or ""
+    club_from    = meta.get("club_from") or ""
+    country_from = meta.get("context_country") or ""
+    league_from  = meta.get("context_league") or ""
 
-    # Só processa se tiver player_name
     if not player_name:
         return result
 
-    # ── 1. Resolve league_id ──────────────────────────────────────────────
     league_info = _resolve_league(league_from)
     league_id   = league_info[0] if league_info else None
     season      = league_info[1] if league_info else 2024
 
-    # ── 2. Busca team_from_id (se não tiver ainda) ────────────────────────
+    # 1. Busca team_from_id
     team_from_id = meta.get("af_team_from_id")
     if not team_from_id and club_from:
         team_from_id = await _find_team_id(
@@ -303,11 +318,13 @@ async def enrich_one(
             result["af_team_from_id"] = team_from_id
         await asyncio.sleep(0.2)
 
-    # ── 3. Busca player_id ────────────────────────────────────────────────
+    # 2. Busca player_id
     if not meta.get("af_player_id"):
-        # Prefere usar team_from; fallback: team_to (clube destino, já pode estar no DB)
         team_for_player = team_from_id or meta.get("af_team_to_id")
-        player_id = await _find_player_id(client, player_name, team_for_player, api_key)
+        player_id = await _find_player_id(
+            client, player_name, team_for_player, api_key,
+            league_id=league_id, season=season,
+        )
         if player_id:
             result["af_player_id"] = player_id
         await asyncio.sleep(0.2)
@@ -316,15 +333,13 @@ async def enrich_one(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  BACKFILL COMPLETO (chamado pelo endpoint POST /api/transfers/enrich-ids)
+#  BACKFILL COMPLETO
 # ─────────────────────────────────────────────────────────────────────────────
 async def enrich_all_ids() -> dict:
-    """Percorre transfer_meta e preenche IDs faltando com ajuda da API-Football."""
     api_key = _af_key()
     if not api_key:
         return {"error": "API_FOOTBALL_KEY não configurado"}
 
-    # Busca registros que precisam de enriquecimento
     with get_conn() as conn:
         c = conn.cursor()
         c.execute("""
@@ -342,9 +357,9 @@ async def enrich_all_ids() -> dict:
 
     total = len(rows)
     enriched = skipped = 0
-    print(f"🔍 Phase 2 enrich: {total} registros para processar...")
+    print(f"Phase 2 enrich: {total} registros para processar...")
 
-    BATCH = 3  # conservador para respeitar rate limit (30 req/min na API)
+    BATCH = 3
     async with httpx.AsyncClient() as client:
         for i in range(0, total, BATCH):
             batch = rows[i:i + BATCH]
@@ -365,7 +380,7 @@ async def enrich_all_ids() -> dict:
                 enriched += 1
             if (i // BATCH + 1) % 5 == 0:
                 print(f"   Lote {i//BATCH+1}: {enriched} enriquecidos, {skipped} sem resultado")
-            await asyncio.sleep(1.5)  # ~2 seg entre lotes = ~90 req/min seguro
+            await asyncio.sleep(1.5)
 
-    print(f"\u2705 Phase 2 conclu\u00eddo: {enriched} enriquecidos, {skipped} sem resultado de {total}")
+    print(f"Phase 2 concluido: {enriched} enriquecidos, {skipped} sem resultado de {total}")
     return {"enriched": enriched, "skipped": skipped, "total": total}
