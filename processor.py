@@ -108,17 +108,13 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
                 items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {body_orig_text[:1200]}{brevity_note}\n---"
 
             prompt = f"""Adapte os artigos abaixo para português brasileiro com estilo jornalístico esportivo.
-Classifique cada artigo em UMA categoria: transferencia, patrocinio, planejamento, entrevista, resultado, competicao, treino, financeiro, lesao, sondagem, geral.
-- transferencia: confirmação de compra/venda/empréstimo de jogador
-- sondagem: interesse, negociação em andamento, rumor de transferência
-- patrocinio: acordos comerciais, patrocinadores, naming rights
-- planejamento: decisões sobre elenco, renovações, dispensas, estratégia
+Classifique cada artigo em UMA categoria: mercado, financas, competicao, entrevista, lesao, treino, geral.
+- mercado: transferências confirmadas, sondagens, rumores, renovações e planejamento de elenco
+- financas: salários, receitas, patrocínios, acordos comerciais, fair play financeiro
+- competicao: resultados de jogos, placares, classificações, copas e torneios
 - entrevista: declarações de jogadores, técnicos ou dirigentes
-- resultado: placar de jogos, desempenho em partidas
-- competicao: Copa, torneio, classificação, chaveamento
-- treino: sessões de treino, preparação física
-- financeiro: salários, receitas, fair play financeiro
 - lesao: machucados, recuperação, ausências médicas
+- treino: sessões de treino, preparação física
 - geral: qualquer outro assunto
 Responda SOMENTE com este JSON (sem texto extra):
 {{"translations": [{{"title_pt": "...", "body_pt": "...", "category": "..."}}]}}
@@ -151,7 +147,7 @@ Responda SOMENTE com este JSON (sem texto extra):
                 for art in batch:
                     try:
                         solo_prompt = f"""Adapte o artigo abaixo para português brasileiro com estilo jornalístico esportivo.
-Classifique em UMA categoria: transferencia, patrocinio, planejamento, entrevista, resultado, competicao, treino, financeiro, lesao, sondagem, geral.
+Classifique em UMA categoria: mercado, financas, competicao, entrevista, lesao, treino, geral.
 Responda SOMENTE com este JSON (sem texto extra):
 {{"title_pt": "...", "body_pt": "...", "category": "..."}}
 

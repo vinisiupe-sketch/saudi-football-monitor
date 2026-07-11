@@ -242,25 +242,19 @@ async def dashboard():
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
     CATEGORY_EMOJI = {
-        "transferencia": ("🔄", "#dbeafe", "#1d4ed8"),
-        "sondagem":      ("🔎", "#e0f2fe", "#0369a1"),
-        "patrocinio":    ("🤝", "#ede9fe", "#6d28d9"),
-        "planejamento":  ("📋", "#f0fdf4", "#166534"),
+        "mercado":       ("🔀", "#dbeafe", "#1d4ed8"),
+        "financas":      ("💰", "#fdf4ff", "#7e22ce"),
         "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
-        "resultado":     ("⚽", "#dcfce7", "#15803d"),
         "competicao":    ("🏆", "#fef9c3", "#a16207"),
         "treino":        ("🏋️", "#f0fdf4", "#166534"),
-        "financeiro":    ("💰", "#fdf4ff", "#7e22ce"),
         "lesao":         ("🩺", "#fff1f2", "#be123c"),
         "geral":         ("📰", "#f1f5f9", "#475569"),
     }
 
     CATEGORY_TEXT = {
-        "transferencia": "Transferência", "sondagem": "Sondagem",
-        "patrocinio": "Patrocínio",       "planejamento": "Planejamento",
-        "entrevista": "Entrevista",        "resultado": "Resultado",
-        "competicao": "Competição",        "treino": "Treino",
-        "financeiro": "Financeiro",        "lesao": "Lesão",
+        "mercado": "Mercado",      "financas": "Finanças",
+        "competicao": "Competição","entrevista": "Entrevista",
+        "lesao": "Lesão",          "treino": "Treino",
         "geral": "Geral",
     }
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
@@ -721,24 +715,18 @@ async def selecao_page():
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
     CATEGORY_EMOJI = {
-        "transferencia": ("🔄", "#dbeafe", "#1d4ed8"),
-        "sondagem":      ("🔎", "#e0f2fe", "#0369a1"),
-        "patrocinio":    ("🤝", "#ede9fe", "#6d28d9"),
-        "planejamento":  ("📋", "#f0fdf4", "#166534"),
+        "mercado":       ("🔀", "#dbeafe", "#1d4ed8"),
+        "financas":      ("💰", "#fdf4ff", "#7e22ce"),
         "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
-        "resultado":     ("⚽", "#dcfce7", "#15803d"),
         "competicao":    ("🏆", "#fef9c3", "#a16207"),
         "treino":        ("🏋️", "#f0fdf4", "#166534"),
-        "financeiro":    ("💰", "#fdf4ff", "#7e22ce"),
         "lesao":         ("🩺", "#fff1f2", "#be123c"),
         "geral":         ("📰", "#f1f5f9", "#475569"),
     }
     CATEGORY_TEXT = {
-        "transferencia": "Transferência", "sondagem": "Sondagem",
-        "patrocinio": "Patrocínio",       "planejamento": "Planejamento",
-        "entrevista": "Entrevista",        "resultado": "Resultado",
-        "competicao": "Competição",        "treino": "Treino",
-        "financeiro": "Financeiro",        "lesao": "Lesão",
+        "mercado": "Mercado",      "financas": "Finanças",
+        "competicao": "Competição","entrevista": "Entrevista",
+        "lesao": "Lesão",          "treino": "Treino",
         "geral": "Geral",
     }
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
@@ -1178,9 +1166,9 @@ def _post_rule() -> str:
         "São 20 anos entre sua estreia, em 2006, e o Mundial de hoje.').\n"
         "2. MÉDIO — até 7 palavras, MAIÚSCULAS. Sem subtítulo.\n"
         "3. LONGO — até 10 palavras, MAIÚSCULAS, mais descritivo. NUNCA corte palavras no meio — reformule se ultrapassar o limite.\n"
-        "4. TRANSFERÊNCIA — titulo_transferencia: até 7 palavras, MAIÚSCULAS, focado na movimentação do jogador. "
+        "4. MERCADO — titulo_mercado: até 7 palavras, MAIÚSCULAS, focado na movimentação do jogador. "
         "nome_jogador: nome do jogador em MAIÚSCULAS extraído do texto. "
-        "status_transferencia: escolha o mais adequado entre Acerto, Anunciado, Avançado, Consulta, Conversas, "
+        "status_mercado: escolha o mais adequado entre Acerto, Anunciado, Avançado, Consulta, Conversas, "
         "De Saída, Encaminhado, Interesse, Melou, Negociação, Oficial, Opção, Proposta, Sondagem."
     )
 
@@ -1207,8 +1195,8 @@ async def generate_post(request: Request):
         + "\n\nFORMATO DE SAÍDA:\nRetorne SOMENTE um objeto JSON puro, sem markdown, sem blocos de código, sem texto fora do JSON.\n\n"
         "Estrutura exata (preencha TODOS os valores, sempre):\n"
         '{\n  "titulo_curto": "...",\n  "subtitulo_curto": "...",\n  "titulo_medio": "...",\n'
-        '  "titulo_longo": "...",\n  "titulo_transferencia": "...",\n'
-        '  "nome_jogador": "...",\n  "status_transferencia": "..."\n}'
+        '  "titulo_longo": "...",\n  "titulo_mercado": "...",\n'
+        '  "nome_jogador": "...",\n  "status_mercado": "..."\n}'
     )
 
     ANGULO_SAUDITA = (
@@ -1789,7 +1777,7 @@ async def reprocess_articles(request: Request, background_tasks: BackgroundTasks
     prompt_template = (
         "Traduza os artigos abaixo para português brasileiro.\n"
         "Responda SOMENTE com JSON: {{\"translations\": [{{\"title_pt\": \"...\", \"body_pt\": \"...\", \"category\": \"...\"}}]}}\n"
-        "Categorias: transferencia, resultado, lesao, geral\n\n{items}"
+        "Categorias: mercado, competicao, lesao, geral\n\n{items}"
     )
 
     updated = 0
@@ -1798,7 +1786,7 @@ async def reprocess_articles(request: Request, background_tasks: BackgroundTasks
     prompt_header = (
         "Traduza os artigos abaixo para português brasileiro.\n"
         'Responda SOMENTE com JSON: {"translations": [{"title_pt": "...", "body_pt": "...", "category": "..."}]}\n'
-        "Categorias: transferencia, resultado, lesao, geral\n\n"
+        "Categorias: mercado, competicao, lesao, geral\n\n"
     )
     async with httpx.AsyncClient() as client:
         for i in range(0, len(rows), BATCH_SIZE):
@@ -1891,7 +1879,7 @@ async def reprocess_articles_bg(request: Request, background_tasks: BackgroundTa
         prompt_header = (
             "Traduza os artigos abaixo para português brasileiro.\n"
             'Responda SOMENTE com JSON: {"translations": [{"title_pt": "...", "body_pt": "...", "category": "..."}]}\n'
-            "Categorias: transferencia, resultado, lesao, geral\n\n"
+            "Categorias: mercado, competicao, lesao, geral\n\n"
         )
         updated = 0
         BATCH_SIZE = 3
@@ -2280,7 +2268,7 @@ async def admin_fix_article(request: Request):
     prompt = (
         "Traduza o artigo abaixo para português brasileiro.\n"
         'Responda SOMENTE com JSON: {"translations": [{"title_pt": "...", "body_pt": "...", "category": "..."}]}\n'
-        "Categorias: transferencia, resultado, lesao, geral\n\n"
+        "Categorias: mercado, competicao, lesao, geral\n\n"
         f"ARTIGO 1:\nTítulo: {a.get('title_orig','')}\nTexto: {a.get('body_orig','')[:1200]}\n---"
     )
     try:
