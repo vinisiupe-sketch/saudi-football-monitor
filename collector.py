@@ -213,7 +213,7 @@ async def resolve_twitter_rss(username: str, client: httpx.AsyncClient) -> Optio
                 print(f"       ↳ {provider}: feed OK mas sem entradas")
                 continue
             print(f"       ↳ {provider}: ✅ {len(feed.entries)} entradas")
-            return url, provider
+            return url, provider, feed
         except Exception as e:
             print(f"       ↳ {provider}: ❌ {type(e).__name__}: {e}")
             continue
@@ -378,10 +378,7 @@ async def _collect_twitter(client, tier, name, username) -> Optional[list]:
     result = await resolve_twitter_rss(username, client)
     if result is None:
         return None
-    url, provider = result
-    feed = await fetch_feed(url, client)
-    if feed is None:
-        return None
+    url, provider, feed = result
     articles = parse_entries(feed, name, tier, "twitter")
     print(f"     → {len(articles)} artigos ({provider})")
     return articles
