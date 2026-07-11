@@ -1023,6 +1023,57 @@ async def api_collect(background_tasks: BackgroundTasks, hours: int = None):
 
 
 
+
+@app.post("/api/admin/collect-source")
+async def admin_collect_source(username: str, hours: int = 6):
+    """
+    Coleta tweets de uma conta específica em isolamento (sem competição de batch).
+    Útil para resgatar tweets que falharam silenciosamente durante coleta em lote.
+    """
+    from collector import resolve_twitter_rss, parse_entries
+    import collector as _collector
+    from processor import process_and_save
+    from database import get_effective_sources
+
+    sources = get_effective_sources()
+    source_info = next((s for s in sources if s["handle"].lower() == username.lower()), None)
+    if source_info is None:
+        return JSONResponse({"error": f"Conta @{username} não encontrada nas fontes"}, status_code=404)
+
+    tier = source_info["tier"]
+    name = f"@{username}"
+    _collector.ARTICLE_MAX_AGE_HOURS = hours
+
+    async with httpx.AsyncClient(
+        limits=httpx.Limits(max_keepalive_connections=5, max_connections=5)
+    ) as client:
+        result = await resolve_twitter_rss(username, client)
+
+    if result is None:
+        return {"status": "fail", "account": username, "tier": tier,
+                "error": "Todos os providers RSS falharam"}
+
+    url, provider, feed = result
+    articles = parse_entries(feed, name, tier, "twitter")
+
+    if not articles:
+        return {"status": "ok", "account": username, "tier": tier,
+                "provider": provider, "hours_window": hours,
+                "articles_found": 0, "articles_new": 0}
+
+    process_result = await process_and_save(articles)
+    return {
+        "status": "ok",
+        "account": username,
+        "tier": tier,
+        "provider": provider,
+        "hours_window": hours,
+        "articles_found": len(articles),
+        "articles_new": process_result.get("articles_new", 0),
+        "articles_dup": process_result.get("articles_dup", 0),
+    }
+
+
 @app.get("/descartadas", response_class=HTMLResponse)
 async def descartadas():
     articles = get_low_score_articles(hours=24, limit=200)
