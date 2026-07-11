@@ -55,16 +55,7 @@ def lookback_hours() -> int:
             gap_hours = (now - last_dt).total_seconds() / 3600
             hours = max(configured_floor, gap_hours + 1)
     except Exception as e:
-        scheduler.add_job(
-        run_janela_scrape,
-        trigger="cron",
-        hour=7,
-        minute=0,
-        id="janela_scrape_daily",
-        replace_existing=True,
-    )
-    print(f"⏰ Scheduler iniciado: coleta a cada {COLLECT_INTERVAL}min + scrape janela às 07h")
-    return schedulert(f"  ⚠️  Não foi possível ler last_collect_at, usando piso padrão: {e}")
+        print(f"  ⚠️  Não foi possível ler last_collect_at, usando piso padrão: {e}")
     return min(int(hours) + 1, MAX_LOOKBACK_HOURS)
 
 
@@ -115,4 +106,13 @@ def create_scheduler() -> AsyncIOScheduler:
         id="collect_pipeline",
         replace_existing=True,
     )
-    prin
+    scheduler.add_job(
+        run_janela_scrape,
+        trigger="cron",
+        hour=7,
+        minute=0,
+        id="janela_scrape_daily",
+        replace_existing=True,
+    )
+    print(f"⏰ Scheduler iniciado: coleta a cada {COLLECT_INTERVAL}min + scrape janela às 07h")
+    return scheduler
