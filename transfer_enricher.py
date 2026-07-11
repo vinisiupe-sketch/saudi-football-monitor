@@ -15,7 +15,7 @@ import re
 import httpx
 from database import get_conn, update_transfer_af_ids
 
-_AF_BASE = "https://v3.api-football.com"
+_AF_BASE = "https://v3.football.api-sports.io"
 
 
 def _af_key() -> str:
