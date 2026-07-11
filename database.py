@@ -850,6 +850,13 @@ def invalidate_entity_cache(entity_type: str | None = None) -> int:
 
 # ── Window Transfers (Janela de Transferências) ──────────────────────────────
 
+def clear_window_transfers() -> None:
+    """Remove todos os registros da tabela (para re-scrape limpo)."""
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("DELETE FROM window_transfers")
+
+
 def upsert_window_transfers(transfers: list[dict]) -> int:
     """Insere/atualiza lista de transferências; retorna quantidade upserted."""
     if not transfers:

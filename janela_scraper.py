@@ -12,7 +12,7 @@ Estrutura da página (26/27):
 import re
 import httpx
 from bs4 import BeautifulSoup
-from database import upsert_window_transfers, get_window_transfers_last_scraped
+from database import upsert_window_transfers, get_window_transfers_last_scraped, clear_window_transfers
 
 TM_URL = "https://www.transfermarkt.com.br/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2026"
 HEADERS = {
@@ -165,6 +165,8 @@ async def run_janela_scrape() -> dict:
         if not transfers:
             return {"ok": False, "error": "Nenhuma transferencia encontrada - possivel bloqueio ou mudanca de HTML"}
 
+        # Limpa dados antigos antes de inserir nova temporada
+        clear_window_transfers()
         saved = upsert_window_transfers(transfers)
         print(f"Janela scrape: {saved} transferencias salvas")
         return {"ok": True, "total": saved}
