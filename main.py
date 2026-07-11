@@ -2366,11 +2366,10 @@ async def admin_fix_article(request: Request):
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 
 @app.get("/api/af-window-transfers")
-async def api_af_window_transfers(refresh: bool = False):
+async def api_af_window_transfers(refresh: bool = False, season: int = 2025):
     """
-    Busca todas as transferências da janela atual (>=2026-06-01) para times da SPL.
-    Usa /teams?league=307&season=2025 para obter IDs, depois /transfers?team= para cada time.
-    Resultado cacheado por 30 min.
+    Busca transferências da SPL via Transfermarkt API (transfermarkt-api.fly.dev).
+    Sem necessidade de chave. Cacheado por 30 min.
     """
     import time as _time
     global _AF_WINDOW_CACHE
@@ -2378,71 +2377,101 @@ async def api_af_window_transfers(refresh: bool = False):
     if not refresh and _AF_WINDOW_CACHE["data"] is not None and now - _AF_WINDOW_CACHE["ts"] < 1800:
         return _AF_WINDOW_CACHE["data"]
 
-    af_key = os.getenv("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return JSONResponse({"error": "API_FOOTBALL_KEY não configurada"}, status_code=500)
+    TM_BASE = "https://transfermarkt-api.fly.dev"
 
-    headers = {"x-apisports-key": af_key}
-    base    = "https://v3.football.api-sports.io"
-    window_start = "2025-07-01"
+    async with httpx.AsyncClient(timeout=30.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+        # 1. Clubes da SPL
+        r = await client.get(f"{TM_BASE}/competitions/SA1/clubs",
+            params={"season_id": str(season)})
+        clubs = r.json().get("clubs") or []
+        if not clubs:
+            return JSONResponse({"error": f"Nenhum clube SPL para season_id={season}"}, status_code=502)
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        # 1. Times da SPL
-        teams_resp = await client.get(f"{base}/teams",
-            params={"league": 307, "season": 2025}, headers=headers)
-        teams_data = teams_resp.json().get("response", [])
-        team_ids   = [t["team"]["id"] for t in teams_data]
-        spl_ids    = set(team_ids)
+        spl_names = {(c.get("name") or "").lower() for c in clubs}
 
-        if not team_ids:
-            return JSONResponse({"error": "Nenhum time SPL retornado pela API"}, status_code=502)
+        # 2. Transfers por clube (paralelo em lotes de 4)
+        async def _fetch_club(club: dict):
+            cid  = club.get("id")
+            name = club.get("name") or ""
+            if not cid:
+                return []
+            try:
+                r2 = await client.get(f"{TM_BASE}/clubs/{cid}/transfers",
+                    params={"season_id": str(season)})
+                data = r2.json()
+                out  = []
+                logo = f"https://tmssl.akamaized.net//images/wappen/big/{cid}.png"
+                # arrivals = entradas no clube
+                for tr in (data.get("arrivals") or []):
+                    out.append(_tm_transfer(tr, club_in_name=name, club_in_logo=logo,
+                                            direction="in", spl_names=spl_names))
+                # departures = saídas do clube
+                for tr in (data.get("departures") or []):
+                    out.append(_tm_transfer(tr, club_out_name=name, club_out_logo=logo,
+                                            direction="out", spl_names=spl_names))
+                return out
+            except Exception:
+                return []
 
-        # 2. Transfers por time (paralelo em lotes de 5, sem filtro de season)
-        all_raw: list[dict] = []
-        async def _fetch(tid: int):
-            r = await client.get(f"{base}/transfers",
-                params={"team": tid}, headers=headers)
-            return r.json().get("response", [])
-
-        BATCH = 5
-        for i in range(0, len(team_ids), BATCH):
-            batch   = team_ids[i:i+BATCH]
-            results = await asyncio.gather(*[_fetch(tid) for tid in batch])
-            for res in results:
-                all_raw.extend(res)
-
-        # 3. Dedup + filtro de janela
-        seen: set[str] = set()
         transfers: list[dict] = []
-        for item in all_raw:
-            player = item.get("player", {})
-            pid    = player.get("id")
-            pname  = player.get("name", "")
-            for tr in item.get("transfers", []):
-                date_str = (tr.get("date") or "")
-                if date_str < window_start:
-                    continue
-                team_in  = (tr.get("teams") or {}).get("in",  {}) or {}
-                team_out = (tr.get("teams") or {}).get("out", {}) or {}
-                key = f"{pid}_{date_str}_{team_in.get('id')}_{team_out.get('id')}"
-                if key in seen:
-                    continue
-                seen.add(key)
-                transfers.append({
-                    "player_id":   pid,
-                    "player_name": pname,
-                    "photo":       f"https://media.api-sports.io/football/players/{pid}.png" if pid else None,
-                    "date":        date_str,
-                    "type":        tr.get("type") or "N/A",
-                    "team_in":     {"id": team_in.get("id"),  "name": team_in.get("name"),  "logo": team_in.get("logo")},
-                    "team_out":    {"id": team_out.get("id"), "name": team_out.get("name"), "logo": team_out.get("logo")},
-                    "direction":   "in" if team_in.get("id") in spl_ids else "out",
-                })
+        seen: set[str] = set()
+        BATCH = 4
+        for i in range(0, len(clubs), BATCH):
+            batch   = clubs[i:i+BATCH]
+            results = await asyncio.gather(*[_fetch_club(c) for c in batch])
+            for lst in results:
+                for tr in lst:
+                    key = f"{tr['player_id']}_{tr['date']}_{tr.get('team_in',{}).get('name')}_{tr.get('team_out',{}).get('name')}"
+                    if key not in seen:
+                        seen.add(key)
+                        transfers.append(tr)
 
-    transfers.sort(key=lambda x: x["date"], reverse=True)
+    transfers.sort(key=lambda x: x["date"] or "", reverse=True)
     _AF_WINDOW_CACHE["data"] = transfers
     _AF_WINDOW_CACHE["ts"]   = now
     return transfers
+
+
+def _tm_transfer(tr: dict, *, club_in_name: str = "", club_in_logo: str = "",
+                 club_out_name: str = "", club_out_logo: str = "",
+                 direction: str, spl_names: set) -> dict:
+    """Normaliza uma entrada/saída do Transfermarkt para o formato padrão."""
+    pid  = tr.get("id") or tr.get("player_id") or ""
+    fee  = tr.get("fee") or tr.get("market_value") or "N/A"
+    # clube de origem da transferência (de onde o jogador vem)
+    from_name = tr.get("from_club_name") or tr.get("club_name") or ""
+    from_id   = tr.get("from_club_id")  or ""
+    from_logo = f"https://tmssl.akamaized.net//images/wappen/big/{from_id}.png" if from_id else ""
+    to_name   = tr.get("to_club_name")  or ""
+    to_id     = tr.get("to_club_id")    or ""
+    to_logo   = f"https://tmssl.akamaized.net//images/wappen/big/{to_id}.png"   if to_id   else ""
+
+    if direction == "in":
+        # O clube SPL recebe o jogador
+        team_in  = {"name": club_in_name,  "logo": club_in_logo}
+        team_out = {"name": from_name or club_out_name, "logo": from_logo or club_out_logo}
+    else:
+        # O clube SPL perde o jogador
+        team_in  = {"name": to_name or club_in_name, "logo": to_logo or club_in_logo}
+        team_out = {"name": club_out_name, "logo": club_out_logo}
+
+    photo = None
+    if pid:
+        photo = f"https://img.a.transfermarkt.technology/portrait/big/{pid}.jpg"
+
+    return {
+        "player_id":   str(pid),
+        "player_name": tr.get("name") or tr.get("player_name") or "",
+        "photo":       photo,
+        "date":        tr.get("date") or "",
+        "type":        fee,
+        "position":    tr.get("position") or "",
+        "age":         tr.get("age"),
+        "market_value":tr.get("market_value") or "",
+        "team_in":     team_in,
+        "team_out":    team_out,
+        "direction":   direction,
+    }
 
 
 @app.get("/janela", response_class=HTMLResponse)
