@@ -52,7 +52,14 @@ def _is_selecao_article(a: dict) -> bool:
     # país+ausência-de-clube abaixo, que tem seu próprio ponto fraco (nome de
     # jogador que colide com nome de clube). Bug real visto em 2026-06-24.
     tl = text.lower().replace("_", " ")
+    # Clube da SPL no título = notícia de clube, não de seleção, mesmo que o corpo
+    # mencione "seleção saudita" como descrição da nacionalidade de um jogador.
+    # Ex: "Al Ittihad avança por jogador da seleção saudita" → transferência, não seleção.
+    title = f"{a.get('title_pt') or ''} {a.get('title_orig') or ''}".lower().replace("-", " ").replace("_", " ")
+    title_has_spl_club = any(club in title for club in SPL_CLUB_NAMES_LOWER)
     if any(kw.lower() in tl for kw in SELECAO_KEYWORDS):
+        if title_has_spl_club:
+            return False  # clube no título prevalece: é notícia de transferência/clube
         return True
     # Heurística: menciona o país sauditas como time (ex: "Espanha x Arábia Saudita"),
     # sem citar nenhum clube específico da SPL → é notícia da seleção, não de clube.
