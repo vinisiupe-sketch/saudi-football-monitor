@@ -2384,7 +2384,7 @@ async def api_af_window_transfers(refresh: bool = False):
 
     headers = {"x-apisports-key": af_key}
     base    = "https://v3.football.api-sports.io"
-    window_start = "2026-01-01"
+    window_start = "2025-07-01"
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # 1. Times da SPL
@@ -2397,11 +2397,11 @@ async def api_af_window_transfers(refresh: bool = False):
         if not team_ids:
             return JSONResponse({"error": "Nenhum time SPL retornado pela API"}, status_code=502)
 
-        # 2. Transfers por time (paralelo em lotes de 5, season=2026)
+        # 2. Transfers por time (paralelo em lotes de 5, sem filtro de season)
         all_raw: list[dict] = []
         async def _fetch(tid: int):
             r = await client.get(f"{base}/transfers",
-                params={"team": tid, "season": 2026}, headers=headers)
+                params={"team": tid}, headers=headers)
             return r.json().get("response", [])
 
         BATCH = 5
@@ -2632,39 +2632,3 @@ load(false);
 </script>
 </body>
 </html>""")
-
-
-@app.get("/api/debug-af-transfers")
-async def debug_af_transfers(team: int = 1544, season: int = 2026):
-    """Debug: retorna resposta bruta da API Football para /transfers?team=&season="""
-    af_key = os.getenv("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return JSONResponse({"error": "API_FOOTBALL_KEY não configurada"}, status_code=500)
-    headers = {"x-apisports-key": af_key}
-    base    = "https://v3.football.api-sports.io"
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        r = await client.get(f"{base}/transfers",
-            params={"team": team, "season": season}, headers=headers)
-        data = r.json()
-    resp_list = data.get("response", [])
-    summary = []
-    for item in resp_list:
-        p = item.get("player", {})
-        for t in item.get("transfers", []):
-            summary.append({
-                "player": p.get("name"),
-                "date":   t.get("date"),
-                "type":   t.get("type"),
-                "in":     (t.get("teams") or {}).get("in",  {}).get("name"),
-                "out":    (t.get("teams") or {}).get("out", {}).get("name"),
-                "season_param": season,
-            })
-    return {
-        "team": team,
-        "season_queried": season,
-        "errors": data.get("errors"),
-        "results_count": data.get("results", 0),
-        "paging": data.get("paging"),
-        "transfers_found": len(summary),
-        "transfers": summary,
-    }
