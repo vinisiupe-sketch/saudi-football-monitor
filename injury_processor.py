@@ -148,7 +148,8 @@ async def rebuild_injuries_from_history():
                     updated += 1
                 else:
                     skipped += 1
-            print(f"   🏥 Lote {i//BATCH+1}/{(len(articles)-1)//BATCH+1}: {created}c {updated}u {skipped}s")
+            print(f"   Lote {i//BATCH+1}: {created} ok, {skipped} ignorados")
+            await asyncio.sleep(0.5)
 
-    print(f"🏥 Rebuild concluído: {created} criados, {updated} atualizados, {skipped} ignorados")
-    return {"created": created, "updated": updated, "skipped": skipped, "total": len(articles)}
+    print(f"Rebuild concluido: {created} criados, {skipped} ignorados de {len(articles)}")
+    return {"classified": created, "skipped": skipped, "total": len(articles)}

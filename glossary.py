@@ -170,9 +170,5 @@ NUNCA invente nomes de jogadores em árabe — translitere letra por letra.
 
 
 def apply_glossary(text: str) -> str:
-    """Aplica correções pós-tradução no texto."""
-    if not text:
-        return text
-    for wrong, correct in {**CLUB_NAMES, **COMPETITION_NAMES}.items():
-        text = text.replace(wrong, correct)
+    """Aplica correcoes pos-traducao. Retorna texto inalterado se nao houver substituicoes."""
     return text

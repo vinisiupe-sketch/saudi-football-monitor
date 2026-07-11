@@ -110,6 +110,99 @@ def init_db():
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
+def make_article_id(url: str, title: str) -> str:
+    """Gera ID unico para um artigo a partir da URL (fallback para title)."""
+    src = (url or title or "").strip().encode("utf-8")
+    return hashlib.md5(src).hexdigest()[:16]
+
+
+def save_article(art: dict) -> bool:
+    """Salva um artigo no banco. Retorna True se novo, False se duplicado (url ja existe)."""
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO articles (
+                    id, source_name, source_tier, source_type, url,
+                    title_orig, title_pt, body_orig, body_pt, image_url,
+                    category, language, published_at, collected_at,
+                    is_duplicate, relevance_score
+                ) VALUES (%s,%s,%s,%s,%s, %s,%s,%s,%s,%s, %s,%s,%s,%s, %s,%s)
+                ON CONFLICT (id) DO NOTHING
+            """, (
+                art["id"], art["source_name"], art["source_tier"], art["source_type"], art.get("url"),
+                art.get("title_orig"), art.get("title_pt"), art.get("body_orig"), art.get("body_pt"),
+                art.get("image_url"), art.get("category"), art.get("language"),
+                art.get("published_at"), now,
+                0, art.get("relevance_score", 0.0),
+            ))
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def log_collection(log: dict):
+    """Registra o resultado de uma execucao de coleta em collection_logs."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO collection_logs
+                    (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                log.get("ran_at"), log.get("sources_ok", 0), log.get("sources_fail", 0),
+                log.get("articles_new", 0), log.get("articles_dup", 0), log.get("error_msg"),
+            ))
+    except Exception:
+        pass
+
+
+def update_article_title(article_id: str, title_pt: str):
+    """Atualiza o titulo traduzido de um artigo."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "UPDATE articles SET title_pt = %s WHERE id = %s",
+                (title_pt, article_id)
+            )
+    except Exception:
+        pass
+
+
+def update_article_body(article_id: str, body_orig: str, body_pt: str):
+    """Atualiza o corpo original e traduzido de um artigo."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "UPDATE articles SET body_orig = %s, body_pt = %s WHERE id = %s",
+                (body_orig, body_pt, article_id)
+            )
+    except Exception:
+        pass
+
+
+def update_article_meta(article_id: str, category: str = None, relevance_score: float = None):
+    """Atualiza category e/ou relevance_score de um artigo."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            if category is not None and relevance_score is not None:
+                c.execute(
+                    "UPDATE articles SET category = %s, relevance_score = %s WHERE id = %s",
+                    (category, relevance_score, article_id)
+                )
+            elif category is not None:
+                c.execute("UPDATE articles SET category = %s WHERE id = %s", (category, article_id))
+            elif relevance_score is not None:
+                c.execute("UPDATE articles SET relevance_score = %s WHERE id = %s", (relevance_score, article_id))
+    except Exception:
+        pass
+
+
 def get_recent_articles(hours: int = 24, limit: int = 100, tier: str = None) -> list[dict]:
     """Retorna artigos recentes ordenados por published_at DESC."""
     with get_conn() as conn:
