@@ -1,18 +1,20 @@
 """
 Raspa transferências da Saudi Pro League direto do Transfermarkt.
-URL: https://www.transfermarkt.com.br/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2025
+URL: https://www.transfermarkt.com.br/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2026
 
-Estrutura da página:
+Estrutura da página (26/27):
   - .box com h2 contendo nome/ID do clube
   - Dentro: tabelas com thead "Entradas" (in) e "Saídas" (out)
-  - Colunas: Jogador | Idade | Nac. | Posição | Pos | Valor de mercado | Origem (logo+nome) | Quantia paga
+  - Colunas: Jogador | Idade | Nac. | Posição | Pos | Valor de mercado |
+             Origem/Destino (logo) | Origem/Destino (nome) |
+             Quantia paga [+ \n data em <i class="normaler-text">]
 """
 import re
 import httpx
 from bs4 import BeautifulSoup
 from database import upsert_window_transfers, get_window_transfers_last_scraped
 
-TM_URL = "https://www.transfermarkt.com.br/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2025"
+TM_URL = "https://www.transfermarkt.com.br/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2026"
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -30,6 +32,33 @@ def _extract_id(href: str, pattern: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _parse_date(cell) -> str | None:
+    """Extrai data de transferência da coluna 8.
+    O TM inclui <i class="normaler-text">DD/MM/YYYY</i> dentro da célula."""
+    if cell is None:
+        return None
+    date_tag = cell.find("i", class_="normaler-text")
+    if not date_tag:
+        return None
+    text = date_tag.get_text(strip=True)
+    # Formato TM: DD/MM/YYYY  →  YYYY-MM-DD
+    m = re.match(r"(\d{2})/(\d{2})/(\d{4})", text)
+    if m:
+        return f"{m.group(3)}-{m.group(2)}-{m.group(1)}"
+    return None
+
+
+def _fee_text(cell) -> str:
+    """Retorna só o texto da quantia (sem a data que fica em <i>)."""
+    if cell is None:
+        return ""
+    # Remove a tag <i> antes de pegar o texto
+    tag = cell.find("i", class_="normaler-text")
+    if tag:
+        tag.decompose()
+    return cell.get_text(separator=" ", strip=True)
+
+
 def _parse_transfers(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "lxml")
     transfers: list[dict] = []
@@ -41,7 +70,6 @@ def _parse_transfers(html: str) -> list[dict]:
             continue
         club_name = (club_h2.get("title") or club_h2.text).strip()
         club_href = club_h2.get("href", "")
-        # href like /al-hilal-riad/transfers/verein/1114/saison_id/2025
         club_id = _extract_id(club_href, r"/(\d+)/saison_id") or _extract_id(club_href, r"/(\d+)(?:/|$)")
         club_logo = (
             f"https://tmssl.akamaized.net//images/wappen/homepageSmall/{club_id}.png"
@@ -78,8 +106,8 @@ def _parse_transfers(html: str) -> list[dict]:
                 pos = cells[3].text.strip()
                 mv  = cells[5].text.strip()
 
-                # Clube de origem/destino: col 6 = logo link, col 7 = nome texto
-                other_link = cells[6].select_one("a[href]") or cells[7].select_one("a[href]") if len(cells) > 7 else None
+                # Clube de origem/destino: col 6 = logo, col 7 = nome
+                other_link = cells[6].select_one("a[href]") or (cells[7].select_one("a[href]") if len(cells) > 7 else None)
                 other_href    = other_link.get("href", "") if other_link else ""
                 other_club_id = _extract_id(other_href, r"/(\d+)(?:/|$)")
                 other_club_name = cells[7].text.strip() if len(cells) > 7 else cells[6].text.strip()
@@ -88,7 +116,10 @@ def _parse_transfers(html: str) -> list[dict]:
                     if other_club_id else None
                 )
 
-                fee = cells[8].text.strip() if len(cells) > 8 else ""
+                # Col 8: fee + data (data em <i class="normaler-text">)
+                fee_cell = cells[8] if len(cells) > 8 else None
+                transfer_date = _parse_date(fee_cell)
+                fee = _fee_text(fee_cell)
 
                 key = f"{player_id}_{direction}_{club_id}"
                 if key in seen:
@@ -105,16 +136,17 @@ def _parse_transfers(html: str) -> list[dict]:
                     team_out = {"name": club_name,        "logo": club_logo}
 
                 transfers.append({
-                    "player_id":    player_id,
-                    "player_name":  player_name,
-                    "photo":        photo,
-                    "age":          age,
-                    "position":     pos,
-                    "market_value": mv,
-                    "fee":          fee,
-                    "team_in":      team_in,
-                    "team_out":     team_out,
-                    "direction":    direction,
+                    "player_id":     player_id,
+                    "player_name":   player_name,
+                    "photo":         photo,
+                    "age":           age,
+                    "position":      pos,
+                    "market_value":  mv,
+                    "fee":           fee,
+                    "transfer_date": transfer_date,
+                    "team_in":       team_in,
+                    "team_out":      team_out,
+                    "direction":     direction,
                 })
 
     return transfers
@@ -131,12 +163,12 @@ async def run_janela_scrape() -> dict:
 
         transfers = _parse_transfers(r.text)
         if not transfers:
-            return {"ok": False, "error": "Nenhuma transferência encontrada — possível bloqueio ou mudança de HTML"}
+            return {"ok": False, "error": "Nenhuma transferencia encontrada - possivel bloqueio ou mudanca de HTML"}
 
         saved = upsert_window_transfers(transfers)
-        print(f"✅ Janela scrape: {saved} transferências salvas")
+        print(f"Janela scrape: {saved} transferencias salvas")
         return {"ok": True, "total": saved}
 
     except Exception as e:
-        print(f"❌ Erro no janela scrape: {e}")
+        print(f"Erro no janela scrape: {e}")
         return {"ok": False, "error": str(e)}

@@ -2391,7 +2391,7 @@ async def api_af_window_transfers(refresh: bool = False):
             "team_in":      {"name": r["team_in_name"],  "logo": r["team_in_logo"]},
             "team_out":     {"name": r["team_out_name"], "logo": r["team_out_logo"]},
             "direction":    r["direction"],
-            "date":         (r.get("scraped_at") or "")[:10],
+            "date":         (r.get("transfer_date") or r.get("scraped_at") or "")[:10],
         }
         for r in rows
     ]
@@ -2536,7 +2536,7 @@ function applyFilters() {{
   let items = ALL;
   if (currentDir === 'in')   items = items.filter(t => t.direction === 'in');
   else if (currentDir === 'out')  items = items.filter(t => t.direction === 'out');
-  else if (currentDir === 'loan') items = items.filter(t => (t.type||'').toLowerCase().includes('loan') || t.type === 'Loan');
+  else if (currentDir === 'loan') items = items.filter(t => (t.type||'').toLowerCase().includes('mpr') || (t.type||'').toLowerCase().includes('loan'));
   if (q) items = items.filter(t =>
     (t.player_name||'').toLowerCase().includes(q) ||
     (t.team_in?.name||'').toLowerCase().includes(q) ||

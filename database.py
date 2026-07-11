@@ -863,8 +863,8 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                 INSERT INTO window_transfers
                     (id, player_id, player_name, photo, age, position,
                      market_value, fee, team_in_name, team_in_logo,
-                     team_out_name, team_out_logo, direction, scraped_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                     team_out_name, team_out_logo, direction, transfer_date, scraped_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                 ON CONFLICT (id) DO UPDATE SET
                     player_name   = EXCLUDED.player_name,
                     photo         = EXCLUDED.photo,
@@ -876,6 +876,7 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                     team_in_logo  = EXCLUDED.team_in_logo,
                     team_out_name = EXCLUDED.team_out_name,
                     team_out_logo = EXCLUDED.team_out_logo,
+                    transfer_date = EXCLUDED.transfer_date,
                     scraped_at    = NOW()
             """, [
                 tid,
@@ -884,7 +885,7 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                 t.get("market_value"), t.get("fee"),
                 t.get("team_in", {}).get("name"), t.get("team_in", {}).get("logo"),
                 t.get("team_out", {}).get("name"), t.get("team_out", {}).get("logo"),
-                t.get("direction", "in"),
+                t.get("direction", "in"), t.get("transfer_date"),
             ])
             count += 1
     return count
@@ -899,7 +900,7 @@ def get_window_transfers() -> list[dict]:
                 SELECT id, player_id, player_name, photo, age, position,
                        market_value, fee, team_in_name, team_in_logo,
                        team_out_name, team_out_logo, direction,
-                       scraped_at::text
+                       transfer_date::text, scraped_at::text
                 FROM window_transfers
                 ORDER BY team_in_name, direction, player_name
             """)
