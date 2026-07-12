@@ -2455,12 +2455,40 @@ async def api_af_window_transfers(refresh: bool = False, background_tasks: Backg
 
 
 @app.post("/api/admin/scrape-janela")
-async def api_admin_scrape_janela():
-    """Dispara scrape manual do Transfermarkt para atualizar a janela."""
-    from janela_scraper import run_janela_scrape
-    result = await run_janela_scrape()
-    last = get_window_transfers_last_scraped()
-    return {**result, "last_scraped": last}
+async def api_admin_scrape_janela(background_tasks: BackgroundTasks):
+    """Dispara scrape manual da janela em background (retorna imediatamente)."""
+    if not _JANELA_SCRAPING:
+        background_tasks.add_task(_bg_janela_scrape)
+    return {"started": not _JANELA_SCRAPING, "already_running": _JANELA_SCRAPING}
+
+
+@app.get("/api/admin/janela-status")
+async def api_janela_status():
+    """Status do scrape da janela: chave AF configurada, scraping em curso, fotos no cache."""
+    import os
+    from database import get_janela_player_photos
+    af_key_set = bool(os.environ.get("API_FOOTBALL_KEY", ""))
+    photos = get_janela_player_photos()
+    return {
+        "af_key_set": af_key_set,
+        "scraping": _JANELA_SCRAPING,
+        "cached_photos": len(photos),
+    }
+
+
+@app.post("/api/admin/reset-janela-photos")
+async def api_reset_janela_photos(background_tasks: BackgroundTasks):
+    """Zera fotos TM antigas no DB e dispara enriquecimento via AF em background."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("UPDATE window_transfers SET photo = NULL")
+            rows = c.rowcount
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+    if not _JANELA_SCRAPING:
+        background_tasks.add_task(_bg_janela_scrape)
+    return {"photos_cleared": rows, "scrape_started": not _JANELA_SCRAPING}
 
 
 @app.get("/api/debug-tm")
