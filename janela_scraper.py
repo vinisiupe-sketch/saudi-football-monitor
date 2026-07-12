@@ -1,16 +1,13 @@
 """
 Raspa transferências da Saudi Pro League direto do Transfermarkt.
-Fotos dos jogadores: buscadas via API-Football (com cache no banco).
+Fotos via API-Football removidas — frontend usa bandeira da nacionalidade no círculo.
 """
 import re
-import os
-import asyncio
 import httpx
 from bs4 import BeautifulSoup
 from database import (
     upsert_window_transfers, clear_window_transfers,
     get_window_transfers_last_scraped,
-    get_janela_player_photos, upsert_janela_player_photo,
 )
 
 TM_BASE = "https://www.transfermarkt.com.br"
@@ -25,10 +22,6 @@ TM_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Referer": "https://www.transfermarkt.com.br/",
 }
-
-AF_KEY  = os.environ.get("API_FOOTBALL_KEY", "")
-AF_BASE = "https://v3.football.api-sports.io"
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -156,132 +149,10 @@ def _parse_transfers(html: str) -> list[dict]:
     return transfers
 
 
-# ── API-Football photos ───────────────────────────────────────────────────────
-
-async def _try_af_search(
-    client: httpx.AsyncClient, headers: dict, player_name: str, league: int, season: int
-) -> str | None:
-    try:
-        r = await client.get(
-            f"{AF_BASE}/players",
-            headers=headers,
-            params={"search": player_name, "league": league, "season": season},
-            timeout=10.0,
-        )
-        if r.status_code == 200:
-            results = r.json().get("response", [])
-            if results:
-                return results[0].get("player", {}).get("photo")
-    except Exception:
-        pass
-    return None
-
-
-# Ligas para fallback quando jogador não está na Saudi (307)
-# PL, La Liga, Serie A, Bundesliga, Ligue 1, Liga NOS, MLS, Süper Lig, Eredivisie, Liga MX, Russia, Egypt, Morocco
-_FALLBACK_LEAGUES = (39, 140, 135, 78, 61, 94, 253, 203, 88, 262, 235, 233, 200)
-
-_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
-# Prefixos árabes comuns — AF indexa sem o prefixo
-_ARABIC_PREFIXES = ("al-", "el-", "al ", "el ", "bin-", "ibn-")
-
-
-def _search_names(full_name: str) -> list[str]:
-    """Gera variantes para busca: nome completo, sobrenome, e raiz sem prefixo árabe."""
-    parts = full_name.strip().split()
-    if len(parts) <= 1:
-        return [full_name]
-
-    last = parts[-1].rstrip(".")
-    if last.lower() in _SUFFIXES and len(parts) >= 2:
-        last = parts[-2]
-
-    variants: list[str] = [full_name]
-    if last != full_name:
-        variants.append(last)
-
-    # Remove prefixo árabe: "Al-Ghamdi" → "Ghamdi", "Al Ghamdi" → "Ghamdi"
-    last_low = last.lower()
-    for pfx in _ARABIC_PREFIXES:
-        if last_low.startswith(pfx):
-            root = last[len(pfx):]
-            if root and root not in variants:
-                variants.append(root)
-            break
-
-    return variants
-
-
-async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
-    """Busca foto sequencialmente para respeitar rate limit da AF (30 req/min).
-    Tenta: Saudi (307) × nome/sobrenome × seasons, depois ligas-fonte × sobrenome.
-    """
-    if not AF_KEY:
-        return None
-    headers = {"x-apisports-key": AF_KEY}
-    names = _search_names(player_name)
-
-    # Fase 1: Saudi Pro League (307) — nome completo e sobrenome × seasons
-    for name in names:
-        for season in (2024, 2023, 2025, 2026):
-            res = await _try_af_search(client, headers, name, 307, season)
-            if res:
-                return res
-
-    # Fase 2: ligas-fonte com sobrenome (retorno rápido se encontrar)
-    short = names[-1]
-    for season in (2024, 2025):
-        for lg in _FALLBACK_LEAGUES:
-            res = await _try_af_search(client, headers, short, lg, season)
-            if res:
-                return res
-
-    return None
-
-
-async def _enrich_photos_af(transfers: list[dict]) -> None:
-    """Enriquece fotos via API-Football com cache persistente no banco."""
-    photo_cache = get_janela_player_photos()
-
-    # Players que faltam no cache
-    missing: dict[str, str] = {}  # player_id → player_name
-    for t in transfers:
-        pid = t.get("player_id")
-        if pid and pid not in photo_cache and pid not in missing:
-            missing[pid] = t.get("player_name", "")
-
-    print(f"  AF fotos: {len(photo_cache)} em cache, {len(missing)} a buscar")
-
-    if missing and AF_KEY:
-        BATCH = 3  # 3 players × 1 req sequencial = ≤3 req/s, dentro do rate limit AF
-        pids = list(missing.keys())
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            for i in range(0, len(pids), BATCH):
-                batch = pids[i : i + BATCH]
-                results = await asyncio.gather(
-                    *[_fetch_af_photo(client, missing[pid]) for pid in batch],
-                    return_exceptions=True,
-                )
-                for pid, res in zip(batch, results):
-                    if isinstance(res, str) and res:
-                        photo_cache[pid] = res
-                        upsert_janela_player_photo(pid, res)
-                await asyncio.sleep(0.3)
-
-        found = sum(1 for pid in pids if pid in photo_cache)
-        print(f"  AF fotos: {found}/{len(pids)} encontradas")
-
-    # Aplica fotos nos transfers
-    for t in transfers:
-        pid = t.get("player_id")
-        if pid and pid in photo_cache:
-            t["photo"] = photo_cache[pid]
-
-
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 async def run_janela_scrape() -> dict:
-    """Raspa TM, enriquece fotos via API-Football e persiste no banco."""
+    """Raspa TM e persiste no banco."""
     try:
         async with httpx.AsyncClient(
             timeout=30.0, follow_redirects=True, headers=TM_HEADERS
@@ -292,8 +163,6 @@ async def run_janela_scrape() -> dict:
         transfers = _parse_transfers(r.text)
         if not transfers:
             return {"ok": False, "error": "Nenhuma transferencia encontrada"}
-
-        await _enrich_photos_af(transfers)
 
         clear_window_transfers()
         saved = upsert_window_transfers(transfers)

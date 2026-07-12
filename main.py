@@ -2779,9 +2779,9 @@ function cardHtml(t, rank) {{
   const inLogo  = t.team_in?.logo  ? `<img class="club-logo" src="${{t.team_in.logo}}"  onerror="this.style.opacity=.3" alt="${{t.team_in?.name||''}}">` : '<div class="club-logo"></div>';
   const outLogo = t.team_out?.logo ? `<img class="club-logo" src="${{t.team_out.logo}}" onerror="this.style.opacity=.3" alt="${{t.team_out?.name||''}}">` : '<div class="club-logo"></div>';
   const initials = (t.player_name||'?').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?';
-  const photoSrc = t.photo ? `/api/img-proxy?url=${{encodeURIComponent(t.photo)}}` : '';
-  const photo = photoSrc
-    ? `<img class="player-photo" src="${{photoSrc}}" onerror="showInitials(this,'${{initials}}')" alt="">`
+  const largeFlagSrc = t.flag_url ? t.flag_url.replace('flagcdn.com/16x12/', 'flagcdn.com/w80/') : '';
+  const photo = largeFlagSrc
+    ? `<img class="player-photo" src="${{largeFlagSrc}}" onerror="showInitials(this,'${{initials}}')" alt="${{t.nationality||''}}" style="object-fit:cover">`
     : `<div class="player-initials">${{initials}}</div>`;
   const dateFmt = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR', {{day:'2-digit',month:'short',year:'numeric'}}) : '';
   const tLabel  = typeLabel(t);
@@ -2792,7 +2792,7 @@ function cardHtml(t, rank) {{
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
-      <div class="player-meta-line">${{flagUrl(t.nationality) ? `<img class="flag-img" src="${{flagUrl(t.nationality)}}" title="${{t.nationality}}" onerror="this.style.display='none'">` : ''}}${{[t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
+      <div class="player-meta-line">${{[t.nationality, t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
       <div class="transfer-meta">
         ${{dirBadge(t)}}
         <span class="badge ${{tClass}}">${{tLabel}}</span>
