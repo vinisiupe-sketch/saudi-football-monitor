@@ -2597,6 +2597,12 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 .refresh-btn{{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;cursor:pointer;margin-top:16px}}
 .refresh-btn:hover{{background:var(--border)}}
 .count-label{{font-size:13px;color:var(--text2)}}
+.club-strip{{display:flex;gap:6px;overflow-x:auto;padding:4px 0 12px;margin-bottom:4px;scrollbar-width:none}}
+.club-strip::-webkit-scrollbar{{display:none}}
+.club-chip{{flex-shrink:0;width:52px;height:52px;border-radius:12px;background:var(--surface);border:2px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color .15s,background .15s;padding:5px}}
+.club-chip:hover{{border-color:var(--text2);background:var(--surface2)}}
+.club-chip.active{{border-color:var(--accent);background:rgba(79,156,249,.12)}}
+.club-chip img{{width:100%;height:100%;object-fit:contain}}
 </style>
 </head>
 <body>
@@ -2604,6 +2610,27 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 <div class="main">
   <div class="page-title">Janela de Transferências</div>
   <div class="page-sub" id="subTitle">Carregando…</div>
+
+  <div class="club-strip" id="clubStrip">
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/1114.png"    onclick="setClub(this)" title="Al-Hilal SFC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/1114.png"    alt="Al-Hilal"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/18544.png"   onclick="setClub(this)" title="Al-Nassr FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/18544.png"   alt="Al-Nassr"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/8023.png"    onclick="setClub(this)" title="Al-Ittihad Club"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/8023.png"    alt="Al-Ittihad"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/18487.png"   onclick="setClub(this)" title="Al-Ahli SFC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/18487.png"   alt="Al-Ahli"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/40039.png"   onclick="setClub(this)" title="Abha Club"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/40039.png"   alt="Abha"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/52358.png"   onclick="setClub(this)" title="Al-Diriyah FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/52358.png"   alt="Al-Diriyah"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/7732.png"    onclick="setClub(this)" title="Al-Ettifaq FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/7732.png"    alt="Al-Ettifaq"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/28848.png"   onclick="setClub(this)" title="Al-Faisaly FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/28848.png"   alt="Al-Faisaly"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/27221.png"   onclick="setClub(this)" title="Al-Fateh SC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/27221.png"   alt="Al-Fateh"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/50531.png"   onclick="setClub(this)" title="Al-Fayha FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/50531.png"   alt="Al-Fayha"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/9131.png"    onclick="setClub(this)" title="Al-Hazem SC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/9131.png"    alt="Al-Hazem"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/6070.png"    onclick="setClub(this)" title="Al-Khaleej FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/6070.png"    alt="Al-Khaleej"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/91427.png"   onclick="setClub(this)" title="Al-Kholood Club"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/91427.png"   alt="Al-Kholood"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/26069.png"   onclick="setClub(this)" title="Al-Qadsiah FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/26069.png"   alt="Al-Qadsiah"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/31008.png"   onclick="setClub(this)" title="Al-Riyadh SC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/31008.png"   alt="Al-Riyadh"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/9840.png"    onclick="setClub(this)" title="Al-Shabab FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/9840.png"    alt="Al-Shabab"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/28844.png"   onclick="setClub(this)" title="Al-Taawoun FC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/28844.png"   alt="Al-Taawoun"></div>
+    <div class="club-chip" data-logo="https://tmssl.akamaized.net//images/wappen/homepageSmall/34911.png"   onclick="setClub(this)" title="NEOM SC"><img src="https://tmssl.akamaized.net//images/wappen/homepageSmall/34911.png"   alt="NEOM"></div>
+  </div>
 
   <div class="filters">
     <button class="filter-btn active" onclick="setDir('all',this)">Todos</button>
@@ -2622,6 +2649,7 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 <script>
 let ALL = [];
 let currentDir = 'all';
+let currentClub = null; // logo URL do clube filtrado, ou null para todos
 
 function showToast(msg, duration) {{
   let t = document.getElementById('janela-toast');
@@ -2658,6 +2686,19 @@ async function load(refresh) {{
   }}
 }}
 
+function setClub(el) {{
+  const logo = el.dataset.logo;
+  if (currentClub === logo) {{
+    currentClub = null;
+    el.classList.remove('active');
+  }} else {{
+    currentClub = logo;
+    document.querySelectorAll('.club-chip').forEach(c => c.classList.remove('active'));
+    el.classList.add('active');
+  }}
+  applyFilters();
+}}
+
 function setDir(dir, btn) {{
   currentDir = dir;
   document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
@@ -2673,6 +2714,9 @@ function applyFilters() {{
   else if (currentDir === 'out') items = items.filter(t => t.direction === 'out' && !isFimLoan(t));
   else if (currentDir === 'loan') items = items.filter(t => (t.type||'').toLowerCase() === 'empr\u00e9stimo');
   else if (currentDir === 'fimloan') items = items.filter(t => isFimLoan(t));
+  if (currentClub) items = items.filter(t =>
+    t.team_in?.logo === currentClub || t.team_out?.logo === currentClub
+  );
   if (q) items = items.filter(t =>
     (t.player_name||'').toLowerCase().includes(q) ||
     (t.team_in?.name||'').toLowerCase().includes(q) ||
