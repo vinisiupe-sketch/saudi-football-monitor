@@ -2759,7 +2759,7 @@ function typeLabel(t) {{
 function dirBadge(t) {{
   return t.direction === 'in'
     ? '<span class="badge badge-in" title="Entrada">➜</span>'
-    : '<span class="badge badge-out" title="Saída">𝗫</span>';
+    : '<span class="badge badge-out" title="Saída">✕</span>';
 }}
 const POS_ABBR = {{'Goleiro':'GL','Lateral Dir.':'LD','Lateral Direito':'LD','Lateral Esq.':'LE','Lateral Esquerdo':'LE','Zagueiro':'ZG','Volante':'VL','Meia Central':'MC','Meia Ofensivo':'MO','Meia Atacante':'MA','Meia':'MC','Ponta Direita':'PD','Ponta Esquerda':'PE','Centroavante':'CA','Atacante':'AT','Segundo Atacante':'SA','2º Atacante':'SA','Ala Direito':'AD','Ala Esquerdo':'AE','Defensor Central':'ZG','Meio-campista':'MC','Meia-Atacante':'MA','Extremo Direito':'PD','Extremo Esquerdo':'PE'}};
 function posAbbr(pos) {{ return POS_ABBR[pos] || (pos||'').slice(0,2).toUpperCase() || ''; }}
@@ -2791,7 +2791,6 @@ function cardHtml(t, rank) {{
   const outName = t.team_out?.name || '';
   const inName  = t.team_in?.name  || '';
   return `<div class="card" style="flex-wrap:wrap">
-    <span class="card-rank">#${{rank}}</span>
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
