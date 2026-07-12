@@ -2578,9 +2578,9 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 .club-logo{{width:28px;height:28px;object-fit:contain;border-radius:4px}}
 .arrow{{color:var(--text2);font-size:14px}}
 .card-body{{flex:1;min-width:0}}
-.player-name{{font-size:14px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.transfer-meta{{display:flex;gap:8px;align-items:center;margin-top:3px;flex-wrap:wrap}}
-.badge{{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}}
+.player-name{{font-size:15px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.transfer-meta{{display:flex;gap:5px;align-items:center;margin-top:3px;flex-wrap:wrap}}
+.badge{{padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}}
 .badge-in{{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}}
 .badge-out{{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}}
 .badge-loan{{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}}
@@ -2590,8 +2590,8 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 .flag-img{{width:16px;height:12px;object-fit:cover;border-radius:1px;flex-shrink:0}}
 .transfer-date{{font-size:12px;color:var(--text2)}}
 .card-side{{margin-left:auto;flex-shrink:0;text-align:right}}
-.type-label{{font-size:12px;font-weight:700;color:var(--text2)}}
-.type-value{{font-size:13px;font-weight:700;color:var(--text)}}
+.type-label{{font-size:10px;font-weight:600;color:var(--text2)}}
+.type-value{{font-size:10px;font-weight:600;color:var(--text2)}}
 .state{{text-align:center;padding:60px 20px;color:var(--text2)}}
 .state-icon{{font-size:40px;margin-bottom:12px}}
 .refresh-btn{{padding:8px 20px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;cursor:pointer;margin-top:16px}}
@@ -2743,22 +2743,26 @@ function applyFilters() {{
 
 function typeClass(t) {{
   const v = (t.type||'').toLowerCase();
-  if (v.includes('loan')) return 'badge-loan';
-  if (v === 'free' || v === 'n/a' || !t.type) return 'badge-free';
+  if (v.includes('loan') || v.includes('empr')) return 'badge-loan';
+  if (v === 'free' || v === 'n/a' || v.includes('custo zero') || v.includes('livre') || !t.type) return 'badge-free';
   return 'badge-paid';
 }}
 function typeLabel(t) {{
   const v = t.type || 'N/A';
-  if (v.toLowerCase() === 'loan') return 'Empréstimo';
-  if (v.toLowerCase() === 'free') return 'Livre';
-  if (v === 'N/A') return '—';
+  const vl = v.toLowerCase();
+  if (vl.includes('fim') && vl.includes('empr')) return 'Fim Emp.';
+  if (vl === 'loan' || vl.includes('empr')) return 'Emp.';
+  if (vl === 'free' || vl.includes('custo zero') || vl.includes('livre')) return 'Livre';
+  if (v === 'N/A') return '';
   return v;
 }}
 function dirBadge(t) {{
   return t.direction === 'in'
-    ? '<span class="badge badge-in">Entrada</span>'
-    : '<span class="badge badge-out">Saída</span>';
+    ? '<span class="badge badge-in" title="Entrada">↓</span>'
+    : '<span class="badge badge-out" title="Saída">↑</span>';
 }}
+const POS_ABBR = {{'Goleiro':'GL','Lateral Direito':'LD','Lateral Esq.':'LE','Lateral Esquerdo':'LE','Zagueiro':'ZG','Volante':'VOL','Meia Central':'MC','Meia Ofensivo':'MO','Meia Atacante':'MAT','Meia':'MC','Ponta Direita':'PD','Ponta Esquerda':'PE','Centroavante':'CA','Atacante':'AT','Segundo Atacante':'SA','2º Atacante':'SA','Ala Direito':'AD','Ala Esquerdo':'AE','Defensor Central':'ZG','Meio-campista':'MC'}};
+function posAbbr(pos) {{ return POS_ABBR[pos] || pos || ''; }}
 
 const NAT_FLAG = {{'Brasil':'br','Arábia Saudita':'sa','Argentina':'ar','França':'fr','Portugal':'pt','Espanha':'es','Alemanha':'de','Holanda':'nl','Bélgica':'be','Marrocos':'ma','Senegal':'sn','Costa do Marfim':'ci','Nigéria':'ng','Egito':'eg','Gana':'gh','Camarões':'cm','Tunísia':'tn','Argélia':'dz','Mali':'ml','Guiné':'gn','Burkina Faso':'bf','Guiné-Bissau':'gw','Serra Leoa':'sl','Gabão':'ga','Gâmbia':'gm','Togo':'tg','Benin':'bj','Comores':'km','Guiné Equatorial':'gq','Angola':'ao','Congo':'cg','República Democrática do Congo':'cd','Uganda':'ug','Ruanda':'rw','Tanzânia':'tz','Moçambique':'mz','Zâmbia':'zm','Zimbábue':'zw','Quênia':'ke','Etiópia':'et','Sudão':'sd','Líbia':'ly','Mauritânia':'mr','Uruguai':'uy','Colômbia':'co','Chile':'cl','Peru':'pe','Equador':'ec','Bolívia':'bo','Paraguai':'py','Venezuela':'ve','México':'mx','Costa Rica':'cr','Honduras':'hn','Guatemala':'gt','El Salvador':'sv','Panamá':'pa','Cuba':'cu','República Dominicana':'do','Haiti':'ht','Jamaica':'jm','Estados Unidos':'us','Canadá':'ca','Inglaterra':'gb-eng','Escócia':'gb-sct','País de Gales':'gb-wls','Irlanda do Norte':'gb-nir','Irlanda':'ie','Itália':'it','Grécia':'gr','Turquia':'tr','Sérvia':'rs','Croácia':'hr','Polônia':'pl','Dinamarca':'dk','Suécia':'se','Noruega':'no','Finlândia':'fi','Suíça':'ch','Áustria':'at','República Tcheca':'cz','Eslováquia':'sk','Hungria':'hu','Romênia':'ro','Bósnia e Herzegovina':'ba','Montenegro':'me','Macedônia do Norte':'mk','Albânia':'al','Kosovo':'xk','Rússia':'ru','Ucrânia':'ua','Bielorrússia':'by','Geórgia':'ge','Armênia':'am','Azerbaijão':'az','Cazaquistão':'kz','Japão':'jp','Coreia do Sul':'kr','China':'cn','Austrália':'au','Iraque':'iq','Jordânia':'jo','Emirados Árabes Unidos':'ae','Kuwait':'kw','Bahrein':'bh','Omã':'om','Qatar':'qa','Iêmen':'ye','Síria':'sy','Líbano':'lb','Israel':'il','Irã':'ir','Paquistão':'pk','Índia':'in','África do Sul':'za'}};
 
@@ -2792,14 +2796,14 @@ function cardHtml(t, rank) {{
     </div>
     <div class="card-side">
       <div class="type-label">${{t.team_out?.name||''}}</div>
-      <div class="type-value" style="color:var(--text2);font-size:11px">${{t.team_in?.name||''}}</div>
+      <div class="type-value">${{t.team_in?.name||''}}</div>
     </div>
     <div class="transfer-meta" style="width:100%;padding:4px 0 2px;margin-left:28px">
-      ${{_flagEmoji ? `<span style="font-size:14px">${{_flagEmoji}}</span>` : ''}}
       ${{dirBadge(t)}}
-      <span class="badge ${{tClass}}">${{tLabel}}</span>
-      ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.position}}</span>` : ''}}
-      ${{t.age ? `<span style="font-size:12px;color:var(--text2)">${{t.age}}</span>` : ''}}
+      ${{_flagEmoji ? `<span class="badge" style="background:var(--surface2);border:1px solid var(--border);padding:2px 5px">${{_flagEmoji}}</span>` : ''}}
+      ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{posAbbr(t.position)}}</span>` : ''}}
+      ${{t.age ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.age}}</span>` : ''}}
+      ${{tLabel ? `<span class="badge ${{tClass}}">${{tLabel}}</span>` : ''}}
     </div>
   </div>`;
 }}
