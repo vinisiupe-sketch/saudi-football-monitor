@@ -158,25 +158,58 @@ def _parse_transfers(html: str) -> list[dict]:
 
 # ── API-Football photos ───────────────────────────────────────────────────────
 
+async def _try_af_search(
+    client: httpx.AsyncClient, headers: dict, player_name: str, league: int, season: int
+) -> str | None:
+    try:
+        r = await client.get(
+            f"{AF_BASE}/players",
+            headers=headers,
+            params={"search": player_name, "league": league, "season": season},
+            timeout=10.0,
+        )
+        if r.status_code == 200:
+            results = r.json().get("response", [])
+            if results:
+                return results[0].get("player", {}).get("photo")
+    except Exception:
+        pass
+    return None
+
+
+# Ligas para fallback quando jogador não está na Saudi (307)
+# Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Liga NOS, MLS, Süper Lig, Eredivisie, J-League
+_FALLBACK_LEAGUES = (39, 140, 135, 78, 61, 94, 253, 203, 88, 98)
+
+
 async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
-    """Busca foto do jogador na API-Football (Saudi Pro League=307, tenta seasons 2023-2026)."""
+    """Busca foto: primeiro na Saudi Pro League (307), depois em ligas-fonte comuns."""
     if not AF_KEY:
         return None
     headers = {"x-apisports-key": AF_KEY}
-    for season in (2024, 2023, 2025, 2026):
-        try:
-            r = await client.get(
-                f"{AF_BASE}/players",
-                headers=headers,
-                params={"search": player_name, "league": 307, "season": season},
-                timeout=10.0,
-            )
-            if r.status_code == 200:
-                results = r.json().get("response", [])
-                if results:
-                    return results[0].get("player", {}).get("photo")
-        except Exception:
-            pass
+
+    # Fase 1: Saudi (307) seasons 2024/2023/2025/2026 em paralelo
+    saudi = await asyncio.gather(
+        *[_try_af_search(client, headers, player_name, 307, s) for s in (2024, 2023, 2025, 2026)],
+        return_exceptions=True,
+    )
+    for res in saudi:
+        if isinstance(res, str) and res:
+            return res
+
+    # Fase 2: ligas-fonte × seasons 2024 + 2025 em paralelo
+    fallback = await asyncio.gather(
+        *[
+            _try_af_search(client, headers, player_name, lg, s)
+            for s in (2024, 2025)
+            for lg in _FALLBACK_LEAGUES
+        ],
+        return_exceptions=True,
+    )
+    for res in fallback:
+        if isinstance(res, str) and res:
+            return res
+
     return None
 
 
