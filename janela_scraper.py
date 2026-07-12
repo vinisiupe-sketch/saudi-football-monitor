@@ -103,6 +103,9 @@ def _parse_transfers(html: str) -> list[dict]:
                     continue
 
                 age = cells[1].text.strip()
+                # Nationality: flag img title in col 2
+                flag_img = cells[2].find("img") if len(cells) > 2 else None
+                nationality = (flag_img.get("title") or flag_img.get("alt") or "").strip() if flag_img else ""
                 pos = cells[3].text.strip()
                 mv  = cells[5].text.strip()
 
@@ -126,7 +129,13 @@ def _parse_transfers(html: str) -> list[dict]:
                     continue
                 seen.add(key)
 
-                photo = f"https://img.a.transfermarkt.technology/portrait/big/{player_id}.jpg"
+                # TM portrait — use data-src from lazy img if present in col 0
+                _pimg = cells[0].find("img")
+                _psrc = (_pimg.get("data-src") or _pimg.get("src") or "") if _pimg else ""
+                if _psrc and "portrait" in _psrc:
+                    photo = _psrc.split("?")[0]  # strip query params
+                else:
+                    photo = f"https://img.a.transfermarkt.technology/portrait/small/{player_id}.jpg"
 
                 if direction == "in":
                     team_in  = {"name": club_name,       "logo": club_logo}
@@ -140,6 +149,7 @@ def _parse_transfers(html: str) -> list[dict]:
                     "player_name":   player_name,
                     "photo":         photo,
                     "age":           age,
+                    "nationality":   nationality,
                     "position":      pos,
                     "market_value":  mv,
                     "fee":           fee,

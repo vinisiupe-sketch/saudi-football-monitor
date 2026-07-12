@@ -2365,6 +2365,24 @@ async def admin_fix_article(request: Request):
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 
+@app.get("/api/tm-photo/{player_id}")
+async def tm_photo_proxy(player_id: str):
+    """Proxy para fotos do Transfermarkt (hotlink protegido sem Referer correto)."""
+    url = f"https://img.a.transfermarkt.technology/portrait/small/{player_id}.jpg"
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={
+            "Referer": "https://www.transfermarkt.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }) as client:
+            r = await client.get(url, follow_redirects=True)
+            if r.status_code == 200:
+                return Response(content=r.content, media_type="image/jpeg",
+                                headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        pass
+    return Response(status_code=404)
+
+
 @app.get("/api/af-window-transfers")
 async def api_af_window_transfers(refresh: bool = False):
     """
@@ -2391,6 +2409,7 @@ async def api_af_window_transfers(refresh: bool = False):
             "team_in":      {"name": r["team_in_name"],  "logo": r["team_in_logo"]},
             "team_out":     {"name": r["team_out_name"], "logo": r["team_out_logo"]},
             "direction":    r["direction"],
+            "nationality":  r.get("nationality") or "",
             "date":         (r.get("transfer_date") or None),
         }
         for r in rows
@@ -2473,6 +2492,7 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 .badge-loan{{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}}
 .badge-free{{background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}}
 .badge-paid{{background:rgba(79,156,249,.15);color:#4f9cf9;border:1px solid rgba(79,156,249,.3)}}
+.player-meta-line{{font-size:11px;color:var(--text2);margin:2px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .transfer-date{{font-size:12px;color:var(--text2)}}
 .card-side{{margin-left:auto;flex-shrink:0;text-align:right}}
 .type-label{{font-size:12px;font-weight:700;color:var(--text2)}}
@@ -2583,7 +2603,8 @@ function dirBadge(t) {{
 function cardHtml(t, rank) {{
   const inLogo  = t.team_in?.logo  ? `<img class="club-logo" src="${{t.team_in.logo}}"  onerror="this.style.opacity=.3" alt="${{t.team_in?.name||''}}">` : '<div class="club-logo"></div>';
   const outLogo = t.team_out?.logo ? `<img class="club-logo" src="${{t.team_out.logo}}" onerror="this.style.opacity=.3" alt="${{t.team_out?.name||''}}">` : '<div class="club-logo"></div>';
-  const photo   = t.photo ? `<img class="player-photo" src="${{t.photo}}" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'44\' height=\'44\'%3E%3Ccircle cx=\'22\' cy=\'22\' r=\'22\' fill=\'%23333\'/%3E%3C/svg%3E'" alt="">` : '<div class="player-photo"></div>';
+  const photoSrc = t.player_id ? `/api/tm-photo/${{t.player_id}}` : '';
+  const photo   = photoSrc ? `<img class="player-photo" src="${{photoSrc}}" onerror="this.style.display='none'" alt="">` : '<div class="player-photo"></div>';
   const dateFmt = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR', {{day:'2-digit',month:'short',year:'numeric'}}) : '';
   const tLabel  = typeLabel(t);
   const tClass  = typeClass(t);
@@ -2593,6 +2614,7 @@ function cardHtml(t, rank) {{
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
+      <div class="player-meta-line">${{[t.nationality, t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
       <div class="transfer-meta">
         ${{dirBadge(t)}}
         <span class="badge ${{tClass}}">${{tLabel}}</span>
