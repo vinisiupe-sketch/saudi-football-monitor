@@ -2365,38 +2365,13 @@ async def admin_fix_article(request: Request):
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 
-@app.get("/api/debug/tm-profile")
-async def debug_tm_profile(player_id: str = "284876"):
-    """Testa se Railway consegue buscar página de perfil TM."""
-    url = f"https://www.transfermarkt.com.br/x/profil/spieler/{player_id}"
-    try:
-        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-            "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Referer": "https://www.transfermarkt.com.br/",
-        }) as client:
-            r = await client.get(url)
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(r.text, "lxml")
-            img = soup.select_one("img.data-header__profile-image") or soup.select_one("img[src*='portrait']") or soup.select_one("img[data-src*='portrait']")
-            return {
-                "status": r.status_code,
-                "final_url": str(r.url),
-                "portrait_img_found": img is not None,
-                "portrait_src": (img.get("src") or img.get("data-src") or "n/a") if img else "none",
-                "html_snippet": r.text[:300],
-            }
-    except Exception as e:
-        return {"error": str(e)}
-
-
 @app.get("/api/img-proxy")
 async def img_proxy(url: str = ""):
-    """Proxy para imagens do Transfermarkt (hotlink protegido). Aceita URL completa via ?url=..."""
+    """Proxy para imagens (TM hotlink protegido, API-Football). Aceita URL completa via ?url=..."""
     allowed = (
         "https://img.a.transfermarkt.technology/",
         "https://tmssl.akamaized.net/",
+        "https://media.api-sports.io/",
     )
     if not url or not any(url.startswith(p) for p in allowed):
         return Response(status_code=403)

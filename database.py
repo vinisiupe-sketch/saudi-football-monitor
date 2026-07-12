@@ -670,6 +670,13 @@ def init_entity_tables():
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS transfer_date DATE")
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS nationality TEXT")
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS flag_url TEXT")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS janela_player_photos (
+                player_id  TEXT PRIMARY KEY,
+                photo_url  TEXT,
+                fetched_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
 
 
 def get_entity_resolution(entity_type: str, normalized_name: str,
@@ -935,3 +942,28 @@ def get_window_transfers_last_scraped() -> str | None:
         return row[0].isoformat() if row and row[0] else None
     except Exception:
         return None
+
+
+def get_janela_player_photos() -> dict:
+    """Retorna mapa {player_id → photo_url} do cache de fotos."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT player_id, photo_url FROM janela_player_photos WHERE photo_url IS NOT NULL")
+            return {row[0]: row[1] for row in c.fetchall()}
+    except Exception:
+        return {}
+
+
+def upsert_janela_player_photo(player_id: str, photo_url: str) -> None:
+    """Salva/atualiza foto de um jogador no cache."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO janela_player_photos (player_id, photo_url, fetched_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (player_id) DO UPDATE SET photo_url = EXCLUDED.photo_url, fetched_at = NOW()
+            """, [player_id, photo_url])
+    except Exception:
+        pass

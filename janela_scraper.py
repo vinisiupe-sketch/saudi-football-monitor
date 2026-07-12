@@ -1,25 +1,21 @@
 """
 Raspa transferências da Saudi Pro League direto do Transfermarkt.
-URL: https://www.transfermarkt.com.br/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2026
-
-Estrutura da página (26/27):
-  - .box com h2 contendo nome/ID do clube
-  - Dentro: tabelas com thead "Entradas" (in) e "Saídas" (out)
-  - Colunas: Jogador | Idade | Nac. | Posição | Pos | Valor de mercado |
-             Origem/Destino (logo) | Origem/Destino (nome) |
-             Quantia paga [+ \n data em <i class="normaler-text">]
-
-Fotos: buscadas nas páginas de perfil individual (com ?lm=...) em batch.
+Fotos dos jogadores: buscadas via API-Football (com cache no banco).
 """
 import re
+import os
 import asyncio
 import httpx
 from bs4 import BeautifulSoup
-from database import upsert_window_transfers, get_window_transfers_last_scraped, clear_window_transfers
+from database import (
+    upsert_window_transfers, clear_window_transfers,
+    get_window_transfers_last_scraped,
+    get_janela_player_photos, upsert_janela_player_photo,
+)
 
 TM_BASE = "https://www.transfermarkt.com.br"
 TM_URL  = f"{TM_BASE}/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2026"
-HEADERS = {
+TM_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -30,6 +26,11 @@ HEADERS = {
     "Referer": "https://www.transfermarkt.com.br/",
 }
 
+AF_KEY  = os.environ.get("API_FOOTBALL_KEY", "")
+AF_BASE = "https://v3.football.api-sports.io"
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def _extract_id(href: str, pattern: str) -> str | None:
     m = re.search(pattern, href or "")
@@ -57,6 +58,8 @@ def _fee_text(cell) -> str:
         tag.decompose()
     return cell.get_text(separator=" ", strip=True)
 
+
+# ── Parsing TM ───────────────────────────────────────────────────────────────
 
 def _parse_transfers(html: str) -> list[dict]:
     soup = BeautifulSoup(html, "lxml")
@@ -92,18 +95,15 @@ def _parse_transfers(html: str) -> list[dict]:
                 if len(cells) < 7:
                     continue
 
-                # Jogador (col 0)
                 p_link = cells[0].select_one("a.spielprofil_tooltip, a[href*='/profil/spieler/']")
                 if not p_link:
                     continue
                 player_name = p_link.text.strip()
-                player_href = p_link.get("href", "")
-                player_id   = _extract_id(player_href, r"/spieler/(\d+)")
+                player_id   = _extract_id(p_link.get("href", ""), r"/spieler/(\d+)")
                 if not player_name or not player_id:
                     continue
 
                 age = cells[1].text.strip()
-                # Nationality: flag img title em col 2
                 flag_img = cells[2].find("img") if len(cells) > 2 else None
                 nationality = (flag_img.get("title") or flag_img.get("alt") or "").strip() if flag_img else ""
                 _fsrc = (flag_img.get("data-src") or flag_img.get("src") or "") if flag_img else ""
@@ -112,7 +112,6 @@ def _parse_transfers(html: str) -> list[dict]:
                 pos = cells[3].text.strip()
                 mv  = cells[5].text.strip()
 
-                # Clube de origem/destino: col 6 = logo, col 7 = nome
                 other_link = cells[6].select_one("a[href]") or (cells[7].select_one("a[href]") if len(cells) > 7 else None)
                 other_href    = other_link.get("href", "") if other_link else ""
                 other_club_id = _extract_id(other_href, r"/(\d+)(?:/|$)")
@@ -122,7 +121,6 @@ def _parse_transfers(html: str) -> list[dict]:
                     if other_club_id else None
                 )
 
-                # Col 8: fee + data
                 fee_cell = cells[8] if len(cells) > 8 else None
                 transfer_date = _parse_date(fee_cell)
                 fee = _fee_text(fee_cell)
@@ -141,9 +139,8 @@ def _parse_transfers(html: str) -> list[dict]:
 
                 transfers.append({
                     "player_id":     player_id,
-                    "player_href":   player_href,   # usado só durante o scrape
                     "player_name":   player_name,
-                    "photo":         None,           # preenchido por _enrich_photos
+                    "photo":         None,   # preenchido por _enrich_photos_af
                     "age":           age,
                     "nationality":   nationality,
                     "flag_url":      flag_url,
@@ -159,80 +156,83 @@ def _parse_transfers(html: str) -> list[dict]:
     return transfers
 
 
-async def _fetch_portrait(client: httpx.AsyncClient, player_href: str) -> str | None:
-    """Busca URL do retrato na página de perfil do jogador no TM (inclui ?lm=...)."""
+# ── API-Football photos ───────────────────────────────────────────────────────
+
+async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
+    """Busca foto do jogador na API-Football por nome."""
+    if not AF_KEY:
+        return None
     try:
-        url = f"{TM_BASE}{player_href}"
-        r = await client.get(url, follow_redirects=True, timeout=12.0)
-        if r.status_code != 200:
-            return None
-        soup = BeautifulSoup(r.text, "lxml")
-        # Tenta seletores do cabeçalho de perfil
-        for sel in [
-            "img.data-header__profile-image",
-            "img[src*='portrait/big']",
-            "img[src*='portrait/medium']",
-            "img[src*='portrait/small']",
-            "img[data-src*='portrait']",
-        ]:
-            img = soup.select_one(sel)
-            if img:
-                src = img.get("src") or img.get("data-src") or ""
-                if "portrait" in src and "?" in src:
-                    return src
+        r = await client.get(
+            f"{AF_BASE}/players",
+            headers={"x-apisports-key": AF_KEY},
+            params={"search": player_name},
+            timeout=10.0,
+        )
+        if r.status_code == 200:
+            results = r.json().get("response", [])
+            if results:
+                return results[0].get("player", {}).get("photo")
     except Exception:
         pass
     return None
 
 
-async def _enrich_photos(transfers: list[dict], client: httpx.AsyncClient) -> None:
-    """Busca fotos reais (com ?lm=...) das páginas de perfil — batches de 5."""
-    id_to_href: dict[str, str] = {}
-    for t in transfers:
-        pid  = t.get("player_id")
-        href = t.get("player_href")
-        if pid and href and pid not in id_to_href:
-            id_to_href[pid] = href
+async def _enrich_photos_af(transfers: list[dict]) -> None:
+    """Enriquece fotos via API-Football com cache persistente no banco."""
+    photo_cache = get_janela_player_photos()
 
-    BATCH = 5
-    photo_map: dict[str, str] = {}
-    pids = list(id_to_href.keys())
-    print(f"  Buscando fotos de {len(pids)} jogadores...")
-
-    for i in range(0, len(pids), BATCH):
-        batch = pids[i : i + BATCH]
-        results = await asyncio.gather(
-            *[_fetch_portrait(client, id_to_href[pid]) for pid in batch],
-            return_exceptions=True,
-        )
-        for pid, res in zip(batch, results):
-            if isinstance(res, str) and res:
-                photo_map[pid] = res
-        await asyncio.sleep(0.8)
-
-    print(f"  Fotos encontradas: {len(photo_map)}/{len(pids)}")
-
+    # Players que faltam no cache
+    missing: dict[str, str] = {}  # player_id → player_name
     for t in transfers:
         pid = t.get("player_id")
-        if pid and pid in photo_map:
-            t["photo"] = photo_map[pid]
+        if pid and pid not in photo_cache and pid not in missing:
+            missing[pid] = t.get("player_name", "")
 
+    print(f"  AF fotos: {len(photo_cache)} em cache, {len(missing)} a buscar")
+
+    if missing and AF_KEY:
+        BATCH = 5
+        pids = list(missing.keys())
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            for i in range(0, len(pids), BATCH):
+                batch = pids[i : i + BATCH]
+                results = await asyncio.gather(
+                    *[_fetch_af_photo(client, missing[pid]) for pid in batch],
+                    return_exceptions=True,
+                )
+                for pid, res in zip(batch, results):
+                    if isinstance(res, str) and res:
+                        photo_cache[pid] = res
+                        upsert_janela_player_photo(pid, res)
+                await asyncio.sleep(0.3)
+
+        found = sum(1 for pid in pids if pid in photo_cache)
+        print(f"  AF fotos: {found}/{len(pids)} encontradas")
+
+    # Aplica fotos nos transfers
+    for t in transfers:
+        pid = t.get("player_id")
+        if pid and pid in photo_cache:
+            t["photo"] = photo_cache[pid]
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
 
 async def run_janela_scrape() -> dict:
-    """Raspa o TM, enriquece com fotos de perfil e persiste no banco."""
+    """Raspa TM, enriquece fotos via API-Football e persiste no banco."""
     try:
         async with httpx.AsyncClient(
-            timeout=30.0, follow_redirects=True, headers=HEADERS
+            timeout=30.0, follow_redirects=True, headers=TM_HEADERS
         ) as client:
             r = await client.get(TM_URL)
             r.raise_for_status()
 
-            transfers = _parse_transfers(r.text)
-            if not transfers:
-                return {"ok": False, "error": "Nenhuma transferencia encontrada - possivel bloqueio ou mudanca de HTML"}
+        transfers = _parse_transfers(r.text)
+        if not transfers:
+            return {"ok": False, "error": "Nenhuma transferencia encontrada"}
 
-            # Enriquece fotos via páginas de perfil individuais
-            await _enrich_photos(transfers, client)
+        await _enrich_photos_af(transfers)
 
         clear_window_transfers()
         saved = upsert_window_transfers(transfers)
