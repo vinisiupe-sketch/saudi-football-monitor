@@ -130,12 +130,15 @@ def _parse_transfers(html: str) -> list[dict]:
                 seen.add(key)
 
                 # TM portrait — use data-src from lazy img if present in col 0
+                # Mantém a URL completa com ?lm=... (necessário para o CDN do TM)
                 _pimg = cells[0].find("img")
                 _psrc = (_pimg.get("data-src") or _pimg.get("src") or "") if _pimg else ""
-                if _psrc and "portrait" in _psrc:
-                    photo = _psrc.split("?")[0]  # strip query params
+                if _psrc and "portrait" in _psrc and "?" in _psrc:
+                    photo = _psrc  # URL completa com ?lm=...
+                elif _psrc and "portrait" in _psrc:
+                    photo = _psrc
                 else:
-                    photo = f"https://img.a.transfermarkt.technology/portrait/small/{player_id}.jpg"
+                    photo = None  # sem foto conhecida
 
                 if direction == "in":
                     team_in  = {"name": club_name,       "logo": club_logo}

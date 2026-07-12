@@ -2365,9 +2365,33 @@ async def admin_fix_article(request: Request):
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 
+@app.get("/api/img-proxy")
+async def img_proxy(url: str = ""):
+    """Proxy para imagens do Transfermarkt (hotlink protegido). Aceita URL completa via ?url=..."""
+    allowed = (
+        "https://img.a.transfermarkt.technology/",
+        "https://tmssl.akamaized.net/",
+    )
+    if not url or not any(url.startswith(p) for p in allowed):
+        return Response(status_code=403)
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={
+            "Referer": "https://www.transfermarkt.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        }) as client:
+            r = await client.get(url, follow_redirects=True)
+            if r.status_code == 200:
+                ct = r.headers.get("content-type", "image/jpeg")
+                return Response(content=r.content, media_type=ct,
+                                headers={"Cache-Control": "public, max-age=86400"})
+    except Exception:
+        pass
+    return Response(status_code=404)
+
+
+# Compat: proxy antigo por player_id (sem lm param — pode falhar para alguns players)
 @app.get("/api/tm-photo/{player_id}")
 async def tm_photo_proxy(player_id: str):
-    """Proxy para fotos do Transfermarkt (hotlink protegido sem Referer correto)."""
     url = f"https://img.a.transfermarkt.technology/portrait/small/{player_id}.jpg"
     try:
         async with httpx.AsyncClient(timeout=8.0, headers={
@@ -2603,7 +2627,7 @@ function dirBadge(t) {{
 function cardHtml(t, rank) {{
   const inLogo  = t.team_in?.logo  ? `<img class="club-logo" src="${{t.team_in.logo}}"  onerror="this.style.opacity=.3" alt="${{t.team_in?.name||''}}">` : '<div class="club-logo"></div>';
   const outLogo = t.team_out?.logo ? `<img class="club-logo" src="${{t.team_out.logo}}" onerror="this.style.opacity=.3" alt="${{t.team_out?.name||''}}">` : '<div class="club-logo"></div>';
-  const photoSrc = t.player_id ? `/api/tm-photo/${{t.player_id}}` : '';
+  const photoSrc = t.photo ? `/api/img-proxy?url=${{encodeURIComponent(t.photo)}}` : '';
   const photo   = photoSrc ? `<img class="player-photo" src="${{photoSrc}}" onerror="this.style.display='none'" alt="">` : '<div class="player-photo"></div>';
   const dateFmt = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR', {{day:'2-digit',month:'short',year:'numeric'}}) : '';
   const tLabel  = typeLabel(t);
