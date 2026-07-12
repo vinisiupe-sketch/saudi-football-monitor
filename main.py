@@ -2758,8 +2758,8 @@ function typeLabel(t) {{
 }}
 function dirBadge(t) {{
   return t.direction === 'in'
-    ? '<span class="badge badge-in" title="Entrada">🡆</span>'
-    : '<span class="badge badge-out" title="Saída">🡄</span>';
+    ? '<span class="badge badge-in" title="Entrada">➜</span>'
+    : '<span class="badge badge-out" title="Saída">𝗫</span>';
 }}
 const POS_ABBR = {{'Goleiro':'GL','Lateral Dir.':'LD','Lateral Direito':'LD','Lateral Esq.':'LE','Lateral Esquerdo':'LE','Zagueiro':'ZG','Volante':'VL','Meia Central':'MC','Meia Ofensivo':'MO','Meia Atacante':'MA','Meia':'MC','Ponta Direita':'PD','Ponta Esquerda':'PE','Centroavante':'CA','Atacante':'AT','Segundo Atacante':'SA','2º Atacante':'SA','Ala Direito':'AD','Ala Esquerdo':'AE','Defensor Central':'ZG','Meio-campista':'MC','Meia-Atacante':'MA','Extremo Direito':'PD','Extremo Esquerdo':'PE'}};
 function posAbbr(pos) {{ return POS_ABBR[pos] || (pos||'').slice(0,2).toUpperCase() || ''; }}
@@ -2792,19 +2792,19 @@ function cardHtml(t, rank) {{
   const inName  = t.team_in?.name  || '';
   return `<div class="card" style="flex-wrap:wrap">
     <span class="card-rank">#${{rank}}</span>
-    <div style="display:flex;flex-direction:column;align-items:center;gap:2px;flex-shrink:0">
-      <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
-      <div style="font-size:9px;color:var(--text2);white-space:nowrap;text-align:center;max-width:160px;overflow:hidden;text-overflow:ellipsis">${{[outName,inName].filter(Boolean).join(' → ')}}</div>
-    </div>
+    <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
     </div>
-    <div class="transfer-meta" style="width:100%;padding:3px 0 2px;margin-left:28px">
-      ${{dirBadge(t)}}
-      ${{_flagEmoji ? `<span class="badge" style="background:var(--surface2);border:1px solid var(--border);padding:2px 5px">${{_flagEmoji}}</span>` : ''}}
-      ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{posAbbr(t.position)}}</span>` : ''}}
-      ${{t.age ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.age}}</span>` : ''}}
-      ${{tLabel ? `<span class="badge ${{tClass}}">${{tLabel}}</span>` : ''}}
+    <div class="transfer-meta" style="width:100%;padding:3px 0 0;margin-left:28px;justify-content:space-between">
+      <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
+        ${{dirBadge(t)}}
+        ${{_flagEmoji ? `<span class="badge" style="background:var(--surface2);border:1px solid var(--border);padding:2px 5px">${{_flagEmoji}}</span>` : ''}}
+        ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{posAbbr(t.position)}}</span>` : ''}}
+        ${{t.age ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.age}}</span>` : ''}}
+        ${{tLabel ? `<span class="badge ${{tClass}}">${{tLabel}}</span>` : ''}}
+      </div>
+      <div style="font-size:9px;color:var(--text2);text-align:right;white-space:nowrap;align-self:flex-end">${{[outName,inName].filter(Boolean).join(' → ')}}</div>
     </div>
   </div>`;
 }}
