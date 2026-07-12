@@ -2714,9 +2714,12 @@ function applyFilters() {{
   else if (currentDir === 'out') items = items.filter(t => t.direction === 'out' && !isFimLoan(t));
   else if (currentDir === 'loan') items = items.filter(t => (t.type||'').toLowerCase() === 'empr\u00e9stimo');
   else if (currentDir === 'fimloan') items = items.filter(t => isFimLoan(t));
-  if (currentClub) items = items.filter(t =>
-    t.team_in?.logo === currentClub || t.team_out?.logo === currentClub
-  );
+  if (currentClub) {{
+    // Se há filtro direcional, o clube deve ser o lado correto da transferência
+    if (currentDir === 'in')  items = items.filter(t => t.team_in?.logo  === currentClub);
+    else if (currentDir === 'out') items = items.filter(t => t.team_out?.logo === currentClub);
+    else items = items.filter(t => t.team_in?.logo === currentClub || t.team_out?.logo === currentClub);
+  }}
   if (q) items = items.filter(t =>
     (t.player_name||'').toLowerCase().includes(q) ||
     (t.team_in?.name||'').toLowerCase().includes(q) ||
