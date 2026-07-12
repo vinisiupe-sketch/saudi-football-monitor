@@ -2495,6 +2495,7 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
     <button class="filter-btn" onclick="setDir('in',this)">Entradas ↓</button>
     <button class="filter-btn" onclick="setDir('out',this)">Saídas ↑</button>
     <button class="filter-btn" onclick="setDir('loan',this)">Empréstimos</button>
+    <button class="filter-btn" onclick="setDir('fimloan',this)">Fim de Empréstimo</button>
     <input class="search-box" type="text" placeholder="Buscar jogador ou clube…" oninput="applyFilters()" id="searchBox">
   </div>
 
@@ -2534,9 +2535,11 @@ function setDir(dir, btn) {{
 function applyFilters() {{
   const q = (document.getElementById('searchBox').value || '').toLowerCase();
   let items = ALL;
-  if (currentDir === 'in')   items = items.filter(t => t.direction === 'in');
-  else if (currentDir === 'out')  items = items.filter(t => t.direction === 'out');
-  else if (currentDir === 'loan') items = items.filter(t => (t.type||'').toLowerCase().includes('mpr') || (t.type||'').toLowerCase().includes('loan'));
+  const isFimLoan = t => (t.type||'').toLowerCase().startsWith('fim');
+  if (currentDir === 'in')       items = items.filter(t => t.direction === 'in'  && !isFimLoan(t));
+  else if (currentDir === 'out') items = items.filter(t => t.direction === 'out' && !isFimLoan(t));
+  else if (currentDir === 'loan') items = items.filter(t => (t.type||'').toLowerCase() === 'empr\u00e9stimo');
+  else if (currentDir === 'fimloan') items = items.filter(t => isFimLoan(t));
   if (q) items = items.filter(t =>
     (t.player_name||'').toLowerCase().includes(q) ||
     (t.team_in?.name||'').toLowerCase().includes(q) ||
