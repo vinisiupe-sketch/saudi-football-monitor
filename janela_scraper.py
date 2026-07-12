@@ -213,38 +213,28 @@ def _search_names(full_name: str) -> list[str]:
 
 
 async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
-    """Busca foto: Saudi Pro League (307), depois ligas-fonte. Tenta nome completo e sobrenome."""
+    """Busca foto sequencialmente para respeitar rate limit da AF (30 req/min).
+    Tenta: Saudi (307) × nome/sobrenome × seasons, depois ligas-fonte × sobrenome.
+    """
     if not AF_KEY:
         return None
     headers = {"x-apisports-key": AF_KEY}
     names = _search_names(player_name)
 
-    # Fase 1: Saudi (307) × seasons × name variants em paralelo
-    saudi = await asyncio.gather(
-        *[
-            _try_af_search(client, headers, name, 307, s)
-            for name in names
-            for s in (2024, 2023, 2025, 2026)
-        ],
-        return_exceptions=True,
-    )
-    for res in saudi:
-        if isinstance(res, str) and res:
-            return res
+    # Fase 1: Saudi Pro League (307) — nome completo e sobrenome × seasons
+    for name in names:
+        for season in (2024, 2023, 2025, 2026):
+            res = await _try_af_search(client, headers, name, 307, season)
+            if res:
+                return res
 
-    # Fase 2: ligas-fonte × seasons 2024+2025 (com sobrenome, mais confiável)
-    short = names[-1]  # sobrenome
-    fallback = await asyncio.gather(
-        *[
-            _try_af_search(client, headers, short, lg, s)
-            for s in (2024, 2025)
-            for lg in _FALLBACK_LEAGUES
-        ],
-        return_exceptions=True,
-    )
-    for res in fallback:
-        if isinstance(res, str) and res:
-            return res
+    # Fase 2: ligas-fonte com sobrenome (retorno rápido se encontrar)
+    short = names[-1]
+    for season in (2024, 2025):
+        for lg in _FALLBACK_LEAGUES:
+            res = await _try_af_search(client, headers, short, lg, season)
+            if res:
+                return res
 
     return None
 
@@ -263,7 +253,7 @@ async def _enrich_photos_af(transfers: list[dict]) -> None:
     print(f"  AF fotos: {len(photo_cache)} em cache, {len(missing)} a buscar")
 
     if missing and AF_KEY:
-        BATCH = 5
+        BATCH = 3  # 3 players × 1 req sequencial = ≤3 req/s, dentro do rate limit AF
         pids = list(missing.keys())
         async with httpx.AsyncClient(timeout=15.0) as client:
             for i in range(0, len(pids), BATCH):
