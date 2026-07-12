@@ -2476,6 +2476,32 @@ async def api_janela_status():
     }
 
 
+@app.get("/api/admin/test-af")
+async def api_test_af(name: str = "Neymar"):
+    """Testa uma busca na API-Football e retorna status + rate limit restante."""
+    af_key = os.environ.get("API_FOOTBALL_KEY", "")
+    if not af_key:
+        return {"error": "API_FOOTBALL_KEY não configurada"}
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://v3.football.api-sports.io/players",
+                headers={"x-apisports-key": af_key},
+                params={"search": name},
+            )
+            data = r.json()
+            return {
+                "http_status": r.status_code,
+                "remaining": r.headers.get("x-ratelimit-requests-remaining"),
+                "limit": r.headers.get("x-ratelimit-requests-limit"),
+                "results": data.get("results", 0),
+                "errors": data.get("errors", {}),
+                "first_photo": (data.get("response") or [{}])[0].get("player", {}).get("photo"),
+            }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.post("/api/admin/reset-janela-photos")
 async def api_reset_janela_photos(background_tasks: BackgroundTasks):
     """Zera fotos TM antigas no DB e dispara enriquecimento via AF em background."""
