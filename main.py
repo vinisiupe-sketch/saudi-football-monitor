@@ -2477,8 +2477,8 @@ async def api_janela_status():
 
 
 @app.get("/api/admin/test-af")
-async def api_test_af(name: str = "Neymar"):
-    """Testa uma busca na API-Football e retorna status + rate limit restante."""
+async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 2025):
+    """Testa uma busca na API-Football com league + season. Ex: ?name=Ronaldo&league=307&season=2025"""
     af_key = os.environ.get("API_FOOTBALL_KEY", "")
     if not af_key:
         return {"error": "API_FOOTBALL_KEY não configurada"}
@@ -2487,15 +2487,16 @@ async def api_test_af(name: str = "Neymar"):
             r = await client.get(
                 "https://v3.football.api-sports.io/players",
                 headers={"x-apisports-key": af_key},
-                params={"search": name},
+                params={"search": name, "league": league, "season": season},
             )
             data = r.json()
             return {
                 "http_status": r.status_code,
                 "remaining": r.headers.get("x-ratelimit-requests-remaining"),
-                "limit": r.headers.get("x-ratelimit-requests-limit"),
+                "params": {"search": name, "league": league, "season": season},
                 "results": data.get("results", 0),
                 "errors": data.get("errors", {}),
+                "first_name": (data.get("response") or [{}])[0].get("player", {}).get("name"),
                 "first_photo": (data.get("response") or [{}])[0].get("player", {}).get("photo"),
             }
     except Exception as e:

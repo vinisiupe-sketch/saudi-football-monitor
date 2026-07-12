@@ -159,22 +159,24 @@ def _parse_transfers(html: str) -> list[dict]:
 # ── API-Football photos ───────────────────────────────────────────────────────
 
 async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
-    """Busca foto do jogador na API-Football por nome."""
+    """Busca foto do jogador na API-Football por nome (Saudi Pro League = 307)."""
     if not AF_KEY:
         return None
-    try:
-        r = await client.get(
-            f"{AF_BASE}/players",
-            headers={"x-apisports-key": AF_KEY},
-            params={"search": player_name},
-            timeout=10.0,
-        )
-        if r.status_code == 200:
-            results = r.json().get("response", [])
-            if results:
-                return results[0].get("player", {}).get("photo")
-    except Exception:
-        pass
+    headers = {"x-apisports-key": AF_KEY}
+    for season in (2025, 2026):
+        try:
+            r = await client.get(
+                f"{AF_BASE}/players",
+                headers=headers,
+                params={"search": player_name, "league": 307, "season": season},
+                timeout=10.0,
+            )
+            if r.status_code == 200:
+                results = r.json().get("response", [])
+                if results:
+                    return results[0].get("player", {}).get("photo")
+        except Exception:
+            pass
     return None
 
 
