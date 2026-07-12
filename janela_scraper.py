@@ -178,22 +178,38 @@ async def _try_af_search(
 
 
 # Ligas para fallback quando jogador não está na Saudi (307)
-# Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Liga NOS, MLS, Süper Lig, Eredivisie, Liga MX
-_FALLBACK_LEAGUES = (39, 140, 135, 78, 61, 94, 253, 203, 88, 262)
+# PL, La Liga, Serie A, Bundesliga, Ligue 1, Liga NOS, MLS, Süper Lig, Eredivisie, Liga MX, Russia, Egypt, Morocco
+_FALLBACK_LEAGUES = (39, 140, 135, 78, 61, 94, 253, 203, 88, 262, 235, 233, 200)
 
 _SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
+# Prefixos árabes comuns — AF indexa sem o prefixo
+_ARABIC_PREFIXES = ("al-", "el-", "al ", "el ", "bin-", "ibn-")
 
 
 def _search_names(full_name: str) -> list[str]:
-    """Retorna variantes de busca: nome completo + sobrenome (AF usa nomes curtos)."""
+    """Gera variantes para busca: nome completo, sobrenome, e raiz sem prefixo árabe."""
     parts = full_name.strip().split()
     if len(parts) <= 1:
         return [full_name]
+
     last = parts[-1].rstrip(".")
     if last.lower() in _SUFFIXES and len(parts) >= 2:
         last = parts[-2]
-    # evita duplicar se nome já é só uma palavra
-    return [full_name, last] if last != full_name else [full_name]
+
+    variants: list[str] = [full_name]
+    if last != full_name:
+        variants.append(last)
+
+    # Remove prefixo árabe: "Al-Ghamdi" → "Ghamdi", "Al Ghamdi" → "Ghamdi"
+    last_low = last.lower()
+    for pfx in _ARABIC_PREFIXES:
+        if last_low.startswith(pfx):
+            root = last[len(pfx):]
+            if root and root not in variants:
+                variants.append(root)
+            break
+
+    return variants
 
 
 async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
