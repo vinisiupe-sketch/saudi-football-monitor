@@ -2778,28 +2778,23 @@ function flagUrl(nat) {{
 function cardHtml(t, rank) {{
   const inLogo  = t.team_in?.logo  ? `<img class="club-logo" src="${{t.team_in.logo}}"  onerror="this.style.opacity=.3" alt="${{t.team_in?.name||''}}">` : '<div class="club-logo"></div>';
   const outLogo = t.team_out?.logo ? `<img class="club-logo" src="${{t.team_out.logo}}" onerror="this.style.opacity=.3" alt="${{t.team_out?.name||''}}">` : '<div class="club-logo"></div>';
-  const initials = (t.player_name||'?').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?';
   const _code = (NAT_FLAG[t.nationality||''] || '').toUpperCase();
   const _flagEmoji = _code.length === 2
     ? String.fromCodePoint(0x1F1E6 + _code.charCodeAt(0) - 65, 0x1F1E6 + _code.charCodeAt(1) - 65)
     : '';
-  const photo = _flagEmoji
-    ? `<div class="player-initials" style="font-size:26px;letter-spacing:0">${{_flagEmoji}}</div>`
-    : `<div class="player-initials">${{initials}}</div>`;
-  const dateFmt = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR', {{day:'2-digit',month:'short',year:'numeric'}}) : '';
   const tLabel  = typeLabel(t);
   const tClass  = typeClass(t);
   return `<div class="card">
     <span class="card-rank">#${{rank}}</span>
-    ${{photo}}
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
-      <div class="player-meta-line">${{[t.nationality, t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
       <div class="transfer-meta">
+        ${{_flagEmoji ? `<span style="font-size:14px">${{_flagEmoji}}</span>` : ''}}
         ${{dirBadge(t)}}
         <span class="badge ${{tClass}}">${{tLabel}}</span>
-        <span class="transfer-date">${{dateFmt}}</span>
+        ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.position}}</span>` : ''}}
+        ${{t.age ? `<span style="font-size:12px;color:var(--text2)">${{t.age}}</span>` : ''}}
       </div>
     </div>
     <div class="card-side">
