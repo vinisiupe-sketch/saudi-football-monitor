@@ -178,29 +178,49 @@ async def _try_af_search(
 
 
 # Ligas para fallback quando jogador não está na Saudi (307)
-# Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Liga NOS, MLS, Süper Lig, Eredivisie, J-League
-_FALLBACK_LEAGUES = (39, 140, 135, 78, 61, 94, 253, 203, 88, 98)
+# Premier League, La Liga, Serie A, Bundesliga, Ligue 1, Liga NOS, MLS, Süper Lig, Eredivisie, Liga MX
+_FALLBACK_LEAGUES = (39, 140, 135, 78, 61, 94, 253, 203, 88, 262)
+
+_SUFFIXES = {"jr", "sr", "ii", "iii", "iv"}
+
+
+def _search_names(full_name: str) -> list[str]:
+    """Retorna variantes de busca: nome completo + sobrenome (AF usa nomes curtos)."""
+    parts = full_name.strip().split()
+    if len(parts) <= 1:
+        return [full_name]
+    last = parts[-1].rstrip(".")
+    if last.lower() in _SUFFIXES and len(parts) >= 2:
+        last = parts[-2]
+    # evita duplicar se nome já é só uma palavra
+    return [full_name, last] if last != full_name else [full_name]
 
 
 async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
-    """Busca foto: primeiro na Saudi Pro League (307), depois em ligas-fonte comuns."""
+    """Busca foto: Saudi Pro League (307), depois ligas-fonte. Tenta nome completo e sobrenome."""
     if not AF_KEY:
         return None
     headers = {"x-apisports-key": AF_KEY}
+    names = _search_names(player_name)
 
-    # Fase 1: Saudi (307) seasons 2024/2023/2025/2026 em paralelo
+    # Fase 1: Saudi (307) × seasons × name variants em paralelo
     saudi = await asyncio.gather(
-        *[_try_af_search(client, headers, player_name, 307, s) for s in (2024, 2023, 2025, 2026)],
+        *[
+            _try_af_search(client, headers, name, 307, s)
+            for name in names
+            for s in (2024, 2023, 2025, 2026)
+        ],
         return_exceptions=True,
     )
     for res in saudi:
         if isinstance(res, str) and res:
             return res
 
-    # Fase 2: ligas-fonte × seasons 2024 + 2025 em paralelo
+    # Fase 2: ligas-fonte × seasons 2024+2025 (com sobrenome, mais confiável)
+    short = names[-1]  # sobrenome
     fallback = await asyncio.gather(
         *[
-            _try_af_search(client, headers, player_name, lg, s)
+            _try_af_search(client, headers, short, lg, s)
             for s in (2024, 2025)
             for lg in _FALLBACK_LEAGUES
         ],
