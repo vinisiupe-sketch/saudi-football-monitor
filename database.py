@@ -669,6 +669,7 @@ def init_entity_tables():
         """)
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS transfer_date DATE")
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS nationality TEXT")
+        c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS flag_url TEXT")
 
 
 def get_entity_resolution(entity_type: str, normalized_name: str,
@@ -874,8 +875,8 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                 INSERT INTO window_transfers
                     (id, player_id, player_name, photo, age, position,
                      market_value, fee, team_in_name, team_in_logo,
-                     team_out_name, team_out_logo, direction, transfer_date, nationality, scraped_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                     team_out_name, team_out_logo, direction, transfer_date, nationality, flag_url, scraped_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                 ON CONFLICT (id) DO UPDATE SET
                     player_name   = EXCLUDED.player_name,
                     photo         = EXCLUDED.photo,
@@ -889,6 +890,7 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                     team_out_logo = EXCLUDED.team_out_logo,
                     transfer_date = EXCLUDED.transfer_date,
                     nationality   = EXCLUDED.nationality,
+                    flag_url      = EXCLUDED.flag_url,
                     scraped_at    = NOW()
             """, [
                 tid,
@@ -897,7 +899,8 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                 t.get("market_value"), t.get("fee"),
                 t.get("team_in", {}).get("name"), t.get("team_in", {}).get("logo"),
                 t.get("team_out", {}).get("name"), t.get("team_out", {}).get("logo"),
-                t.get("direction", "in"), t.get("transfer_date"), t.get("nationality"),
+                t.get("direction", "in"), t.get("transfer_date"),
+                t.get("nationality"), t.get("flag_url"),
             ])
             count += 1
     return count
@@ -912,7 +915,7 @@ def get_window_transfers() -> list[dict]:
                 SELECT id, player_id, player_name, photo, age, position,
                        market_value, fee, team_in_name, team_in_logo,
                        team_out_name, team_out_logo, direction,
-                       transfer_date::text, nationality, scraped_at::text
+                       transfer_date::text, nationality, flag_url, scraped_at::text
                 FROM window_transfers
                 ORDER BY team_in_name, direction, player_name
             """)

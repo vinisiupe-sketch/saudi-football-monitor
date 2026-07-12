@@ -103,9 +103,11 @@ def _parse_transfers(html: str) -> list[dict]:
                     continue
 
                 age = cells[1].text.strip()
-                # Nationality: flag img title in col 2
+                # Nationality + flag: col 2 tem img da bandeira
                 flag_img = cells[2].find("img") if len(cells) > 2 else None
                 nationality = (flag_img.get("title") or flag_img.get("alt") or "").strip() if flag_img else ""
+                _fsrc = (flag_img.get("data-src") or flag_img.get("src") or "") if flag_img else ""
+                flag_url = _fsrc if _fsrc and not _fsrc.startswith("data:") else None
                 pos = cells[3].text.strip()
                 mv  = cells[5].text.strip()
 
@@ -153,6 +155,7 @@ def _parse_transfers(html: str) -> list[dict]:
                     "photo":         photo,
                     "age":           age,
                     "nationality":   nationality,
+                    "flag_url":      flag_url,
                     "position":      pos,
                     "market_value":  mv,
                     "fee":           fee,

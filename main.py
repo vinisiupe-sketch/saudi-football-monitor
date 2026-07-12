@@ -2434,6 +2434,7 @@ async def api_af_window_transfers(refresh: bool = False):
             "team_out":     {"name": r["team_out_name"], "logo": r["team_out_logo"]},
             "direction":    r["direction"],
             "nationality":  r.get("nationality") or "",
+            "flag_url":     r.get("flag_url") or "",
             "date":         (r.get("transfer_date") or None),
         }
         for r in rows
@@ -2516,7 +2517,8 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 .badge-loan{{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}}
 .badge-free{{background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}}
 .badge-paid{{background:rgba(79,156,249,.15);color:#4f9cf9;border:1px solid rgba(79,156,249,.3)}}
-.player-meta-line{{font-size:11px;color:var(--text2);margin:2px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.player-meta-line{{font-size:11px;color:var(--text2);margin:2px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}}
+.flag-img{{width:16px;height:12px;object-fit:cover;border-radius:1px;flex-shrink:0}}
 .transfer-date{{font-size:12px;color:var(--text2)}}
 .card-side{{margin-left:auto;flex-shrink:0;text-align:right}}
 .type-label{{font-size:12px;font-weight:700;color:var(--text2)}}
@@ -2638,7 +2640,7 @@ function cardHtml(t, rank) {{
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
-      <div class="player-meta-line">${{[t.nationality, t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
+      <div class="player-meta-line">${{t.flag_url ? `<img class="flag-img" src="${{t.flag_url}}" title="${{t.nationality}}" onerror="this.style.display='none'">` : ''}}${{[t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
       <div class="transfer-meta">
         ${{dirBadge(t)}}
         <span class="badge ${{tClass}}">${{tLabel}}</span>
