@@ -159,11 +159,11 @@ def _parse_transfers(html: str) -> list[dict]:
 # ── API-Football photos ───────────────────────────────────────────────────────
 
 async def _fetch_af_photo(client: httpx.AsyncClient, player_name: str) -> str | None:
-    """Busca foto do jogador na API-Football por nome (Saudi Pro League = 307)."""
+    """Busca foto do jogador na API-Football (Saudi Pro League=307, tenta seasons 2023-2026)."""
     if not AF_KEY:
         return None
     headers = {"x-apisports-key": AF_KEY}
-    for season in (2025, 2026):
+    for season in (2024, 2023, 2025, 2026):
         try:
             r = await client.get(
                 f"{AF_BASE}/players",
