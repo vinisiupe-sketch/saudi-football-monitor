@@ -2364,6 +2364,19 @@ async def admin_fix_article(request: Request):
 # ─── Janela de Transferências (API Football) ─────────────────────────────────
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
+_JANELA_SCRAPING = False
+
+async def _bg_janela_scrape():
+    """Roda janela_scraper em background (evita timeout HTTP)."""
+    global _JANELA_SCRAPING
+    if _JANELA_SCRAPING:
+        return
+    _JANELA_SCRAPING = True
+    try:
+        from janela_scraper import run_janela_scrape
+        await run_janela_scrape()
+    finally:
+        _JANELA_SCRAPING = False
 
 @app.get("/api/img-proxy")
 async def img_proxy(url: str = ""):
@@ -2409,20 +2422,15 @@ async def tm_photo_proxy(player_id: str):
 
 
 @app.get("/api/af-window-transfers")
-async def api_af_window_transfers(refresh: bool = False):
+async def api_af_window_transfers(refresh: bool = False, background_tasks: BackgroundTasks = None):
     """
     Retorna transferências da janela SPL scrapeadas do Transfermarkt.
-    Lê do banco de dados (populado pelo janela_scraper.py diariamente).
-    refresh=true dispara novo scrape imediato.
+    refresh=true dispara novo scrape em background (retorna dados atuais imediatamente).
     """
-    if refresh:
-        from janela_scraper import run_janela_scrape
-        result = await run_janela_scrape()
-        if not result.get("ok"):
-            return JSONResponse({"error": result.get("error", "Scrape falhou")}, status_code=502)
+    if refresh and not _JANELA_SCRAPING:
+        background_tasks.add_task(_bg_janela_scrape)
     rows = get_window_transfers()
-    # Normaliza para o formato que o frontend espera
-    return [
+    data = [
         {
             "player_id":    r["player_id"],
             "player_name":  r["player_name"],
@@ -2440,6 +2448,10 @@ async def api_af_window_transfers(refresh: bool = False):
         }
         for r in rows
     ]
+    resp = JSONResponse(data)
+    if _JANELA_SCRAPING or refresh:
+        resp.headers["X-Janela-Scraping"] = "true"
+    return resp
 
 
 @app.post("/api/admin/scrape-janela")
@@ -2556,11 +2568,26 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 let ALL = [];
 let currentDir = 'all';
 
+function showToast(msg, duration) {{
+  let t = document.getElementById('janela-toast');
+  if (!t) {{
+    t = document.createElement('div');
+    t.id = 'janela-toast';
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--c-text);color:var(--c-bg);font-size:0.72rem;font-weight:700;padding:10px 20px;border-radius:99px;z-index:999;opacity:0;transition:opacity .3s;white-space:nowrap;';
+    document.body.appendChild(t);
+  }}
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => {{ t.style.opacity = '0'; }}, duration || 8000);
+}}
+
 async function load(refresh) {{
   try {{
     const url = '/api/af-window-transfers' + (refresh ? '?refresh=true' : '');
     const r = await fetch(url);
     if (!r.ok) throw new Error(await r.text());
+    const scraping = r.headers.get('X-Janela-Scraping') === 'true';
     ALL = await r.json();
     if (!Array.isArray(ALL)) {{
       ALL = [];
@@ -2568,6 +2595,9 @@ async function load(refresh) {{
       return;
     }}
     applyFilters();
+    if (scraping) {{
+      showToast('⏳ Buscando fotos... recarregue a página em ~5 min', 12000);
+    }}
   }} catch(e) {{
     document.getElementById('cards').innerHTML = '<div class="state"><div class="state-icon">❌</div><div>' + e.message + '</div><button class="refresh-btn" onclick="load(true)">Tentar novamente</button></div>';
   }}
