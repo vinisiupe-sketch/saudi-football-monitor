@@ -2391,7 +2391,7 @@ async def api_af_window_transfers(refresh: bool = False):
             "team_in":      {"name": r["team_in_name"],  "logo": r["team_in_logo"]},
             "team_out":     {"name": r["team_out_name"], "logo": r["team_out_logo"]},
             "direction":    r["direction"],
-            "date":         (r.get("transfer_date") or r.get("scraped_at") or "")[:10],
+            "date":         (r.get("transfer_date") or None),
         }
         for r in rows
     ]
