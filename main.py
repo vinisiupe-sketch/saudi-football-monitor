@@ -2784,22 +2784,22 @@ function cardHtml(t, rank) {{
     : '';
   const tLabel  = typeLabel(t);
   const tClass  = typeClass(t);
-  return `<div class="card">
+  return `<div class="card" style="flex-wrap:wrap">
     <span class="card-rank">#${{rank}}</span>
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
-      <div class="transfer-meta">
-        ${{_flagEmoji ? `<span style="font-size:14px">${{_flagEmoji}}</span>` : ''}}
-        ${{dirBadge(t)}}
-        <span class="badge ${{tClass}}">${{tLabel}}</span>
-        ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.position}}</span>` : ''}}
-        ${{t.age ? `<span style="font-size:12px;color:var(--text2)">${{t.age}}</span>` : ''}}
-      </div>
     </div>
     <div class="card-side">
       <div class="type-label">${{t.team_out?.name||''}}</div>
       <div class="type-value" style="color:var(--text2);font-size:11px">${{t.team_in?.name||''}}</div>
+    </div>
+    <div class="transfer-meta" style="width:100%;padding:4px 0 2px;margin-left:28px">
+      ${{_flagEmoji ? `<span style="font-size:14px">${{_flagEmoji}}</span>` : ''}}
+      ${{dirBadge(t)}}
+      <span class="badge ${{tClass}}">${{tLabel}}</span>
+      ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.position}}</span>` : ''}}
+      ${{t.age ? `<span style="font-size:12px;color:var(--text2)">${{t.age}}</span>` : ''}}
     </div>
   </div>`;
 }}
