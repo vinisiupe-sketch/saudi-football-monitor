@@ -2758,8 +2758,8 @@ function typeLabel(t) {{
 }}
 function dirBadge(t) {{
   return t.direction === 'in'
-    ? '<span class="badge badge-in" title="Entrada">➜</span>'
-    : '<span class="badge badge-out" title="Saída">✕</span>';
+    ? '<span class="badge badge-in" title="Entrada">⮞</span>'
+    : '<span class="badge badge-out" title="Saída">⮜</span>';
 }}
 const POS_ABBR = {{'Goleiro':'GL','Lateral Dir.':'LD','Lateral Direito':'LD','Lateral Esq.':'LE','Lateral Esquerdo':'LE','Zagueiro':'ZG','Volante':'VL','Meia Central':'MC','Meia Ofensivo':'MO','Meia Atacante':'MA','Meia':'MC','Ponta Direita':'PD','Ponta Esquerda':'PE','Centroavante':'CA','Atacante':'AT','Segundo Atacante':'SA','2º Atacante':'SA','Ala Direito':'AD','Ala Esquerdo':'AE','Defensor Central':'ZG','Meio-campista':'MC','Meia-Atacante':'MA','Extremo Direito':'PD','Extremo Esquerdo':'PE'}};
 function posAbbr(pos) {{ return POS_ABBR[pos] || (pos||'').slice(0,2).toUpperCase() || ''; }}
@@ -2795,7 +2795,7 @@ function cardHtml(t, rank) {{
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
     </div>
-    <div class="transfer-meta" style="width:100%;padding:3px 0 0;margin-left:28px;justify-content:space-between">
+    <div class="transfer-meta" style="width:100%;padding:3px 0 0;justify-content:space-between">
       <div style="display:flex;gap:5px;align-items:center;flex-wrap:wrap">
         ${{dirBadge(t)}}
         ${{_flagEmoji ? `<span class="badge" style="background:var(--surface2);border:1px solid var(--border);padding:2px 5px">${{_flagEmoji}}</span>` : ''}}
