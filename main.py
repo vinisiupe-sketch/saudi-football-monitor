@@ -2505,6 +2505,7 @@ header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var
 .card:hover{{border-color:#444}}
 .card-rank{{font-size:12px;color:var(--text2);width:24px;text-align:center;flex-shrink:0;font-weight:600}}
 .player-photo{{width:44px;height:44px;border-radius:50%;object-fit:cover;background:var(--surface2);flex-shrink:0;border:2px solid var(--border)}}
+.player-initials{{width:44px;height:44px;border-radius:50%;background:var(--surface2);flex-shrink:0;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--text2);letter-spacing:.5px}}
 .clubs{{display:flex;align-items:center;gap:6px;flex-shrink:0}}
 .club-logo{{width:28px;height:28px;object-fit:contain;border-radius:4px}}
 .arrow{{color:var(--text2);font-size:14px}}
@@ -2626,11 +2627,22 @@ function dirBadge(t) {{
     : '<span class="badge badge-out">Saída</span>';
 }}
 
+const NAT_FLAG = {{'Brasil':'br','Arábia Saudita':'sa','Argentina':'ar','França':'fr','Portugal':'pt','Espanha':'es','Alemanha':'de','Holanda':'nl','Bélgica':'be','Marrocos':'ma','Senegal':'sn','Costa do Marfim':'ci','Nigéria':'ng','Egito':'eg','Gana':'gh','Camarões':'cm','Tunísia':'tn','Argélia':'dz','Mali':'ml','Guiné':'gn','Burkina Faso':'bf','Guiné-Bissau':'gw','Serra Leoa':'sl','Gabão':'ga','Gâmbia':'gm','Togo':'tg','Benin':'bj','Comores':'km','Guiné Equatorial':'gq','Angola':'ao','Congo':'cg','República Democrática do Congo':'cd','Uganda':'ug','Ruanda':'rw','Tanzânia':'tz','Moçambique':'mz','Zâmbia':'zm','Zimbábue':'zw','Quênia':'ke','Etiópia':'et','Sudão':'sd','Líbia':'ly','Mauritânia':'mr','Uruguai':'uy','Colômbia':'co','Chile':'cl','Peru':'pe','Equador':'ec','Bolívia':'bo','Paraguai':'py','Venezuela':'ve','México':'mx','Costa Rica':'cr','Honduras':'hn','Guatemala':'gt','El Salvador':'sv','Panamá':'pa','Cuba':'cu','República Dominicana':'do','Haiti':'ht','Jamaica':'jm','Estados Unidos':'us','Canadá':'ca','Inglaterra':'gb-eng','Escócia':'gb-sct','País de Gales':'gb-wls','Irlanda do Norte':'gb-nir','Irlanda':'ie','Itália':'it','Grécia':'gr','Turquia':'tr','Sérvia':'rs','Croácia':'hr','Polônia':'pl','Dinamarca':'dk','Suécia':'se','Noruega':'no','Finlândia':'fi','Suíça':'ch','Áustria':'at','República Tcheca':'cz','Eslováquia':'sk','Hungria':'hu','Romênia':'ro','Bósnia e Herzegovina':'ba','Montenegro':'me','Macedônia do Norte':'mk','Albânia':'al','Kosovo':'xk','Rússia':'ru','Ucrânia':'ua','Bielorrússia':'by','Geórgia':'ge','Armênia':'am','Azerbaijão':'az','Cazaquistão':'kz','Japão':'jp','Coreia do Sul':'kr','China':'cn','Austrália':'au','Iraque':'iq','Jordânia':'jo','Emirados Árabes Unidos':'ae','Kuwait':'kw','Bahrein':'bh','Omã':'om','Qatar':'qa','Iêmen':'ye','Síria':'sy','Líbano':'lb','Israel':'il','Irã':'ir','Paquistão':'pk','Índia':'in','África do Sul':'za'}};
+
+function flagUrl(nat) {{
+  const code = NAT_FLAG[nat];
+  if (!code) return '';
+  return `https://flagcdn.com/16x12/${{code}}.png`;
+}}
+
 function cardHtml(t, rank) {{
   const inLogo  = t.team_in?.logo  ? `<img class="club-logo" src="${{t.team_in.logo}}"  onerror="this.style.opacity=.3" alt="${{t.team_in?.name||''}}">` : '<div class="club-logo"></div>';
   const outLogo = t.team_out?.logo ? `<img class="club-logo" src="${{t.team_out.logo}}" onerror="this.style.opacity=.3" alt="${{t.team_out?.name||''}}">` : '<div class="club-logo"></div>';
+  const initials = (t.player_name||'?').split(' ').slice(0,2).map(w=>w[0]||'').join('').toUpperCase()||'?';
   const photoSrc = t.photo ? `/api/img-proxy?url=${{encodeURIComponent(t.photo)}}` : '';
-  const photo   = photoSrc ? `<img class="player-photo" src="${{photoSrc}}" onerror="this.style.display='none'" alt="">` : '<div class="player-photo"></div>';
+  const photo = photoSrc
+    ? `<img class="player-photo" src="${{photoSrc}}" onerror="this.outerHTML='<div class=\\'player-initials\\'>${{initials}}</div>'" alt="">`
+    : `<div class="player-initials">${{initials}}</div>`;
   const dateFmt = t.date ? new Date(t.date + 'T12:00:00').toLocaleDateString('pt-BR', {{day:'2-digit',month:'short',year:'numeric'}}) : '';
   const tLabel  = typeLabel(t);
   const tClass  = typeClass(t);
@@ -2640,7 +2652,7 @@ function cardHtml(t, rank) {{
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
-      <div class="player-meta-line">${{t.flag_url ? `<img class="flag-img" src="${{t.flag_url}}" title="${{t.nationality}}" onerror="this.style.display='none'">` : ''}}${{[t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
+      <div class="player-meta-line">${{flagUrl(t.nationality) ? `<img class="flag-img" src="${{flagUrl(t.nationality)}}" title="${{t.nationality}}" onerror="this.style.display='none'">` : ''}}${{[t.position, t.age ? t.age+'a' : ''].filter(Boolean).join(' · ')}}</div>
       <div class="transfer-meta">
         ${{dirBadge(t)}}
         <span class="badge ${{tClass}}">${{tLabel}}</span>
