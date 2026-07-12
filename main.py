@@ -2758,11 +2758,11 @@ function typeLabel(t) {{
 }}
 function dirBadge(t) {{
   return t.direction === 'in'
-    ? '<span class="badge badge-in" title="Entrada">↓</span>'
-    : '<span class="badge badge-out" title="Saída">↑</span>';
+    ? '<span class="badge badge-in" title="Entrada">➜</span>'
+    : '<span class="badge badge-out" title="Saída">⬅</span>';
 }}
-const POS_ABBR = {{'Goleiro':'GL','Lateral Direito':'LD','Lateral Esq.':'LE','Lateral Esquerdo':'LE','Zagueiro':'ZG','Volante':'VOL','Meia Central':'MC','Meia Ofensivo':'MO','Meia Atacante':'MAT','Meia':'MC','Ponta Direita':'PD','Ponta Esquerda':'PE','Centroavante':'CA','Atacante':'AT','Segundo Atacante':'SA','2º Atacante':'SA','Ala Direito':'AD','Ala Esquerdo':'AE','Defensor Central':'ZG','Meio-campista':'MC'}};
-function posAbbr(pos) {{ return POS_ABBR[pos] || pos || ''; }}
+const POS_ABBR = {{'Goleiro':'GL','Lateral Dir.':'LD','Lateral Direito':'LD','Lateral Esq.':'LE','Lateral Esquerdo':'LE','Zagueiro':'ZG','Volante':'VL','Meia Central':'MC','Meia Ofensivo':'MO','Meia Atacante':'MA','Meia':'MC','Ponta Direita':'PD','Ponta Esquerda':'PE','Centroavante':'CA','Atacante':'AT','Segundo Atacante':'SA','2º Atacante':'SA','Ala Direito':'AD','Ala Esquerdo':'AE','Defensor Central':'ZG','Meio-campista':'MC','Meia-Atacante':'MA','Extremo Direito':'PD','Extremo Esquerdo':'PE'}};
+function posAbbr(pos) {{ return POS_ABBR[pos] || (pos||'').slice(0,2).toUpperCase() || ''; }}
 
 const NAT_FLAG = {{'Brasil':'br','Arábia Saudita':'sa','Argentina':'ar','França':'fr','Portugal':'pt','Espanha':'es','Alemanha':'de','Holanda':'nl','Bélgica':'be','Marrocos':'ma','Senegal':'sn','Costa do Marfim':'ci','Nigéria':'ng','Egito':'eg','Gana':'gh','Camarões':'cm','Tunísia':'tn','Argélia':'dz','Mali':'ml','Guiné':'gn','Burkina Faso':'bf','Guiné-Bissau':'gw','Serra Leoa':'sl','Gabão':'ga','Gâmbia':'gm','Togo':'tg','Benin':'bj','Comores':'km','Guiné Equatorial':'gq','Angola':'ao','Congo':'cg','República Democrática do Congo':'cd','Uganda':'ug','Ruanda':'rw','Tanzânia':'tz','Moçambique':'mz','Zâmbia':'zm','Zimbábue':'zw','Quênia':'ke','Etiópia':'et','Sudão':'sd','Líbia':'ly','Mauritânia':'mr','Uruguai':'uy','Colômbia':'co','Chile':'cl','Peru':'pe','Equador':'ec','Bolívia':'bo','Paraguai':'py','Venezuela':'ve','México':'mx','Costa Rica':'cr','Honduras':'hn','Guatemala':'gt','El Salvador':'sv','Panamá':'pa','Cuba':'cu','República Dominicana':'do','Haiti':'ht','Jamaica':'jm','Estados Unidos':'us','Canadá':'ca','Inglaterra':'gb-eng','Escócia':'gb-sct','País de Gales':'gb-wls','Irlanda do Norte':'gb-nir','Irlanda':'ie','Itália':'it','Grécia':'gr','Turquia':'tr','Sérvia':'rs','Croácia':'hr','Polônia':'pl','Dinamarca':'dk','Suécia':'se','Noruega':'no','Finlândia':'fi','Suíça':'ch','Áustria':'at','República Tcheca':'cz','Eslováquia':'sk','Hungria':'hu','Romênia':'ro','Bósnia e Herzegovina':'ba','Montenegro':'me','Macedônia do Norte':'mk','Albânia':'al','Kosovo':'xk','Rússia':'ru','Ucrânia':'ua','Bielorrússia':'by','Geórgia':'ge','Armênia':'am','Azerbaijão':'az','Cazaquistão':'kz','Japão':'jp','Coreia do Sul':'kr','China':'cn','Austrália':'au','Iraque':'iq','Jordânia':'jo','Emirados Árabes Unidos':'ae','Kuwait':'kw','Bahrein':'bh','Omã':'om','Qatar':'qa','Iêmen':'ye','Síria':'sy','Líbano':'lb','Israel':'il','Irã':'ir','Paquistão':'pk','Índia':'in','África do Sul':'za'}};
 
@@ -2788,23 +2788,21 @@ function cardHtml(t, rank) {{
     : '';
   const tLabel  = typeLabel(t);
   const tClass  = typeClass(t);
+  const clubLine = [t.team_out?.name, t.team_in?.name].filter(Boolean).join(' → ');
   return `<div class="card" style="flex-wrap:wrap">
     <span class="card-rank">#${{rank}}</span>
     <div class="clubs">${{outLogo}}<span class="arrow">→</span>${{inLogo}}</div>
     <div class="card-body">
       <div class="player-name">${{t.player_name || '—'}}</div>
     </div>
-    <div class="card-side">
-      <div class="type-label">${{t.team_out?.name||''}}</div>
-      <div class="type-value">${{t.team_in?.name||''}}</div>
-    </div>
-    <div class="transfer-meta" style="width:100%;padding:4px 0 2px;margin-left:28px">
+    <div class="transfer-meta" style="width:100%;padding:3px 0 1px;margin-left:28px">
       ${{dirBadge(t)}}
       ${{_flagEmoji ? `<span class="badge" style="background:var(--surface2);border:1px solid var(--border);padding:2px 5px">${{_flagEmoji}}</span>` : ''}}
       ${{t.position ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{posAbbr(t.position)}}</span>` : ''}}
       ${{t.age ? `<span class="badge" style="background:var(--surface2);color:var(--text2);border:1px solid var(--border)">${{t.age}}</span>` : ''}}
       ${{tLabel ? `<span class="badge ${{tClass}}">${{tLabel}}</span>` : ''}}
     </div>
+    <div style="width:100%;margin-left:28px;padding:2px 0 1px;font-size:10px;color:var(--text2)">${{clubLine}}</div>
   </div>`;
 }}
 
