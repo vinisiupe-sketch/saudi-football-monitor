@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 from database import save_article
 
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
-CLAUDE_MODEL = "claude-opus-4-6"
+CLAUDE_MODEL = "claude-sonnet-4-5"
 SIMILARITY_THRESHOLD = 0.82
 
 
@@ -30,22 +30,37 @@ def deduplicate(articles: list[dict]) -> list[dict]:
     return kept
 
 
-async def call_claude(prompt: str, system: str, client: httpx.AsyncClient, max_tokens: int = 1000) -> str:
+async def call_claude(
+    prompt: str,
+    system: str,
+    client: httpx.AsyncClient,
+    max_tokens: int = 1000,
+    cache_system: bool = False,
+) -> str:
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY não configurada.")
+
+    # Prompt caching: se cache_system=True, marca o system prompt para cache.
+    # Cache reads custam 10% do preço normal — economiza ~15-20% no input total.
+    if cache_system:
+        system_payload = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+    else:
+        system_payload = system
+
     payload = {
         "model": CLAUDE_MODEL,
         "max_tokens": max_tokens,
-        "system": system,
+        "system": system_payload,
         "messages": [{"role": "user", "content": prompt}],
     }
-    resp = await client.post(
-        CLAUDE_API_URL,
-        json=payload,
-        headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "Content-Type": "application/json"},
-        timeout=30,
-    )
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
+        "Content-Type": "application/json",
+    }
+    resp = await client.post(CLAUDE_API_URL, json=payload, headers=headers, timeout=30)
     resp.raise_for_status()
     return resp.json()["content"][0]["text"]
 
@@ -92,7 +107,7 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
         + GLOSSARY_PROMPT
     )
 
-    BATCH = 3
+    BATCH = 5
     async with httpx.AsyncClient() as client:
         for i in range(0, len(to_translate), BATCH):
             batch = to_translate[i:i + BATCH]
@@ -121,7 +136,7 @@ Responda SOMENTE com este JSON (sem texto extra):
 
 {items_text}"""
             try:
-                raw = await call_claude(prompt, system, client, max_tokens=2000)
+                raw = await call_claude(prompt, system, client, max_tokens=2000, cache_system=True)
                 raw = raw.strip()
                 if raw.startswith("```"):
                     raw = raw.split("```")[1]
@@ -153,7 +168,7 @@ Responda SOMENTE com este JSON (sem texto extra):
 
 Título: {art.get('title_orig', '')}
 Texto: {art.get('body_orig', '')[:1200]}"""
-                        solo_raw = await call_claude(solo_prompt, system, client, max_tokens=1000)
+                        solo_raw = await call_claude(solo_prompt, system, client, max_tokens=1000, cache_system=True)
                         solo_raw = solo_raw.strip()
                         if solo_raw.startswith("```"):
                             solo_raw = solo_raw.split("```")[1]

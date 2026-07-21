@@ -51,7 +51,7 @@ Regras:
 - status='recuperado' quando explicitamente declarado apto/recuperado"""
 
     try:
-        raw = await call_claude(prompt, INJURY_SYSTEM, client, max_tokens=400)
+        raw = await call_claude(prompt, INJURY_SYSTEM, client, max_tokens=400, cache_system=True)
         raw = raw.strip()
         if raw.startswith("```"):
             raw = raw.split("```")[1]
