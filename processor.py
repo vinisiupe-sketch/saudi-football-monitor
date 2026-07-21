@@ -115,10 +115,13 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
             for idx, art in enumerate(batch):
                 body_orig_text = art.get('body_orig', '')
                 brevity_note = (
-                    "\n[TEXTO MUITO CURTO — NÃO expanda. body_pt deve ser fiel ao original; "
-                    "no máximo 1 frase de contexto se absolutamente necessária. "
-                    "Não invente detalhes ausentes.]"
-                    if len(body_orig_text.strip()) < 120 else ""
+                    "\n[TWEET/POST CURTÍSSIMO — REGRAS ABSOLUTAS: "
+                    "(1) Traduza SOMENTE o que está escrito. Zero invenção, zero contexto adicional, zero padding. "
+                    "(2) Se o original tem 1 frase, body_pt tem 1 frase. Se tem 3 linhas, body_pt tem 3 linhas. "
+                    "(3) NÃO escreva quem publicou, quando publicou, nem adicione frases de encerramento sobre o clube. "
+                    "(4) NÃO interprete intenções — traduza literalmente. "
+                    "(5) Emojis e hashtags podem ser mantidos ou omitidos, mas NUNCA substituídos por texto inventado.]"
+                    if len(body_orig_text.strip()) < 280 else ""
                 )
                 items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {body_orig_text[:1200]}{brevity_note}\n---"
 
