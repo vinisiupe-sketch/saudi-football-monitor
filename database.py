@@ -664,12 +664,14 @@ def init_entity_tables():
                 direction       TEXT NOT NULL DEFAULT 'in',
                 transfer_date   DATE,
                 nationality     TEXT,
-                scraped_at      TIMESTAMPTZ DEFAULT NOW()
+                scraped_at      TIMESTAMPTZ DEFAULT NOW(),
+                first_seen_at   TIMESTAMPTZ DEFAULT NOW()
             )
         """)
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS transfer_date DATE")
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS nationality TEXT")
         c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS flag_url TEXT")
+        c.execute("ALTER TABLE window_transfers ADD COLUMN IF NOT EXISTS first_seen_at TIMESTAMPTZ DEFAULT NOW()")
         c.execute("""
             CREATE TABLE IF NOT EXISTS janela_player_photos (
                 player_id  TEXT PRIMARY KEY,
@@ -867,23 +869,31 @@ def clear_window_transfers() -> None:
         c.execute("DELETE FROM window_transfers")
 
 
-def upsert_window_transfers(transfers: list[dict]) -> int:
-    """Insere/atualiza lista de transferências; retorna quantidade upserted."""
+def upsert_window_transfers(transfers: list[dict]) -> tuple[int, list[str]]:
+    """Insere/atualiza lista de transferências.
+
+    Retorna (quantidade_upserted, lista_de_ids).
+    first_seen_at só é definido no INSERT — nunca sobrescrito no UPDATE,
+    para que a ordenação por 'mais recentes' reflita quando cada jogador
+    apareceu pela primeira vez na janela do TM.
+    """
     if not transfers:
-        return 0
+        return 0, []
     import hashlib
+    ids: list[str] = []
     with get_conn() as conn:
         c = conn.cursor()
-        count = 0
         for t in transfers:
             key = f"{t.get('player_id','')}_{t.get('direction','')}_{t.get('team_in',{}).get('name','')}"
             tid = hashlib.md5(key.encode()).hexdigest()[:16]
+            ids.append(tid)
             c.execute("""
                 INSERT INTO window_transfers
                     (id, player_id, player_name, photo, age, position,
                      market_value, fee, team_in_name, team_in_logo,
-                     team_out_name, team_out_logo, direction, transfer_date, nationality, flag_url, scraped_at)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                     team_out_name, team_out_logo, direction, transfer_date,
+                     nationality, flag_url, scraped_at, first_seen_at)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                 ON CONFLICT (id) DO UPDATE SET
                     player_name   = EXCLUDED.player_name,
                     photo         = EXCLUDED.photo,
@@ -899,6 +909,7 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                     nationality   = EXCLUDED.nationality,
                     flag_url      = EXCLUDED.flag_url,
                     scraped_at    = NOW()
+                    -- first_seen_at NÃO é atualizado: preserva data original
             """, [
                 tid,
                 t.get("player_id"), t.get("player_name", ""),
@@ -909,12 +920,25 @@ def upsert_window_transfers(transfers: list[dict]) -> int:
                 t.get("direction", "in"), t.get("transfer_date"),
                 t.get("nationality"), t.get("flag_url"),
             ])
-            count += 1
-    return count
+    return len(ids), ids
+
+
+def delete_stale_window_transfers(current_ids: list[str]) -> int:
+    """Remove transferências que não apareceram na raspagem atual (saíram do TM)."""
+    if not current_ids:
+        return 0
+    with get_conn() as conn:
+        c = conn.cursor()
+        placeholders = ",".join(["%s"] * len(current_ids))
+        c.execute(
+            f"DELETE FROM window_transfers WHERE id NOT IN ({placeholders})",
+            current_ids,
+        )
+        return c.rowcount
 
 
 def get_window_transfers() -> list[dict]:
-    """Retorna todas as transferências da janela ordenadas por clube e jogador."""
+    """Retorna todas as transferências da janela — mais recentes primeiro (first_seen_at DESC)."""
     try:
         with get_conn() as conn:
             c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -922,9 +946,10 @@ def get_window_transfers() -> list[dict]:
                 SELECT id, player_id, player_name, photo, age, position,
                        market_value, fee, team_in_name, team_in_logo,
                        team_out_name, team_out_logo, direction,
-                       transfer_date::text, nationality, flag_url, scraped_at::text
+                       transfer_date::text, nationality, flag_url,
+                       scraped_at::text, first_seen_at::text
                 FROM window_transfers
-                ORDER BY team_in_name, direction, player_name
+                ORDER BY first_seen_at DESC NULLS LAST, player_name
             """)
             rows = c.fetchall()
         return [dict(r) for r in rows]

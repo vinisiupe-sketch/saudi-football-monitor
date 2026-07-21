@@ -6,7 +6,7 @@ import re
 import httpx
 from bs4 import BeautifulSoup
 from database import (
-    upsert_window_transfers, clear_window_transfers,
+    upsert_window_transfers, delete_stale_window_transfers,
     get_window_transfers_last_scraped,
 )
 
@@ -164,10 +164,10 @@ async def run_janela_scrape() -> dict:
         if not transfers:
             return {"ok": False, "error": "Nenhuma transferencia encontrada"}
 
-        clear_window_transfers()
-        saved = upsert_window_transfers(transfers)
-        print(f"Janela scrape: {saved} transferencias salvas")
-        return {"ok": True, "total": saved}
+        saved, current_ids = upsert_window_transfers(transfers)
+        removed = delete_stale_window_transfers(current_ids)
+        print(f"Janela scrape: {saved} upserted, {removed} removidos")
+        return {"ok": True, "total": saved, "removed": removed}
 
     except Exception as e:
         print(f"Erro no janela scrape: {e}")
