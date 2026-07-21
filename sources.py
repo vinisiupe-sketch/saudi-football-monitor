@@ -34,7 +34,7 @@ TIER_C = {
         # a coleta. Substituído por RSS via Google News (site:arriyadiyah.com) no
         # TIER_B.rss_feeds acima, que entrega o conteúdo completo dos artigos.
         "khaled_alhussan", "A_Ragab", "AHADI4",
-        "OKAZ_online", "ahmed_aljadi68",
+        "ahmed_aljadi68",
         "SultanALotaibi0", "samialqadi800", "k7aled_otb",
         "lequipe", "NicoSchira", "Glongari", "yagosabuncuoglu", "ahmad2man",
     ],
@@ -151,7 +151,6 @@ SOURCE_MOON = {
     "khaled_alhussan": "🌗",
     "A_Ragab":         "🌗",
     "AHADI4":          "🌗",
-    "OKAZ_online":     "🌗",
     "ahmed_aljadi68":  "🌗",
     "SultanALotaibi0": "🌗",
     "samialqadi800":   "🌗",

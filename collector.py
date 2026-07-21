@@ -76,13 +76,15 @@ def _contains_word(text_lower: str, word: str) -> bool:
 def compute_relevance(text: str, tier: str) -> float:
     text_lower = text.lower()
     all_keywords = [kw for lang_kws in KEYWORDS.values() for kw in lang_kws]
-    hits = sum(1 for kw in all_keywords if _contains_word(text_lower, kw))
+    has_federation_context = any(fc in text_lower for fc in _FEDERATION_COMPOUNDS)
+    hits = 0
+    for kw in all_keywords:
+        if _contains_word(text_lower, kw):
+            # "الاتحاد" em contexto de federação externa não conta
+            if kw == "الاتحاد" and has_federation_context:
+                continue
+            hits += 1
     # Nomes de clubes sauditas são sinal forte — consistente com is_relevant().
-    # Antes, um tweet como "Al Diriyah closing in on Diogo Leite 🇸🇦" recebia
-    # score 0.44 (apenas 1 keyword: o emoji) e ficava abaixo do corte de 0.45
-    # da página principal, apesar de passar em is_relevant(). A inconsistência
-    # existia porque compute_relevance() ignorava club_hit enquanto is_relevant()
-    # o usava. Agora os dois usam a mesma lógica.
     if match_saudi_club(text_lower):
         hits += 2
     elif match_saudi_club_risky(text_lower):
@@ -144,27 +146,62 @@ AMBIGUOUS_ARABIC = {
     "إعارة", "رحيل", "عقد", "تعاقد", "تجديد",
 }
 
+# Compostos que provam que "الاتحاد" é FIFA/UEFA/outra federação, NÃO Al Ittihad.
+# Quando qualquer um está presente, o hit de "الاتحاد" é ignorado.
+_FEDERATION_COMPOUNDS = [
+    "الاتحاد الدولي",      # FIFA / qualquer federação internacional
+    "الاتحاد الأوروبي",    # UEFA / União Europeia
+    "الاتحاد الأرجنتيني",
+    "الاتحاد الألماني",
+    "الاتحاد الأردني",
+    "الاتحاد الإنجليزي",
+    "الاتحاد الانجليزي",
+    "الاتحاد الإسباني",
+    "الاتحاد الفرنسي",
+    "الاتحاد الإيطالي",
+    "الاتحاد البرازيلي",
+    "الاتحاد الأمريكي",
+    "الاتحاد الآسيوي",
+]
+
+# Presença de Copa do Mundo SEM clube saudita → rejeitar.
+# Adicionado após contaminação maciça de artigos do Mundial 2026 (julho/2026).
+WORLD_CUP_TERMS = [
+    "كأس العالم", "المونديال", "world cup", "mundial",
+    "coupe du monde", "copa del mundo", "copa do mundo", "mondiali",
+]
+
 def is_relevant(text: str, min_hits: int = 3, title: str = "", strict_ambiguous: bool = True) -> bool:
     text_lower = text.lower()
-    # clubs.py é a lista mestre de clubes sauditas (SPL + Yelo League), com todas as
-    # transliterações/hífen/espaço/hashtag conhecidas — citar qualquer um por nome já
-    # prova contexto de futebol saudita por si só, então também serve pro gate abaixo.
     club_hit = match_saudi_club(text_lower)
-    # club_risky_hit = formas tipo "jeddah"/"riyadh"/"الخليج" sozinhas — colidem com
-    # cidade/palavra genérica, então NUNCA bastam por si só (nem pro gate nem pro hit).
     club_risky_hit = match_saudi_club_risky(text_lower)
+
+    # Hard-filter 1: Copa do Mundo sem clube saudita → rejeitar sempre.
+    # "الاتحاد الدولي لكرة القدم" (FIFA) dispara "copa" via "كأس العالم" nos textos
+    # sobre o Mundial — sem clube saudita explícito não tem relevância para o monitor.
+    if any(_contains_word(text_lower, wc) for wc in WORLD_CUP_TERMS):
+        if not club_hit:
+            return False
+
     # Must have at least one football-specific term — ou um clube saudita reconhecido
     if not (club_hit or any(_contains_word(text_lower, kw) for kw in FOOTBALL_REQUIRED)):
         return False
+
     # Count keyword hits — ambiguous Arabic words only count if another Saudi keyword also present.
     # strict_ambiguous=False (usado para contas de Twitter curadas) trata esses termos como
-    # diretos: o risco de falso positivo (ex: "الاتحاد" = federação de outro país) é baixo quando
-    # a fonte já é um jornalista dedicado a futebol saudita, diferente de uma busca RSS genérica.
+    # diretos: o risco de falso positivo é baixo quando a fonte já é jornalista de futebol
+    # saudita — MAS "الاتحاد" é exceção: mesmo em fontes curadas aparece como FIFA/UEFA.
+    # Por isso tem checagem explícita de contexto de federação abaixo.
     hits = 0
     ambiguous_hits = 0
+    # Detecta contexto de federação externa uma única vez (mais eficiente que checar por kw)
+    has_federation_context = any(fc in text_lower for fc in _FEDERATION_COMPOUNDS)
     for lang_kws in KEYWORDS.values():
         for kw in lang_kws:
             if _contains_word(text_lower, kw):
+                # "الاتحاد" + contexto de federação externa → não conta: é FIFA/UEFA, não Al Ittihad
+                if kw == "الاتحاد" and has_federation_context:
+                    continue
                 if strict_ambiguous and kw in AMBIGUOUS_ARABIC:
                     ambiguous_hits += 1
                 else:
