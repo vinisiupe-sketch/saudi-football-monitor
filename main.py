@@ -147,12 +147,11 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "    .token-dot.broken { background: #ef4444; }\n"
 )
 
-_THEME_INIT_SCRIPT = '<script>(function(){try{if(localStorage.getItem("iarabao_theme")==="dark")document.documentElement.setAttribute("data-theme","dark");}catch(e){}})();</script>'
+_THEME_INIT_SCRIPT = '<script>document.documentElement.setAttribute("data-theme","dark");</script>'
 
 def _header(active: str) -> str:
     pages = [
         ("/",           _ICO_HOME,    "Home",          "home"),
-        ("/selecao",    _ICO_SELECAO, "Seleção Saudita","selecao"),
         ("/descartadas",_ICO_ARCHIVE, "Descartadas",   ""),
         ("/lesoes",         _ICO_INJURY,    "Lesões",          ""),
         ("/janela",          _ICO_JANELA,    "Janela",          ""),
@@ -167,16 +166,8 @@ def _header(active: str) -> str:
             cls += " active"
         elif href == "/gerador":
             cls += " cta"
-        elif href == "/selecao":
-            cls += " selecao"
         badge = f'<span class="nav-badge" data-tab="{badge_tab}" style="display:none"></span>' if badge_tab else ""
         items += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
-    theme_btn = (
-        '<button class="nav-icon theme-toggle" type="button" onclick="toggleTheme()" title="Modo noturno">'
-        '<svg class="ico-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>'
-        '<svg class="ico-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>'
-        '</button>'
-    )
     badge_script = """<script>
 (function(){
   async function loadBadges(){
@@ -199,14 +190,7 @@ def _header(active: str) -> str:
   });
 })();
 </script>"""
-    theme_script = """<script>
-function toggleTheme(){
-  var html = document.documentElement;
-  var isDark = html.getAttribute('data-theme') === 'dark';
-  if (isDark) { html.removeAttribute('data-theme'); try{localStorage.setItem('iarabao_theme','light');}catch(e){} }
-  else { html.setAttribute('data-theme','dark'); try{localStorage.setItem('iarabao_theme','dark');}catch(e){} }
-}
-</script>"""
+    theme_script = ""  # dark-only
     token_dot = '<span class="token-dot" id="tokenDot" title="Token X/Twitter: verificando…"></span>'
     token_script = """<script>
 (function(){
@@ -232,7 +216,7 @@ function toggleTheme(){
   document.addEventListener('DOMContentLoaded', loadTokenStatus);
 })();
 </script>"""
-    return f'<header>{token_dot}<a class="brand" href="/">IARABÃO</a>{items}{theme_btn}</header>{badge_script}{theme_script}{token_script}'
+    return f'<header>{token_dot}<a class="brand" href="/">IARABÃO</a>{items}</header>{badge_script}{theme_script}{token_script}'
 
 
 
@@ -267,6 +251,7 @@ async def dashboard():
         "geral": "Geral",
     }
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+    ICO_COPY    = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
     ICO_ANALYSIS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>'
     ICO_LOCK  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
     ICO_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
@@ -317,7 +302,7 @@ async def dashboard():
                 <span class="card-date">{date_display}</span>
               </div>
               <div class="card-actions">
-                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">📋</button>
+                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
               </div>
             </div>
@@ -513,9 +498,9 @@ async def dashboard():
     function copyFromBtn(btn) {{
       const text = btn.dataset.copy;
       navigator.clipboard.writeText(text).then(() => {{
-        const orig = btn.textContent;
-        btn.textContent = '✅';
-        setTimeout(() => {{ btn.textContent = orig; }}, 2000);
+        const orig = btn.innerHTML;
+        btn.innerHTML = '✅';
+        setTimeout(() => {{ btn.innerHTML = orig; }}, 2000);
       }});
     }}
 
@@ -742,6 +727,7 @@ async def selecao_page():
         "geral": "Geral",
     }
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+    ICO_COPY    = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
     ICO_ANALYSIS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>'
     ICO_LOCK  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
     ICO_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
@@ -791,7 +777,7 @@ async def selecao_page():
                 <span class="card-date">{date_display}</span>
               </div>
               <div class="card-actions">
-                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">📋</button>
+                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
               </div>
             </div>
