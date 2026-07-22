@@ -277,14 +277,14 @@ async def dashboard():
     for a in articles:
         handle        = a.get("source_name", "").lstrip("@")
         moon          = SOURCE_MOON.get(handle, {"A": "🌕", "B": "🌖", "C": "🌗"}.get(a["source_tier"], ""))
-        title         = a.get("title_pt") or a.get("title_orig") or "—"
         body_raw      = a.get("body_pt") or a.get("body_orig") or ""
-        body_short    = body_raw[:280] + ("…" if len(body_raw) > 280 else "")
         body_full     = body_raw
-        has_more      = len(body_raw) > 280
         category      = a.get("category") or "geral"
         category_text = CATEGORY_TEXT.get(category, "Geral")
-        post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + handle
+        cat_emoji     = CATEGORY_EMOJI.get(category, ("📰", "", ""))[0]
+        copy_text     = body_raw + "\n\n🗞️ @" + handle + " " + moon
+        copy_safe     = copy_text.replace("&", "&amp;").replace('"', "&quot;")
+        post_text_full = copy_text
         post_base     = f"/gerador?texto={quote(post_text_full)}&source={quote(handle)}&moon={quote(moon)}&translated=1"
         art_id        = a['id']
         # Date from published_at in Saudi time (UTC+3)
@@ -301,28 +301,25 @@ async def dashboard():
         <div class="card" data-id="{art_id}">
           <div class="card-body">
             <div class="card-top">
-              <span class="card-date">{date_display}</span>
+              <span class="cat-badge cat-{category}">{cat_emoji} {category_text}</span>
               <div class="card-flags">
-                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"      title="Análise">{ICO_ANALYSIS}</button>
-                <button class="flag-circle visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">{ICO_LOCK}</button>
-                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">{ICO_CHECK}</button>
-                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Lixeira">{ICO_TRASH}</button>
+                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
+                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
+                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
               </div>
             </div>
-            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
-            <button class="flag-expand-btn" onclick="toggleFlagExpand(this)">↓ ver mais</button>
-            <p class="card-text">
-              <span class="text-short">{body_short}</span>
-              <span class="text-full" style="display:none">{body_full}</span>
-            </p>
-            {'<button class="expand-text-btn" onclick="expandText(this)">↓ ver mais</button>' if has_more else ''}
+            <p class="card-text">{body_full}</p>
             <div class="card-bottom">
-              <div class="card-tags">
-                <span class="tag">{moon}</span>
+              <div class="card-meta">
+                <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
                 <span class="tag">@{handle}</span>
-                <span class="tag">{category_text}</span>
+                <span class="tag">{moon}</span>
+                <span class="card-date">{date_display}</span>
               </div>
-              <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
+              <div class="card-actions">
+                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">📋</button>
+                <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
+              </div>
             </div>
           </div>
         </div>"""
@@ -357,7 +354,6 @@ async def dashboard():
     }}
     .fs-total     {{ border-color: var(--c-line); color: var(--c-muted-1); }}
     .fs-analise   {{ border-color: #fde68a; color: #92400e; }}
-    .fs-visto     {{ border-color: #a5b4fc; color: #4338ca; }}
     .fs-publicado {{ border-color: #86efac; color: var(--c-success); }}
     .fs-descarte  {{ border-color: #fca5a5; color: var(--c-error); }}
     .fs-badge:hover {{ opacity: .7; }}
@@ -402,6 +398,21 @@ async def dashboard():
       text-transform: uppercase; letter-spacing: 0.07em;
     }}
     .card-flags {{ display: flex; gap: 7px; }}
+    /* ── CATEGORY BADGES ── */
+    .cat-badge {{ font-size: 0.6rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 4px; }}
+    .cat-mercado    {{ background: rgba(34,197,94,.18);  color: #16a34a; }}
+    .cat-competicao {{ background: rgba(234,179,8,.18);  color: #a16207; }}
+    .cat-lesao      {{ background: rgba(239,68,68,.18);  color: #dc2626; }}
+    .cat-geral      {{ background: rgba(100,116,139,.18);color: #475569; }}
+    .cat-treino     {{ background: rgba(59,130,246,.18); color: #1d4ed8; }}
+    .cat-entrevista {{ background: rgba(139,92,246,.18); color: #7c3aed; }}
+    .cat-financas   {{ background: rgba(20,184,166,.18); color: #0f766e; }}
+
+    /* ── AUTHOR AVATAR ── */
+    .author-avatar {{ width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }}
+    .card-meta {{ display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; flex-wrap: wrap; }}
+    .card-actions {{ display: flex; gap: 4px; align-items: center; flex-shrink: 0; }}
+
     .flag-circle {{
       width: 32px; height: 32px; border-radius: 50%;
       border: 1.5px solid var(--c-text); background: transparent;
@@ -413,8 +424,6 @@ async def dashboard():
     .flag-circle.on {{ background: var(--c-text); color: var(--c-bg); }}
     .flag-circle.anal-btn:hover  {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
     .flag-circle.anal-btn.on     {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
-    .flag-circle.visto-btn:hover {{ background: #4338ca; border-color: #4338ca; color: white; }}
-    .flag-circle.visto-btn.on    {{ background: #4338ca; border-color: #4338ca; color: white; }}
     .flag-circle.pub-btn:hover   {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
     .flag-circle.pub-btn.on      {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
     .flag-circle.desc-btn:hover  {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
@@ -428,7 +437,6 @@ async def dashboard():
       text-decoration: none; line-height: 1.4;
       display: block; margin-bottom: 10px;
     }}
-    .card-title:hover {{ opacity: .7; }}
 
     /* ── EXPAND FLAGADO ── */
     .flag-expand-btn {{
@@ -441,7 +449,6 @@ async def dashboard():
     .card-collapsed .flag-expand-btn {{ display: block; }}
     .card-collapsed .card-text,
     .card-collapsed .card-bottom,
-    .card-collapsed .expand-text-btn {{ display: none; }}
     .card-collapsed.flag-open .card-text,
     .card-collapsed.flag-open .card-bottom {{ display: flex; }}
     .card-collapsed.flag-open .card-text {{ display: block; }}
@@ -449,13 +456,6 @@ async def dashboard():
     .card-collapsed.flag-open .text-full  {{ display: inline !important; }}
 
     /* ── EXPAND TEXTO LONGO ── */
-    .expand-text-btn {{
-      background: none; border: none; cursor: pointer;
-      font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px;
-      text-transform: uppercase; letter-spacing: 0.07em;
-      font-weight: 700; display: block; text-align: left; transition: color .15s;
-    }}
-    .expand-text-btn:hover {{ color: var(--c-text); }}
 
     /* ── BODY TEXT ── */
     .card-text {{
@@ -467,7 +467,7 @@ async def dashboard():
     .card-bottom {{
       display: flex; align-items: center; justify-content: space-between;
       flex-wrap: wrap; gap: 8px;
-      padding-top: 14px; border-top: 1px solid rgba(0,0,0,.07);
+      padding-top: 10px; border-top: 1px solid var(--c-line);
     }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
     .tag {{
@@ -510,13 +510,21 @@ async def dashboard():
         setTimeout(() => {{ btn.textContent = '📋 Copiar'; btn.classList.remove('copied'); }}, 2000);
       }});
     }}
+    function copyFromBtn(btn) {{
+      const text = btn.dataset.copy;
+      navigator.clipboard.writeText(text).then(() => {{
+        const orig = btn.textContent;
+        btn.textContent = '✅';
+        setTimeout(() => {{ btn.textContent = orig; }}, 2000);
+      }});
+    }}
 
     // ── Flags — sincronizado via DB ──
     let _flags = {{}};
     let _activeFilter = null;
 
     function applyFlags() {{
-      let nAnalise = 0, nVisto = 0, nPub = 0, nNone = 0, nDesc = 0;
+      let nAnalise = 0, nPub = 0, nNone = 0, nDesc = 0;
       const grid = document.querySelector('.grid');
       const cards = Array.from(document.querySelectorAll('.card[data-id]'));
       cards.forEach(card => {{
@@ -524,28 +532,25 @@ async def dashboard():
         const f  = _flags[id];
         card.classList.remove('flag-analise', 'flag-visto', 'flag-publicado', 'flag-descarte');
         card.querySelector('.anal-btn').classList.toggle('on',  f === 'analise');
-        card.querySelector('.visto-btn').classList.toggle('on', f === 'naopublicado');
         card.querySelector('.pub-btn').classList.toggle('on',   f === 'publicado');
         card.querySelector('.desc-btn').classList.toggle('on',  f === 'descartado');
         if      (f === 'analise')      {{ card.classList.add('flag-analise');   nAnalise++; }}
-        else if (f === 'naopublicado') {{ card.classList.add('flag-visto');     nVisto++; }}
         else if (f === 'publicado')    {{ card.classList.add('flag-publicado'); nPub++;   }}
         else if (f === 'descartado')   {{ card.classList.add('flag-descarte');  nDesc++;  }}
         else                             nNone++;
         // Colapsar apenas flags que não sejam lixeira (descartados somem do grid via CSS)
-        card.classList.toggle('card-collapsed', f === 'naopublicado' || f === 'publicado' || f === 'analise');
+        card.classList.toggle('card-collapsed', f === 'publicado' || f === 'analise');
         // Resetar expand de flagados se flag mudou
         if (!f) card.classList.remove('flag-open');
       }});
       // Reorder: sem flag → análise → publicado → não publicado (descartados ocultos)
-      const order = {{ undefined: 0, 'analise': 1, 'publicado': 2, 'naopublicado': 3, 'descartado': 99 }};
+      const order = {{ undefined: 0, 'analise': 1, 'publicado': 2, 'descartado': 99 }};
       cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
       cards.forEach(c => grid.appendChild(c));
       const total = nAnalise + nVisto + nPub + nNone + nDesc;
       if (total > 0) {{
         document.getElementById('fc-total').textContent   = nNone;
         document.getElementById('fc-analise').textContent = nAnalise;
-        document.getElementById('fc-visto').textContent   = nVisto;
         document.getElementById('fc-pub').textContent     = nPub;
         document.getElementById('fc-desc').textContent    = nDesc;
       }}
@@ -561,10 +566,9 @@ async def dashboard():
         const show = !_activeFilter || f === _activeFilter;
         card.classList.toggle('hidden-by-filter', !show);
       }});
-      ['fs-total','fs-analise','fs-visto','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
+      ['fs-total','fs-analise','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
       if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
       else if (_activeFilter === 'analise')       document.getElementById('fs-analise').classList.add('active-filter');
-      else if (_activeFilter === 'naopublicado')  document.getElementById('fs-visto').classList.add('active-filter');
       else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
     }}
 
@@ -684,7 +688,6 @@ async def dashboard():
     <div class="flag-summary">
       <span class="fs-badge fs-total"     id="fs-total"   onclick="toggleFilter('none')"         title="Sem flag"><span id="fc-total">—</span> sem flag</span>
       <span class="fs-badge fs-analise"   id="fs-analise" title="Análise · ver lista →"><a href="/analise" style="color:inherit;text-decoration:none"><span id="fc-analise">—</span> análise →</a></span>
-      <span class="fs-badge fs-visto"     id="fs-visto"   onclick="toggleFilter('naopublicado')"  title="Não publicados"><span id="fc-visto">—</span> salvos</span>
       <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"     title="Publicados"><span id="fc-pub">—</span> publicados</span>
       <span class="fs-badge fs-descarte"  id="fs-desc"    title="Lixeira · <a href='/lixeira'>ver lixeira →</a>"><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
     </div>
@@ -749,14 +752,14 @@ async def selecao_page():
     for a in articles:
         handle        = a.get("source_name", "").lstrip("@")
         moon          = SOURCE_MOON.get(handle, {"A": "🌕", "B": "🌖", "C": "🌗"}.get(a["source_tier"], ""))
-        title         = a.get("title_pt") or a.get("title_orig") or "—"
         body_raw      = a.get("body_pt") or a.get("body_orig") or ""
-        body_short    = body_raw[:280] + ("…" if len(body_raw) > 280 else "")
         body_full     = body_raw
-        has_more      = len(body_raw) > 280
         category      = a.get("category") or "geral"
         category_text = CATEGORY_TEXT.get(category, "Geral")
-        post_text_full = title + "\n\n" + (a.get("body_pt") or a.get("body_orig") or "") + "\n\n🗞️ @" + handle
+        cat_emoji     = CATEGORY_EMOJI.get(category, ("📰", "", ""))[0]
+        copy_text     = body_raw + "\n\n🗞️ @" + handle + " " + moon
+        copy_safe     = copy_text.replace("&", "&amp;").replace('"', "&quot;")
+        post_text_full = copy_text
         post_base     = f"/gerador?texto={quote(post_text_full)}&source={quote(handle)}&moon={quote(moon)}&translated=1"
         art_id        = a['id']
         date_display = ""
@@ -772,28 +775,25 @@ async def selecao_page():
         <div class="card" data-id="{art_id}">
           <div class="card-body">
             <div class="card-top">
-              <span class="card-date">{date_display}</span>
+              <span class="cat-badge cat-{category}">{cat_emoji} {category_text}</span>
               <div class="card-flags">
-                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"      title="Análise">{ICO_ANALYSIS}</button>
-                <button class="flag-circle visto-btn" onclick="toggleFlag('{art_id}','naopublicado')" title="Não publicado">{ICO_LOCK}</button>
-                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"    title="Publicado">{ICO_CHECK}</button>
-                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')"   title="Lixeira">{ICO_TRASH}</button>
+                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
+                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
+                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
               </div>
             </div>
-            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
-            <button class="flag-expand-btn" onclick="toggleFlagExpand(this)">↓ ver mais</button>
-            <p class="card-text">
-              <span class="text-short">{body_short}</span>
-              <span class="text-full" style="display:none">{body_full}</span>
-            </p>
-            {'<button class="expand-text-btn" onclick="expandText(this)">↓ ver mais</button>' if has_more else ''}
+            <p class="card-text">{body_full}</p>
             <div class="card-bottom">
-              <div class="card-tags">
-                <span class="tag">{moon}</span>
+              <div class="card-meta">
+                <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
                 <span class="tag">@{handle}</span>
-                <span class="tag">{category_text}</span>
+                <span class="tag">{moon}</span>
+                <span class="card-date">{date_display}</span>
               </div>
-              <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
+              <div class="card-actions">
+                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">📋</button>
+                <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
+              </div>
             </div>
           </div>
         </div>"""
@@ -819,7 +819,6 @@ async def selecao_page():
     .fs-badge {{ font-size: 0.62rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; cursor: pointer; user-select: none; transition: all .15s; text-transform: uppercase; letter-spacing: 0.05em; border: 1.5px solid transparent; }}
     .fs-total     {{ border-color: var(--c-line); color: var(--c-muted-1); }}
     .fs-analise   {{ border-color: #fde68a; color: #92400e; }}
-    .fs-visto     {{ border-color: #a5b4fc; color: #4338ca; }}
     .fs-publicado {{ border-color: #86efac; color: var(--c-success); }}
     .fs-descarte  {{ border-color: #fca5a5; color: var(--c-error); }}
     .fs-badge:hover {{ opacity: .7; }}
@@ -849,8 +848,6 @@ async def selecao_page():
     .flag-circle.on {{ background: var(--c-text); color: var(--c-bg); }}
     .flag-circle.anal-btn:hover  {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
     .flag-circle.anal-btn.on     {{ background: #ca8a04; border-color: #ca8a04; color: white; }}
-    .flag-circle.visto-btn:hover {{ background: #4338ca; border-color: #4338ca; color: white; }}
-    .flag-circle.visto-btn.on    {{ background: #4338ca; border-color: #4338ca; color: white; }}
     .flag-circle.pub-btn:hover   {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
     .flag-circle.pub-btn.on      {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
     .flag-circle.desc-btn:hover  {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
@@ -858,17 +855,13 @@ async def selecao_page():
     .flag-circle.post-btn        {{ background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); text-decoration: none; }}
     .flag-circle.post-btn:hover  {{ background: var(--c-muted-6); border-color: var(--c-muted-6); color: var(--c-bg); }}
     .card-title {{ font-size: 1rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 10px; }}
-    .card-title:hover {{ opacity: .7; }}
     .flag-expand-btn {{ background: none; border: none; cursor: pointer; font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; display: none; text-align: left; transition: color .15s; }}
     .flag-expand-btn:hover {{ color: var(--c-text); }}
     .card-collapsed .flag-expand-btn {{ display: block; }}
-    .card-collapsed .card-text, .card-collapsed .card-bottom, .card-collapsed .expand-text-btn {{ display: none; }}
     .card-collapsed.flag-open .card-text, .card-collapsed.flag-open .card-bottom {{ display: flex; }}
     .card-collapsed.flag-open .card-text {{ display: block; }}
     .card-collapsed.flag-open .text-short {{ display: none; }}
     .card-collapsed.flag-open .text-full  {{ display: inline !important; }}
-    .expand-text-btn {{ background: none; border: none; cursor: pointer; font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; display: block; text-align: left; transition: color .15s; }}
-    .expand-text-btn:hover {{ color: var(--c-text); }}
     .card-text {{ font-size: 0.82rem; color: var(--c-muted-4); line-height: 1.65; margin-bottom: 16px; }}
     .card-bottom {{ display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
@@ -878,7 +871,7 @@ async def selecao_page():
     let _flags = {{}};
     let _activeFilter = null;
     function applyFlags() {{
-      let nAnalise = 0, nVisto = 0, nPub = 0, nNone = 0, nDesc = 0;
+      let nAnalise = 0, nPub = 0, nNone = 0, nDesc = 0;
       const grid = document.querySelector('.grid');
       const cards = Array.from(document.querySelectorAll('.card[data-id]'));
       cards.forEach(card => {{
@@ -886,25 +879,22 @@ async def selecao_page():
         const f  = _flags[id];
         card.classList.remove('flag-analise', 'flag-visto', 'flag-publicado', 'flag-descarte');
         card.querySelector('.anal-btn').classList.toggle('on',  f === 'analise');
-        card.querySelector('.visto-btn').classList.toggle('on', f === 'naopublicado');
         card.querySelector('.pub-btn').classList.toggle('on',   f === 'publicado');
         card.querySelector('.desc-btn').classList.toggle('on',  f === 'descartado');
         if      (f === 'analise')      {{ card.classList.add('flag-analise');   nAnalise++; }}
-        else if (f === 'naopublicado') {{ card.classList.add('flag-visto');     nVisto++; }}
         else if (f === 'publicado')    {{ card.classList.add('flag-publicado'); nPub++;   }}
         else if (f === 'descartado')   {{ card.classList.add('flag-descarte');  nDesc++;  }}
         else                             nNone++;
-        card.classList.toggle('card-collapsed', f === 'naopublicado' || f === 'publicado' || f === 'analise');
+        card.classList.toggle('card-collapsed', f === 'publicado' || f === 'analise');
         if (!f) card.classList.remove('flag-open');
       }});
-      const order = {{ undefined: 0, 'analise': 1, 'publicado': 2, 'naopublicado': 3, 'descartado': 99 }};
+      const order = {{ undefined: 0, 'analise': 1, 'publicado': 2, 'descartado': 99 }};
       cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
       cards.forEach(c => grid.appendChild(c));
       const total = nAnalise + nVisto + nPub + nNone + nDesc;
       if (total > 0) {{
         document.getElementById('fc-total').textContent   = nNone;
         document.getElementById('fc-analise').textContent = nAnalise;
-        document.getElementById('fc-visto').textContent   = nVisto;
         document.getElementById('fc-pub').textContent     = nPub;
         document.getElementById('fc-desc').textContent    = nDesc;
       }}
@@ -918,10 +908,9 @@ async def selecao_page():
         const show = !_activeFilter || f === _activeFilter;
         card.classList.toggle('hidden-by-filter', !show);
       }});
-      ['fs-total','fs-analise','fs-visto','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
+      ['fs-total','fs-analise','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
       if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
       else if (_activeFilter === 'analise')       document.getElementById('fs-analise').classList.add('active-filter');
-      else if (_activeFilter === 'naopublicado')  document.getElementById('fs-visto').classList.add('active-filter');
       else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
     }}
     function toggleFilter(type) {{ _activeFilter = (_activeFilter === type) ? null : type; applyFilter(); }}
@@ -940,7 +929,6 @@ async def selecao_page():
     <div class="flag-summary">
       <span class="fs-badge fs-total"     id="fs-total"   onclick="toggleFilter('none')"        ><span id="fc-total">—</span> sem flag</span>
       <span class="fs-badge fs-analise"   id="fs-analise" title="Análise · ver lista →"><a href="/analise" style="color:inherit;text-decoration:none"><span id="fc-analise">—</span> análise →</a></span>
-      <span class="fs-badge fs-visto"     id="fs-visto"   onclick="toggleFilter('naopublicado')" ><span id="fc-visto">—</span> salvos</span>
       <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"    ><span id="fc-pub">—</span> publicados</span>
       <span class="fs-badge fs-descarte"  id="fs-desc"    ><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
     </div>
@@ -1133,7 +1121,6 @@ async def descartadas():
     .tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3); border: 1px solid var(--c-line); border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
     .score-tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-error); border: 1px solid #fca5a5; border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: auto; }}
     .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
-    .card-title:hover {{ opacity: .7; }}
     .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
     .card-footer {{ display: flex; align-items: center; justify-content: flex-end; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-date {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.05em; }}
@@ -1608,7 +1595,6 @@ async def lixeira_page():
     .restore-btn {{ background: transparent; border: 1.5px solid var(--c-text); border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
     .restore-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
     .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
-    .card-title:hover {{ opacity: .7; }}
     .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
     .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
     .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
@@ -1716,7 +1702,6 @@ async def analise_page():
     .restore-btn {{ background: transparent; border: 1.5px solid var(--c-text); border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
     .restore-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
     .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
-    .card-title:hover {{ opacity: .7; }}
     .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
     .card-comment {{ font-size: 0.78rem; color: #92400e; background: #fef3c7; border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.5; }}
     .card-comment-empty {{ color: var(--c-muted-2); background: transparent; padding: 0; }}
@@ -1831,7 +1816,9 @@ async def reprocess_articles(request: Request, background_tasks: BackgroundTasks
     # Traduz diretamente sem filtro de relevância
     system = (
         "Você é um redator esportivo brasileiro especializado na Saudi Pro League. "
-        "Adapte o texto para o português brasileiro com estilo jornalístico natural. "
+        "Traduza o tweet para o português brasileiro de forma fiel ao original — sem acrescentar informações, contextos ou palavras que não estejam no tweet. "
+        "Use estilo jornalístico fluido e direto, como ge.globo.com ou ESPN Brasil: frases limpas, gramática precisa, sem expansões. "
+        "Preserve nomes próprios, siglas e dados exatamente como no original. "
         f"{GLOSSARY_PROMPT}"
     )
     prompt_template = (
@@ -2322,7 +2309,9 @@ async def admin_fix_article(request: Request):
     a = dict(row)
     system = (
         "Você é um redator esportivo brasileiro especializado na Saudi Pro League. "
-        "Adapte o texto para o português brasileiro com estilo jornalístico natural. "
+        "Traduza o tweet para o português brasileiro de forma fiel ao original — sem acrescentar informações, contextos ou palavras que não estejam no tweet. "
+        "Use estilo jornalístico fluido e direto, como ge.globo.com ou ESPN Brasil: frases limpas, gramática precisa, sem expansões. "
+        "Preserve nomes próprios, siglas e dados exatamente como no original. "
         f"{GLOSSARY_PROMPT}"
     )
     prompt = (
