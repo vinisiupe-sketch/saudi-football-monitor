@@ -279,6 +279,13 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
             if rt_label not in (account_display_name, account_handle):
                 continue
         summary = getattr(entry, "summary", "") or ""
+        # Try entry.content (feedparser sometimes has full article body here)
+        if len(summary) < 150:
+            for _c in (getattr(entry, "content", None) or []):
+                _val = _c.get("value", "") if isinstance(_c, dict) else ""
+                if len(_val) > len(summary):
+                    summary = _val
+                    break
         link = getattr(entry, "link", "") or ""
         body = re.sub(r"<[^>]+>", " ", summary).strip()
         full_text = f"{title} {body}"

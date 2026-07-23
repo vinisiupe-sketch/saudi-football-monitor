@@ -118,6 +118,7 @@ _ICO_SOURCES = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_TRASH2  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>'
 _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
+_ICO_ANALISE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
@@ -127,16 +128,16 @@ _THEME_VARS_CSS = (
 )
 
 _HEADER_CSS = _THEME_VARS_CSS + (
-    "    header { background: var(--c-bg); border-bottom: 1px solid var(--c-border); padding: 0 20px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; height: 52px; gap: 6px; }\n"
+    "    header { background: var(--c-bg); border-bottom: 1px solid var(--c-border); padding: 10px 16px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; gap: 6px; }\n"
     "    .brand { font-family: \'Bebas Neue\', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: var(--c-text); text-decoration: none; margin-right: auto; line-height: 1; }\n"
-    "    .nav-icon { width: 36px; height: 36px; border-radius: 50%; border: 1.5px solid var(--c-border-2); background: transparent; color: var(--c-muted-1); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: all .15s; flex-shrink: 0; position: relative; }\n"
-    "    .nav-icon:hover { border-color: var(--c-text); color: var(--c-text); background: var(--c-hover-tint); }\n"
-    "    .nav-icon.active { background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); }\n"
-    "    .nav-icon.cta { background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); }\n"
-    "    .nav-icon.cta:hover { background: var(--c-muted-6); border-color: var(--c-muted-6); }\n"
-    "    .nav-icon.selecao { background: #15803d; border-color: #15803d; color: white; }\n"
-    "    .nav-icon.selecao:hover { background: #166534; border-color: #166534; }\n"
-    "    .nav-icon.selecao.active { background: #14532d; border-color: #14532d; }\n"
+    "    .nav-icon { width: 32px; height: 32px; border-radius: 8px; border: none; background: none; color: var(--c-muted-3); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: background .15s, color .15s; flex-shrink: 0; position: relative; }\n"
+    "    .nav-icon:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
+    "    .nav-icon.active { background: var(--c-hover-tint); color: var(--c-text); }\n"
+    "    .nav-icon.cta { background: var(--c-text); color: var(--c-bg); border-radius: 8px; }\n"
+    "    .nav-icon.cta:hover { background: var(--c-muted-6); }\n"
+    "    .nav-icon.selecao { background: #15803d; color: white; }\n"
+    "    .nav-icon.selecao:hover { background: #166534; }\n"
+    "    .nav-icon.selecao.active { background: #14532d; }\n"
     "    .nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: var(--c-text); color: var(--c-bg); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; }\n"
     "    .nav-badge { position: absolute; top: -4px; right: -4px; background: #ef4444; color: white; font-size: 0.48rem; font-weight: 800; min-width: 14px; height: 14px; border-radius: 99px; display: none; align-items: center; justify-content: center; padding: 0 3px; line-height: 1; border: 1.5px solid var(--c-bg); }\n"
     "    .theme-toggle .ico-sun { display: none; }\n"
@@ -157,7 +158,7 @@ def _header(active: str) -> str:
         ("/janela",          _ICO_JANELA,    "Janela",          ""),
         ("/fontes",         _ICO_SOURCES,   "Fontes",          ""),
         ("/lixeira",    _ICO_TRASH2,  "Lixeira",       ""),
-        ("/analise",    _ICO_SELECAO, "Análise",       ""),
+        ("/analise",    _ICO_ANALISE, "Análise",       ""),
         ("/gerador",    _ICO_PEN2,    "Criar Post",    ""),
     ]
     items = ""

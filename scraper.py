@@ -12,14 +12,20 @@ HEADERS = {
 
 # Seletores CSS para conteúdo principal, do mais específico ao mais genérico
 CONTENT_SELECTORS = [
+    "[itemprop='articleBody']",
     "article",
     "[class*='article-body']",
     "[class*='article-content']",
+    "[class*='article-text']",
+    "[class*='article-detail']",
+    "[class*='news-detail']",
+    "[class*='news-content']",
     "[class*='post-content']",
     "[class*='entry-content']",
     "[class*='story-body']",
     "[class*='news-body']",
     "[class*='content-body']",
+    "[class*='article-wrap']",
     "main",
 ]
 
