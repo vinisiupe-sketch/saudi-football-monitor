@@ -274,6 +274,7 @@ async def dashboard():
         post_base     = f"/gerador?texto={quote(post_text_full)}&source={quote(handle)}&moon={quote(moon)}&translated=1"
         news_safe     = body_raw.replace("&", "&amp;").replace('"', "&quot;")
         art_id        = a['id']
+        article_url   = (a.get('url') or '#').replace('"', '&quot;')
         # Date from published_at in Saudi time (UTC+3)
         date_display = ""
         pub_raw = a.get("published_at") or a.get("collected_at") or ""
@@ -295,7 +296,7 @@ async def dashboard():
                 <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
               </div>
             </div>
-            <p class="card-text">{body_full}</p>
+            <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
             <div class="card-bottom">
               <div class="card-meta">
                 <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
@@ -509,61 +510,27 @@ async def dashboard():
 
     // ── Flags — sincronizado via DB ──
     let _flags = {{}};
-    let _activeFilter = null;
 
     function applyFlags() {{
-      let nAnalise = 0, nPub = 0, nNone = 0, nDesc = 0;
-      const grid = document.querySelector('.grid');
+      const grid  = document.querySelector('.grid');
       const cards = Array.from(document.querySelectorAll('.card[data-id]'));
       cards.forEach(card => {{
         const id = card.dataset.id;
         const f  = _flags[id];
-        card.classList.remove('flag-analise', 'flag-visto', 'flag-publicado', 'flag-descarte');
+        card.classList.remove('flag-analise','flag-visto','flag-publicado','flag-descarte','card-collapsed');
         card.querySelector('.anal-btn').classList.toggle('on',  f === 'analise');
         card.querySelector('.pub-btn').classList.toggle('on',   f === 'publicado');
         card.querySelector('.desc-btn').classList.toggle('on',  f === 'descartado');
-        if      (f === 'analise')      {{ card.classList.add('flag-analise');   nAnalise++; }}
-        else if (f === 'publicado')    {{ card.classList.add('flag-publicado'); nPub++;   }}
-        else if (f === 'descartado')   {{ card.classList.add('flag-descarte');  nDesc++;  }}
-        else                             nNone++;
-        // Colapsar apenas flags que não sejam lixeira (descartados somem do grid via CSS)
-        card.classList.toggle('card-collapsed', f === 'publicado' || f === 'analise');
-        // Resetar expand de flagados se flag mudou
+        if      (f === 'analise')    card.classList.add('flag-analise');
+        else if (f === 'publicado')  card.classList.add('flag-publicado');
+        else if (f === 'descartado') card.classList.add('flag-descarte');
         if (!f) card.classList.remove('flag-open');
       }});
-      // Reorder: sem flag → análise → publicado → não publicado (descartados ocultos)
-      const order = {{ undefined: 0, 'analise': 1, 'publicado': 2, 'descartado': 99 }};
+      const order = {{ undefined: 0, 'analise': 0, 'publicado': 2, 'descartado': 99 }};
       cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
       cards.forEach(c => grid.appendChild(c));
-      const total = nAnalise + nVisto + nPub + nNone + nDesc;
-      if (total > 0) {{
-        document.getElementById('fc-total').textContent   = nNone;
-        document.getElementById('fc-analise').textContent = nAnalise;
-        document.getElementById('fc-pub').textContent     = nPub;
-        document.getElementById('fc-desc').textContent    = nDesc;
-      }}
-      applyFilter();
     }}
 
-    function applyFilter() {{
-      document.querySelectorAll('.card[data-id]').forEach(card => {{
-        const id = card.dataset.id;
-        const f  = _flags[id] || 'none';
-        // descartados sempre ocultos (vão pra lixeira via CSS)
-        if (f === 'descartado') {{ card.classList.remove('hidden-by-filter'); return; }}
-        const show = !_activeFilter || f === _activeFilter;
-        card.classList.toggle('hidden-by-filter', !show);
-      }});
-      ['fs-total','fs-analise','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
-      if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
-      else if (_activeFilter === 'analise')       document.getElementById('fs-analise').classList.add('active-filter');
-      else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
-    }}
-
-    function toggleFilter(type) {{
-      _activeFilter = (_activeFilter === type) ? null : type;
-      applyFilter();
-    }}
 
     function toggleFlagExpand(btn) {{
       const card = btn.closest('.card');
@@ -673,12 +640,7 @@ async def dashboard():
   {_header("/")}
   <div class="topbar">
     <span class="count">{len(articles)} notícias · 48h</span>
-    <div class="flag-summary">
-      <span class="fs-badge fs-total"     id="fs-total"   onclick="toggleFilter('none')"         title="Sem flag"><span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-analise"   id="fs-analise" title="Análise · ver lista →"><a href="/analise" style="color:inherit;text-decoration:none"><span id="fc-analise">—</span> análise →</a></span>
-      <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"     title="Publicados"><span id="fc-pub">—</span> publicados</span>
-      <span class="fs-badge fs-descarte"  id="fs-desc"    title="Lixeira · <a href='/lixeira'>ver lixeira →</a>"><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
-    </div>
+  </div>
   </div>
   <div class="grid">
     {cards}
@@ -805,6 +767,136 @@ function fecharGerarModal() {{
   document.getElementById('gerar-modal').style.display = 'none';
 }}
 </script>
+<style>
+.card{{ will-change: transform; }}
+.card.dragging{{ transition: none !important; z-index: 10; }}
+</style>
+<script>
+(function(){{
+  const THRESHOLD = 90;
+  let startX=0,startY=0,_card=null;
+  window._dragHappened=false;
+  function cardOf(el){{ return el.closest && el.closest('.card[data-id]'); }}
+  function onStart(card,x,y){{
+    _card=card; startX=x; startY=y;
+    card.classList.add('dragging');
+    card.style.transition='none';
+  }}
+  function onMove(x){{
+    if(!_card) return;
+    const dx=x-startX;
+    if(Math.abs(dx)>6) window._dragHappened=true;
+    const rot=Math.min(Math.max(dx*0.05,-8),8);
+    _card.style.transform=`translateX(${{dx}}px) rotate(${{rot}}deg)`;
+    if(dx>20){{
+      const a=Math.min(dx/THRESHOLD,1);
+      _card.style.outline=`2px solid rgba(34,197,94,${{a}})`;
+      _card.style.boxShadow=`0 0 30px rgba(34,197,94,${{a*0.25}})`;
+    }} else if(dx<-20){{
+      const a=Math.min(-dx/THRESHOLD,1);
+      _card.style.outline=`2px solid rgba(239,68,68,${{a}})`;
+      _card.style.boxShadow=`0 0 30px rgba(239,68,68,${{a*0.25}})`;
+    }} else {{
+      _card.style.outline=''; _card.style.boxShadow='';
+    }}
+  }}
+  function onEnd(x){{
+    if(!_card) return;
+    const dx=x-startX;
+    const card=_card; _card=null;
+    card.classList.remove('dragging');
+    card.style.transition='transform 0.3s,outline 0.2s,box-shadow 0.2s';
+    card.style.transform=''; card.style.outline=''; card.style.boxShadow='';
+    if(dx>THRESHOLD) toggleFlag(card.dataset.id,'publicado');
+    else if(dx<-THRESHOLD) toggleFlag(card.dataset.id,'descartado');
+    setTimeout(()=>{{ window._dragHappened=false; }},60);
+  }}
+  document.addEventListener('mousedown',e=>{{
+    const card=cardOf(e.target);
+    if(!card||e.target.closest('button,a,input,textarea,select')) return;
+    onStart(card,e.clientX,e.clientY);
+  }});
+  document.addEventListener('mousemove',e=>{{ if(_card) onMove(e.clientX); }});
+  document.addEventListener('mouseup',  e=>onEnd(e.clientX));
+  document.addEventListener('touchstart',e=>{{
+    const card=cardOf(e.target);
+    if(!card||e.target.closest('button,a,input,textarea,select')) return;
+    onStart(card,e.touches[0].clientX,e.touches[0].clientY);
+  }},{{passive:true}});
+  document.addEventListener('touchmove',e=>{{
+    if(!_card) return;
+    const dx=Math.abs(e.touches[0].clientX-startX);
+    const dy=Math.abs(e.touches[0].clientY-startY);
+    if(dx>dy){{ e.preventDefault(); onMove(e.touches[0].clientX); }}
+  }},{{passive:false}});
+  document.addEventListener('touchend',e=>onEnd(e.changedTouches[0].clientX));
+}})();
+</script>
+<style>
+.card{{ will-change: transform; }}
+.card.dragging{{ transition: none !important; z-index: 10; }}
+</style>
+<script>
+(function(){{
+  const THRESHOLD = 90;
+  let startX=0,startY=0,_card=null;
+  window._dragHappened=false;
+  function cardOf(el){{ return el.closest && el.closest('.card[data-id]'); }}
+  function onStart(card,x,y){{
+    _card=card; startX=x; startY=y;
+    card.classList.add('dragging');
+    card.style.transition='none';
+  }}
+  function onMove(x){{
+    if(!_card) return;
+    const dx=x-startX;
+    if(Math.abs(dx)>6) window._dragHappened=true;
+    const rot=Math.min(Math.max(dx*0.05,-8),8);
+    _card.style.transform=`translateX(${{dx}}px) rotate(${{rot}}deg)`;
+    if(dx>20){{
+      const a=Math.min(dx/THRESHOLD,1);
+      _card.style.outline=`2px solid rgba(34,197,94,${{a}})`;
+      _card.style.boxShadow=`0 0 30px rgba(34,197,94,${{a*0.25}})`;
+    }} else if(dx<-20){{
+      const a=Math.min(-dx/THRESHOLD,1);
+      _card.style.outline=`2px solid rgba(239,68,68,${{a}})`;
+      _card.style.boxShadow=`0 0 30px rgba(239,68,68,${{a*0.25}})`;
+    }} else {{
+      _card.style.outline=''; _card.style.boxShadow='';
+    }}
+  }}
+  function onEnd(x){{
+    if(!_card) return;
+    const dx=x-startX;
+    const card=_card; _card=null;
+    card.classList.remove('dragging');
+    card.style.transition='transform 0.3s,outline 0.2s,box-shadow 0.2s';
+    card.style.transform=''; card.style.outline=''; card.style.boxShadow='';
+    if(dx>THRESHOLD) toggleFlag(card.dataset.id,'publicado');
+    else if(dx<-THRESHOLD) toggleFlag(card.dataset.id,'descartado');
+    setTimeout(()=>{{ window._dragHappened=false; }},60);
+  }}
+  document.addEventListener('mousedown',e=>{{
+    const card=cardOf(e.target);
+    if(!card||e.target.closest('button,a,input,textarea,select')) return;
+    onStart(card,e.clientX,e.clientY);
+  }});
+  document.addEventListener('mousemove',e=>{{ if(_card) onMove(e.clientX); }});
+  document.addEventListener('mouseup',  e=>onEnd(e.clientX));
+  document.addEventListener('touchstart',e=>{{
+    const card=cardOf(e.target);
+    if(!card||e.target.closest('button,a,input,textarea,select')) return;
+    onStart(card,e.touches[0].clientX,e.touches[0].clientY);
+  }},{{passive:true}});
+  document.addEventListener('touchmove',e=>{{
+    if(!_card) return;
+    const dx=Math.abs(e.touches[0].clientX-startX);
+    const dy=Math.abs(e.touches[0].clientY-startY);
+    if(dx>dy){{ e.preventDefault(); onMove(e.touches[0].clientX); }}
+  }},{{passive:false}});
+  document.addEventListener('touchend',e=>onEnd(e.changedTouches[0].clientX));
+}})();
+</script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
@@ -867,6 +959,7 @@ async def selecao_page():
         post_base     = f"/gerador?texto={quote(post_text_full)}&source={quote(handle)}&moon={quote(moon)}&translated=1"
         news_safe     = body_raw.replace("&", "&amp;").replace('"', "&quot;")
         art_id        = a['id']
+        article_url   = (a.get('url') or '#').replace('"', '&quot;')
         date_display = ""
         pub_raw = a.get("published_at") or a.get("collected_at") or ""
         if pub_raw:
@@ -887,7 +980,7 @@ async def selecao_page():
                 <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
               </div>
             </div>
-            <p class="card-text">{body_full}</p>
+            <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
             <div class="card-bottom">
               <div class="card-meta">
                 <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
@@ -975,51 +1068,25 @@ async def selecao_page():
   </style>
   <script>
     let _flags = {{}};
-    let _activeFilter = null;
     function applyFlags() {{
-      let nAnalise = 0, nPub = 0, nNone = 0, nDesc = 0;
-      const grid = document.querySelector('.grid');
+      const grid  = document.querySelector('.grid');
       const cards = Array.from(document.querySelectorAll('.card[data-id]'));
       cards.forEach(card => {{
         const id = card.dataset.id;
         const f  = _flags[id];
-        card.classList.remove('flag-analise', 'flag-visto', 'flag-publicado', 'flag-descarte');
+        card.classList.remove('flag-analise','flag-visto','flag-publicado','flag-descarte','card-collapsed');
         card.querySelector('.anal-btn').classList.toggle('on',  f === 'analise');
         card.querySelector('.pub-btn').classList.toggle('on',   f === 'publicado');
         card.querySelector('.desc-btn').classList.toggle('on',  f === 'descartado');
-        if      (f === 'analise')      {{ card.classList.add('flag-analise');   nAnalise++; }}
-        else if (f === 'publicado')    {{ card.classList.add('flag-publicado'); nPub++;   }}
-        else if (f === 'descartado')   {{ card.classList.add('flag-descarte');  nDesc++;  }}
-        else                             nNone++;
-        card.classList.toggle('card-collapsed', f === 'publicado' || f === 'analise');
+        if      (f === 'analise')    card.classList.add('flag-analise');
+        else if (f === 'publicado')  card.classList.add('flag-publicado');
+        else if (f === 'descartado') card.classList.add('flag-descarte');
         if (!f) card.classList.remove('flag-open');
       }});
-      const order = {{ undefined: 0, 'analise': 1, 'publicado': 2, 'descartado': 99 }};
+      const order = {{ undefined: 0, 'analise': 0, 'publicado': 2, 'descartado': 99 }};
       cards.sort((a, b) => (order[_flags[a.dataset.id]] ?? 0) - (order[_flags[b.dataset.id]] ?? 0));
       cards.forEach(c => grid.appendChild(c));
-      const total = nAnalise + nVisto + nPub + nNone + nDesc;
-      if (total > 0) {{
-        document.getElementById('fc-total').textContent   = nNone;
-        document.getElementById('fc-analise').textContent = nAnalise;
-        document.getElementById('fc-pub').textContent     = nPub;
-        document.getElementById('fc-desc').textContent    = nDesc;
-      }}
-      applyFilter();
     }}
-    function applyFilter() {{
-      document.querySelectorAll('.card[data-id]').forEach(card => {{
-        const id = card.dataset.id;
-        const f  = _flags[id] || 'none';
-        if (f === 'descartado') {{ card.classList.remove('hidden-by-filter'); return; }}
-        const show = !_activeFilter || f === _activeFilter;
-        card.classList.toggle('hidden-by-filter', !show);
-      }});
-      ['fs-total','fs-analise','fs-pub','fs-desc'].forEach(id => document.getElementById(id).classList.remove('active-filter'));
-      if      (_activeFilter === 'none')          document.getElementById('fs-total').classList.add('active-filter');
-      else if (_activeFilter === 'analise')       document.getElementById('fs-analise').classList.add('active-filter');
-      else if (_activeFilter === 'publicado')     document.getElementById('fs-pub').classList.add('active-filter');
-    }}
-    function toggleFilter(type) {{ _activeFilter = (_activeFilter === type) ? null : type; applyFilter(); }}
     function toggleFlagExpand(btn) {{ const card = btn.closest('.card'); const open = card.classList.toggle('flag-open'); btn.textContent = open ? '↑ ver menos' : '↓ ver mais'; }}
     function expandText(btn) {{ const p = btn.previousElementSibling; const short = p.querySelector('.text-short'); const full = p.querySelector('.text-full'); const expanded = btn.classList.toggle('expanded'); short.style.display = expanded ? 'none' : 'inline'; full.style.display = expanded ? 'inline' : 'none'; btn.textContent = expanded ? '↑ ver menos' : '↓ ver mais'; }}
     async function loadFlags() {{ try {{ const r = await fetch('/api/flags'); _flags = await r.json(); applyFlags(); }} catch(e) {{}} }}
@@ -1032,12 +1099,7 @@ async def selecao_page():
   <div class="topbar">
     <span class="count">{len(articles)} notícias · 48h</span>
     <span class="selecao-badge">🇸🇦 Seleção</span>
-    <div class="flag-summary">
-      <span class="fs-badge fs-total"     id="fs-total"   onclick="toggleFilter('none')"        ><span id="fc-total">—</span> sem flag</span>
-      <span class="fs-badge fs-analise"   id="fs-analise" title="Análise · ver lista →"><a href="/analise" style="color:inherit;text-decoration:none"><span id="fc-analise">—</span> análise →</a></span>
-      <span class="fs-badge fs-publicado" id="fs-pub"     onclick="toggleFilter('publicado')"    ><span id="fc-pub">—</span> publicados</span>
-      <span class="fs-badge fs-descarte"  id="fs-desc"    ><a href="/lixeira" style="color:inherit;text-decoration:none"><span id="fc-desc">—</span> lixeira →</a></span>
-    </div>
+  </div>
   </div>
   <div class="grid">
     {cards if cards else empty_msg}
