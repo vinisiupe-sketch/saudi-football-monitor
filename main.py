@@ -286,7 +286,7 @@ async def dashboard():
             except Exception:
                 pass
         cards += f"""
-        <div class="card" data-id="{art_id}">
+        <div class="card" data-id="{art_id}" data-category="{category}">
           <div class="card-body">
             <div class="card-top">
               <span class="cat-badge cat-{category}">{cat_emoji} {category_text}</span>
@@ -374,6 +374,12 @@ async def dashboard():
       --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
     }}
     .card.flag-descarte  {{ display: none; }}
+    .card.hidden-by-cat  {{ display: none !important; }}
+    .cat-filters {{ display:flex; gap:6px; padding:6px 24px 10px; overflow-x:auto; scrollbar-width:none; }}
+    .cat-filters::-webkit-scrollbar {{ display:none; }}
+    .cat-filter {{ background:transparent; border:1.5px solid var(--c-border-2); border-radius:99px; padding:5px 13px; font-size:0.62rem; font-weight:700; color:var(--c-muted-4); cursor:pointer; text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap; transition:all .15s; }}
+    .cat-filter:hover {{ border-color:var(--c-text); color:var(--c-text); }}
+    .cat-filter.active {{ background:var(--c-text); color:var(--c-bg); border-color:var(--c-text); }}
     .card.hidden-by-filter {{ display: none; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
 
@@ -642,6 +648,16 @@ async def dashboard():
     <span class="count">{len(articles)} notícias · 48h</span>
   </div>
   </div>
+  <div class="cat-filters">
+    <button class="cat-filter active" onclick="filterCat(this,'')">Todos</button>
+    <button class="cat-filter" onclick="filterCat(this,'mercado')">🔀 Mercado</button>
+    <button class="cat-filter" onclick="filterCat(this,'financas')">💰 Finanças</button>
+    <button class="cat-filter" onclick="filterCat(this,'competicao')">🏆 Competição</button>
+    <button class="cat-filter" onclick="filterCat(this,'entrevista')">🎙️ Entrevista</button>
+    <button class="cat-filter" onclick="filterCat(this,'lesao')">🩺 Lesão</button>
+    <button class="cat-filter" onclick="filterCat(this,'treino')">🏋️ Treino</button>
+    <button class="cat-filter" onclick="filterCat(this,'geral')">📰 Geral</button>
+  </div>
   <div class="grid">
     {cards}
   </div>
@@ -831,6 +847,15 @@ function fecharGerarModal() {{
   }},{{passive:false}});
   document.addEventListener('touchend',e=>onEnd(e.changedTouches[0].clientX));
 }})();
+let _catFilter='';
+function filterCat(btn,cat){{
+  _catFilter=cat;
+  document.querySelectorAll('.cat-filter').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.card[data-category]').forEach(card=>{{
+    card.classList.toggle('hidden-by-cat', !!(cat && card.dataset.category!==cat));
+  }});
+}}
 </script>
 <style>
 .card{{ will-change: transform; }}
@@ -896,6 +921,15 @@ function fecharGerarModal() {{
   }},{{passive:false}});
   document.addEventListener('touchend',e=>onEnd(e.changedTouches[0].clientX));
 }})();
+let _catFilter='';
+function filterCat(btn,cat){{
+  _catFilter=cat;
+  document.querySelectorAll('.cat-filter').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.card[data-category]').forEach(card=>{{
+    card.classList.toggle('hidden-by-cat', !!(cat && card.dataset.category!==cat));
+  }});
+}}
 </script>
 </body>
 </html>"""
@@ -970,7 +1004,7 @@ async def selecao_page():
             except Exception:
                 pass
         cards += f"""
-        <div class="card" data-id="{art_id}">
+        <div class="card" data-id="{art_id}" data-category="{category}">
           <div class="card-body">
             <div class="card-top">
               <span class="cat-badge cat-{category}">{cat_emoji} {category_text}</span>
@@ -1037,6 +1071,12 @@ async def selecao_page():
       --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
     }}
     .card.flag-descarte  {{ display: none; }}
+    .card.hidden-by-cat  {{ display: none !important; }}
+    .cat-filters {{ display:flex; gap:6px; padding:6px 24px 10px; overflow-x:auto; scrollbar-width:none; }}
+    .cat-filters::-webkit-scrollbar {{ display:none; }}
+    .cat-filter {{ background:transparent; border:1.5px solid var(--c-border-2); border-radius:99px; padding:5px 13px; font-size:0.62rem; font-weight:700; color:var(--c-muted-4); cursor:pointer; text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap; transition:all .15s; }}
+    .cat-filter:hover {{ border-color:var(--c-text); color:var(--c-text); }}
+    .cat-filter.active {{ background:var(--c-text); color:var(--c-bg); border-color:var(--c-text); }}
     .card.hidden-by-filter {{ display: none; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
@@ -1100,6 +1140,16 @@ async def selecao_page():
     <span class="count">{len(articles)} notícias · 48h</span>
     <span class="selecao-badge">🇸🇦 Seleção</span>
   </div>
+  </div>
+  <div class="cat-filters">
+    <button class="cat-filter active" onclick="filterCat(this,'')">Todos</button>
+    <button class="cat-filter" onclick="filterCat(this,'mercado')">🔀 Mercado</button>
+    <button class="cat-filter" onclick="filterCat(this,'financas')">💰 Finanças</button>
+    <button class="cat-filter" onclick="filterCat(this,'competicao')">🏆 Competição</button>
+    <button class="cat-filter" onclick="filterCat(this,'entrevista')">🎙️ Entrevista</button>
+    <button class="cat-filter" onclick="filterCat(this,'lesao')">🩺 Lesão</button>
+    <button class="cat-filter" onclick="filterCat(this,'treino')">🏋️ Treino</button>
+    <button class="cat-filter" onclick="filterCat(this,'geral')">📰 Geral</button>
   </div>
   <div class="grid">
     {cards if cards else empty_msg}
@@ -1767,38 +1817,61 @@ async def lixeira_page():
     cleanup_old_trash()
     articles = get_trashed_articles()
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+    CATEGORY_TEXT_L = {
+        "mercado": "Mercado", "financas": "Finanças",
+        "competicao": "Competição", "entrevista": "Entrevista",
+        "lesao": "Lesão", "treino": "Treino", "geral": "Geral",
+    }
+    CATEGORY_EMOJI_L = {
+        "mercado": "🔀", "financas": "💰", "entrevista": "🎙️",
+        "competicao": "🏆", "treino": "🏋️", "lesao": "🩺", "geral": "📰",
+    }
+    ICO_RESTORE_L = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>'
+    ICO_COPY_L = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
 
     cards = ""
     for a in articles:
-        handle = a.get("source_name", "").lstrip("@")
-        title  = a.get("title_pt") or a.get("title_orig") or "—"
-        body   = (a.get("body_pt") or a.get("body_orig") or "")[:280]
-        if len(body) == 280:
-            body += "…"
-        art_id = a["id"]
-        trashed_raw = a.get("trashed_at") or ""
-        trashed_display = ""
-        if trashed_raw:
+        handle       = a.get("source_name", "").lstrip("@")
+        body_raw     = a.get("body_pt") or a.get("body_orig") or ""
+        body_full    = body_raw
+        category     = a.get("category") or "geral"
+        category_txt = CATEGORY_TEXT_L.get(category, "Geral")
+        cat_emoji    = CATEGORY_EMOJI_L.get(category, "📰")
+        art_id       = a["id"]
+        article_url  = (a.get("url") or "#").replace('"', "&quot;")
+        copy_text    = body_raw
+        copy_safe    = copy_text.replace("&","&amp;").replace('"',"&quot;")
+        moon         = SOURCE_MOON.get(handle, {}).get("A", "")
+        # Date
+        date_display = ""
+        pub_raw = a.get("published_at") or a.get("collected_at") or a.get("trashed_at") or ""
+        if pub_raw:
             try:
-                from datetime import datetime, timezone, timedelta
-                dt = datetime.fromisoformat(str(trashed_raw).replace(" ", "T").split("+")[0] + "+00:00")
+                dt = datetime.fromisoformat(pub_raw.replace("Z","+00:00").replace(" ","T").split("+")[0]+"+00:00")
                 dt_local = dt.astimezone(timezone(timedelta(hours=3)))
-                trashed_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
+                date_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
             except Exception:
                 pass
+
         cards += f"""
         <div class="card" data-id="{art_id}">
           <div class="card-body">
             <div class="card-top">
-              <span class="card-date">{trashed_display}</span>
-              <button class="restore-btn" onclick="restoreCard('{art_id}', this)" title="Restaurar">↩ Restaurar</button>
+              <span class="cat-badge cat-{category}">{cat_emoji} {category_txt}</span>
+              <div class="card-flags">
+                <button class="flag-circle restore-circ" onclick="restoreCard('{art_id}',this)" title="Restaurar">{ICO_RESTORE_L}</button>
+              </div>
             </div>
-            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
-            <p class="card-text">{body}</p>
+            <p class="card-text" data-url="{article_url}" onclick="if(this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
             <div class="card-bottom">
-              <div class="card-tags">
+              <div class="card-meta">
+                <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
                 <span class="tag">@{handle}</span>
-                <span class="tag">Tier {a['source_tier']}</span>
+                <span class="tag">{moon}</span>
+                <span class="card-date">{date_display}</span>
+              </div>
+              <div class="card-actions">
+                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY_L}</button>
               </div>
             </div>
           </div>
@@ -1819,43 +1892,74 @@ async def lixeira_page():
     {_HEADER_CSS}
     .info {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; padding: 14px 24px 6px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
+    /* Card same as home */
     .card {{
-      background: #fff1f2; border-radius: 16px; opacity: .82;
-      /* Fundo sempre claro (mesmo no modo noturno) — reancora as variáveis de
-         tema para os valores claros, senão texto/ícones ficam claros sobre fundo claro. */
-      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
+      background: var(--c-bg-card); border-radius: 16px;
+      display: flex; flex-direction: column;
+      transition: background .2s;
+      background: #fff1f2;
+      --c-bg: #edeae4; --c-bg-card: #fff1f2; --c-bg-soft: #fff; --c-text: #1a1a1a;
       --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
       --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
       --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
     }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
-    .card-date {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
-    .restore-btn {{ background: transparent; border: 1.5px solid var(--c-text); border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
-    .restore-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
-    .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
-    .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
-    .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
-    .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
-    .tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3); border: 1px solid var(--c-line); border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
-    .removed {{ opacity: 0; transform: scale(.95); transition: all .3s; pointer-events: none; }}
+    .card-flags {{ display: flex; gap: 7px; }}
+    .cat-badge {{
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 0.6rem; font-weight: 700; padding: 3px 9px; border-radius: 99px;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      background: #f1f5f9; color: #475569;
+    }}
+    .cat-mercado    {{ background:#dbeafe; color:#1d4ed8; }}
+    .cat-financas   {{ background:#fdf4ff; color:#7e22ce; }}
+    .cat-entrevista {{ background:#fef3c7; color:#b45309; }}
+    .cat-competicao {{ background:#fef9c3; color:#a16207; }}
+    .cat-treino     {{ background:#f0fdf4; color:#166534; }}
+    .cat-lesao      {{ background:#fff1f2; color:#be123c; }}
+    .cat-geral      {{ background:#f1f5f9; color:#475569; }}
+    .card-date {{ font-size:0.65rem; font-weight:700; color:var(--c-muted-2); text-transform:uppercase; letter-spacing:0.07em; }}
+    .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; margin: 0; }}
+    .card-bottom {{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; padding-top:12px; border-top:1px solid rgba(0,0,0,.07); }}
+    .card-meta {{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }}
+    .card-actions {{ display:flex; gap:7px; }}
+    .tag {{ font-size:0.6rem; font-weight:700; color:var(--c-muted-3); border:1px solid var(--c-line); border-radius:99px; padding:3px 9px; text-transform:uppercase; letter-spacing:0.05em; }}
+    .author-avatar {{ width:20px; height:20px; border-radius:50%; object-fit:cover; }}
+    .flag-circle {{
+      width: 28px; height: 28px; border-radius: 50%;
+      border: 1.5px solid var(--c-border-2); background: var(--c-bg-soft);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: all .15s; color: var(--c-muted-4);
+    }}
+    .flag-circle:hover {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
+    .restore-circ {{ border-color: #be123c; color: #be123c; }}
+    .restore-circ:hover {{ background: #be123c; color: #fff; border-color: #be123c; }}
+    .removing {{ opacity:0; transform:scale(.95); transition:all .3s; pointer-events:none; }}
   </style>
 </head>
 <body>
 {_header("/lixeira")}
-<p class="info">{len(articles)} na lixeira · descartados nos últimos 7 dias</p>
+<p class="info">{len(articles)} na lixeira · descartados recentes</p>
 <div class="grid">
   {cards if cards else empty}
 </div>
 <script>
   async function restoreCard(id, btn) {{
     const card = btn.closest('.card');
+    card.classList.add('removing');
     await fetch('/api/flag', {{
-      method: 'POST', headers: {{'content-type': 'application/json'}},
+      method:'POST', headers:{{'content-type':'application/json'}},
       body: JSON.stringify({{ id, flag: null }}),
     }});
-    card.classList.add('removed');
     setTimeout(() => card.remove(), 300);
+  }}
+  function copyFromBtn(btn) {{
+    const txt = btn.dataset.copy || '';
+    navigator.clipboard.writeText(txt).catch(() => {{}});
+    btn.style.background = '#16a34a';
+    btn.style.color = '#fff';
+    setTimeout(() => {{ btn.style.background=''; btn.style.color=''; }}, 900);
   }}
 </script>
 </body></html>""")
