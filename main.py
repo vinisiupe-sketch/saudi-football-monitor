@@ -157,6 +157,7 @@ def _header(active: str) -> str:
         ("/janela",          _ICO_JANELA,    "Janela",          ""),
         ("/fontes",         _ICO_SOURCES,   "Fontes",          ""),
         ("/lixeira",    _ICO_TRASH2,  "Lixeira",       ""),
+        ("/analise",    _ICO_SELECAO, "Análise",       ""),
         ("/gerador",    _ICO_PEN2,    "Criar Post",    ""),
     ]
     items = ""
@@ -1841,7 +1842,7 @@ async def lixeira_page():
         article_url  = (a.get("url") or "#").replace('"', "&quot;")
         copy_text    = body_raw
         copy_safe    = copy_text.replace("&","&amp;").replace('"',"&quot;")
-        moon         = SOURCE_MOON.get(handle, {}).get("A", "")
+        moon         = SOURCE_MOON.get(handle, {"A": "🌕", "B": "🌖", "C": "🌗"}.get(a.get("source_tier", ""), ""))
         # Date
         date_display = ""
         pub_raw = a.get("published_at") or a.get("collected_at") or a.get("trashed_at") or ""
