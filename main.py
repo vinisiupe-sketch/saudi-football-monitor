@@ -362,13 +362,10 @@ async def dashboard():
       display: flex; flex-direction: column;
       transition: background .2s;
     }}
-    .card.flag-analise   {{ background: #fefce8; }}
+    .card.flag-analise   {{ display: none; }}
     .card.flag-visto     {{ background: #ede9fe; }}
     .card.flag-publicado {{ background: #dcfce7; }}
-    /* Esses 3 fundos são sempre claros (mesmo no modo noturno) — reancora as
-       variáveis de tema para os valores claros dentro do card, senão texto e
-       ícones (que seguem var(--c-text) etc.) ficam claros sobre fundo claro. */
-    .card.flag-analise, .card.flag-visto, .card.flag-publicado {{
+    .card.flag-visto, .card.flag-publicado {{
       --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
       --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
       --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
@@ -1059,13 +1056,10 @@ async def selecao_page():
     .fs-badge.active-filter {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 80px; align-items: start; }}
     .card {{ background: var(--c-bg-card); border-radius: 16px; display: flex; flex-direction: column; transition: background .2s; }}
-    .card.flag-analise   {{ background: #fefce8; }}
+    .card.flag-analise   {{ display: none; }}
     .card.flag-visto     {{ background: #ede9fe; }}
     .card.flag-publicado {{ background: #dcfce7; }}
-    /* Esses 3 fundos são sempre claros (mesmo no modo noturno) — reancora as
-       variáveis de tema para os valores claros dentro do card, senão texto e
-       ícones (que seguem var(--c-text) etc.) ficam claros sobre fundo claro. */
-    .card.flag-analise, .card.flag-visto, .card.flag-publicado {{
+    .card.flag-visto, .card.flag-publicado {{
       --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
       --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
       --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
@@ -1970,44 +1964,65 @@ async def lixeira_page():
 async def analise_page():
     articles = get_flagged_articles("analise")
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
+    CAT_TEXT_A  = {"mercado":"Mercado","financas":"Finanças","competicao":"Competição","entrevista":"Entrevista","lesao":"Lesão","treino":"Treino","geral":"Geral"}
+    CAT_EMOJI_A = {"mercado":"🔀","financas":"💰","entrevista":"🎙️","competicao":"🏆","treino":"🏋️","lesao":"🩺","geral":"📰"}
+    ICO_COPY_A  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+    ICO_CLOSE_A = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>'
 
     cards = ""
     for a in articles:
-        handle = a.get("source_name", "").lstrip("@")
-        title  = a.get("title_pt") or a.get("title_orig") or "—"
-        body   = (a.get("body_pt") or a.get("body_orig") or "")[:280]
-        if len(body) == 280:
-            body += "…"
-        art_id = a["id"]
-        comment = (a.get("flag_comment") or "").strip()
-        flagged_raw = a.get("flagged_at") or ""
-        flagged_display = ""
-        if flagged_raw:
+        handle       = a.get("source_name", "").lstrip("@")
+        body_raw     = a.get("body_pt") or a.get("body_orig") or ""
+        body_full    = body_raw
+        category     = a.get("category") or "geral"
+        category_txt = CAT_TEXT_A.get(category, "Geral")
+        cat_emoji    = CAT_EMOJI_A.get(category, "📰")
+        art_id       = a["id"]
+        article_url  = (a.get("url") or "#").replace('"', "&quot;")
+        copy_safe    = body_raw.replace("&","&amp;").replace('"','&quot;')
+        moon         = SOURCE_MOON.get(handle, {"A":"🌕","B":"🌖","C":"🌗"}.get(a.get("source_tier",""),""))
+        comment      = (a.get("flag_comment") or "").strip()
+        date_display = ""
+        pub_raw = a.get("flagged_at") or a.get("published_at") or a.get("collected_at") or ""
+        if pub_raw:
             try:
-                dt = datetime.fromisoformat(str(flagged_raw).replace(" ", "T").split("+")[0] + "+00:00")
+                dt = datetime.fromisoformat(str(pub_raw).replace(" ","T").replace("Z","+00:00").split("+")[0]+"+00:00")
                 dt_local = dt.astimezone(timezone(timedelta(hours=3)))
-                flagged_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
+                date_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
             except Exception:
                 pass
-        comment_html = (
-            f'<p class="card-comment">💬 {comment}</p>'
-            if comment else
-            f'<div class="card-comment-add"><input type="text" class="comment-input" id="comment-input-{art_id}" placeholder="Por que está aqui? (opcional)" onkeydown="if(event.key===\'Enter\')saveComment(\'{art_id}\', this.nextElementSibling)"><button class="comment-save-btn" onclick="saveComment(\'{art_id}\', this)">Salvar</button></div>'
-        )
+        if comment:
+            comment_html = f'<p class="card-comment">💬 {comment}</p>'
+        else:
+            cid = f"ci-{art_id}"
+            comment_html = (
+                f'<div class="card-comment-add">'
+                f'<input type="text" class="comment-input" id="{cid}" placeholder="Motivo / observação…"'
+                f' onkeydown="if(event.key===\'Enter\')saveCommentA(\'{art_id}\',this)">'
+                f'<button class="comment-save-btn" onclick="saveCommentA(\'{art_id}\',document.getElementById(\'{cid}\'))">Salvar</button>'
+                f'</div>'
+            )
+
         cards += f"""
         <div class="card" data-id="{art_id}">
           <div class="card-body">
             <div class="card-top">
-              <span class="card-date">{flagged_display}</span>
-              <button class="restore-btn" onclick="restoreCard('{art_id}', this)" title="Remover da análise">✕ remover</button>
+              <span class="cat-badge cat-{category}">{cat_emoji} {category_txt}</span>
+              <div class="card-flags">
+                <button class="flag-circle remove-circ" onclick="removeCardA('{art_id}',this)" title="Remover da análise">{ICO_CLOSE_A}</button>
+              </div>
             </div>
-            <a href="{a['url']}" target="_blank" class="card-title">{title}</a>
-            <p class="card-text">{body}</p>
+            <p class="card-text" data-url="{article_url}" onclick="if(this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
             {comment_html}
             <div class="card-bottom">
-              <div class="card-tags">
+              <div class="card-meta">
+                <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
                 <span class="tag">@{handle}</span>
-                <span class="tag">Tier {a['source_tier']}</span>
+                <span class="tag">{moon}</span>
+                <span class="card-date">{date_display}</span>
+              </div>
+              <div class="card-actions">
+                <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtnA(this)" title="Copiar">{ICO_COPY_A}</button>
               </div>
             </div>
           </div>
@@ -2026,77 +2041,87 @@ async def analise_page():
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
     body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
     {_HEADER_CSS}
-    .info-bar {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 14px 24px 6px; }}
-    .info {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
-    .export-btn {{ font-size: 0.62rem; font-weight: 700; padding: 6px 14px; border-radius: 99px; cursor: pointer; border: 1.5px solid var(--c-text); background: transparent; color: var(--c-text); text-transform: uppercase; letter-spacing: .05em; text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }}
-    .export-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
-    .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 60px; align-items: start; }}
+    .info-bar {{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:14px 24px 6px; }}
+    .info {{ font-size:0.65rem; font-weight:700; color:var(--c-muted-2); text-transform:uppercase; letter-spacing:0.07em; }}
+    .export-btn {{ font-size:0.62rem; font-weight:700; padding:6px 14px; border-radius:99px; cursor:pointer; border:1.5px solid var(--c-text); background:transparent; color:var(--c-text); text-transform:uppercase; letter-spacing:.05em; text-decoration:none; display:inline-flex; align-items:center; gap:5px; transition:all .15s; }}
+    .export-btn:hover {{ background:var(--c-text); color:var(--c-bg); }}
+    .grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:10px; padding:10px 24px 60px; align-items:start; }}
     .card {{
-      background: #fefce8; border-radius: 16px;
-      /* Fundo sempre claro (mesmo no modo noturno) — reancora as variáveis de
-         tema para os valores claros, senão texto/ícones ficam claros sobre fundo claro. */
-      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
-      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
-      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
-      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
+      background:#fefce8; border-radius:16px; display:flex; flex-direction:column; transition:background .2s;
+      --c-bg:#edeae4; --c-bg-card:#fefce8; --c-bg-soft:#fff; --c-text:#1a1a1a;
+      --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555;
+      --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc;
+      --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04);
     }}
-    .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
-    .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
-    .card-date {{ font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: 0.07em; }}
-    .restore-btn {{ background: transparent; border: 1.5px solid var(--c-text); border-radius: 99px; padding: 4px 12px; font-size: 0.62rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: 0.07em; transition: all .15s; }}
-    .restore-btn:hover {{ background: var(--c-text); color: var(--c-bg); }}
-    .card-title {{ font-size: 0.95rem; font-weight: 700; color: var(--c-text); text-decoration: none; line-height: 1.4; display: block; margin-bottom: 8px; }}
-    .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; }}
-    .card-comment {{ font-size: 0.78rem; color: #92400e; background: #fef3c7; border-radius: 8px; padding: 8px 10px; margin-top: 10px; line-height: 1.5; }}
-    .card-comment-empty {{ color: var(--c-muted-2); background: transparent; padding: 0; }}
-    .card-comment-add {{ display: flex; gap: 6px; margin-top: 10px; }}
-    .comment-input {{ flex: 1; border: 1px solid var(--c-border-2); border-radius: 8px; padding: 6px 10px; font-size: 0.76rem; font-family: inherit; background: var(--c-hover-tint); color: var(--c-text); }}
-    .comment-input:focus {{ outline: none; border-color: #92400e; }}
-    .comment-save-btn {{ background: transparent; border: 1.5px solid #92400e; color: #92400e; border-radius: 8px; padding: 6px 12px; font-size: 0.7rem; font-weight: 700; cursor: pointer; text-transform: uppercase; letter-spacing: .04em; transition: all .15s; white-space: nowrap; }}
-    .comment-save-btn:hover {{ background: #92400e; color: white; }}
-    .card-bottom {{ display: flex; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(0,0,0,.07); }}
-    .card-tags {{ display: flex; gap: 5px; flex-wrap: wrap; }}
-    .tag {{ font-size: 0.6rem; font-weight: 700; color: var(--c-muted-3); border: 1px solid var(--c-line); border-radius: 99px; padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em; }}
-    .removed {{ opacity: 0; transform: scale(.95); transition: all .3s; pointer-events: none; }}
+    .card-body {{ padding:20px; display:flex; flex-direction:column; }}
+    .card-top {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }}
+    .card-flags {{ display:flex; gap:7px; }}
+    .cat-badge {{ display:inline-flex; align-items:center; gap:4px; font-size:0.6rem; font-weight:700; padding:3px 9px; border-radius:99px; text-transform:uppercase; letter-spacing:0.05em; background:#f1f5f9; color:#475569; }}
+    .cat-mercado    {{ background:#dbeafe; color:#1d4ed8; }}
+    .cat-financas   {{ background:#fdf4ff; color:#7e22ce; }}
+    .cat-entrevista {{ background:#fef3c7; color:#b45309; }}
+    .cat-competicao {{ background:#fef9c3; color:#a16207; }}
+    .cat-treino     {{ background:#f0fdf4; color:#166534; }}
+    .cat-lesao      {{ background:#fff1f2; color:#be123c; }}
+    .cat-geral      {{ background:#f1f5f9; color:#475569; }}
+    .card-date {{ font-size:0.65rem; font-weight:700; color:var(--c-muted-2); text-transform:uppercase; letter-spacing:0.07em; }}
+    .card-text {{ font-size:0.8rem; color:var(--c-muted-5); line-height:1.6; margin:0; }}
+    .card-comment {{ font-size:0.78rem; color:#92400e; background:#fef3c7; border-radius:8px; padding:8px 10px; margin-top:10px; line-height:1.5; }}
+    .card-comment-add {{ display:flex; gap:6px; margin-top:10px; }}
+    .comment-input {{ flex:1; border:1px solid var(--c-border-2); border-radius:8px; padding:6px 10px; font-size:0.76rem; font-family:inherit; background:var(--c-hover-tint); color:var(--c-text); }}
+    .comment-input:focus {{ outline:none; border-color:#92400e; }}
+    .comment-save-btn {{ background:transparent; border:1.5px solid #92400e; color:#92400e; border-radius:8px; padding:6px 12px; font-size:0.7rem; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:.04em; transition:all .15s; white-space:nowrap; }}
+    .comment-save-btn:hover {{ background:#92400e; color:white; }}
+    .card-bottom {{ display:flex; align-items:center; justify-content:space-between; margin-top:12px; padding-top:12px; border-top:1px solid rgba(0,0,0,.07); }}
+    .card-meta {{ display:flex; align-items:center; gap:6px; flex-wrap:wrap; }}
+    .card-actions {{ display:flex; gap:7px; }}
+    .tag {{ font-size:0.6rem; font-weight:700; color:var(--c-muted-3); border:1px solid var(--c-line); border-radius:99px; padding:3px 9px; text-transform:uppercase; letter-spacing:0.05em; }}
+    .author-avatar {{ width:20px; height:20px; border-radius:50%; object-fit:cover; }}
+    .flag-circle {{ width:28px; height:28px; border-radius:50%; border:1.5px solid var(--c-border-2); background:var(--c-bg-soft); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:all .15s; color:var(--c-muted-4); }}
+    .flag-circle:hover {{ background:var(--c-text); color:var(--c-bg); border-color:var(--c-text); }}
+    .remove-circ {{ border-color:#92400e; color:#92400e; }}
+    .remove-circ:hover {{ background:#92400e; color:#fff; border-color:#92400e; }}
+    .removing {{ opacity:0; transform:scale(.95); transition:all .3s; pointer-events:none; }}
   </style>
 </head>
 <body>
 {_header("/analise")}
 <div class="info-bar">
   <p class="info">{len(articles)} marcados para análise</p>
-  <a class="export-btn" href="/api/analise-export" download title="Baixa um JSON com todos os artigos marcados, pra analisar com calma">⬇ Baixar para análise</a>
+  <a class="export-btn" href="/api/analise-export" download>⬇ Baixar para análise</a>
 </div>
 <div class="grid">
   {cards if cards else empty}
 </div>
 <script>
-  async function restoreCard(id, btn) {{
+  async function removeCardA(id, btn) {{
     const card = btn.closest('.card');
+    card.classList.add('removing');
     await fetch('/api/flag', {{
-      method: 'POST', headers: {{'content-type': 'application/json'}},
+      method:'POST', headers:{{'content-type':'application/json'}},
       body: JSON.stringify({{ id, flag: null }}),
     }});
-    card.classList.add('removed');
     setTimeout(() => card.remove(), 300);
   }}
-  async function saveComment(id, btn) {{
-    const input = document.getElementById('comment-input-' + id);
+  async function saveCommentA(id, input) {{
     const text = input.value.trim();
     if (!text) return;
-    btn.disabled = true;
     try {{
       await fetch('/api/flag', {{
-        method: 'POST', headers: {{'content-type': 'application/json'}},
-        body: JSON.stringify({{ id, flag: 'analise', comment: text }}),
+        method:'POST', headers:{{'content-type':'application/json'}},
+        body: JSON.stringify({{ id, flag:'analise', comment:text }}),
       }});
       const wrap = input.closest('.card-comment-add');
       const p = document.createElement('p');
       p.className = 'card-comment';
       p.textContent = '💬 ' + text;
       wrap.replaceWith(p);
-    }} catch (e) {{
-      btn.disabled = false;
-    }}
+    }} catch(e) {{}}
+  }}
+  function copyFromBtnA(btn) {{
+    navigator.clipboard.writeText(btn.dataset.copy || '').catch(()=>{{}});
+    btn.style.background='#16a34a'; btn.style.color='#fff';
+    setTimeout(()=>{{ btn.style.background=''; btn.style.color=''; }}, 900);
   }}
 </script>
 </body></html>""")
