@@ -252,6 +252,7 @@ async def dashboard():
     }
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
     ICO_COPY    = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+    ICO_WAND    = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>'
     ICO_ANALYSIS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>'
     ICO_LOCK  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
     ICO_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
@@ -271,6 +272,7 @@ async def dashboard():
         copy_safe     = copy_text.replace("&", "&amp;").replace('"', "&quot;")
         post_text_full = copy_text
         post_base     = f"/gerador?texto={quote(post_text_full)}&source={quote(handle)}&moon={quote(moon)}&translated=1"
+        news_safe     = body_raw.replace("&", "&amp;").replace('"', "&quot;")
         art_id        = a['id']
         # Date from published_at in Saudi time (UTC+3)
         date_display = ""
@@ -303,6 +305,7 @@ async def dashboard():
               </div>
               <div class="card-actions">
                 <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
+                <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
               </div>
             </div>
@@ -688,6 +691,120 @@ async def dashboard():
       <span class="progress-msg" id="pmsg"></span>
     </div>
   </div>
+
+<div id="gerar-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;" onclick="if(event.target===this)fecharGerarModal()">
+  <div style="background:var(--c-bg-card);border-radius:14px;padding:22px 24px;max-width:560px;width:92%;max-height:78vh;display:flex;flex-direction:column;gap:14px;border:1px solid var(--c-border);box-shadow:0 20px 60px rgba(0,0,0,.4);">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted-2);">✨ Post gerado</span>
+      <button onclick="fecharGerarModal()" style="background:none;border:none;cursor:pointer;color:var(--c-muted-3);font-size:1.3rem;line-height:1;padding:0 2px;">×</button>
+    </div>
+    <div id="gerar-output" style="font-size:0.83rem;line-height:1.65;color:var(--c-text);white-space:pre-wrap;overflow-y:auto;flex:1;min-height:60px;"></div>
+    <div style="display:flex;justify-content:flex-end;flex-shrink:0;">
+      <button id="gerar-copy-btn" style="display:none;background:var(--c-text);color:var(--c-bg);border:none;border-radius:8px;padding:8px 18px;font-size:0.72rem;font-weight:700;cursor:pointer;letter-spacing:.04em;">Copiar texto</button>
+    </div>
+  </div>
+</div>
+<script>
+async function gerarTexto(btn) {{
+  const news   = btn.dataset.news;
+  const source = btn.dataset.source;
+  const moon   = btn.dataset.moon;
+  const modal  = document.getElementById('gerar-modal');
+  const output = document.getElementById('gerar-output');
+  const copyBtn = document.getElementById('gerar-copy-btn');
+  modal.style.display = 'flex';
+  output.innerHTML = '<span style="color:var(--c-muted-2)">Gerando texto…</span>';
+  copyBtn.style.display = 'none';
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '⏳';
+  btn.disabled  = true;
+  try {{
+    const resp = await fetch('/api/gerar-texto', {{
+      method: 'POST',
+      headers: {{'Content-Type':'application/json'}},
+      body: JSON.stringify({{news, source, moon}})
+    }});
+    const data = await resp.json();
+    if (data.error) {{
+      output.textContent = '❌ ' + data.error;
+    }} else {{
+      output.textContent = data.texto;
+      copyBtn.style.display = 'block';
+      copyBtn.onclick = function() {{
+        navigator.clipboard.writeText(data.texto).then(() => {{
+          copyBtn.textContent = '✅ Copiado!';
+          setTimeout(() => {{ copyBtn.textContent = 'Copiar texto'; }}, 2000);
+        }});
+      }};
+    }}
+  }} catch(e) {{
+    output.textContent = '❌ Erro de rede.';
+  }} finally {{
+    btn.innerHTML = origHTML;
+    btn.disabled  = false;
+  }}
+}}
+function fecharGerarModal() {{
+  document.getElementById('gerar-modal').style.display = 'none';
+}}
+</script>
+
+<div id="gerar-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;" onclick="if(event.target===this)fecharGerarModal()">
+  <div style="background:var(--c-bg-card);border-radius:14px;padding:22px 24px;max-width:560px;width:92%;max-height:78vh;display:flex;flex-direction:column;gap:14px;border:1px solid var(--c-border);box-shadow:0 20px 60px rgba(0,0,0,.4);">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted-2);">✨ Post gerado</span>
+      <button onclick="fecharGerarModal()" style="background:none;border:none;cursor:pointer;color:var(--c-muted-3);font-size:1.3rem;line-height:1;padding:0 2px;">×</button>
+    </div>
+    <div id="gerar-output" style="font-size:0.83rem;line-height:1.65;color:var(--c-text);white-space:pre-wrap;overflow-y:auto;flex:1;min-height:60px;"></div>
+    <div style="display:flex;justify-content:flex-end;flex-shrink:0;">
+      <button id="gerar-copy-btn" style="display:none;background:var(--c-text);color:var(--c-bg);border:none;border-radius:8px;padding:8px 18px;font-size:0.72rem;font-weight:700;cursor:pointer;letter-spacing:.04em;">Copiar texto</button>
+    </div>
+  </div>
+</div>
+<script>
+async function gerarTexto(btn) {{
+  const news   = btn.dataset.news;
+  const source = btn.dataset.source;
+  const moon   = btn.dataset.moon;
+  const modal  = document.getElementById('gerar-modal');
+  const output = document.getElementById('gerar-output');
+  const copyBtn = document.getElementById('gerar-copy-btn');
+  modal.style.display = 'flex';
+  output.innerHTML = '<span style="color:var(--c-muted-2)">Gerando texto…</span>';
+  copyBtn.style.display = 'none';
+  const origHTML = btn.innerHTML;
+  btn.innerHTML = '⏳';
+  btn.disabled  = true;
+  try {{
+    const resp = await fetch('/api/gerar-texto', {{
+      method: 'POST',
+      headers: {{'Content-Type':'application/json'}},
+      body: JSON.stringify({{news, source, moon}})
+    }});
+    const data = await resp.json();
+    if (data.error) {{
+      output.textContent = '❌ ' + data.error;
+    }} else {{
+      output.textContent = data.texto;
+      copyBtn.style.display = 'block';
+      copyBtn.onclick = function() {{
+        navigator.clipboard.writeText(data.texto).then(() => {{
+          copyBtn.textContent = '✅ Copiado!';
+          setTimeout(() => {{ copyBtn.textContent = 'Copiar texto'; }}, 2000);
+        }});
+      }};
+    }}
+  }} catch(e) {{
+    output.textContent = '❌ Erro de rede.';
+  }} finally {{
+    btn.innerHTML = origHTML;
+    btn.disabled  = false;
+  }}
+}}
+function fecharGerarModal() {{
+  document.getElementById('gerar-modal').style.display = 'none';
+}}
+</script>
 </body>
 </html>"""
     return HTMLResponse(content=html)
@@ -728,6 +845,7 @@ async def selecao_page():
     }
     MONTHS_PT = ["JAN","FEV","MAR","ABR","MAI","JUN","JUL","AGO","SET","OUT","NOV","DEZ"]
     ICO_COPY    = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>'
+    ICO_WAND    = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4V2"/><path d="M15 16v-2"/><path d="M8 9h2"/><path d="M20 9h2"/><path d="M17.8 11.8 19 13"/><path d="M15 9h.01"/><path d="M17.8 6.2 19 5"/><path d="m3 21 9-9"/><path d="M12.2 6.2 11 5"/></svg>'
     ICO_ANALYSIS = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/><path d="M11 8v6M8 11h6"/></svg>'
     ICO_LOCK  = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>'
     ICO_CHECK = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
@@ -747,6 +865,7 @@ async def selecao_page():
         copy_safe     = copy_text.replace("&", "&amp;").replace('"', "&quot;")
         post_text_full = copy_text
         post_base     = f"/gerador?texto={quote(post_text_full)}&source={quote(handle)}&moon={quote(moon)}&translated=1"
+        news_safe     = body_raw.replace("&", "&amp;").replace('"', "&quot;")
         art_id        = a['id']
         date_display = ""
         pub_raw = a.get("published_at") or a.get("collected_at") or ""
@@ -778,6 +897,7 @@ async def selecao_page():
               </div>
               <div class="card-actions">
                 <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
+                <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
               </div>
             </div>
@@ -1329,6 +1449,77 @@ async def generate_post(request: Request):
         return JSONResponse({"error": "Resposta inválida da API Claude."}, status_code=500)
     except Exception as e:
         return JSONResponse({"error": f"Erro ao chamar Claude API: {e}"}, status_code=500)
+
+
+
+
+@app.post("/api/gerar-texto")
+async def gerar_texto_api(request: Request):
+    """Gera texto adaptado (ponto de vista saudita) sem navegação."""
+    body = await request.json()
+    news   = (body.get("news")   or "").strip()
+    source = (body.get("source") or "").strip().lstrip("@")
+    moon   = (body.get("moon")   or "").strip()
+    if not news:
+        return JSONResponse({"error": "Campo 'news' vazio."}, status_code=400)
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return JSONResponse({"error": "ANTHROPIC_API_KEY não configurada."}, status_code=500)
+
+    source_footer = f"🗞️ @{source} {moon}".strip() if source else ""
+    footer_instruction = (
+        f'Ao final do texto, adicione exatamente esta linha (sem alterar): "{source_footer}"\n'
+        if source_footer else ""
+    )
+    angulo = (
+        "PONTO DE VISTA OBRIGATÓRIO — FUTEBOL SAUDITA:\n"
+        "Este é um canal sobre a Saudi Pro League. O texto DEVE ser escrito sob a perspectiva do futebol saudita, "
+        "não do futebol europeu. Siga esta ordem de prioridade:\n"
+        "1. ABRA com a ação ou interesse do clube saudita.\n"
+        "2. Apresente o jogador/notícia brevemente como contexto.\n"
+        "3. Mencione concorrência europeia apenas como segundo parágrafo, se relevante.\n"
+        "NUNCA abra com a trajetória do jogador no clube europeu. NUNCA coloque o clube europeu como sujeito principal.\n"
+    )
+    clubes = (
+        "NOMES DE CLUBES: NUNCA use hífen. Grafias OBRIGATÓRIAS (SPL): "
+        + ", ".join(SPL_CLUBS) + ". "
+        + "ATENÇÃO: الاتفاق = Al Ettifaq (NÃO Al Ittihad); الاتحاد = Al Ittihad.\n"
+    )
+    prompt = (
+        "Você é um editor de conteúdo especializado na Saudi Pro League. "
+        "O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
+        + angulo
+        + "\nTAREFA: reescreva o texto aplicando o ponto de vista saudita. Máximo 4 frases. "
+        "Elimine contexto europeu excessivo e adjetivos vagos. "
+        "Mantenha fatos concretos: quem, o quê, valores, datas. "
+        "Estilo: jornalismo esportivo direto, texto corrido, sem emojis no corpo, "
+        "sem hashtags, sem exclamações, sem títulos, sem negrito, sem listas.\n"
+        + clubes
+        + footer_instruction
+        + "Responda SOMENTE com o texto final, sem comentários."
+    )
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    payload = {
+        "model": CLAUDE_MODEL_POST,
+        "max_tokens": 800,
+        "system": prompt,
+        "messages": [{"role": "user", "content": news}],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(CLAUDE_API_URL, json=payload, headers=headers)
+        if resp.status_code != 200:
+            err = resp.json().get("error", {})
+            return JSONResponse({"error": err.get("message", f"Claude API HTTP {resp.status_code}")}, status_code=resp.status_code)
+        texto = (resp.json()["content"][0].get("text") or "").strip()
+        return {"texto": texto}
+    except Exception as e:
+        return JSONResponse({"error": f"Erro: {e}"}, status_code=500)
+
 
 
 @app.get("/api/twitter-test")
