@@ -152,24 +152,23 @@ _THEME_INIT_SCRIPT = '<script>document.documentElement.setAttribute("data-theme"
 
 def _header(active: str) -> str:
     pages = [
-        ("/",           _ICO_HOME,    "Home",          "home"),
-        ("/descartadas",_ICO_ARCHIVE, "Descartadas",   ""),
-        ("/lesoes",         _ICO_INJURY,    "Lesões",          ""),
-        ("/janela",          _ICO_JANELA,    "Janela",          ""),
-        ("/fontes",         _ICO_SOURCES,   "Fontes",          ""),
-        ("/lixeira",    _ICO_TRASH2,  "Lixeira",       ""),
-        ("/analise",    _ICO_ANALISE, "Análise",       ""),
-        ("/gerador",    _ICO_PEN2,    "Criar Post",    ""),
+        ("/",            _ICO_HOME,    "Home",        "home", "#16a34a"),
+        ("/descartadas", _ICO_ARCHIVE, "Descartadas", "",     "#6366f1"),
+        ("/lesoes",      _ICO_INJURY,  "Lesões",      "",     "#ef4444"),
+        ("/janela",      _ICO_JANELA,  "Janela",      "",     "#3b82f6"),
+        ("/fontes",      _ICO_SOURCES, "Fontes",      "",     "#a855f7"),
+        ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "",     "#f97316"),
+        ("/analise",     _ICO_ANALISE, "Análise",     "",     "#d97706"),
     ]
     items = ""
-    for href, ico, label, badge_tab in pages:
+    for href, ico, label, badge_tab, color in pages:
         cls = "nav-icon"
+        style = ""
         if href == active:
             cls += " active"
-        elif href == "/gerador":
-            cls += " cta"
+            style = f'style="color:{color};background:color-mix(in srgb,{color} 14%,transparent)"' 
         badge = f'<span class="nav-badge" data-tab="{badge_tab}" style="display:none"></span>' if badge_tab else ""
-        items += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
+        items += f'<a class="{cls}" {style} href="{href}" title="{label}">{ico}{badge}</a>'
     badge_script = """<script>
 (function(){
   async function loadBadges(){
