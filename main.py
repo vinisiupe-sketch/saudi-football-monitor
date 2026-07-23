@@ -307,7 +307,7 @@ async def dashboard():
               </div>
               <div class="card-actions">
                 <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
-                <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
+                <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
               </div>
             </div>
@@ -682,9 +682,10 @@ async def dashboard():
 </div>
 <script>
 async function gerarTexto(btn) {{
-  const news   = btn.dataset.news;
-  const source = btn.dataset.source;
-  const moon   = btn.dataset.moon;
+  const news     = btn.dataset.news;
+  const source   = btn.dataset.source;
+  const moon     = btn.dataset.moon;
+  const category = btn.dataset.category || '';
   const modal  = document.getElementById('gerar-modal');
   const output = document.getElementById('gerar-output');
   const copyBtn = document.getElementById('gerar-copy-btn');
@@ -698,7 +699,7 @@ async function gerarTexto(btn) {{
     const resp = await fetch('/api/gerar-texto', {{
       method: 'POST',
       headers: {{'Content-Type':'application/json'}},
-      body: JSON.stringify({{news, source, moon}})
+      body: JSON.stringify({{news, source, moon, category}})
     }});
     const data = await resp.json();
     if (data.error) {{
@@ -739,9 +740,10 @@ function fecharGerarModal() {{
 </div>
 <script>
 async function gerarTexto(btn) {{
-  const news   = btn.dataset.news;
-  const source = btn.dataset.source;
-  const moon   = btn.dataset.moon;
+  const news     = btn.dataset.news;
+  const source   = btn.dataset.source;
+  const moon     = btn.dataset.moon;
+  const category = btn.dataset.category || '';
   const modal  = document.getElementById('gerar-modal');
   const output = document.getElementById('gerar-output');
   const copyBtn = document.getElementById('gerar-copy-btn');
@@ -755,7 +757,7 @@ async function gerarTexto(btn) {{
     const resp = await fetch('/api/gerar-texto', {{
       method: 'POST',
       headers: {{'Content-Type':'application/json'}},
-      body: JSON.stringify({{news, source, moon}})
+      body: JSON.stringify({{news, source, moon, category}})
     }});
     const data = await resp.json();
     if (data.error) {{
@@ -1022,7 +1024,7 @@ async def selecao_page():
               </div>
               <div class="card-actions">
                 <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
-                <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
+                <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
               </div>
             </div>
@@ -1413,6 +1415,45 @@ async def gerador():
 
 
 # ─── Gerador de posts (Central do Arabão) ────────
+# ─── Club emoji map for post generation ──────────────────────────────────────
+_CLUB_EMOJI_MAP = [
+    # (canonical, emoji_pair, [keywords_lowercase])
+    ("Al Hilal",    "🔵⚪️", ["hilal", "al-hilal", "al hilal", "alhilal", "الهلال"]),
+    ("Al Nassr",    "🟡🔵", ["nassr", "nasr", "al-nassr", "al nassr", "alnassr", "النصر"]),
+    ("Al Ittihad",  "⚫️🟡", ["al ittihad", "al-ittihad", "alittihad", "ittihad jeddah", "الاتحاد"]),
+    ("Al Ahli",     "🟢⚪️", ["al ahli", "al-ahli", "alahli", "al ahly", "al-ahly", "alahly", "الأهلي", "الاهلي"]),
+    ("Al Ettifaq",  "🟢🔴", ["ettifaq", "al-ettifaq", "al ettifaq", "alettifaq", "الاتفاق"]),
+    ("Al Shabab",   "⚪️⚫️", ["shabab", "al-shabab", "alshabab", "الشباب"]),
+    ("Al Fateh",    "🔵🟢", ["al fateh", "al-fateh", "alfateh", "al fath", "alfath", "الفتح"]),
+    ("Al Fayha",    "🟠🔵", ["fayha", "feiha", "faiha", "al-fayha", "alfayha", "الفيحاء"]),
+    ("Al Khaleej",  "🟢🟡", ["khaleej", "khalij", "al-khaleej", "alkhaleej", "الخليج"]),
+    ("Al Qadsiah",  "🔴🟡", ["qadsiah", "qadisiyah", "qadisiya", "alqadsiah", "القادسية"]),
+    ("Al Taawoun",  "🟡⚪️", ["taawoun", "taawon", "taawun", "al-taawoun", "altaawoun", "التعاون"]),
+    ("Al Orobah",   "🟡🟢", ["orobah", "orubah", "orouba", "al-orobah", "العروبة"]),
+    ("Al Riyadh",   "⚫️🔴", ["al riyadh", "al-riyadh", "alriyadh", "الرياض"]),
+    ("Al Raed",     "🔴⚫️", ["al raed", "al-raed", "alraed", "الرائد"]),
+    ("Al Okhdood",  "🔵⚫️", ["okhdood", "okhdud", "akhdoud", "ukhdood", "alokhdood", "الأخدود"]),
+    ("Al Kholood",  "🔴🟢", ["kholood", "khulood", "kholud", "alkholood", "الخلود"]),
+    ("Al Faisaly",  "🔴⚪️", ["faisaly", "faysaly", "faisali", "alfaisaly", "الفيصلي"]),
+    ("Al Diraiyah", "🟤⚪️", ["diraiyah", "diriyah", "deriyah", "aldiraiyah", "الدرعية"]),
+    ("Abha",        "🔵🔴", ["abha"]),
+    ("Damac",       "🔴🟤", ["damac", "damak", "dhamk", "ضمك"]),
+    ("Neom",        "🔵🟣", ["neom", "نيوم"]),
+]
+
+def _detect_saudi_club(text: str):
+    """Returns (canonical, emoji_pair) for the first Saudi club found in text."""
+    tl = text.lower()
+    best = None
+    for canonical, emoji, keywords in _CLUB_EMOJI_MAP:
+        for kw in keywords:
+            pos = tl.find(kw)
+            if pos != -1:
+                if best is None or pos < best[0]:
+                    best = (pos, canonical, emoji)
+                break
+    return (best[1], best[2]) if best else None
+
 CLAUDE_API_URL = "https://api.anthropic.com/v1/messages"
 CLAUDE_MODEL_POST = "claude-sonnet-4-5"
 
@@ -1564,9 +1605,10 @@ async def generate_post(request: Request):
 async def gerar_texto_api(request: Request):
     """Gera texto adaptado (ponto de vista saudita) sem navegação."""
     body = await request.json()
-    news   = (body.get("news")   or "").strip()
-    source = (body.get("source") or "").strip().lstrip("@")
-    moon   = (body.get("moon")   or "").strip()
+    news     = (body.get("news")     or "").strip()
+    source   = (body.get("source")   or "").strip().lstrip("@")
+    moon     = (body.get("moon")     or "").strip()
+    category = (body.get("category") or "").strip().lower()
     if not news:
         return JSONResponse({"error": "Campo 'news' vazio."}, status_code=400)
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
@@ -1623,6 +1665,12 @@ async def gerar_texto_api(request: Request):
             err = resp.json().get("error", {})
             return JSONResponse({"error": err.get("message", f"Claude API HTTP {resp.status_code}")}, status_code=resp.status_code)
         texto = (resp.json()["content"][0].get("text") or "").strip()
+        if category == "mercado":
+            club = _detect_saudi_club(news)
+            if club:
+                texto = f"\U0001f6a8{club[1]} {texto}"
+            else:
+                texto = f"\U0001f6a8\U0001f1f8\U0001f1e6 {texto}"
         return {"texto": texto}
     except Exception as e:
         return JSONResponse({"error": f"Erro: {e}"}, status_code=500)
