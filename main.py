@@ -1634,6 +1634,16 @@ async def gerar_texto_api(request: Request):
         + ", ".join(SPL_CLUBS) + ". "
         + "ATENÇÃO: الاتفاق = Al Ettifaq (NÃO Al Ittihad); الاتحاد = Al Ittihad.\n"
     )
+    emoji_flags = (
+        "\nFLAGS DE EMOJI (aplique nesta notícia de mercado):\n"
+        "- Coloque \U0001f1f8\U0001f1e6 imediatamente APÓS o nome do clube saudita na PRIMEIRA menção. "
+        "Nas menções seguintes ao mesmo clube, sem emoji.\n"
+        "- Coloque o emoji da bandeira da nacionalidade do jogador imediatamente ANTES do nome do jogador "
+        "na PRIMEIRA menção. Nas menções seguintes, sem emoji.\n"
+        "- Exemplo: 'O Al Hilal \U0001f1f8\U0001f1e6 negocia com \U0001f1f3\U0001f1f1 Crysencio Summerville.'\n"
+        "- A nacionalidade do jogador deve ser inferida do texto original. "
+        "Se não estiver clara, omita o emoji.\n"
+    ) if category == "mercado" else ""
     prompt = (
         "Você é um editor de conteúdo especializado na Saudi Pro League. "
         "O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
@@ -1642,10 +1652,11 @@ async def gerar_texto_api(request: Request):
         "NÃO invente dados, valores, nomes ou detalhes que não estejam explícitos no texto. "
         "Se o texto não mencionar valor de transferência, NÃO escreva valor. "
         "Se o texto não confirmar acerto, NÃO escreva que houve acerto.\n"
+        + emoji_flags
         + "\nTAREFA: reescreva o texto aplicando o ponto de vista saudita. Máximo 4 frases. "
         "Elimine contexto europeu excessivo e adjetivos vagos. "
-        "Estilo: jornalismo esportivo direto, texto corrido, sem emojis no corpo, "
-        "sem hashtags, sem exclamações, sem títulos, sem negrito, sem listas.\n"
+        "Estilo: jornalismo esportivo direto, texto corrido, sem hashtags, "
+        "sem exclamações, sem títulos, sem negrito, sem listas.\n"
         + clubes
         + footer_instruction
         + "Responda SOMENTE com o texto final, sem comentários."
