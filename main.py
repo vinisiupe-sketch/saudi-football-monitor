@@ -1613,13 +1613,11 @@ async def gerar_texto_api(request: Request):
         if source_footer else ""
     )
     angulo = (
-        "PONTO DE VISTA OBRIGATÓRIO — FUTEBOL SAUDITA:\n"
-        "Este é um canal sobre a Saudi Pro League. O texto DEVE ser escrito sob a perspectiva do futebol saudita, "
-        "não do futebol europeu. Siga esta ordem de prioridade:\n"
-        "1. ABRA com a ação ou interesse do clube saudita — use exatamente o que o texto informa.\n"
-        "2. Apresente o jogador/notícia brevemente como contexto.\n"
-        "3. Mencione concorrência europeia apenas como segundo parágrafo, se relevante.\n"
-        "NUNCA abra com a trajetória do jogador no clube europeu. NUNCA coloque o clube europeu como sujeito principal.\n"
+        "PONTO DE VISTA — FUTEBOL SAUDITA:\n"
+        "Este é um canal sobre a Saudi Pro League. Reordene as informações do texto para que "
+        "o clube saudita seja o sujeito da primeira frase. Isso é uma REORDENAÇÃO do que já está "
+        "escrito, não um convite para adicionar informação nova.\n"
+        "NUNCA coloque o clube europeu como sujeito principal.\n"
     )
     clubes = (
         "NOMES DE CLUBES: NUNCA use hífen. Grafias OBRIGATÓRIAS (SPL): "
@@ -1651,9 +1649,19 @@ async def gerar_texto_api(request: Request):
         "- Se o texto não confirmar acerto, NÃO escreva que houve acerto.\n"
         "Trate cada notícia como se você não soubesse NADA sobre os jogadores envolvidos.\n"
         + emoji_flags
-        + "\nTAREFA: reescreva o texto aplicando o ponto de vista saudita. Máximo 4 frases. "
-        "Elimine contexto europeu excessivo e adjetivos vagos. "
-        "Estilo: jornalismo esportivo direto, texto corrido, sem hashtags, "
+        + "\nTAREFA: reordene e condense o texto sob o ponto de vista saudita.\n"
+        "\nCOMPRIMENTO — REGRA RÍGIDA:\n"
+        "O texto final deve ter NO MÁXIMO o mesmo número de frases do original. "
+        "Se o original tem 2 frases, o resultado tem 2 frases (ou menos). "
+        "NUNCA escreva mais frases que o original. Menos é melhor que mais.\n"
+        "\nPROIBIDO — frases de fechamento, análise ou opinião:\n"
+        "- NÃO escreva frases sobre ambição, protagonismo, projeto, estratégia ou intenções do clube.\n"
+        "- NÃO escreva sobre o que o movimento demonstra, representa ou significa.\n"
+        "- NÃO escreva sobre o que a diretoria trabalha para viabilizar.\n"
+        "- NÃO adicione frase de conclusão, contexto de mercado ou comentário editorial.\n"
+        "Se você removeu o contexto europeu e sobraram poucas frases, ENTREGUE poucas frases. "
+        "NÃO preencha o espaço.\n"
+        "\nEstilo: jornalismo esportivo direto, texto corrido, sem hashtags, "
         "sem exclamações, sem títulos, sem negrito, sem listas.\n"
         + clubes
         + footer_instruction
