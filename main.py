@@ -2937,6 +2937,47 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
         return {"error": str(e)}
 
 
+@app.get("/api/admin/debug-rss")
+async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar", n: int = 3):
+    """Inspeciona um feed RSS bruto: link real, summary, e o que o scraper consegue extrair dele."""
+    import feedparser
+    from scraper import fetch_article_content, extract_urls, should_skip
+    HEADERS_DBG = {"User-Agent": "Mozilla/5.0 (compatible; SaudiFootballMonitor/1.0)"}
+    out = []
+    try:
+        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
+            resp = await client.get(url, headers=HEADERS_DBG)
+            feed = feedparser.parse(resp.text)
+            for entry in feed.entries[:n]:
+                link = getattr(entry, "link", "") or ""
+                summary = getattr(entry, "summary", "") or ""
+                item = {
+                    "title": getattr(entry, "title", ""),
+                    "link": link,
+                    "summary_len": len(summary),
+                    "summary_sample": summary[:200],
+                }
+                try:
+                    r2 = await client.get(link, headers=HEADERS_DBG, timeout=10)
+                    item["resolved_url"] = str(r2.url)
+                    item["resolved_status"] = r2.status_code
+                    item["resolved_content_type"] = r2.headers.get("content-type", "")
+                    item["resolved_html_len"] = len(r2.text)
+                    item["should_skip"] = should_skip(str(r2.url))
+                except Exception as e:
+                    item["resolve_error"] = f"{type(e).__name__}: {e}"
+                try:
+                    content, img = await fetch_article_content(link, client)
+                    item["scraped_content_len"] = len(content)
+                    item["scraped_content_sample"] = content[:300]
+                except Exception as e:
+                    item["scrape_error"] = f"{type(e).__name__}: {e}"
+                out.append(item)
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+    return {"feed_url": url, "entries": out}
+
+
 @app.post("/api/admin/reset-janela-photos")
 async def api_reset_janela_photos(background_tasks: BackgroundTasks):
     """Zera fotos TM antigas no DB e dispara enriquecimento via AF em background."""
