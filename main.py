@@ -300,12 +300,11 @@ async def dashboard():
             </div>
             <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
             <div class="card-bottom">
+              <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
               <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
               <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
-              <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
-              <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
-              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
               <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
+              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
             </div>
           </div>
         </div>"""
@@ -417,8 +416,12 @@ async def dashboard():
     .flag-circle.pub-btn.on      {{ background: var(--c-success); border-color: var(--c-success); color: white; }}
     .flag-circle.desc-btn:hover  {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
     .flag-circle.desc-btn.on     {{ background: var(--c-error); border-color: var(--c-error); color: white; }}
+    /* post-btn: em standby — retornará futuramente */
     .flag-circle.post-btn        {{ background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); text-decoration: none; }}
     .flag-circle.post-btn:hover  {{ background: var(--c-muted-6); border-color: var(--c-muted-6); color: var(--c-bg); }}
+    .flag-circle.wand-btn        {{ background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); }}
+    .flag-circle.wand-btn:hover  {{ background: var(--c-muted-6); border-color: var(--c-muted-6); color: var(--c-bg); }}
+    .flag-circle.copy-btn:hover  {{ background: var(--c-text); border-color: var(--c-text); color: var(--c-bg); }}
 
     /* ── TITLE ── */
     .card-title {{
@@ -1013,12 +1016,11 @@ async def selecao_page():
             </div>
             <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
             <div class="card-bottom">
+              <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
               <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
               <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
-              <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
-              <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
-              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
               <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
+              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
             </div>
           </div>
         </div>"""
