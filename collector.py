@@ -320,7 +320,7 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
         lang = detect_language(full_text)
         score = compute_relevance(full_text, source_tier)
         # Fontes generalistas: exige menção saudita ou score cai abaixo do threshold
-        if source_handle in STRICT_SOURCES and not match_saudi_club(full_text.lower()):
+        if account_handle in STRICT_SOURCES and not match_saudi_club(full_text.lower()):
             score = min(score, 0.2)
         articles.append({
             "id": article_id,
