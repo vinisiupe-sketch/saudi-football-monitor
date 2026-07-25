@@ -3048,6 +3048,35 @@ async def api_debug_af(league: int = 307, season: int = 2025):
     return out
 
 
+@app.get("/api/admin/debug-af2")
+async def api_debug_af2(league: int = 307, season: int = 2025, team: int = 2939):
+    """Debug parte 2: standings, fixtures, squads."""
+    af_key = os.environ.get("API_FOOTBALL_KEY", "")
+    if not af_key:
+        return {"error": "API_FOOTBALL_KEY não configurada"}
+    headers = {"x-apisports-key": af_key}
+    out = {}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r1 = await client.get("https://v3.football.api-sports.io/standings", headers=headers, params={"league": league, "season": season})
+            d1 = r1.json()
+            resp = d1.get("response", [])
+            if resp:
+                standings_table = resp[0]["league"]["standings"][0]
+                out["standings_sample"] = standings_table[:2]
+                out["standings_count"] = len(standings_table)
+            r2 = await client.get("https://v3.football.api-sports.io/fixtures", headers=headers, params={"league": league, "season": season, "team": team})
+            d2 = r2.json()
+            out["fixtures_results"] = d2.get("results")
+            out["fixtures_sample"] = d2.get("response", [])[:2]
+            r3 = await client.get("https://v3.football.api-sports.io/players/squads", headers=headers, params={"team": team})
+            d3 = r3.json()
+            out["squad_sample"] = d3.get("response", [])
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+    return out
+
+
 @app.get("/api/admin/debug-rss")
 async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar", n: int = 3):
     """Inspeciona um feed RSS bruto: link real, summary, e o que o scraper consegue extrair dele."""
