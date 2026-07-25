@@ -2941,7 +2941,7 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
 async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar", n: int = 3):
     """Inspeciona um feed RSS bruto: link real, summary, e o que o scraper consegue extrair dele."""
     import feedparser
-    from scraper import fetch_article_content, extract_urls, should_skip
+    from scraper import fetch_article_content, extract_urls, should_skip, resolve_google_news_url
     HEADERS_DBG = {"User-Agent": "Mozilla/5.0 (compatible; SaudiFootballMonitor/1.0)"}
     out = []
     try:
@@ -2967,23 +2967,14 @@ async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:ar
                 except Exception as e:
                     item["resolve_error"] = f"{type(e).__name__}: {e}"
                 try:
-                    content, img = await fetch_article_content(link, client)
-                    item["scraped_content_len"] = len(content)
-                    item["scraped_content_sample"] = content[:300]
+                    real_url = await resolve_google_news_url(link, client)
+                    item["resolved_real_url"] = real_url
+                    if real_url:
+                        content, img = await fetch_article_content(real_url, client)
+                        item["scraped_content_len"] = len(content)
+                        item["scraped_content_sample"] = content[:300]
                 except Exception as e:
                     item["scrape_error"] = f"{type(e).__name__}: {e}"
-                # Procura os atributos que o Google News usa pro redirect real (data-n-a-sg/ts/id)
-                try:
-                    html_full = r2.text
-                    import re as _re
-                    m_sg = _re.search(r'data-n-a-sg="([^"]+)"', html_full)
-                    m_ts = _re.search(r'data-n-a-ts="([^"]+)"', html_full)
-                    m_id = _re.search(r'data-n-a-id="([^"]+)"', html_full)
-                    item["gn_sg"] = m_sg.group(1) if m_sg else None
-                    item["gn_ts"] = m_ts.group(1) if m_ts else None
-                    item["gn_id"] = m_id.group(1) if m_id else None
-                except Exception as e:
-                    item["gn_attr_error"] = str(e)
                 out.append(item)
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
