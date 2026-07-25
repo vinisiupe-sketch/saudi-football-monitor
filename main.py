@@ -4,6 +4,7 @@ Saudi Football Monitor — FastAPI app principal.
 import os
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
@@ -2873,6 +2874,316 @@ async def admin_fix_article(request: Request):
 
 
 # ─── Janela de Transferências (API Football) ─────────────────────────────────
+
+# ─── Números (estatísticas via API-Football) ─────────────────────────────────
+AF_LEAGUE_SPL = 307  # Saudi Pro League — confirmado via /leagues?id=307
+_AF_CACHE: dict = {}
+_AF_CACHE_TTL = 1800  # 30min — evita estourar rate limit da API-Football
+
+async def _af_get(path: str, params: dict) -> tuple[dict | None, str | None]:
+    """GET genérico na API-Football com cache em memória e mensagens de erro claras.
+    Retorna (data, None) em sucesso ou (None, mensagem_erro)."""
+    af_key = os.environ.get("API_FOOTBALL_KEY", "")
+    if not af_key:
+        return None, "API_FOOTBALL_KEY não configurada no servidor."
+    cache_key = path + "?" + json.dumps(params, sort_keys=True)
+    now = time.time()
+    cached = _AF_CACHE.get(cache_key)
+    if cached and (now - cached[0]) < _AF_CACHE_TTL:
+        return cached[1], None
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(
+                f"https://v3.football.api-sports.io/{path}",
+                headers={"x-apisports-key": af_key},
+                params=params,
+            )
+            if r.status_code != 200:
+                return None, f"API-Football HTTP {r.status_code}"
+            data = r.json()
+            if data.get("errors"):
+                errs = data["errors"]
+                msg = ", ".join(str(v) for v in errs.values()) if isinstance(errs, dict) else str(errs)
+                if msg:
+                    return None, f"API-Football: {msg}"
+            _AF_CACHE[cache_key] = (now, data)
+            return data, None
+    except Exception as e:
+        return None, f"Erro ao consultar API-Football: {type(e).__name__}: {e}"
+
+
+def _af_available_seasons() -> list[int]:
+    """Anos com cobertura de top_scorers confirmada (só esses rendem rankings completos)."""
+    return [2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016]
+
+
+@app.get("/api/numeros/meta")
+async def api_numeros_meta(season: int = 2025):
+    """Times da SPL na temporada (pra popular filtros de clube/jogador)."""
+    data, err = await _af_get("teams", {"league": AF_LEAGUE_SPL, "season": season})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    teams = [
+        {"id": t["team"]["id"], "name": t["team"]["name"], "logo": t["team"]["logo"]}
+        for t in data.get("response", [])
+    ]
+    teams.sort(key=lambda x: x["name"])
+    return {"season": season, "seasons_available": _af_available_seasons(), "teams": teams}
+
+
+@app.get("/api/numeros/squad")
+async def api_numeros_squad(team: int):
+    """Elenco de um clube (pra popular o seletor de jogador)."""
+    data, err = await _af_get("players/squads", {"team": team})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    resp = data.get("response", [])
+    if not resp:
+        return {"team": None, "players": []}
+    return {
+        "team": resp[0].get("team"),
+        "players": [
+            {"id": p["id"], "name": p["name"], "number": p.get("number"), "position": p.get("position"), "photo": p.get("photo")}
+            for p in resp[0].get("players", [])
+        ],
+    }
+
+
+def _player_stat_row(entry: dict) -> dict | None:
+    """Extrai a linha de estatística da SPL de uma entrada de topscorers/topassists
+    (cada entrada já vem com UMA statistics[0] resolvida pro contexto da consulta)."""
+    stats = entry.get("statistics") or []
+    if not stats:
+        return None
+    s = stats[0]
+    games = s.get("games") or {}
+    goals = s.get("goals") or {}
+    p = entry.get("player") or {}
+    g = goals.get("total")
+    a = goals.get("assists")
+    return {
+        "player_id": p.get("id"),
+        "name": p.get("name"),
+        "photo": p.get("photo"),
+        "nationality": p.get("nationality"),
+        "team": (s.get("team") or {}).get("name"),
+        "team_id": (s.get("team") or {}).get("id"),
+        "team_logo": (s.get("team") or {}).get("logo"),
+        "appearences": games.get("appearences"),
+        "goals": g,
+        "assists": a,
+        "ga": (g or 0) + (a or 0) if (g is not None or a is not None) else None,
+    }
+
+
+@app.get("/api/numeros/topscorers")
+async def api_numeros_topscorers(season: int = 2025, limit: int = 20, team: int = 0):
+    data, err = await _af_get("players/topscorers", {"league": AF_LEAGUE_SPL, "season": season})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    rows = [r for r in (_player_stat_row(e) for e in data.get("response", [])) if r]
+    if team:
+        rows = [r for r in rows if r["team_id"] == team]
+    rows = rows[:max(1, min(limit, 20))]
+    return {"season": season, "league": "Saudi Pro League", "team_filter": team or None, "count": len(rows), "players": rows}
+
+
+@app.get("/api/numeros/topassists")
+async def api_numeros_topassists(season: int = 2025, limit: int = 20, team: int = 0):
+    data, err = await _af_get("players/topassists", {"league": AF_LEAGUE_SPL, "season": season})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    rows = [r for r in (_player_stat_row(e) for e in data.get("response", [])) if r]
+    if team:
+        rows = [r for r in rows if r["team_id"] == team]
+    rows = rows[:max(1, min(limit, 20))]
+    return {"season": season, "league": "Saudi Pro League", "team_filter": team or None, "count": len(rows), "players": rows}
+
+
+@app.get("/api/numeros/goal-contributions")
+async def api_numeros_goal_contributions(season: int = 2025, limit: int = 20, team: int = 0):
+    """G+A: combina os rankings de artilharia e assistências (cada um top-20 da API-
+    Football — não existe endpoint nativo de G+A) e reordena pela soma real dos dois
+    campos retornados pela API. Jogadores fora de ambos os top-20 não entram aqui —
+    isso é uma limitação real da API, não uma omissão arbitrária."""
+    d1, e1 = await _af_get("players/topscorers", {"league": AF_LEAGUE_SPL, "season": season})
+    if e1:
+        return JSONResponse({"error": e1}, status_code=502)
+    d2, e2 = await _af_get("players/topassists", {"league": AF_LEAGUE_SPL, "season": season})
+    if e2:
+        return JSONResponse({"error": e2}, status_code=502)
+    merged: dict[int, dict] = {}
+    for e in (d1.get("response", []) + d2.get("response", [])):
+        row = _player_stat_row(e)
+        if row and row["player_id"] is not None:
+            merged[row["player_id"]] = row
+    rows = list(merged.values())
+    if team:
+        rows = [r for r in rows if r["team_id"] == team]
+    rows.sort(key=lambda r: (r["ga"] if r["ga"] is not None else -1), reverse=True)
+    rows = rows[:max(1, min(limit, 40))]
+    return {
+        "season": season, "league": "Saudi Pro League", "team_filter": team or None,
+        "count": len(rows), "players": rows,
+        "note": "Combina os top-20 de artilharia e assistências da API-Football — jogadores fora dessas duas listas não aparecem.",
+    }
+
+
+@app.get("/api/numeros/standings")
+async def api_numeros_standings(season: int = 2025):
+    data, err = await _af_get("standings", {"league": AF_LEAGUE_SPL, "season": season})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    resp = data.get("response", [])
+    if not resp:
+        return {"season": season, "table": []}
+    table_raw = resp[0]["league"]["standings"][0]
+    table = [
+        {
+            "rank": row["rank"],
+            "team": row["team"]["name"],
+            "team_logo": row["team"]["logo"],
+            "points": row["points"],
+            "played": row["all"]["played"],
+            "wins": row["all"]["win"],
+            "draws": row["all"]["draw"],
+            "losses": row["all"]["lose"],
+            "goals_diff": row["goalsDiff"],
+            "goals_for": row["all"]["goals"]["for"],
+            "goals_against": row["all"]["goals"]["against"],
+        }
+        for row in table_raw
+    ]
+    return {"season": season, "league": "Saudi Pro League", "table": table}
+
+
+@app.get("/api/numeros/fixtures")
+async def api_numeros_fixtures(team: int, season: int = 2025):
+    data, err = await _af_get("fixtures", {"league": AF_LEAGUE_SPL, "season": season, "team": team})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    fixtures = []
+    for f in data.get("response", []):
+        fx = f.get("fixture", {})
+        teams = f.get("teams", {})
+        goals = f.get("goals", {})
+        fixtures.append({
+            "fixture_id": fx.get("id"),
+            "date": (fx.get("date") or "")[:10],
+            "round": (f.get("league") or {}).get("round"),
+            "status": (fx.get("status") or {}).get("short"),
+            "home": (teams.get("home") or {}).get("name"),
+            "away": (teams.get("away") or {}).get("name"),
+            "goals_home": goals.get("home"),
+            "goals_away": goals.get("away"),
+        })
+    fixtures.sort(key=lambda x: x["date"] or "", reverse=True)
+    return {"season": season, "team": team, "fixtures": fixtures}
+
+
+@app.get("/api/numeros/fixture-player")
+async def api_numeros_fixture_player(fixture: int, player: int):
+    """Estatísticas de UM jogador em UMA partida específica."""
+    data, err = await _af_get("fixtures/players", {"fixture": fixture})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    found = None
+    team_name = None
+    for team_block in data.get("response", []):
+        for pl in team_block.get("players", []):
+            if pl.get("player", {}).get("id") == player:
+                found = pl
+                team_name = (team_block.get("team") or {}).get("name")
+                break
+        if found:
+            break
+    if not found:
+        return JSONResponse({"error": "Jogador não encontrado nesta partida (não participou ou não foi relacionado)."}, status_code=404)
+    s = (found.get("statistics") or [{}])[0]
+    def g(*keys):
+        d = s
+        for k in keys[:-1]:
+            d = (d or {}).get(k, {})
+        return (d or {}).get(keys[-1])
+    return {
+        "player_id": player,
+        "name": found.get("player", {}).get("name"),
+        "photo": found.get("player", {}).get("photo"),
+        "team": team_name,
+        "minutes": g("games", "minutes"),
+        "position": g("games", "position"),
+        "rating": g("games", "rating"),
+        "goals": g("goals", "total"),
+        "assists": g("goals", "assists"),
+        "goals_conceded": g("goals", "conceded"),
+        "saves": g("goals", "saves"),
+        "shots_total": g("shots", "total"),
+        "shots_on": g("shots", "on"),
+        "passes_total": g("passes", "total"),
+        "passes_accuracy": g("passes", "accuracy"),
+        "tackles": g("tackles", "total"),
+        "interceptions": g("tackles", "interceptions"),
+        "duels_total": g("duels", "total"),
+        "duels_won": g("duels", "won"),
+        "dribbles_success": g("dribbles", "success"),
+        "fouls_drawn": g("fouls", "drawn"),
+        "fouls_committed": g("fouls", "committed"),
+        "yellow_cards": g("cards", "yellow"),
+        "red_cards": g("cards", "red"),
+    }
+
+
+@app.get("/api/numeros/player-season")
+async def api_numeros_player_season(player: int, season: int = 2025, league: int = 0):
+    """Estatísticas de um jogador na temporada — se `league` for informado, filtra
+    pra aquela competição; senão retorna todas as competições em que ele atuou
+    (pra popular o seletor de competição no front)."""
+    data, err = await _af_get("players", {"id": player, "season": season})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    resp = data.get("response", [])
+    if not resp:
+        return JSONResponse({"error": "Jogador sem estatísticas nesta temporada."}, status_code=404)
+    p = resp[0].get("player", {})
+    stats_list = resp[0].get("statistics", [])
+    competitions = [
+        {"league_id": s.get("league", {}).get("id"), "league_name": s.get("league", {}).get("name"), "team": s.get("team", {}).get("name")}
+        for s in stats_list
+    ]
+    if league:
+        stats_list = [s for s in stats_list if s.get("league", {}).get("id") == league]
+    if not stats_list:
+        return {
+            "player_id": player, "name": p.get("name"), "photo": p.get("photo"),
+            "season": season, "competitions_available": competitions, "stats": None,
+        }
+    s = stats_list[0]
+    games = s.get("games") or {}
+    goals = s.get("goals") or {}
+    g_total = goals.get("total")
+    a_total = goals.get("assists")
+    return {
+        "player_id": player,
+        "name": p.get("name"),
+        "photo": p.get("photo"),
+        "nationality": p.get("nationality"),
+        "age": p.get("age"),
+        "season": season,
+        "team": (s.get("team") or {}).get("name"),
+        "league": (s.get("league") or {}).get("name"),
+        "competitions_available": competitions,
+        "stats": {
+            "appearences": games.get("appearences"),
+            "minutes": games.get("minutes"),
+            "rating": games.get("rating"),
+            "goals": g_total,
+            "assists": a_total,
+            "ga": (g_total or 0) + (a_total or 0) if (g_total is not None or a_total is not None) else None,
+            "yellow_cards": (s.get("cards") or {}).get("yellow"),
+            "red_cards": (s.get("cards") or {}).get("red"),
+        },
+    }
+
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 _JANELA_SCRAPING = False
