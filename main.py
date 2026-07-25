@@ -120,6 +120,7 @@ _ICO_TRASH2  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>'
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
 _ICO_ANALISE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
+_ICO_NUMEROS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
@@ -160,6 +161,7 @@ def _header(active: str) -> str:
         ("/fontes",      _ICO_SOURCES, "Fontes",      "",     "#a855f7"),
         ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "",     "#f97316"),
         ("/analise",     _ICO_ANALISE, "Análise",     "",     "#d97706"),
+        ("/numeros",     _ICO_NUMEROS, "Números",     "",     "#0ea5e9"),
     ]
     items = ""
     for href, ico, label, badge_tab, color in pages:
@@ -1763,6 +1765,459 @@ async def twitter_test(username: str = "FabrizioRomano"):
 from database import get_effective_sources, load_source_overrides, save_source_overrides
 
 
+@app.get("/numeros", response_class=HTMLResponse)
+async def numeros_page():
+    hdr = _header("/numeros")
+    FLAG_MAP_JS = '{"Saudi Arabia": "🇸🇦", "Portugal": "🇵🇹", "Brazil": "🇧🇷", "Argentina": "🇦🇷", "Colombia": "🇨🇴", "England": "🇬🇧", "France": "🇫🇷", "Belgium": "🇧🇪", "Netherlands": "🇳🇱", "Spain": "🇪🇸", "Italy": "🇮🇹", "Germany": "🇩🇪", "Norway": "🇳🇴", "Sweden": "🇸🇪", "Denmark": "🇩🇰", "Greece": "🇬🇷", "Senegal": "🇸🇳", "Mali": "🇲🇱", "Ivory Coast": "🇨🇮", "Cote d\'Ivoire": "🇨🇮", "Cameroon": "🇨🇲", "Nigeria": "🇳🇬", "Ghana": "🇬🇭", "Algeria": "🇩🇿", "Morocco": "🇲🇦", "Tunisia": "🇹🇳", "Egypt": "🇪🇬", "Guinea": "🇬🇳", "Croatia": "🇭🇷", "Serbia": "🇷🇸", "Poland": "🇵🇱", "Ukraine": "🇺🇦", "Russia": "🇷🇺", "Uruguay": "🇺🇾", "Chile": "🇨🇱", "Mexico": "🇲🇽", "USA": "🇺🇸", "United States": "🇺🇸", "Japan": "🇯🇵", "South Korea": "🇰🇷", "Korea Republic": "🇰🇷", "Australia": "🇦🇺", "Iran": "🇮🇷", "Iraq": "🇮🇶", "Jordan": "🇯🇴", "Bosnia": "🇧🇦", "Bosnia and Herzegovina": "🇧🇦", "Montenegro": "🇲🇪", "Wales": "🏴", "Scotland": "🏴", "Ireland": "🇮🇪", "Turkey": "🇹🇷", "Czech Republic": "🇨🇿", "Slovakia": "🇸🇰", "Austria": "🇦🇹", "Switzerland": "🇨🇭", "Georgia": "🇬🇪", "Armenia": "🇦🇲", "Tajikistan": "🇹🇯", "Ecuador": "🇪🇨", "Peru": "🇵🇪", "Venezuela": "🇻🇪", "Paraguay": "🇵🇾", "Bolivia": "🇧🇴", "Costa Rica": "🇨🇷", "Panama": "🇵🇦", "Jamaica": "🇯🇲", "Qatar": "🇶🇦", "UAE": "🇦🇪", "United Arab Emirates": "🇦🇪", "Kuwait": "🇰🇼", "Bahrain": "🇧🇭", "Oman": "🇴🇲", "Syria": "🇸🇾", "Lebanon": "🇱🇧", "Palestine": "🇵🇸", "Albania": "🇦🇱", "North Macedonia": "🇲🇰", "Slovenia": "🇸🇮", "Romania": "🇷🇴", "Bulgaria": "🇧🇬", "Hungary": "🇭🇺", "Finland": "🇫🇮", "Iceland": "🇮🇸", "Israel": "🇮🇱", "China": "🇨🇳", "India": "🇮🇳", "DR Congo": "🇨🇩", "Congo": "🇨🇬", "Gabon": "🇬🇦", "Burkina Faso": "🇧🇫", "Zambia": "🇿🇲", "South Africa": "🇿🇦", "Kenya": "🇰🇪", "Angola": "🇦🇴", "Cape Verde": "🇨🇻", "Equatorial Guinea": "🇬🇶", "Gambia": "🇬🇲", "Guinea-Bissau": "🇬🇼", "Benin": "🇧🇯", "Togo": "🇹🇬", "Niger": "🇳🇪", "Libya": "🇱🇾", "Sudan": "🇸🇩", "Mauritania": "🇲🇷"}'
+    CLUB_SHORT_JS = '{"Al Khaleej Saihat": "Khaleej", "Al Kholood": "Kholood", "Al Najma": "Najma", "Al Okhdood": "Okhdood", "Al Riyadh": "Riyadh", "Al Shabab": "Shabab", "Al Taawon": "Taawoun", "Al-Ahli Jeddah": "Ahli", "Al-Ettifaq": "Ettifaq", "Al-Fateh": "Fateh", "Al-Fayha": "Fayha", "Al-Hazm": "Hazm", "Al-Hilal Saudi FC": "Hilal", "Al-Ittihad FC": "Ittihad", "Al-Nassr": "Nassr", "Al-Qadisiyah FC": "Qadsiah", "Damac": "Damac", "NEOM": "Neom"}'
+    SEASONS_JS = '[2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016]'
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IARABÃO — Números</title>
+{_THEME_INIT_SCRIPT}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
+{_HEADER_CSS}
+
+.numeros-wrap {{ max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }}
+.numeros-title {{ font-size: 1.15rem; font-weight: 700; color: var(--c-text); margin: 0 0 4px; }}
+.numeros-subtitle {{ font-size: .78rem; color: var(--c-muted-3); margin: 0 0 18px; }}
+
+.tabbar {{ display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; border-bottom: 1px solid var(--c-border); padding-bottom: 10px; }}
+.tab-btn {{
+  background: none; border: 1px solid var(--c-border-2); border-radius: 99px;
+  padding: 6px 16px; font-size: .75rem; font-weight: 700; color: var(--c-muted-3);
+  cursor: pointer; transition: all .15s; text-transform: uppercase; letter-spacing: .04em;
+}}
+.tab-btn:hover {{ color: var(--c-text); border-color: var(--c-muted-3); }}
+.tab-btn.active {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
+.tab-panel {{ display: none; }}
+.tab-panel.active {{ display: block; }}
+
+.subtabbar {{ display: flex; gap: 6px; margin-bottom: 14px; }}
+.subtab-btn {{
+  background: none; border: none; border-bottom: 2px solid transparent;
+  padding: 6px 4px; font-size: .82rem; font-weight: 600; color: var(--c-muted-3);
+  cursor: pointer; transition: all .15s;
+}}
+.subtab-btn:hover {{ color: var(--c-text); }}
+.subtab-btn.active {{ color: var(--c-text); border-bottom-color: var(--c-text); }}
+.subtab-panel {{ display: none; }}
+.subtab-panel.active {{ display: block; }}
+
+.filters-row {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }}
+.filters-row select, .filters-row input {{
+  padding: 6px 10px; border-radius: 8px; border: 1px solid var(--c-border);
+  background: var(--c-bg-card); color: var(--c-text); font-size: .78rem; outline: none;
+}}
+.filters-row select:focus, .filters-row input:focus {{ border-color: var(--c-muted-3); }}
+.filters-row label {{ font-size: .68rem; color: var(--c-muted-3); text-transform: uppercase; letter-spacing: .05em; display: flex; flex-direction: column; gap: 3px; }}
+
+.result-card {{
+  background: var(--c-bg-card); border-radius: 16px; padding: 18px 20px;
+  margin-bottom: 16px;
+}}
+.result-head {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }}
+.result-title {{ font-size: .85rem; font-weight: 700; color: var(--c-text); }}
+.copy-btn {{
+  display: flex; align-items: center; gap: 5px;
+  background: var(--c-text); color: var(--c-bg); border: none; border-radius: 8px;
+  padding: 6px 14px; font-size: .72rem; font-weight: 700; cursor: pointer;
+  transition: background .15s; white-space: nowrap;
+}}
+.copy-btn:hover {{ background: var(--c-muted-6); }}
+.copy-btn.copied {{ background: var(--c-success); color: white; }}
+.result-pre {{
+  white-space: pre-wrap; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: .82rem; line-height: 1.7; color: var(--c-muted-4);
+  background: var(--c-bg-soft); border-radius: 10px; padding: 14px 16px;
+  max-height: 420px; overflow-y: auto;
+}}
+.result-meta {{ font-size: .65rem; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: .05em; margin-top: 8px; }}
+.loading-state, .error-state {{ text-align: center; color: var(--c-muted-3); padding: 24px; font-size: .82rem; }}
+.error-state {{ color: #dc2626; }}
+
+.player-picker {{ display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }}
+.player-avatar-preview {{ width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--c-bg-soft); }}
+</style>
+</head>
+<body>
+{hdr}
+<div class="numeros-wrap">
+  <div class="numeros-title">Números — Saudi Pro League</div>
+  <div class="numeros-subtitle">Estatísticas via API-Football, prontas pra copiar e colar. Dados ausentes aparecem como "Dado não disponível" — nada é estimado.</div>
+
+  <div class="tabbar">
+    <button class="tab-btn active" onclick="showTab('rankings',this)">Rankings</button>
+    <button class="tab-btn" onclick="showTab('classificacao',this)">Classificação</button>
+    <button class="tab-btn" onclick="showTab('jogador',this)">Jogador</button>
+  </div>
+
+  <div id="tab-rankings" class="tab-panel active">
+    <div class="subtabbar">
+      <button class="subtab-btn active" onclick="showSubtab('rk','artilharia',this)">Artilharia</button>
+      <button class="subtab-btn" onclick="showSubtab('rk','assistencias',this)">Assistências</button>
+      <button class="subtab-btn" onclick="showSubtab('rk','ga',this)">Participações em Gols</button>
+    </div>
+    <div class="filters-row">
+      <label>Temporada
+        <select id="rkSeason" onchange="loadRankings()"></select>
+      </label>
+      <label>Clube
+        <select id="rkTeam" onchange="loadRankings()"><option value="0">Todos</option></select>
+      </label>
+      <label>Qtd. de atletas
+        <select id="rkLimit" onchange="loadRankings()">
+          <option value="5">5</option><option value="10" selected>10</option>
+          <option value="15">15</option><option value="20">20</option>
+        </select>
+      </label>
+    </div>
+    <div id="rk-artilharia" class="subtab-panel active"><div class="result-card"><div class="loading-state">Carregando…</div></div></div>
+    <div id="rk-assistencias" class="subtab-panel"><div class="result-card"><div class="loading-state">Carregando…</div></div></div>
+    <div id="rk-ga" class="subtab-panel"><div class="result-card"><div class="loading-state">Carregando…</div></div></div>
+  </div>
+
+  <div id="tab-classificacao" class="tab-panel">
+    <div class="filters-row">
+      <label>Temporada
+        <select id="stSeason" onchange="loadStandings()"></select>
+      </label>
+      <label>Exibir
+        <select id="stMode" onchange="loadStandings()">
+          <option value="7">G7 (top 7)</option>
+          <option value="18">Tabela completa</option>
+        </select>
+      </label>
+    </div>
+    <div id="standings-result"><div class="result-card"><div class="loading-state">Carregando…</div></div></div>
+  </div>
+
+  <div id="tab-jogador" class="tab-panel">
+    <div class="player-picker">
+      <label>Clube
+        <select id="jgTeam" onchange="onTeamChange()"></select>
+      </label>
+      <label>Jogador
+        <select id="jgPlayer" onchange="onPlayerChange()"><option value="">Selecione o clube primeiro</option></select>
+      </label>
+    </div>
+
+    <div class="subtabbar">
+      <button class="subtab-btn active" onclick="showSubtab('jg','temporada',this)">Temporada</button>
+      <button class="subtab-btn" onclick="showSubtab('jg','partida',this)">Partida específica</button>
+    </div>
+
+    <div id="jg-temporada" class="subtab-panel active">
+      <div class="filters-row">
+        <label>Temporada
+          <select id="jgSeason" onchange="loadPlayerSeason()"></select>
+        </label>
+        <label>Competição
+          <select id="jgLeague" onchange="loadPlayerSeason()"><option value="0">Todas</option></select>
+        </label>
+      </div>
+      <div id="player-season-result"><div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div></div>
+    </div>
+
+    <div id="jg-partida" class="subtab-panel">
+      <div class="filters-row">
+        <label>Temporada
+          <select id="fxSeason" onchange="loadFixtures()"></select>
+        </label>
+        <label>Partida
+          <select id="fxFixture" onchange="loadFixturePlayer()"><option value="">Selecione o jogador primeiro</option></select>
+        </label>
+      </div>
+      <div id="fixture-player-result"><div class="result-card"><div class="loading-state">Selecione um jogador e uma partida acima.</div></div></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FLAG_MAP = {FLAG_MAP_JS};
+const CLUB_SHORT = {CLUB_SHORT_JS};
+const SEASONS = {SEASONS_JS};
+
+function flagFor(nat) {{ return FLAG_MAP[nat] || '🏳️'; }}
+function clubShort(name) {{ return CLUB_SHORT[name] || (name || '').replace(/^Al[- ]/,'').trim() || name || '—'; }}
+function pad2(n) {{ return String(n ?? 0).padStart(2,'0'); }}
+function na(v) {{ return (v === null || v === undefined || v === '') ? 'Dado não disponível' : v; }}
+
+function rankBadges(items, valueKey) {{
+  const badges = ['🥇','🥈','🥉'];
+  let out = []; let lastVal = null; let lastRank = 0;
+  items.forEach((it, idx) => {{
+    const val = it[valueKey];
+    let rank;
+    if (lastVal !== null && val === lastVal) {{ rank = lastRank; }}
+    else {{ rank = lastRank + 1; }}
+    lastVal = val; lastRank = rank;
+    let badge;
+    if (rank <= 3) badge = badges[rank-1];
+    else if (rank <= 9) badge = String(rank) + '️⃣';
+    else if (rank === 10) badge = '🔟';
+    else badge = rank + '.';
+    out.push(badge);
+  }});
+  return out;
+}}
+
+function fillSelect(sel, items, valueKey, labelKey, placeholder) {{
+  sel.innerHTML = '';
+  if (placeholder) {{ const o = document.createElement('option'); o.value=''; o.textContent=placeholder; sel.appendChild(o); }}
+  items.forEach(it => {{
+    const o = document.createElement('option');
+    o.value = it[valueKey]; o.textContent = it[labelKey];
+    sel.appendChild(o);
+  }});
+}}
+
+function setupSeasonSelects() {{
+  ['rkSeason','stSeason','jgSeason','fxSeason'].forEach(id => {{
+    const sel = document.getElementById(id);
+    sel.innerHTML = '';
+    SEASONS.forEach(y => {{
+      const o = document.createElement('option');
+      o.value = y; o.textContent = y + '/' + String(y+1).slice(2);
+      if (y === SEASONS[0]) o.selected = true;
+      sel.appendChild(o);
+    }});
+  }});
+}}
+
+function showTab(name, btn) {{
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}}
+function showSubtab(group, name, btn) {{
+  const prefix = group === 'rk' ? 'rk-' : 'jg-';
+  const parent = btn.closest(group === 'rk' ? '#tab-rankings' : '#tab-jogador');
+  parent.querySelectorAll('.subtab-panel').forEach(p => p.classList.remove('active'));
+  parent.querySelectorAll('.subtab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(prefix + name).classList.add('active');
+  btn.classList.add('active');
+}}
+
+function copyBlock(btn, text) {{
+  navigator.clipboard.writeText(text).then(() => {{
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => {{ btn.textContent = orig; btn.classList.remove('copied'); }}, 1800);
+  }});
+}}
+
+function renderResultCard(container, title, bodyText, meta) {{
+  container.innerHTML =
+    '<div class="result-card">' +
+    '<div class="result-head"><span class="result-title">' + title + '</span>' +
+    '<button class="copy-btn" onclick="copyBlock(this, this.closest(\\'.result-card\\').dataset.copytext)">📋 Copiar</button></div>' +
+    '<div class="result-pre">' + bodyText.replace(/</g,'&lt;') + '</div>' +
+    (meta ? '<div class="result-meta">' + meta + '</div>' : '') +
+    '</div>';
+  container.querySelector('.result-card').dataset.copytext = bodyText;
+}}
+
+async function fetchJSON(url) {{
+  const r = await fetch(url);
+  const d = await r.json();
+  if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}}
+
+async function loadRankings() {{
+  const season = document.getElementById('rkSeason').value;
+  const team = document.getElementById('rkTeam').value;
+  const limit = document.getElementById('rkLimit').value;
+  const qs = 'season=' + season + '&team=' + team + '&limit=' + limit;
+
+  const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
+
+  try {{
+    const d = await fetchJSON('/api/numeros/topscorers?' + qs);
+    const badges = rankBadges(d.players, 'goals');
+    let txt = '⚽🇸🇦 ARTILHARIA — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
+    d.players.forEach((p, i) => {{
+      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + ' (' + clubShort(p.team) + ') - ' + na(p.goals) + '\\n';
+    }});
+    renderResultCard(document.getElementById('rk-artilharia'), 'Artilharia', txt.trim(),
+      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (team!=='0' ? ' · clube filtrado' : '') + ' · fonte: API-Football');
+  }} catch(e) {{
+    document.getElementById('rk-artilharia').innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+  }}
+
+  try {{
+    const d = await fetchJSON('/api/numeros/topassists?' + qs);
+    const badges = rankBadges(d.players, 'assists');
+    let txt = '\\u{{1F170}}️🇸🇦 ASSISTÊNCIAS — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
+    d.players.forEach((p, i) => {{
+      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + ' (' + clubShort(p.team) + ') - ' + na(p.assists) + '\\n';
+    }});
+    renderResultCard(document.getElementById('rk-assistencias'), 'Assistências', txt.trim(),
+      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (team!=='0' ? ' · clube filtrado' : '') + ' · fonte: API-Football');
+  }} catch(e) {{
+    document.getElementById('rk-assistencias').innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+  }}
+
+  try {{
+    const d = await fetchJSON('/api/numeros/goal-contributions?' + qs);
+    const badges = rankBadges(d.players, 'ga');
+    let txt = '📊🇸🇦 PARTICIPAÇÕES EM GOLS — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
+    d.players.forEach((p, i) => {{
+      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + ' - ' + na(p.ga) + ' [' + pad2(p.goals) + '⚽+' + pad2(p.assists) + '\\u{{1F170}}️]\\n';
+    }});
+    renderResultCard(document.getElementById('rk-ga'), 'Participações em Gols (G+A)', txt.trim(),
+      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (team!=='0' ? ' · clube filtrado' : '') + ' · combina top-20 de artilharia e assistências · fonte: API-Football');
+  }} catch(e) {{
+    document.getElementById('rk-ga').innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+  }}
+}}
+
+async function loadStandings() {{
+  const season = document.getElementById('stSeason').value;
+  const mode = document.getElementById('stMode').value;
+  const container = document.getElementById('standings-result');
+  const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
+  try {{
+    const d = await fetchJSON('/api/numeros/standings?season=' + season);
+    const rows = mode === '7' ? d.table.slice(0,7) : d.table;
+    const label = mode === '7' ? 'G7' : 'CLASSIFICAÇÃO COMPLETA';
+    let txt = label + ' — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
+    txt += 'POS\\tTIME\\tPTS\\tJ\\tV\\tSG\\n';
+    rows.forEach(r => {{
+      txt += r.rank + '\\t' + r.team.toUpperCase() + '\\t' + na(r.points) + '\\t' + na(r.played) + '\\t' + na(r.wins) + '\\t' + na(r.goals_diff) + '\\n';
+    }});
+    renderResultCard(container, label, txt.trim(),
+      'Temporada ' + seasonLabel + ' · Saudi Pro League · formato tabulado (TSV) — cole direto em planilha ou Canva · fonte: API-Football');
+  }} catch(e) {{
+    container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+  }}
+}}
+
+async function onTeamChange() {{
+  const team = document.getElementById('jgTeam').value;
+  const playerSel = document.getElementById('jgPlayer');
+  if (!team) {{ fillSelect(playerSel, [], 'id', 'name', 'Selecione o clube primeiro'); return; }}
+  playerSel.innerHTML = '<option value="">Carregando…</option>';
+  try {{
+    const d = await fetchJSON('/api/numeros/squad?team=' + team);
+    fillSelect(playerSel, d.players, 'id', 'name', 'Selecione o jogador');
+  }} catch(e) {{
+    playerSel.innerHTML = '<option value="">Erro ao carregar elenco</option>';
+  }}
+}}
+
+function onPlayerChange() {{
+  loadPlayerSeason();
+  loadFixtures();
+}}
+
+async function loadPlayerSeason() {{
+  const player = document.getElementById('jgPlayer').value;
+  const container = document.getElementById('player-season-result');
+  if (!player) {{ container.innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>'; return; }}
+  const season = document.getElementById('jgSeason').value;
+  const league = document.getElementById('jgLeague').value;
+  const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
+  container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
+  try {{
+    const d = await fetchJSON('/api/numeros/player-season?player=' + player + '&season=' + season + (league!=='0' ? '&league=' + league : ''));
+    const leagueSel = document.getElementById('jgLeague');
+    if (leagueSel.dataset.player !== player) {{
+      fillSelect(leagueSel, [{{league_id:0, label:'Todas'}}, ...d.competitions_available.map(c=>({{league_id: c.league_id, label: c.league_name}}))], 'league_id', 'label', null);
+      leagueSel.dataset.player = player;
+    }}
+    if (!d.stats) {{
+      container.innerHTML = '<div class="result-card"><div class="error-state">Sem estatísticas disponíveis para esta competição/temporada.</div></div>';
+      return;
+    }}
+    const s = d.stats;
+    let txt = flagFor(d.nationality) + ' ' + d.name + ' pelo ' + na(d.team) + ' — ' + na(d.league) + ' ' + seasonLabel + ':\\n\\n';
+    txt += '⚔️ ' + na(s.appearences) + ' jogos\\n';
+    txt += '✅ ' + na(s.ga) + ' participações em gols\\n';
+    txt += '⚽ ' + na(s.goals) + ' gols\\n';
+    txt += '\\u{{1F170}}️ ' + na(s.assists) + ' assistências\\n';
+    if (s.rating) txt += '⭐ Nota média: ' + s.rating + '\\n';
+    if (s.yellow_cards || s.red_cards) txt += '🟨 ' + na(s.yellow_cards) + ' amarelos 🟥 ' + na(s.red_cards) + ' vermelhos\\n';
+    renderResultCard(container, 'Estatísticas na temporada', txt.trim(),
+      'Temporada ' + seasonLabel + ' · ' + na(d.league) + ' · fonte: API-Football');
+  }} catch(e) {{
+    container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+  }}
+}}
+
+async function loadFixtures() {{
+  const player = document.getElementById('jgPlayer').value;
+  const team = document.getElementById('jgTeam').value;
+  const fxSel = document.getElementById('fxFixture');
+  if (!player || !team) {{ fxSel.innerHTML = '<option value="">Selecione o jogador primeiro</option>'; return; }}
+  const season = document.getElementById('fxSeason').value;
+  fxSel.innerHTML = '<option value="">Carregando…</option>';
+  try {{
+    const d = await fetchJSON('/api/numeros/fixtures?team=' + team + '&season=' + season);
+    const items = d.fixtures.map(f => ({{
+      id: f.fixture_id,
+      label: f.date + ' · ' + f.home + ' ' + na(f.goals_home) + 'x' + na(f.goals_away) + ' ' + f.away + ' (' + (f.round||'') + ')'
+    }}));
+    fillSelect(fxSel, items, 'id', 'label', 'Selecione a partida');
+  }} catch(e) {{
+    fxSel.innerHTML = '<option value="">Erro ao carregar partidas</option>';
+  }}
+}}
+
+async function loadFixturePlayer() {{
+  const fixture = document.getElementById('fxFixture').value;
+  const player = document.getElementById('jgPlayer').value;
+  const container = document.getElementById('fixture-player-result');
+  if (!fixture || !player) return;
+  container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
+  try {{
+    const d = await fetchJSON('/api/numeros/fixture-player?fixture=' + fixture + '&player=' + player);
+    let txt = d.name + ' — ' + na(d.team) + '\\n\\n';
+    txt += '⏱️ ' + na(d.minutes) + ' min em campo (' + na(d.position) + ')\\n';
+    if (d.rating) txt += '⭐ Nota: ' + d.rating + '\\n';
+    txt += '⚽ Gols: ' + na(d.goals) + '  \\u{{1F170}}️ Assistências: ' + na(d.assists) + '\\n';
+    if (d.goals_conceded !== null || d.saves !== null) {{
+      txt += '🧤 ' + na(d.goals_conceded) + ' gols sofridos · ' + na(d.saves) + ' defesas\\n';
+    }}
+    txt += '🎯 Finalizações: ' + na(d.shots_on) + '/' + na(d.shots_total) + ' no alvo\\n';
+    txt += '📈 Passes: ' + na(d.passes_total) + ' (' + na(d.passes_accuracy) + '% de acerto)\\n';
+    txt += '🤝 Duelos vencidos: ' + na(d.duels_won) + '/' + na(d.duels_total) + '\\n';
+    if (d.fouls_drawn !== null) txt += '👊 Faltas sofridas: ' + na(d.fouls_drawn) + '\\n';
+    if (d.yellow_cards) txt += '🟨 Cartão amarelo\\n';
+    if (d.red_cards) txt += '🟥 Cartão vermelho\\n';
+    renderResultCard(container, 'Estatísticas na partida', txt.trim(), 'Fonte: API-Football (dados por partida)');
+  }} catch(e) {{
+    container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+  }}
+}}
+
+async function init() {{
+  setupSeasonSelects();
+  try {{
+    const meta = await fetchJSON('/api/numeros/meta?season=' + SEASONS[0]);
+    fillSelect(document.getElementById('rkTeam'), [{{id:0,name:'Todos'}}, ...meta.teams], 'id', 'name', null);
+    fillSelect(document.getElementById('jgTeam'), meta.teams, 'id', 'name', 'Selecione o clube');
+  }} catch(e) {{}}
+  loadRankings();
+  loadStandings();
+}}
+init();
+</script>
+</body></html>
+"""
+    return HTMLResponse(html)
+
+
 @app.get("/fontes", response_class=HTMLResponse)
 async def fontes_page():
     sources = get_effective_sources()
@@ -3323,95 +3778,6 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
             }
     except Exception as e:
         return {"error": str(e)}
-
-
-@app.get("/api/admin/debug-af")
-async def api_debug_af(league: int = 307, season: int = 2025):
-    """Debug: inspeciona league info, topscorers e topassists da API-Football."""
-    af_key = os.environ.get("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return {"error": "API_FOOTBALL_KEY não configurada"}
-    headers = {"x-apisports-key": af_key}
-    out = {}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r1 = await client.get("https://v3.football.api-sports.io/leagues", headers=headers, params={"id": league})
-            out["league_info"] = r1.json()
-            r2 = await client.get("https://v3.football.api-sports.io/players/topscorers", headers=headers, params={"league": league, "season": season})
-            d2 = r2.json()
-            out["topscorers_results"] = d2.get("results")
-            out["topscorers_errors"] = d2.get("errors")
-            out["topscorers_sample"] = d2.get("response", [])[:3]
-            r3 = await client.get("https://v3.football.api-sports.io/players/topassists", headers=headers, params={"league": league, "season": season})
-            d3 = r3.json()
-            out["topassists_results"] = d3.get("results")
-            out["topassists_sample"] = d3.get("response", [])[:2]
-            r4 = await client.get("https://v3.football.api-sports.io/standings", headers=headers, params={"league": league, "season": season})
-            d4 = r4.json()
-            out["standings_results"] = d4.get("results")
-            out["standings_errors"] = d4.get("errors")
-            r5 = await client.get("https://v3.football.api-sports.io/teams", headers=headers, params={"league": league, "season": season})
-            d5 = r5.json()
-            out["teams_count"] = len(d5.get("response", []))
-            out["teams_sample"] = d5.get("response", [])[:2]
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    return out
-
-
-@app.get("/api/admin/debug-af2")
-async def api_debug_af2(league: int = 307, season: int = 2025, team: int = 2939):
-    """Debug parte 2: standings, fixtures, squads."""
-    af_key = os.environ.get("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return {"error": "API_FOOTBALL_KEY não configurada"}
-    headers = {"x-apisports-key": af_key}
-    out = {}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r1 = await client.get("https://v3.football.api-sports.io/standings", headers=headers, params={"league": league, "season": season})
-            d1 = r1.json()
-            resp = d1.get("response", [])
-            if resp:
-                standings_table = resp[0]["league"]["standings"][0]
-                out["standings_sample"] = standings_table[:2]
-                out["standings_count"] = len(standings_table)
-            r2 = await client.get("https://v3.football.api-sports.io/fixtures", headers=headers, params={"league": league, "season": season, "team": team})
-            d2 = r2.json()
-            out["fixtures_results"] = d2.get("results")
-            out["fixtures_sample"] = d2.get("response", [])[:2]
-            r3 = await client.get("https://v3.football.api-sports.io/players/squads", headers=headers, params={"team": team})
-            d3 = r3.json()
-            out["squad_sample"] = d3.get("response", [])
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    return out
-
-
-@app.get("/api/admin/debug-af3")
-async def api_debug_af3(fixture: int = 1435918, player: int = 874, season: int = 2025):
-    """Debug parte 3: fixture player stats + player season stats by id."""
-    af_key = os.environ.get("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return {"error": "API_FOOTBALL_KEY não configurada"}
-    headers = {"x-apisports-key": af_key}
-    out = {}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r1 = await client.get("https://v3.football.api-sports.io/fixtures/players", headers=headers, params={"fixture": fixture})
-            d1 = r1.json()
-            out["fixture_players_results"] = d1.get("results")
-            resp = d1.get("response", [])
-            if resp:
-                out["fixture_players_sample_team"] = resp[0].get("team")
-                out["fixture_players_sample_player"] = resp[0].get("players", [])[:1]
-            r2 = await client.get("https://v3.football.api-sports.io/players", headers=headers, params={"id": player, "season": season})
-            d2 = r2.json()
-            out["player_season_results"] = d2.get("results")
-            out["player_season_sample"] = d2.get("response", [])
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    return out
 
 
 @app.get("/api/admin/debug-rss")
