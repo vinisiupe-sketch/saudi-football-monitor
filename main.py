@@ -2972,6 +2972,18 @@ async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:ar
                     item["scraped_content_sample"] = content[:300]
                 except Exception as e:
                     item["scrape_error"] = f"{type(e).__name__}: {e}"
+                # Procura os atributos que o Google News usa pro redirect real (data-n-a-sg/ts/id)
+                try:
+                    html_full = r2.text
+                    import re as _re
+                    m_sg = _re.search(r'data-n-a-sg="([^"]+)"', html_full)
+                    m_ts = _re.search(r'data-n-a-ts="([^"]+)"', html_full)
+                    m_id = _re.search(r'data-n-a-id="([^"]+)"', html_full)
+                    item["gn_sg"] = m_sg.group(1) if m_sg else None
+                    item["gn_ts"] = m_ts.group(1) if m_ts else None
+                    item["gn_id"] = m_id.group(1) if m_id else None
+                except Exception as e:
+                    item["gn_attr_error"] = str(e)
                 out.append(item)
     except Exception as e:
         return {"error": f"{type(e).__name__}: {e}"}
