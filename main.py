@@ -291,24 +291,24 @@ async def dashboard():
           <div class="card-body">
             <div class="card-top">
               <span class="cat-badge cat-{category}">{cat_emoji} {category_text}</span>
-              <div class="card-flags">
-                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
-                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
-                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
-              </div>
-            </div>
-            <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
-            <div class="card-bottom">
               <div class="card-meta">
                 <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
                 <span class="tag">@{handle}</span>
                 <span class="tag">{moon}</span>
                 <span class="card-date">{date_display}</span>
               </div>
+            </div>
+            <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
+            <div class="card-bottom">
               <div class="card-actions">
                 <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
                 <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
+              </div>
+              <div class="card-flags">
+                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
+                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
+                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
               </div>
             </div>
           </div>
@@ -384,7 +384,7 @@ async def dashboard():
     /* ── CARD TOP ── */
     .card-top {{
       display: flex; align-items: center;
-      justify-content: space-between; margin-bottom: 14px;
+      justify-content: space-between; margin-bottom: 8px;
     }}
     .card-date {{
       font-size: 0.65rem; font-weight: 700; color: var(--c-muted-2);
@@ -403,7 +403,7 @@ async def dashboard():
 
     /* ── AUTHOR AVATAR ── */
     .author-avatar {{ width: 26px; height: 26px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }}
-    .card-meta {{ display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; flex-wrap: wrap; }}
+    .card-meta {{ display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }}
     .card-actions {{ display: flex; gap: 4px; align-items: center; flex-shrink: 0; }}
 
     .flag-circle {{
@@ -443,7 +443,7 @@ async def dashboard():
     .card-collapsed .card-text,
     .card-collapsed .card-bottom,
     .card-collapsed.flag-open .card-text,
-    .card-collapsed.flag-open .card-bottom {{ display: flex; }}
+    .card-collapsed.flag-open .card-bottom {{ display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }}
     .card-collapsed.flag-open .card-text {{ display: block; }}
     .card-collapsed.flag-open .text-short {{ display: none; }}
     .card-collapsed.flag-open .text-full  {{ display: inline !important; }}
@@ -1008,24 +1008,24 @@ async def selecao_page():
           <div class="card-body">
             <div class="card-top">
               <span class="cat-badge cat-{category}">{cat_emoji} {category_text}</span>
-              <div class="card-flags">
-                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
-                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
-                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
-              </div>
-            </div>
-            <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
-            <div class="card-bottom">
               <div class="card-meta">
                 <img class="author-avatar" src="https://unavatar.io/twitter/{handle}" alt="@{handle}" onerror="this.style.display='none'">
                 <span class="tag">@{handle}</span>
                 <span class="tag">{moon}</span>
                 <span class="card-date">{date_display}</span>
               </div>
+            </div>
+            <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
+            <div class="card-bottom">
               <div class="card-actions">
                 <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
                 <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
                 <button class="flag-circle post-btn" onclick="window.location.href='{post_base}'" title="Criar post">{ICO_PEN}</button>
+              </div>
+              <div class="card-flags">
+                <button class="flag-circle anal-btn"  onclick="toggleFlag('{art_id}','analise')"    title="Análise">{ICO_ANALYSIS}</button>
+                <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
+                <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
               </div>
             </div>
           </div>
@@ -1094,7 +1094,7 @@ async def selecao_page():
     .flag-expand-btn {{ background: none; border: none; cursor: pointer; font-size: 0.62rem; color: var(--c-muted-2); padding: 0 0 10px; text-transform: uppercase; letter-spacing: 0.07em; font-weight: 700; display: none; text-align: left; transition: color .15s; }}
     .flag-expand-btn:hover {{ color: var(--c-text); }}
     .card-collapsed .flag-expand-btn {{ display: block; }}
-    .card-collapsed.flag-open .card-text, .card-collapsed.flag-open .card-bottom {{ display: flex; }}
+    .card-collapsed.flag-open .card-text, .card-collapsed.flag-open .card-bottom {{ display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }}
     .card-collapsed.flag-open .card-text {{ display: block; }}
     .card-collapsed.flag-open .text-short {{ display: none; }}
     .card-collapsed.flag-open .text-full  {{ display: inline !important; }}
@@ -3131,6 +3131,8 @@ function applyFilters() {{
     (t.team_in?.name||'').toLowerCase().includes(q) ||
     (t.team_out?.name||'').toLowerCase().includes(q)
   );
+  if (document.getElementById('foreignOnly')?.checked)
+    items = items.filter(t => !(t.nationality||'').toLowerCase().includes('saudi'));
 
   const total = ALL.length;
   const shown = items.length;

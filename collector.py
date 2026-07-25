@@ -11,6 +11,13 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from sources import TWITTER_RSS_PROVIDERS, KEYWORDS, TIER_WEIGHTS, TIER_A, TIER_B, TIER_C
 from clubs import match_saudi_club, match_saudi_club_risky
+
+# Contas de veículos generalistas (futebol mundial, não só saudita).
+# Para elas, exige menção explícita a clube/seleção saudita para passar.
+STRICT_SOURCES = {
+    "aawsat_spt",      # Al Sharq Al-Awsat — jornalismo esportivo global
+    "ariyadhiah_br",   # Al Riyadhiah — canal esportivo pan-árabe
+}
 from database import make_article_id, get_effective_sources
 
 REQUEST_TIMEOUT = 15
@@ -312,6 +319,9 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
         article_id = make_article_id(link, title)
         lang = detect_language(full_text)
         score = compute_relevance(full_text, source_tier)
+        # Fontes generalistas: exige menção saudita ou score cai abaixo do threshold
+        if source_handle in STRICT_SOURCES and not match_saudi_club(full_text.lower()):
+            score = min(score, 0.2)
         articles.append({
             "id": article_id,
             "source_name": source_name,
