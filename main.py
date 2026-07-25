@@ -1720,13 +1720,19 @@ async def twitter_test(username: str = "FabrizioRomano"):
                 resp = await client.get(url, headers=HEADERS)
                 feed = feedparser.parse(resp.text)
                 entries = len(feed.entries)
+                e0 = feed.entries[0] if entries > 0 else None
                 results.append({
                     "provider": provider,
                     "url": url,
                     "status": resp.status_code,
                     "entries": entries,
                     "ok": entries > 0,
-                    "sample": feed.entries[0].get("title", "")[:100] if entries > 0 else None,
+                    "sample": e0.get("title", "")[:100] if e0 else None,
+                    "full_title": e0.get("title", "") if e0 else None,
+                    "full_summary": e0.get("summary", "") if e0 else None,
+                    "has_published_parsed": bool(getattr(e0, "published_parsed", None)) if e0 else None,
+                    "published": e0.get("published", "") if e0 else None,
+                    "link": e0.get("link", "") if e0 else None,
                 })
             except Exception as e:
                 results.append({

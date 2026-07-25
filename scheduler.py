@@ -98,11 +98,38 @@ async def run_pipeline(force: bool = False, hours: int | None = None):
     return log
 
 
+def _next_scheduled_fire() -> datetime:
+    """
+    Ancora o próximo disparo do job recorrente em last_collect_at + intervalo,
+    em vez de sempre "agora + intervalo" (comportamento padrão do APScheduler
+    a cada scheduler.start()).
+
+    Bug real (2026-07-25): durante uma sessão de deploys frequentes (várias
+    correções em sequência), cada restart do processo reiniciava a contagem
+    do IntervalTrigger a partir do boot — então o job recorrente nunca
+    completava os 30min antes do próximo restart interromper de novo. Só o
+    "roda uma vez na inicialização" disparava, repetidas vezes, dando a
+    impressão de coleta funcionando enquanto o agendamento de fundo real
+    nunca se sustentava. Agora o próximo disparo é calculado a partir do
+    estado persistido (Postgres), sobrevivendo a qualquer restart.
+    """
+    now = datetime.now(timezone.utc)
+    try:
+        last_raw = get_state(LAST_COLLECT_KEY)
+        if last_raw:
+            last_dt = datetime.fromisoformat(last_raw)
+            next_due = last_dt + timedelta(minutes=COLLECT_INTERVAL)
+            return next_due if next_due > now else now + timedelta(seconds=30)
+    except Exception as e:
+        print(f"  ⚠️  Não foi possível calcular próximo disparo, usando padrão: {e}")
+    return now + timedelta(minutes=COLLECT_INTERVAL)
+
+
 def create_scheduler() -> AsyncIOScheduler:
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         run_pipeline,
-        trigger=IntervalTrigger(minutes=COLLECT_INTERVAL),
+        trigger=IntervalTrigger(minutes=COLLECT_INTERVAL, start_date=_next_scheduled_fire()),
         id="collect_pipeline",
         replace_existing=True,
     )
