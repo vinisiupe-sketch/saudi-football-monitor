@@ -1624,7 +1624,7 @@ async def gerar_texto_api(request: Request):
         "PONTO DE VISTA OBRIGATÓRIO — FUTEBOL SAUDITA:\n"
         "Este é um canal sobre a Saudi Pro League. O texto DEVE ser escrito sob a perspectiva do futebol saudita, "
         "não do futebol europeu. Siga esta ordem de prioridade:\n"
-        "1. ABRA com a ação ou interesse do clube saudita.\n"
+        "1. ABRA com a ação ou interesse do clube saudita — use exatamente o que o texto informa.\n"
         "2. Apresente o jogador/notícia brevemente como contexto.\n"
         "3. Mencione concorrência europeia apenas como segundo parágrafo, se relevante.\n"
         "NUNCA abra com a trajetória do jogador no clube europeu. NUNCA coloque o clube europeu como sujeito principal.\n"
@@ -1638,9 +1638,12 @@ async def gerar_texto_api(request: Request):
         "Você é um editor de conteúdo especializado na Saudi Pro League. "
         "O texto abaixo JÁ ESTÁ EM PORTUGUÊS — NÃO TRADUZA.\n\n"
         + angulo
+        + "\nREGRA ABSOLUTA: use APENAS as informações presentes no texto original. "
+        "NÃO invente dados, valores, nomes ou detalhes que não estejam explícitos no texto. "
+        "Se o texto não mencionar valor de transferência, NÃO escreva valor. "
+        "Se o texto não confirmar acerto, NÃO escreva que houve acerto.\n"
         + "\nTAREFA: reescreva o texto aplicando o ponto de vista saudita. Máximo 4 frases. "
         "Elimine contexto europeu excessivo e adjetivos vagos. "
-        "Mantenha fatos concretos: quem, o quê, valores, datas. "
         "Estilo: jornalismo esportivo direto, texto corrido, sem emojis no corpo, "
         "sem hashtags, sem exclamações, sem títulos, sem negrito, sem listas.\n"
         + clubes
