@@ -3014,6 +3014,40 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
         return {"error": str(e)}
 
 
+@app.get("/api/admin/debug-af")
+async def api_debug_af(league: int = 307, season: int = 2025):
+    """Debug: inspeciona league info, topscorers e topassists da API-Football."""
+    af_key = os.environ.get("API_FOOTBALL_KEY", "")
+    if not af_key:
+        return {"error": "API_FOOTBALL_KEY não configurada"}
+    headers = {"x-apisports-key": af_key}
+    out = {}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r1 = await client.get("https://v3.football.api-sports.io/leagues", headers=headers, params={"id": league})
+            out["league_info"] = r1.json()
+            r2 = await client.get("https://v3.football.api-sports.io/players/topscorers", headers=headers, params={"league": league, "season": season})
+            d2 = r2.json()
+            out["topscorers_results"] = d2.get("results")
+            out["topscorers_errors"] = d2.get("errors")
+            out["topscorers_sample"] = d2.get("response", [])[:3]
+            r3 = await client.get("https://v3.football.api-sports.io/players/topassists", headers=headers, params={"league": league, "season": season})
+            d3 = r3.json()
+            out["topassists_results"] = d3.get("results")
+            out["topassists_sample"] = d3.get("response", [])[:2]
+            r4 = await client.get("https://v3.football.api-sports.io/standings", headers=headers, params={"league": league, "season": season})
+            d4 = r4.json()
+            out["standings_results"] = d4.get("results")
+            out["standings_errors"] = d4.get("errors")
+            r5 = await client.get("https://v3.football.api-sports.io/teams", headers=headers, params={"league": league, "season": season})
+            d5 = r5.json()
+            out["teams_count"] = len(d5.get("response", []))
+            out["teams_sample"] = d5.get("response", [])[:2]
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+    return out
+
+
 @app.get("/api/admin/debug-rss")
 async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar", n: int = 3):
     """Inspeciona um feed RSS bruto: link real, summary, e o que o scraper consegue extrair dele."""
