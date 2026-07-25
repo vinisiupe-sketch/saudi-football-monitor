@@ -2476,16 +2476,40 @@ async def _page_lesoes_impl(request: Request):
         orig = inj.get("player_name_orig") or ""
         orig_html = ('<span class="injury-orig">' + orig + "</span>") if orig and orig != player else ""
 
-        # Fontes
+        # Timeline de atualizações — uma entrada por notícia que tocou nesta lesão,
+        # cada uma carregando o status inferido NAQUELE momento (quando disponível;
+        # notícias processadas antes desta feature não têm status salvo na fonte,
+        # e caem no ponto neutro "atualização").
         sources = inj.get("sources") or []
-        srcs_html = ""
-        for s in sources[:4]:
+        sources_sorted = sorted(sources, key=lambda s: s.get("published_at") or "")
+        timeline_html = ""
+        for s in sources_sorted:
             u  = s.get("url", "#")
             nm = s.get("source_name", "fonte")
-            dt = s.get("published_at", "")[:10]
-            srcs_html += '<a href="' + u + '" target="_blank" class="src-chip">' + nm + '<span class="src-dt">' + dt + "</span></a>"
-        if len(sources) > 4:
-            srcs_html += '<span class="src-chip src-more">+' + str(len(sources) - 4) + "</span>"
+            dt = s.get("published_at", "") or "—"
+            ttl = s.get("title", "") or nm
+            s_status = s.get("status")
+            if s_status and s_status in STATUS_LABEL:
+                s_emoji, s_label = STATUS_LABEL[s_status]
+                pill_html = '<span class="status-pill sm status-' + s_status + '">' + s_emoji + " " + s_label + "</span>"
+                dot_class = "status-" + s_status
+            else:
+                pill_html = '<span class="status-pill sm status-desconhecido">Atualização</span>'
+                dot_class = "status-desconhecido"
+            timeline_html += (
+                '<div class="timeline-item">'
+                + '<span class="timeline-dot ' + dot_class + '"></span>'
+                + '<div class="timeline-content">'
+                + '<div class="timeline-top">' + pill_html + '<span class="timeline-date">' + dt + "</span></div>"
+                + '<a href="' + u + '" target="_blank" class="timeline-title">' + ttl + " · " + nm + "</a>"
+                + "</div>"
+                + "</div>"
+            )
+        timeline_section = (
+            '<details class="injury-timeline"><summary>Histórico <span class="section-count">('
+            + str(len(sources_sorted)) + ')</span></summary><div class="timeline">'
+            + timeline_html + "</div></details>"
+        ) if sources_sorted else ""
 
         notes_html = ('<div class="injury-notes">💬 ' + notes + "</div>") if notes else ""
         retorno_html = (" · Retorno est.: " + retorno) if retorno and retorno != "—" else ""
@@ -2500,7 +2524,7 @@ async def _page_lesoes_impl(request: Request):
             + '<div class="injury-club">' + club + "</div>"
             + '<div class="injury-detail">' + tipo_full + retorno_html + " · Lesão em " + injury_dt + "</div>"
             + notes_html
-            + '<div class="injury-bottom">' + srcs_html + "</div>"
+            + timeline_section
             + "</div>"
         )
 
@@ -2637,6 +2661,39 @@ async def _page_lesoes_impl(request: Request):
   border-top: 1px solid var(--c-border);
 }}
 .empty-state {{ text-align: center; color: var(--c-muted-3); padding: 32px !important; }}
+
+.injury-timeline {{ margin-top: 4px; }}
+.injury-timeline summary {{ padding: 8px 0 6px; font-size: .65rem; }}
+.timeline {{
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 2px 2px 4px;
+}}
+.timeline-item {{ display: flex; gap: 10px; align-items: flex-start; }}
+.timeline-dot {{
+  width: 8px; height: 8px; border-radius: 50%;
+  margin-top: 5px; flex-shrink: 0;
+  background: var(--c-muted-2);
+}}
+.timeline-dot.status-lesionado      {{ background: #ef4444; }}
+.timeline-dot.status-em_recuperacao {{ background: #f59e0b; }}
+.timeline-dot.status-retornando     {{ background: #22c55e; }}
+.timeline-dot.status-recuperado     {{ background: var(--c-muted-2); }}
+.timeline-dot.status-desconhecido   {{ background: var(--c-muted-2); }}
+.timeline-content {{ flex: 1; min-width: 0; }}
+.timeline-top {{ display: flex; align-items: center; gap: 8px; margin-bottom: 3px; flex-wrap: wrap; }}
+.timeline-date {{ font-size: .65rem; color: var(--c-muted-2); white-space: nowrap; }}
+.timeline-title {{
+  display: block;
+  font-size: .78rem;
+  color: var(--c-muted-4);
+  text-decoration: none;
+  line-height: 1.4;
+}}
+.timeline-title:hover {{ color: var(--c-text); text-decoration: underline; }}
+.status-pill.sm {{ font-size: .62rem; padding: 2px 6px; }}
+.status-pill.status-desconhecido {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
 
 .status-pill {{
   display: inline-flex;

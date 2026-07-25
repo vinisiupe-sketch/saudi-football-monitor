@@ -84,6 +84,8 @@ async def process_injury_article(article: dict):
         "url": article.get("url", ""),
         "published_at": (article.get("published_at") or "")[:10],
         "title": (article.get("title_pt") or article.get("title_orig", ""))[:120],
+        "status": data.get("status", "lesionado"),
+        "expected_return": data.get("expected_return"),
     }
 
     result = upsert_injury({
@@ -129,6 +131,8 @@ async def rebuild_injuries_from_history():
                     "url": art.get("url", ""),
                     "published_at": (art.get("published_at") or "")[:10],
                     "title": (art.get("title_pt") or art.get("title_orig", ""))[:120],
+                    "status": data.get("status", "lesionado"),
+                    "expected_return": data.get("expected_return"),
                 }
                 r = upsert_injury({
                     "player_name":     data.get("player_name", ""),
