@@ -2459,7 +2459,7 @@ async def _page_lesoes_impl(request: Request):
         "fadiga": "Fadiga", "outro": "Outro",
     }
 
-    def _row(inj: dict) -> str:
+    def _card(inj: dict) -> str:
         emoji, slabel = STATUS_LABEL.get(inj.get("status") or "lesionado", ("⚪", inj.get("status") or "—"))
         tipo = TYPE_LABEL.get(inj.get("injury_type") or "", inj.get("injury_type") or "—")
         parte = inj.get("body_part") or ""
@@ -2474,7 +2474,7 @@ async def _page_lesoes_impl(request: Request):
 
         # Nome original (só se diferente)
         orig = inj.get("player_name_orig") or ""
-        orig_html = ('<br><small class="orig">' + orig + "</small>") if orig and orig != player else ""
+        orig_html = ('<span class="injury-orig">' + orig + "</span>") if orig and orig != player else ""
 
         # Fontes
         sources = inj.get("sources") or []
@@ -2487,25 +2487,25 @@ async def _page_lesoes_impl(request: Request):
         if len(sources) > 4:
             srcs_html += '<span class="src-chip src-more">+' + str(len(sources) - 4) + "</span>"
 
-        # Linha de notas
-        notes_row = ('<tr class="notes-row"><td colspan="8" class="td-notes">💬 ' + notes + "</td></tr>") if notes else ""
+        notes_html = ('<div class="injury-notes">💬 ' + notes + "</div>") if notes else ""
+        retorno_html = (" · Retorno est.: " + retorno) if retorno and retorno != "—" else ""
 
         return (
-            "<tr>"
-            + '<td class="td-player"><strong>' + player + "</strong>" + orig_html + "</td>"
-            + '<td class="td-club">' + club + "</td>"
-            + '<td class="td-date">' + injury_dt + "</td>"
-            + '<td class="td-type">' + tipo_full + "</td>"
-            + '<td class="td-return">' + retorno + "</td>"
-            + '<td class="td-status"><span class="status-badge status-' + status + '">' + emoji + " " + slabel + "</span></td>"
-            + '<td class="td-sources">' + srcs_html + "</td>"
-            + '<td class="td-updated">' + updated + "</td>"
-            + "</tr>"
-            + notes_row
+            '<div class="injury-card">'
+            + '<div class="injury-card-top">'
+            + '<span class="status-pill status-' + status + '">' + emoji + " " + slabel + "</span>"
+            + '<span class="injury-updated">Atualizado ' + updated + "</span>"
+            + "</div>"
+            + '<div class="injury-player">' + player + orig_html + "</div>"
+            + '<div class="injury-club">' + club + "</div>"
+            + '<div class="injury-detail">' + tipo_full + retorno_html + " · Lesão em " + injury_dt + "</div>"
+            + notes_html
+            + '<div class="injury-bottom">' + srcs_html + "</div>"
+            + "</div>"
         )
 
-    rows_active    = "".join(_row(i) for i in active)    if active    else '<tr><td colspan="8" class="empty-row">Nenhuma lesão ativa registrada.</td></tr>'
-    rows_recovered = "".join(_row(i) for i in recovered) if recovered else '<tr><td colspan="8" class="empty-row">Nenhuma recuperação registrada.</td></tr>'
+    cards_active    = "".join(_card(i) for i in active)    if active    else '<div class="empty-state">Nenhuma lesão ativa registrada.</div>'
+    cards_recovered = "".join(_card(i) for i in recovered) if recovered else '<div class="empty-state">Nenhuma recuperação registrada.</div>'
 
     count_active    = len(active)
     count_recovered = len(recovered)
@@ -2571,42 +2571,74 @@ async def _page_lesoes_impl(request: Request):
   opacity: .7;
 }}
 
-.injuries-table {{
-  width: 100%;
-  border-collapse: collapse;
-  font-size: .82rem;
+.injury-grid {{
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
   margin-bottom: 32px;
 }}
-.injuries-table th {{
-  text-align: left;
-  font-size: .68rem;
-  font-weight: 600;
-  letter-spacing: .06em;
+.injury-card {{
+  background: var(--c-bg-card);
+  border-radius: 16px;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}}
+.injury-card-top {{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}}
+.injury-updated {{
+  font-size: .65rem;
+  font-weight: 700;
+  color: var(--c-muted-2);
   text-transform: uppercase;
-  color: var(--c-muted);
-  padding: 10px 12px 8px;
-  border-bottom: 2px solid var(--c-border);
+  letter-spacing: .06em;
   white-space: nowrap;
 }}
-.injuries-table td {{
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--c-border);
-  vertical-align: top;
+.injury-player {{
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--c-text);
 }}
-.injuries-table tr:hover td {{ background: var(--c-muted-2); }}
-.notes-row td {{ padding: 2px 12px 10px !important; border-bottom: 1px solid var(--c-border); background: var(--c-muted-2); }}
-.notes-row:hover td {{ background: var(--c-muted-2) !important; }}
-.td-notes {{ font-size: .75rem; color: var(--c-muted); font-style: italic; }}
+.injury-orig {{
+  display: block;
+  font-weight: 400;
+  font-size: .72rem;
+  color: var(--c-muted-3);
+  margin-top: 2px;
+}}
+.injury-club {{
+  font-size: .75rem;
+  color: var(--c-muted-3);
+}}
+.injury-detail {{
+  font-size: .82rem;
+  color: var(--c-muted-4);
+  line-height: 1.55;
+}}
+.injury-notes {{
+  font-size: .75rem;
+  color: var(--c-muted-3);
+  font-style: italic;
+  background: var(--c-bg-soft);
+  border-radius: 8px;
+  padding: 8px 10px;
+}}
+.injury-bottom {{
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--c-border);
+}}
+.empty-state {{ text-align: center; color: var(--c-muted-3); padding: 32px !important; }}
 
-.td-player strong {{ font-weight: 600; }}
-.td-player .orig {{ color: var(--c-muted); font-size: .72rem; }}
-.td-club {{ white-space: nowrap; }}
-.td-date, .td-updated {{ white-space: nowrap; color: var(--c-muted); font-size: .78rem; }}
-.td-return {{ white-space: nowrap; }}
-.empty-row {{ text-align: center; color: var(--c-muted); padding: 32px !important; }}
-
-.status-badge {{
+.status-pill {{
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -2619,11 +2651,11 @@ async def _page_lesoes_impl(request: Request):
 .status-lesionado      {{ background: #fef2f2; color: #b91c1c; }}
 .status-em_recuperacao {{ background: #fefce8; color: #92400e; }}
 .status-retornando     {{ background: #f0fdf4; color: #15803d; }}
-.status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted); }}
+.status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
 [data-theme=dark] .status-lesionado      {{ background: #3f1212; color: #fca5a5; }}
 [data-theme=dark] .status-em_recuperacao {{ background: #3f2d00; color: #fde68a; }}
 [data-theme=dark] .status-retornando     {{ background: #052e16; color: #86efac; }}
-[data-theme=dark] .status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted); }}
+[data-theme=dark] .status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
 
 .src-chip {{
   display: inline-flex;
@@ -2639,8 +2671,8 @@ async def _page_lesoes_impl(request: Request):
   white-space: nowrap;
 }}
 .src-chip:hover {{ background: var(--c-border); }}
-.src-dt {{ color: var(--c-muted); font-size: .62rem; }}
-.src-more {{ color: var(--c-muted); cursor: default; }}
+.src-dt {{ color: var(--c-muted-3); font-size: .62rem; }}
+.src-more {{ color: var(--c-muted-3); cursor: default; }}
 a.src-chip {{ cursor: pointer; }}
 
 details summary {{
@@ -2649,7 +2681,7 @@ details summary {{
   font-weight: 700;
   letter-spacing: .08em;
   text-transform: uppercase;
-  color: var(--c-muted);
+  color: var(--c-muted-3);
   padding: 10px 0 8px;
   border-bottom: 1px solid var(--c-border);
   margin-bottom: 0;
@@ -2673,23 +2705,11 @@ details[open] summary::before {{ transform: rotate(90deg); }}
   <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted);margin-left:8px;"></span>
 
   <div class="section-label">Ativas <span class="section-count">({count_active})</span></div>
-  <table class="injuries-table">
-    <thead><tr>
-      <th>Jogador</th><th>Clube</th><th>Data Lesão</th><th>Tipo / Região</th>
-      <th>Retorno Est.</th><th>Status</th><th>Fontes</th><th>Atualizado</th>
-    </tr></thead>
-    <tbody>{rows_active}</tbody>
-  </table>
+  <div class="injury-grid">{cards_active}</div>
 
   <details>
     <summary>Recuperados <span class="section-count" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
-    <table class="injuries-table" style="margin-top:12px">
-      <thead><tr>
-        <th>Jogador</th><th>Clube</th><th>Data Lesão</th><th>Tipo / Região</th>
-        <th>Retorno Est.</th><th>Status</th><th>Fontes</th><th>Atualizado</th>
-      </tr></thead>
-      <tbody>{rows_recovered}</tbody>
-    </table>
+    <div class="injury-grid" style="margin-top:12px">{cards_recovered}</div>
   </details>
 </div>
 
@@ -3019,25 +3039,16 @@ async def janela_page():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Janela de Transferências · IARABÃO</title>
+{_THEME_INIT_SCRIPT}
 <style>
+{_HEADER_CSS}
 :root{{
-  --bg:#0d0d0d;--surface:#161616;--surface2:#1e1e1e;--border:#2a2a2a;
-  --text:#e8e8e8;--text2:#999;--accent:#4f9cf9;
+  --bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);--border:var(--c-border);
+  --text:var(--c-text);--text2:var(--c-muted-3);--accent:#4f9cf9;
   --green:#22c55e;--blue:#3b82f6;--amber:#f59e0b;--red:#ef4444;--purple:#a855f7;
-}}
-[data-theme=light]{{
-  --bg:#f4f4f5;--surface:#fff;--surface2:#f0f0f0;--border:#e0e0e0;
-  --text:#111;--text2:#666;
 }}
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}}
-header{{display:flex;align-items:center;gap:6px;padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}}
-.brand{{font-weight:700;font-size:13px;letter-spacing:.08em;color:var(--text);text-decoration:none;margin-right:4px}}
-.nav-icon{{display:flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:8px;color:var(--text2);text-decoration:none;border:none;background:none;cursor:pointer;transition:background .15s,color .15s}}
-.nav-icon:hover,.nav-icon.active{{background:var(--surface2);color:var(--text)}}
-.nav-icon.active{{color:var(--accent)}}
-.token-dot{{width:7px;height:7px;border-radius:50%;background:#444;margin-right:2px;flex-shrink:0}}
-.token-dot.ok{{background:#22c55e}}.token-dot.broken{{background:#ef4444}}
 .main{{max-width:900px;margin:0 auto;padding:20px 16px}}
 .page-title{{font-size:22px;font-weight:700;margin-bottom:4px}}
 .page-sub{{font-size:13px;color:var(--text2);margin-bottom:20px}}
