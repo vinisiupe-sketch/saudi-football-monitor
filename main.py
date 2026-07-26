@@ -1970,7 +1970,7 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
         <label>Temporada
           <select id="jgSeason" onchange="loadPlayerSeason()"></select>
         </label>
-        <label>Competição
+        <label id="jgLeagueLabel">Competição
           <select id="jgLeague" onchange="loadPlayerSeason()"><option value="0">Todas</option></select>
         </label>
       </div>
@@ -2215,12 +2215,14 @@ function selectClub(id) {{
   chip.innerHTML = '<img src="' + (t.logo||'') + '" class="search-crest"><span>' + t.name + '</span>' +
     '<button type="button" class="chip-clear" onclick="clearClub()">✕</button>';
   if (!document.getElementById('jgPlayerSearch').value.trim()) loadSquadPreview();
+  if (jgSelectedPlayer && document.getElementById('jgSeason').value === 'all') loadPlayerSeason();
 }}
 
 function clearClub() {{
   jgSelectedTeam = null;
   document.getElementById('jgClubSelected').style.display = 'none';
   document.getElementById('jgClubSelected').innerHTML = '';
+  if (jgSelectedPlayer && document.getElementById('jgSeason').value === 'all') loadPlayerSeason();
   if (!document.getElementById('jgPlayerSearch').value.trim()) {{
     document.getElementById('jgPlayerResults').style.display = 'none';
     document.getElementById('jgPlayerResults').innerHTML = '';
@@ -2321,9 +2323,45 @@ async function loadPlayerSeason() {{
   if (!jgSelectedPlayer) {{ container.innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>'; return; }}
   const player = jgSelectedPlayer.player_id;
   const season = document.getElementById('jgSeason').value;
+  const leagueLabel = document.getElementById('jgLeagueLabel');
+  container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
+
+  if (season === 'all') {{
+    if (leagueLabel) leagueLabel.style.display = 'none';
+    if (!jgSelectedTeam) {{
+      container.innerHTML = '<div class="result-card"><div class="error-state">Selecione um clube acima pra ver a passagem completa do jogador por ele.</div></div>';
+      return;
+    }}
+    try {{
+      const d = await fetchJSON('/api/numeros/player-club-career?player=' + player + '&team=' + jgSelectedTeam.id);
+      const s = d.stats;
+      const firstY = d.seasons_at_club[0];
+      const lastY = d.seasons_at_club[d.seasons_at_club.length - 1];
+      const spanLabel = firstY === lastY
+        ? (firstY + '/' + String(firstY + 1).slice(2))
+        : (firstY + '/' + String(firstY + 1).slice(2)) + ' a ' + (lastY + '/' + String(lastY + 1).slice(2));
+      let txt = flagFor(d.nationality) + ' ' + d.name + ' pelo ' + naText(d.team) + ' — carreira no clube (' + spanLabel + '):\\n\\n';
+      txt += '⚔️ ' + naNum(s.appearences) + ' jogos\\n';
+      txt += '✅ ' + naNum(s.ga) + ' participações em gols\\n';
+      txt += '⚽ ' + naNum(s.goals) + ' gols\\n';
+      txt += '\\u{{1F170}}️ ' + naNum(s.assists) + ' assistências\\n';
+      txt += '⭐ Nota média: ' + fmtRating(s.rating) + '\\n';
+      txt += '🟨 ' + naNum(s.yellow_cards) + ' amarelos 🟥 ' + naNum(s.red_cards) + ' vermelhos\\n';
+      if (d.titles.length) {{
+        txt += '\\n🏆 Títulos (temporada coincide com a passagem pelo clube):\\n';
+        d.titles.forEach(t => {{ txt += '• ' + t.league + ' ' + t.season + ' — ' + t.place + '\\n'; }});
+      }}
+      renderResultCard(container, 'Passagem completa pelo clube', txt.trim(),
+        'Temporadas ' + spanLabel + ' · ' + naText(d.team) + (d.titles.length ? ' · ' + d.titles_note : '') + ' · fonte: API-Football');
+    }} catch(e) {{
+      container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+    }}
+    return;
+  }}
+
+  if (leagueLabel) leagueLabel.style.display = '';
   const league = document.getElementById('jgLeague').value;
   const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
-  container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
   try {{
     const d = await fetchJSON('/api/numeros/player-season?player=' + player + '&season=' + season + (league!=='0' ? '&league=' + encodeURIComponent(league) : ''));
     const leagueSel = document.getElementById('jgLeague');
@@ -2403,6 +2441,11 @@ async function loadFixturePlayer() {{
 
 async function init() {{
   setupSeasonSelects();
+  const jgSeasonSel = document.getElementById('jgSeason');
+  const allOpt = document.createElement('option');
+  allOpt.value = 'all';
+  allOpt.textContent = 'Todas (carreira no clube)';
+  jgSeasonSel.appendChild(allOpt);
   try {{
     const meta = await fetchJSON('/api/numeros/meta?season=' + SEASONS[0]);
     jgAllTeams = meta.teams;
@@ -3912,6 +3955,110 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
 
 
+@app.get("/api/numeros/player-club-career")
+async def api_numeros_player_club_career(player: int, team: int):
+    """Agrega TODA a passagem de um jogador por um clube específico, varrendo as
+    temporadas disponíveis (mesma janela do seletor do site) e somando só as
+    competições em que o time bate com o clube selecionado — nunca soma números de
+    quando o jogador estava em outro clube. Também cruza com /trophies?player=X pra
+    listar títulos cuja temporada coincide com alguma temporada confirmada no clube.
+    Importante: a API de troféus não informa o clube do título, só liga/país/temporada —
+    então esse cruzamento é um INDÍCIO (a temporada bate com a passagem confirmada),
+    não uma certeza absoluta, e isso fica explícito na resposta."""
+    seasons_to_check = _af_available_seasons()
+
+    async def check_season(season):
+        data, err = await _af_get("players", {"id": player, "season": season})
+        if err or not data:
+            return None
+        resp = data.get("response", [])
+        if not resp:
+            return None
+        p = resp[0].get("player", {})
+        stats = [s for s in resp[0].get("statistics", []) if (s.get("team") or {}).get("id") == team]
+        if not stats:
+            return None
+        return season, p, stats
+
+    results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
+
+    total_app = total_min = total_goals = total_assists = total_yellow = total_red = 0
+    rating_sum = 0.0
+    rating_weight = 0
+    seasons_at_club = []
+    team_name = None
+    name = photo = nationality = None
+
+    for r in results:
+        if not r:
+            continue
+        season, p, stats = r
+        seasons_at_club.append(season)
+        if name is None:
+            name = p.get("name")
+            photo = p.get("photo")
+            nationality = p.get("nationality")
+        for s in stats:
+            games = s.get("games") or {}
+            goals = s.get("goals") or {}
+            cards = s.get("cards") or {}
+            a = games.get("appearences") or 0
+            total_app += a
+            total_min += games.get("minutes") or 0
+            total_goals += goals.get("total") or 0
+            total_assists += goals.get("assists") or 0
+            total_yellow += cards.get("yellow") or 0
+            total_red += cards.get("red") or 0
+            rt = games.get("rating")
+            if rt is not None:
+                try:
+                    rf = float(rt)
+                    w = a if a > 0 else 1
+                    rating_sum += rf * w
+                    rating_weight += w
+                except (TypeError, ValueError):
+                    pass
+            if not team_name:
+                team_name = (s.get("team") or {}).get("name")
+
+    if not seasons_at_club:
+        return JSONResponse(
+            {"error": "Nenhuma temporada encontrada pra esse jogador nesse clube (dentro da janela disponível: " + str(min(seasons_to_check)) + "–" + str(max(seasons_to_check)) + ")."},
+            status_code=404,
+        )
+
+    avg_rating = (rating_sum / rating_weight) if rating_weight > 0 else None
+    seasons_at_club.sort()
+
+    titles = []
+    trophies_data, terr = await _af_get("trophies", {"player": player})
+    if not terr and trophies_data:
+        year_tokens = set()
+        for s in seasons_at_club:
+            year_tokens.add(str(s))
+            year_tokens.add(str(s + 1))
+        for tr in trophies_data.get("response", []):
+            t_season = str(tr.get("season") or "")
+            if any(y and y in t_season for y in year_tokens):
+                titles.append({
+                    "league": tr.get("league"), "country": tr.get("country"),
+                    "season": tr.get("season"), "place": tr.get("place"),
+                })
+
+    return {
+        "player_id": player, "name": name, "photo": photo, "nationality": nationality,
+        "team": team_name, "team_id": team,
+        "seasons_at_club": seasons_at_club,
+        "stats": {
+            "appearences": total_app, "minutes": total_min, "rating": avg_rating,
+            "goals": total_goals, "assists": total_assists, "ga": total_goals + total_assists,
+            "yellow_cards": total_yellow, "red_cards": total_red,
+        },
+        "titles": titles,
+        "titles_note": "Cruzamento por temporada — a API de troféus não informa o clube exato do título, então isso é um indício (a temporada do troféu coincide com uma temporada confirmada no clube), não uma certeza absoluta.",
+    }
+
+
 @app.get("/api/numeros/player-season")
 async def api_numeros_player_season(player: int, season: int = 2025, league: str = "0"):
     """Estatísticas de um jogador na temporada. `league` pode ser: "0"/"" (Todas — agrega
@@ -4167,28 +4314,6 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
             }
     except Exception as e:
         return {"error": str(e)}
-
-
-@app.get("/api/admin/debug-af6")
-async def api_debug_af6(player: int = 874):
-    """Debug: testa /trophies?player=X (existe? formato?) pra decidir se dá pra mostrar titulos."""
-    af_key = os.environ.get("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return {"error": "API_FOOTBALL_KEY não configurada"}
-    headers = {"x-apisports-key": af_key}
-    out = {}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get("https://v3.football.api-sports.io/trophies", headers=headers,
-                                  params={"player": player})
-            d = r.json()
-            out["results"] = d.get("results")
-            out["errors"] = d.get("errors")
-            out["response"] = d.get("response", [])[:30]
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    import json as _json
-    return HTMLResponse("<pre>" + _json.dumps(out, indent=2, ensure_ascii=False) + "</pre>")
 
 
 @app.get("/api/admin/debug-rss")
