@@ -2400,12 +2400,11 @@ async function loadPlayerClubsFilter() {{
     const d = await fetchJSON('/api/numeros/player-clubs?player=' + jgSelectedPlayer.player_id);
     jgPlayerClubs = d.clubs;
     if (!jgPlayerClubs.length) {{
-      list.innerHTML = '<div class="search-empty">Nenhum clube da SPL encontrado pra esse jogador nas temporadas disponíveis.</div>';
+      list.innerHTML = '<div class="search-empty">Nenhum time encontrado pra esse jogador nas temporadas disponíveis.</div>';
       jgCareerTeamIds = [];
       return;
     }}
-    const preselectId = jgSelectedPlayer.team_id;
-    jgCareerTeamIds = jgPlayerClubs.some(c => c.id === preselectId) ? [preselectId] : [jgPlayerClubs[0].id];
+    jgCareerTeamIds = jgPlayerClubs.map(c => c.id);
     renderClubFilterList();
   }} catch(e) {{
     list.innerHTML = '<div class="search-empty">Erro ao carregar clubes do jogador.</div>';
@@ -2418,7 +2417,7 @@ function renderClubFilterList() {{
     const checked = jgCareerTeamIds.includes(c.id);
     return '<label class="club-chip-item' + (checked ? ' checked' : '') + '">' +
       '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="onClubFilterToggle(' + c.id + ', this.checked)">' +
-      (c.logo ? '<img src="' + c.logo + '">' : '') + '<span>' + clubShort(c.name) + '</span></label>';
+      (c.logo ? '<img src="' + c.logo + '">' : '') + '<span>' + c.name + '</span></label>';
   }}).join('');
 }}
 
@@ -4100,39 +4099,14 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
 
 
-async def _spl_known_team_ids() -> set:
-    """Une os IDs de todos os clubes que já disputaram a SPL nas temporadas cobertas
-    pelo site (via /teams?league=307&season=Y, já cacheado por _af_get). Usado como
-    critério confiável pra saber se um time é da SPL — league.country da API vem
-    inconsistente (às vezes "Saudi-Arabia" com hífen, às vezes null mesmo pra
-    competições domésticas como o King's Cup), então cruzar pelo team_id é mais
-    seguro do que confiar nessa string."""
-    seasons_to_check = _af_available_seasons()
-
-    async def get_season_teams(season):
-        data, err = await _af_get("teams", {"league": AF_LEAGUE_SPL, "season": season})
-        if err or not data:
-            return set()
-        return {t["team"]["id"] for t in data.get("response", []) if t.get("team", {}).get("id")}
-
-    results = await asyncio.gather(*[get_season_teams(s) for s in seasons_to_check])
-    ids: set = set()
-    for r in results:
-        ids |= r
-    return ids
-
-
 @app.get("/api/numeros/player-clubs")
 async def api_numeros_player_clubs(player: int):
-    """Lista os clubes SAUDITAS (SPL) pelos quais um jogador já passou, varrendo as
-    temporadas disponíveis (mesma janela do site). Usado pra popular um filtro de
-    clube(s) específico do jogador depois que ele é selecionado, em vez de fazer o
-    usuário procurar entre os 18 clubes da liga quando só 1 ou 2 são relevantes.
-    Filtra pelo team_id contra o conjunto real de clubes que já disputaram a SPL
-    (não pela string de país da competição, que vem inconsistente na API — ver
-    _spl_known_team_ids) pra excluir clubes estrangeiros e seleção nacional."""
+    """Lista TODOS os times (clubes de qualquer país + seleção nacional) pelos quais
+    um jogador já passou, varrendo as temporadas disponíveis (mesma janela do site).
+    Usado pra popular o filtro "Clube(s) do jogador" depois que ele é selecionado —
+    sem restringir a clubes sauditas, já que o usuário pode querer combinar qualquer
+    parte da carreira (ex: clube saudita + clube estrangeiro anterior, ou seleção)."""
     seasons_to_check = _af_available_seasons()
-    known_ids = await _spl_known_team_ids()
 
     async def check_season(season):
         data, err = await _af_get("players", {"id": player, "season": season})
@@ -4145,7 +4119,7 @@ async def api_numeros_player_clubs(player: int):
         for s in resp[0].get("statistics", []):
             team = s.get("team") or {}
             tid = team.get("id")
-            if tid and tid in known_ids:
+            if tid:
                 out.append((tid, team.get("name"), team.get("logo")))
         return out
 
