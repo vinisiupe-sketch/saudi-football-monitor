@@ -2034,6 +2034,13 @@ function fmtRating(v) {{
   const n = (v === null || v === undefined || isNaN(parseFloat(v))) ? 0 : parseFloat(v);
   return n.toFixed(1);
 }}
+function medalFor(place) {{
+  const p = (place || '').toLowerCase();
+  if (p.includes('1st') || p === 'winner') return '🏆';
+  if (p.includes('2nd') || p.includes('runner')) return '🥈';
+  if (p.includes('3rd')) return '🥉';
+  return '🎖️';
+}}
 
 function rankBadges(items, valueKey) {{
   const badges = ['🥇','🥈','🥉'];
@@ -2438,11 +2445,11 @@ async function loadPlayerSeason() {{
       txt += '⭐ Nota média: ' + fmtRating(avgRating) + '\\n';
       txt += '🟨 ' + combined.yellow_cards + ' amarelos 🟥 ' + combined.red_cards + ' vermelhos\\n';
       if (combined.titles.length) {{
-        txt += '\\n🏆 Títulos (temporada coincide com a passagem pelo(s) clube(s)):\\n';
-        combined.titles.forEach(ti => {{ txt += '• ' + ti.league + ' ' + ti.season + ' — ' + ti.place + '\\n'; }});
+        txt += '\\nTítulos:\\n';
+        combined.titles.forEach(ti => {{ txt += medalFor(ti.place) + ' ' + ti.league + ' ' + ti.season + '\\n'; }});
       }}
       renderResultCard(container, jgCareerTeamIds.length > 1 ? 'Passagem combinada (' + jgCareerTeamIds.length + ' clubes)' : 'Passagem completa pelo clube', txt.trim(),
-        'Temporadas ' + spanLabel + ' · ' + teamsLabel + (combined.titles.length ? ' · cruzamento de títulos por temporada, não por clube exato' : '') + ' · fonte: API-Football');
+        'Temporadas ' + spanLabel + ' · ' + teamsLabel + (combined.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + ' · fonte: API-Football');
     }} catch(e) {{
       container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
     }}
@@ -4187,7 +4194,30 @@ async def api_numeros_player_club_career(player: int, team: int):
         for s in seasons_at_club:
             year_tokens.add(str(s))
             year_tokens.add(str(s + 1))
+
+        def plausibly_this_club(tr: dict) -> bool:
+            # A /trophies da API-Football não informa o clube do título — só
+            # cruzar por temporada gera falso positivo real quando o jogador troca
+            # de clube no meio da janela (ex: título de Man City aparecendo pra
+            # Mahrez no Al-Ahli, mesmo ano de temporada). Por isso exigimos TAMBÉM
+            # que o país/competição do troféu seja algo que um clube saudita
+            # plausivelmente disputa — descarta ligas/copas domésticas estrangeiras.
+            country = (tr.get("country") or "").strip().lower()
+            league = (tr.get("league") or "").strip().lower()
+            if country in ("saudi arabia", "saudi-arabia"):
+                return True
+            continental_allow = {
+                "afc champions league", "afc champions league elite", "afc champions league two",
+                "afc cup", "arab club champions cup", "gcc champions league",
+                "fifa intercontinental cup", "fifa club world cup", "islamic solidarity cup",
+            }
+            if country in ("asia", "world") and league in continental_allow:
+                return True
+            return False
+
         for tr in trophies_data.get("response", []):
+            if not plausibly_this_club(tr):
+                continue
             t_season = str(tr.get("season") or "")
             if any(y and y in t_season for y in year_tokens):
                 titles.append({
@@ -4205,7 +4235,7 @@ async def api_numeros_player_club_career(player: int, team: int):
             "yellow_cards": total_yellow, "red_cards": total_red,
         },
         "titles": titles,
-        "titles_note": "Cruzamento por temporada — a API de troféus não informa o clube exato do título, então isso é um indício (a temporada do troféu coincide com uma temporada confirmada no clube), não uma certeza absoluta.",
+        "titles_note": "Cruzamento por temporada + competição plausível pro clube (a API de troféus não informa o clube do título) — reduz falsos positivos de outros clubes, mas ainda não é uma certeza absoluta.",
     }
 
 
