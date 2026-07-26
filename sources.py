@@ -22,9 +22,13 @@ TIER_B = {
         "FabriceHawkins", "DiMarzio", "Plettigoal", "sebsousapinto",
     ],
     "rss_feeds": [
-        # arriyadiyah.com — principal jornal esportivo saudita. Única fonte RSS ativa.
-        # Coletado via Google News (site:) para obter conteúdo completo dos artigos.
-        "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar",
+        # arriyadiyah.com saiu daqui em 26/07/2026. Era lido via Google News
+        # (site:arriyadiyah.com), mas esse caminho tinha três defeitos: indexava com
+        # atraso e de forma incompleta, não entregava o texto da matéria (só um link),
+        # e ainda duplicava tudo — a mesma notícia entrava por aqui e pelo leitor de
+        # seção, porque a URL de redirect do Google difere da URL real e o sufixo
+        # " - صحيفة الرياضية" no título derrubava a similaridade pra 0.73 (limiar 0.82).
+        # Agora o jornal é lido direto da seção, em ARRIYADIYAH_SECTIONS (collector.py).
     ],
 }
 

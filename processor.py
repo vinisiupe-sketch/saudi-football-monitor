@@ -2,6 +2,7 @@
 Processador — traduz artigos usando Claude API.
 """
 import os
+import re
 import json
 import asyncio
 import httpx
@@ -13,9 +14,35 @@ CLAUDE_MODEL = "claude-sonnet-4-5"
 SIMILARITY_THRESHOLD = 0.82
 
 
+def _sem_sufixo_do_veiculo(t: str) -> str:
+    """Tira o " - Nome do Veículo" que o Google News cola no fim do título.
+
+    Sem isso a comparação afunda: a mesma matéria como "محزري يرفض عرض القادسية" e
+    como "محزري يرفض عرض القادسية - صحيفة الرياضية" dava 0.73 de similaridade, abaixo
+    do limiar de 0.82, e a duplicata passava. Só o texto usado na COMPARAÇÃO muda —
+    o title_orig guardado e exibido continua exatamente como veio da fonte.
+
+    Corta pelo ÚLTIMO separador, não pelo primeiro: o veículo vem no fim, e há título
+    que usa hífen no meio ("Al Hilal: o plano - parte 1"). E ignora sufixo longo, que
+    quase certamente é parte da manchete e não nome de jornal."""
+    seps = list(re.finditer(r"\s+[-–—]\s+", t))
+    if not seps:
+        return t
+    ultimo = seps[-1]
+    sufixo = t[ultimo.end():].strip()
+    if not sufixo or len(sufixo) > 40:
+        return t
+    return t[:ultimo.start()].strip() or t
+
+
 def titles_are_similar(t1: str, t2: str) -> bool:
     t1, t2 = t1.lower().strip(), t2.lower().strip()
-    return SequenceMatcher(None, t1, t2).ratio() >= SIMILARITY_THRESHOLD
+    if SequenceMatcher(None, t1, t2).ratio() >= SIMILARITY_THRESHOLD:
+        return True
+    a, b = _sem_sufixo_do_veiculo(t1), _sem_sufixo_do_veiculo(t2)
+    if (a != t1 or b != t2) and a and b:
+        return SequenceMatcher(None, a, b).ratio() >= SIMILARITY_THRESHOLD
+    return False
 
 
 def deduplicate(articles: list[dict]) -> list[dict]:
