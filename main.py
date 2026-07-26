@@ -2426,12 +2426,21 @@ async function loadPlayerClubsFilter() {{
 
 function renderClubFilterList() {{
   const list = document.getElementById('jgClubFilterList');
-  list.innerHTML = jgPlayerClubs.map(c => {{
+  const allChecked = jgPlayerClubs.length > 0 && jgCareerTeamIds.length === jgPlayerClubs.length;
+  let html = '<div class="club-chip-item' + (allChecked ? ' checked' : '') + '" onclick="setClubsAll()"><span>Todos</span></div>';
+  html += jgPlayerClubs.map(c => {{
     const checked = jgCareerTeamIds.includes(c.id);
     return '<label class="club-chip-item' + (checked ? ' checked' : '') + '">' +
       '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="onClubFilterToggle(' + c.id + ', this.checked)">' +
       (c.logo ? '<img src="' + c.logo + '">' : '') + '<span>' + c.name + '</span></label>';
   }}).join('');
+  list.innerHTML = html;
+}}
+
+function setClubsAll() {{
+  jgCareerTeamIds = jgPlayerClubs.map(c => c.id);
+  renderClubFilterList();
+  loadPlayerSeason();
 }}
 
 function onClubFilterToggle(teamId, isChecked) {{
@@ -4329,6 +4338,36 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
         "titles": titles,
         "titles_note": titles_note,
     }
+
+
+@app.get("/api/numeros/debug-player-raw")
+async def api_numeros_debug_player_raw(player: int, season: int):
+    """TEMPORARIO: dump das linhas cruas de statistics devolvidas pela API-Football
+    pra investigar duplicidade de dados (ex: King's Cup somando jogos de mais)."""
+    data, err = await _af_get("players", {"id": player, "season": season})
+    if err:
+        return {"error": err}
+    resp = data.get("response", [])
+    if not resp:
+        return {"error": "sem resposta pra esse player/season"}
+    rows = []
+    for s in resp[0].get("statistics", []):
+        team = s.get("team") or {}
+        lg = s.get("league") or {}
+        games = s.get("games") or {}
+        goals = s.get("goals") or {}
+        cards = s.get("cards") or {}
+        rows.append({
+            "team_id": team.get("id"), "team_name": team.get("name"),
+            "league_id": lg.get("id"), "league_name": lg.get("name"),
+            "league_country": lg.get("country"), "league_season": lg.get("season"),
+            "league_round": lg.get("round"),
+            "appearences": games.get("appearences"), "lineups": games.get("lineups"),
+            "minutes": games.get("minutes"), "position": games.get("position"),
+            "goals": goals.get("total"), "assists": goals.get("assists"),
+            "yellow": cards.get("yellow"), "red": cards.get("red"),
+        })
+    return {"player": player, "season": season, "n_rows": len(rows), "rows": rows}
 
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
