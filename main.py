@@ -2407,10 +2407,12 @@ async function loadPlayerClubsFilter() {{
   const wrap = document.getElementById('jgClubFilterWrap');
   const list = document.getElementById('jgClubFilterList');
   if (!jgSelectedPlayer) {{ wrap.style.display = 'none'; return; }}
+  const requestedFor = jgSelectedPlayer.player_id;
   wrap.style.display = 'block';
   list.innerHTML = '<div class="search-empty">Carregando clubes do jogador…</div>';
   try {{
-    const d = await fetchJSON('/api/numeros/player-clubs?player=' + jgSelectedPlayer.player_id);
+    const d = await fetchJSON('/api/numeros/player-clubs?player=' + requestedFor + '&_=' + Date.now());
+    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;  // jogador trocou enquanto isso carregava
     jgPlayerClubs = d.clubs;
     if (!jgPlayerClubs.length) {{
       list.innerHTML = '<div class="search-empty">Nenhum time encontrado pra esse jogador nas temporadas disponíveis.</div>';
@@ -2420,6 +2422,7 @@ async function loadPlayerClubsFilter() {{
     jgCareerTeamIds = jgPlayerClubs.map(c => c.id);
     renderClubFilterList();
   }} catch(e) {{
+    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
     list.innerHTML = '<div class="search-empty">Erro ao carregar clubes do jogador.</div>';
   }}
 }}
@@ -2486,14 +2489,17 @@ async function loadPlayerLeaguesFilter() {{
   const wrap = document.getElementById('jgLeagueFilterWrap');
   const list = document.getElementById('jgLeagueFilterList');
   if (!jgSelectedPlayer) {{ wrap.style.display = 'none'; return; }}
+  const requestedFor = jgSelectedPlayer.player_id;
   wrap.style.display = 'block';
   list.innerHTML = '<div class="search-empty">Carregando competições…</div>';
   try {{
-    const d = await fetchJSON('/api/numeros/player-leagues?player=' + jgSelectedPlayer.player_id);
+    const d = await fetchJSON('/api/numeros/player-leagues?player=' + requestedFor + '&_=' + Date.now());
+    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;  // jogador trocou enquanto isso carregava
     jgPlayerLeagues = d.leagues;
     jgSelectedLeagueIdx = -1;
     renderLeagueFilterList();
   }} catch(e) {{
+    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
     list.innerHTML = '<div class="search-empty">Erro ao carregar competições.</div>';
   }}
 }}
@@ -2524,8 +2530,9 @@ document.addEventListener('click', function(e) {{
 async function loadPlayerSeason() {{
   const container = document.getElementById('player-season-result');
   if (!jgSelectedPlayer) {{ container.innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>'; return; }}
+  const requestedFor = jgSelectedPlayer.player_id;
   container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
-  const player = jgSelectedPlayer.player_id;
+  const player = requestedFor;
   const teamsParam = jgCareerTeamIds.join(',');
   const seasonsParam = jgSelectedSeasons.join(',');
   let leagueParam = '';
@@ -2534,11 +2541,12 @@ async function loadPlayerSeason() {{
     leagueParam = String(l.id ?? l.name);
   }}
   try {{
-    let url = '/api/numeros/player-stats?player=' + player;
+    let url = '/api/numeros/player-stats?player=' + player + '&_=' + Date.now();
     if (teamsParam) url += '&teams=' + teamsParam;
     if (seasonsParam) url += '&seasons=' + seasonsParam;
     if (leagueParam) url += '&league=' + encodeURIComponent(leagueParam);
     const d = await fetchJSON(url);
+    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;  // jogador trocou enquanto isso carregava
     const s = d.stats;
     const seasons = d.seasons || [];
     const seasonLabel = seasons.length <= 1
@@ -2557,9 +2565,13 @@ async function loadPlayerSeason() {{
       txt += '\\nTítulos:\\n';
       d.titles.forEach(ti => {{ txt += medalFor(ti.place) + ' ' + ti.league + ' ' + ti.season + '\\n'; }});
     }}
+    if (d.data_caveat) {{
+      txt += '\\n⚠️ ' + d.data_caveat;
+    }}
     renderResultCard(container, 'Estatísticas', txt.trim(),
-      'Temporada(s) ' + seasonLabel + ' · ' + teamsLabel + ' · ' + leagueLabel + (d.titles && d.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + ' · fonte: API-Football');
+      'Temporada(s) ' + seasonLabel + ' · ' + teamsLabel + ' · ' + leagueLabel + (d.titles && d.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + (d.data_caveat ? ' · ⚠️ competição sem ID único na fonte' : '') + ' · fonte: API-Football');
   }} catch(e) {{
+    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
     container.innerHTML = '<div class="result-card"><div class="error-state">' + (e.message || 'Nenhum dado encontrado pra essa combinação de filtros.') + '</div></div>';
   }}
 }}
@@ -4134,9 +4146,11 @@ async def api_numeros_player_clubs(player: int):
     sem restringir a clubes sauditas, já que o usuário pode querer combinar qualquer
     parte da carreira (ex: clube saudita + clube estrangeiro anterior, ou seleção)."""
     seasons_to_check = _af_available_seasons()
+    sem = asyncio.Semaphore(4)  # evita rate-limit da API-Football derrubando temporadas em silêncio
 
     async def check_season(season):
-        data, err = await _af_get("players", {"id": player, "season": season})
+        async with sem:
+            data, err = await _af_get("players", {"id": player, "season": season})
         if err or not data:
             return []
         resp = data.get("response", [])
@@ -4169,9 +4183,11 @@ async def api_numeros_player_leagues(player: int):
     sempre cruza clube+temporada+competição juntos em /api/numeros/player-stats;
     isso aqui só serve pra saber quais opções mostrar)."""
     seasons_to_check = _af_available_seasons()
+    sem = asyncio.Semaphore(4)  # evita rate-limit da API-Football derrubando temporadas em silêncio
 
     async def check_season(season):
-        data, err = await _af_get("players", {"id": player, "season": season})
+        async with sem:
+            data, err = await _af_get("players", {"id": player, "season": season})
         if err or not data:
             return []
         resp = data.get("response", [])
@@ -4209,9 +4225,11 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     - league: nome OU id (como string) da competição. Vazio = todas as competições."""
     seasons_to_check = [int(s) for s in seasons.split(",") if s.strip().lstrip("-").isdigit()] or _af_available_seasons()
     team_filter = {int(t) for t in teams.split(",") if t.strip().isdigit()}
+    sem = asyncio.Semaphore(4)  # evita rate-limit da API-Football derrubando temporadas em silêncio
 
     async def check_season(season):
-        data, err = await _af_get("players", {"id": player, "season": season})
+        async with sem:
+            data, err = await _af_get("players", {"id": player, "season": season})
         if err or not data:
             return None
         resp = data.get("response", [])
@@ -4243,6 +4261,7 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     seasons_hit = []
     teams_hit: dict = {}
     leagues_hit: dict = {}
+    leagues_no_id = set()
     name = photo = nationality = None
 
     for r in results:
@@ -4261,6 +4280,8 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
             lg = s.get("league") or {}
             if lg.get("name"):
                 leagues_hit[lg.get("name")] = lg.get("id")
+                if lg.get("id") is None:
+                    leagues_no_id.add(lg.get("name"))
             games = s.get("games") or {}
             goals = s.get("goals") or {}
             cards = s.get("cards") or {}
@@ -4325,6 +4346,16 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
                     })
         titles_note = "Cruzamento por temporada + competição plausível pro clube (a API de troféus não informa o clube do título) — reduz falsos positivos, mas não é uma certeza absoluta."
 
+    data_caveat = None
+    if leagues_no_id:
+        data_caveat = (
+            "A fonte (API-Football) não fornece um ID único pra estas competições: "
+            + ", ".join(sorted(leagues_no_id))
+            + ". Os números vêm exatamente como a API-Football reporta, sem nenhum ajuste "
+              "nosso — mas por não terem ID, essas competições correm risco de conter "
+              "categorização incorreta na origem dos dados."
+        )
+
     return {
         "player_id": player, "name": name, "photo": photo, "nationality": nationality,
         "teams": list(teams_hit.values()), "team_ids": list(teams_hit.keys()),
@@ -4337,37 +4368,8 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
         },
         "titles": titles,
         "titles_note": titles_note,
+        "data_caveat": data_caveat,
     }
-
-
-@app.get("/api/numeros/debug-player-raw")
-async def api_numeros_debug_player_raw(player: int, season: int):
-    """TEMPORARIO: dump das linhas cruas de statistics devolvidas pela API-Football
-    pra investigar duplicidade de dados (ex: King's Cup somando jogos de mais)."""
-    data, err = await _af_get("players", {"id": player, "season": season})
-    if err:
-        return {"error": err}
-    resp = data.get("response", [])
-    if not resp:
-        return {"error": "sem resposta pra esse player/season"}
-    rows = []
-    for s in resp[0].get("statistics", []):
-        team = s.get("team") or {}
-        lg = s.get("league") or {}
-        games = s.get("games") or {}
-        goals = s.get("goals") or {}
-        cards = s.get("cards") or {}
-        rows.append({
-            "team_id": team.get("id"), "team_name": team.get("name"),
-            "league_id": lg.get("id"), "league_name": lg.get("name"),
-            "league_country": lg.get("country"), "league_season": lg.get("season"),
-            "league_round": lg.get("round"),
-            "appearences": games.get("appearences"), "lineups": games.get("lineups"),
-            "minutes": games.get("minutes"), "position": games.get("position"),
-            "goals": goals.get("total"), "assists": goals.get("assists"),
-            "yellow": cards.get("yellow"), "red": cards.get("red"),
-        })
-    return {"player": player, "season": season, "n_rows": len(rows), "rows": rows}
 
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
