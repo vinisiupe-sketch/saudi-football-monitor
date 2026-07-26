@@ -4331,9 +4331,6 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     }
 
 
-_AF_WINDOW_CACHE
-
-
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 _JANELA_SCRAPING = False
 
