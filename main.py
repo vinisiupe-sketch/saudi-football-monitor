@@ -4372,6 +4372,21 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     }
 
 
+@app.get("/api/numeros/debug-af")
+async def api_numeros_debug_af(path: str, q: str = ""):
+    """TEMPORARIO: proxy cru pra API-Football pra investigar inconsistencias de dados.
+    path = endpoint (ex: 'leagues', 'players', 'fixtures'); q = querystring (ex: 'search=King&country=Saudi-Arabia')."""
+    params = {}
+    for part in q.split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            params[k] = v
+    data, err = await _af_get(path, params)
+    if err:
+        return {"error": err, "path": path, "params": params}
+    return {"path": path, "params": params, "results": data.get("results"), "response": data.get("response")}
+
+
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
 _JANELA_SCRAPING = False
 
