@@ -4045,17 +4045,39 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
 
 
+async def _spl_known_team_ids() -> set:
+    """Une os IDs de todos os clubes que já disputaram a SPL nas temporadas cobertas
+    pelo site (via /teams?league=307&season=Y, já cacheado por _af_get). Usado como
+    critério confiável pra saber se um time é da SPL — league.country da API vem
+    inconsistente (às vezes "Saudi-Arabia" com hífen, às vezes null mesmo pra
+    competições domésticas como o King's Cup), então cruzar pelo team_id é mais
+    seguro do que confiar nessa string."""
+    seasons_to_check = _af_available_seasons()
+
+    async def get_season_teams(season):
+        data, err = await _af_get("teams", {"league": AF_LEAGUE_SPL, "season": season})
+        if err or not data:
+            return set()
+        return {t["team"]["id"] for t in data.get("response", []) if t.get("team", {}).get("id")}
+
+    results = await asyncio.gather(*[get_season_teams(s) for s in seasons_to_check])
+    ids: set = set()
+    for r in results:
+        ids |= r
+    return ids
+
+
 @app.get("/api/numeros/player-clubs")
 async def api_numeros_player_clubs(player: int):
-    """Lista os clubes SAUDITAS pelos quais um jogador já passou, varrendo as
+    """Lista os clubes SAUDITAS (SPL) pelos quais um jogador já passou, varrendo as
     temporadas disponíveis (mesma janela do site). Usado pra popular um filtro de
     clube(s) específico do jogador depois que ele é selecionado, em vez de fazer o
     usuário procurar entre os 18 clubes da liga quando só 1 ou 2 são relevantes.
-    Filtra por league.country == "Saudi Arabia" pra excluir clubes estrangeiros e
-    seleção nacional (o /players?id=X&season=Y do jogador traz TODAS as competições
-    que ele disputou naquele ano civil, incluindo clubes de fora e seleção — sem esse
-    filtro apareceriam coisas como "Real Madrid" ou "Portugal" na lista)."""
+    Filtra pelo team_id contra o conjunto real de clubes que já disputaram a SPL
+    (não pela string de país da competição, que vem inconsistente na API — ver
+    _spl_known_team_ids) pra excluir clubes estrangeiros e seleção nacional."""
     seasons_to_check = _af_available_seasons()
+    known_ids = await _spl_known_team_ids()
 
     async def check_season(season):
         data, err = await _af_get("players", {"id": player, "season": season})
@@ -4066,12 +4088,10 @@ async def api_numeros_player_clubs(player: int):
             return []
         out = []
         for s in resp[0].get("statistics", []):
-            league = s.get("league") or {}
-            if league.get("country") != "Saudi Arabia":
-                continue
             team = s.get("team") or {}
-            if team.get("id"):
-                out.append((team.get("id"), team.get("name"), team.get("logo")))
+            tid = team.get("id")
+            if tid and tid in known_ids:
+                out.append((tid, team.get("name"), team.get("logo")))
         return out
 
     results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
@@ -4444,38 +4464,6 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
             }
     except Exception as e:
         return {"error": str(e)}
-
-
-@app.get("/api/admin/debug-af7")
-async def api_debug_af7(player: int = 874, season: int = 2025):
-    """Debug: inspeciona o campo league.country bruto de /players?id=X&season=Y
-    (pra checar o formato exato da string antes de filtrar por ela)."""
-    af_key = os.environ.get("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return {"error": "API_FOOTBALL_KEY não configurada"}
-    headers = {"x-apisports-key": af_key}
-    out = {}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get("https://v3.football.api-sports.io/players", headers=headers,
-                                  params={"id": player, "season": season})
-            d = r.json()
-            resp = d.get("response", [])
-            out["errors"] = d.get("errors")
-            out["competitions"] = [
-                {
-                    "league_id": s.get("league", {}).get("id"),
-                    "league_name": s.get("league", {}).get("name"),
-                    "league_country": s.get("league", {}).get("country"),
-                    "team": s.get("team", {}).get("name"),
-                    "team_id": s.get("team", {}).get("id"),
-                }
-                for s in (resp[0].get("statistics", []) if resp else [])
-            ]
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    import json as _json
-    return HTMLResponse("<pre>" + _json.dumps(out, indent=2, ensure_ascii=False) + "</pre>")
 
 
 @app.get("/api/admin/debug-rss")
