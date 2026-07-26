@@ -474,7 +474,11 @@ _ARR_ITEM_RE = re.compile(
     r"(?P<excerpt>.*)$",
     re.DOTALL | re.IGNORECASE,
 )
-_ARR_LINK_RE = re.compile(r"^https?://(?:www\.)?arriyadiyah\.com/(\d+)/")
+# O HTML da página usa href RELATIVO ("/896616/..."); a forma absoluta só aparece
+# quando alguma ferramenta resolve os links. Aceitar as duas evita justamente o
+# erro que fez o parser achar 0 âncoras em produção enquanto passava nos testes.
+# \d{5,} garante que é id de matéria e não caminho tipo "/news/section/2".
+_ARR_LINK_RE = re.compile(r"^(?:https?://(?:www\.)?arriyadiyah\.com)?/(\d{5,})/")
 
 
 def parse_arriyadiyah_section(html: str, source_name: str, source_tier: str) -> list[dict]:
@@ -500,6 +504,8 @@ def parse_arriyadiyah_section(html: str, source_name: str, source_tier: str) -> 
         art_num = m_link.group(1)
         if art_num in vistos:
             continue
+        if link.startswith("/"):
+            link = "https://arriyadiyah.com" + link
         texto = a.get_text(" ", strip=True)
         m = _ARR_ITEM_RE.match(texto)
         if not m:

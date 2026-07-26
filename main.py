@@ -4692,7 +4692,11 @@ async def api_debug_secao(url: str = "https://arriyadiyah.com/news/section/2", n
             out["html_sample"] = r.text[:500]
             return out
         soup = BeautifulSoup(r.text, "lxml")
-        ancoras = [a for a in soup.find_all("a", href=True) if _ARR_LINK_RE.match(a["href"])]
+        todas = soup.find_all("a", href=True)
+        out["ancoras_total"] = len(todas)
+        # Amostra crua de hrefs — foi o que revelou que os links são relativos.
+        out["hrefs_crus"] = [a["href"][:70] for a in todas[:12]]
+        ancoras = [a for a in todas if _ARR_LINK_RE.match(a["href"])]
         out["ancoras_de_artigo"] = len(ancoras)
         amostras = []
         for a in ancoras[:n]:
