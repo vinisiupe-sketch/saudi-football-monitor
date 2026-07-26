@@ -1222,6 +1222,17 @@ async def api_token_status_post(request: Request):
     return {"saved": True}
 
 
+@app.get("/api/admin/collect-now")
+async def api_collect_now(hours: int = 12):
+    """Coleta sob demanda com janela ampliada, e ESPERA terminar (diferente do
+    POST /api/collect, que dispara em background).
+
+    Serve pra resgatar matéria que ficou de fora porque a janela do ciclo normal
+    é curta: o agendador roda a cada 30min e só olha as últimas ~2h, então uma
+    notícia de 5h atrás nunca entra sozinha, mesmo com a fonte funcionando."""
+    return await run_pipeline(True, hours)
+
+
 @app.post("/api/collect")
 async def api_collect(background_tasks: BackgroundTasks, hours: int = None):
     # force=True ignora período inativo. hours opcional permite forçar uma
