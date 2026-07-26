@@ -4674,7 +4674,7 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
 
 
 @app.get("/api/admin/debug-rss")
-async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar", n: int = 3):
+async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar", n: int = 3, titles_only: int = 0):
     """Inspeciona um feed RSS bruto: link real, summary, e o que o scraper consegue extrair dele."""
     import feedparser
     from scraper import fetch_article_content, extract_urls, should_skip, resolve_google_news_url
@@ -4684,6 +4684,19 @@ async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:ar
         async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
             resp = await client.get(url, headers=HEADERS_DBG)
             feed = feedparser.parse(resp.text)
+            if titles_only:
+                # Modo leve: só o que o feed anuncia, sem resolver redirect nem raspar.
+                # Serve pra responder "essa notícia chegou a aparecer no feed?" sem
+                # baixar dezenas de artigos.
+                return {
+                    "feed_url": url,
+                    "total_no_feed": len(feed.entries),
+                    "entries": [
+                        {"title": getattr(e, "title", ""),
+                         "published": getattr(e, "published", "")}
+                        for e in feed.entries[:n]
+                    ],
+                }
             for entry in feed.entries[:n]:
                 link = getattr(entry, "link", "") or ""
                 summary = getattr(entry, "summary", "") or ""

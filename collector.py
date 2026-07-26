@@ -178,6 +178,19 @@ WORLD_CUP_TERMS = [
     "coupe du monde", "copa del mundo", "copa do mundo", "mondiali",
 ]
 
+def _resumo_sem_conteudo(title: str, body: str) -> bool:
+    """True quando o feed não entregou texto de verdade — só ecoou a manchete.
+
+    É exatamente o caso do Google News: o <summary> é um <a href> mais o nome do
+    veículo, então depois de tirar as tags sobra o próprio título. Sem essa checagem
+    o filtro de relevância acha que está lendo a notícia quando só tem a manchete."""
+    t = re.sub(r"\s+", " ", (title or "")).strip()
+    b = re.sub(r"\s+", " ", (body or "")).strip()
+    if not b:
+        return True
+    return len(b) <= len(t) * 1.6 + 40
+
+
 def is_relevant(text: str, min_hits: int = 3, title: str = "", strict_ambiguous: bool = True) -> bool:
     text_lower = text.lower()
     club_hit = match_saudi_club(text_lower)
@@ -301,8 +314,24 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
         # contexto de futebol). Feeds RSS (Google News etc.) cobrem futebol mundial,
         # então continuam exigindo 2 sinais pra evitar ruído de notícias não-sauditas.
         min_hits = 1 if source_type == "twitter" else 2
+        pending_relevance = False
         if not is_relevant(full_text, min_hits=min_hits, strict_ambiguous=(source_type != "twitter")):
-            continue
+            # Feeds do Google News não entregam o texto da notícia: o <summary> é só um
+            # link + o nome do veículo, então tudo que sobra aqui é a manchete. Julgar
+            # relevância só pela manchete descarta notícia boa — caso real: "الخليج يقترب
+            # من بارو" (Al Khaleej perto de Barrow) foi rejeitada porque "الخليج" sozinho
+            # é variante arriscada (significa "o Golfo") e a manchete não tinha nenhuma
+            # palavra de futebol. Com o corpo do artigo ela passa folgado.
+            # Nesses casos adiamos o veredito: o artigo é baixado em enrich_with_article
+            # e a relevância é reavaliada com o texto real (ver _confirma_pendentes).
+            if (
+                source_type == "rss"
+                and _resumo_sem_conteudo(title, body)
+                and (match_saudi_club(full_text.lower()) or match_saudi_club_risky(full_text.lower()))
+            ):
+                pending_relevance = True
+            else:
+                continue
         published = None
         if hasattr(entry, "published_parsed") and entry.published_parsed:
             try:
@@ -336,6 +365,9 @@ def parse_entries(feed, source_name: str, source_tier: str, source_type: str) ->
             "published_at": published,
             "collected_at": datetime.now(timezone.utc).isoformat(),
             "relevance_score": score,
+            # Só True quando a manchete não bastou pra decidir — resolvido em
+            # _confirma_pendentes (processor.py) depois de baixar o texto do artigo.
+            "pending_relevance": pending_relevance,
         })
     return articles
 

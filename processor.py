@@ -199,6 +199,28 @@ Texto: {art.get('body_orig', '')[:1200]}"""
     return articles
 
 
+def _confirma_pendentes(articles: list[dict]) -> list[dict]:
+    """Decide a relevância dos artigos que o coletor não teve como julgar pela manchete.
+
+    Feeds do Google News só entregam o título, então uma notícia legítima cujo único
+    sinal saudita é uma variante ambígua (ex: "الخليج" = Al Khaleej, mas também "o
+    Golfo") era descartada antes de alguém ler o texto. Esses casos chegam aqui
+    marcados como pending_relevance, já com o corpo baixado — agora dá pra decidir
+    do jeito certo, com a notícia inteira em mãos."""
+    from collector import is_relevant, compute_relevance
+
+    mantidos = []
+    for a in articles:
+        if not a.pop("pending_relevance", False):
+            mantidos.append(a)
+            continue
+        full = f"{a.get('title_orig', '')} {a.get('body_orig', '')}"
+        if is_relevant(full, min_hits=2, strict_ambiguous=True):
+            a["relevance_score"] = compute_relevance(full, a.get("source_tier", "C"))
+            mantidos.append(a)
+    return mantidos
+
+
 async def process_and_save(raw_articles: list[dict]) -> dict:
     from scraper import enrich_with_article
     print(f"\n⚙️  Processando {len(raw_articles)} artigos...")
@@ -206,6 +228,10 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
     print(f"   🔗 Buscando artigos completos...")
     async with httpx.AsyncClient() as client:
         articles = list(await asyncio.gather(*[enrich_with_article(a, client) for a in articles]))
+    antes = len(articles)
+    articles = _confirma_pendentes(articles)
+    if len(articles) != antes:
+        print(f"   🔎 {antes - len(articles)} descartados na reavaliação pós-scraping")
     articles = await translate_articles(articles)
     new_saved, dup_count = [], 0
     for art in articles:
