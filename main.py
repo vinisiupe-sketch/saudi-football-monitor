@@ -1992,13 +1992,13 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
         <label class="picker-label">Clube(s) do jogador <span class="optional-tag">(marque 1 ou mais para combinar)</span></label>
         <div id="jgClubFilterList" class="club-chip-list"></div>
       </div>
-      <div class="filters-row">
-        <label>Temporada
-          <select id="jgSeason" onchange="loadPlayerSeason()"></select>
-        </label>
-        <label id="jgLeagueLabel">Competição
-          <select id="jgLeague" onchange="loadPlayerSeason()"><option value="0">Todas</option></select>
-        </label>
+      <div id="jgSeasonFilterWrap" class="club-filter-wrap" style="display:none">
+        <label class="picker-label">Temporada(s) <span class="optional-tag">(marque 1 ou mais, ou "Todas")</span></label>
+        <div id="jgSeasonFilterList" class="club-chip-list"></div>
+      </div>
+      <div id="jgLeagueFilterWrap" class="club-filter-wrap" style="display:none">
+        <label class="picker-label">Competição</label>
+        <div id="jgLeagueFilterList" class="club-chip-list"></div>
       </div>
       <div id="player-season-result"><div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div></div>
     </div>
@@ -2081,7 +2081,7 @@ function fillSelect(sel, items, valueKey, labelKey, placeholder) {{
 }}
 
 function setupSeasonSelects() {{
-  ['rkSeason','stSeason','jgSeason','fxSeason'].forEach(id => {{
+  ['rkSeason','stSeason','fxSeason'].forEach(id => {{
     const sel = document.getElementById(id);
     sel.innerHTML = '';
     SEASONS.forEach(y => {{
@@ -2341,8 +2341,7 @@ function onPlayerSearchInput() {{
     return;
   }}
   jgPlayerSearchTimer = setTimeout(async () => {{
-    const rawSeason = document.getElementById('jgSeason').value;
-    const season = (rawSeason === 'all' || !rawSeason) ? SEASONS[0] : rawSeason;
+    const season = SEASONS[0];
     const box = document.getElementById('jgPlayerResults');
     box.innerHTML = '<div class="search-empty">Buscando…</div>';
     box.style.display = 'block';
@@ -2361,8 +2360,11 @@ function selectPlayerByIndex(i) {{ selectPlayer(_lastPlayerResults[i]); }}
 
 let jgCareerTeamIds = [];
 let jgPlayerClubs = [];
+let jgSelectedSeasons = [];
+let jgPlayerLeagues = [];
+let jgSelectedLeagueIdx = -1;
 
-function selectPlayer(p) {{
+async function selectPlayer(p) {{
   jgSelectedPlayer = p;
   document.getElementById('jgPlayerSearch').value = '';
   document.getElementById('jgPlayerResults').style.display = 'none';
@@ -2372,7 +2374,11 @@ function selectPlayer(p) {{
   chip.innerHTML = (p.photo ? '<img src="' + p.photo + '" class="search-avatar">' : '') +
     '<span>' + p.name + (p.team ? ' (' + p.team + ')' : '') + '</span>' +
     '<button type="button" class="chip-clear" onclick="clearPlayer()">✕</button>';
-  loadPlayerClubsFilter();
+  jgSelectedSeasons = [];
+  jgSelectedLeagueIdx = -1;
+  document.getElementById('jgSeasonFilterWrap').style.display = 'block';
+  renderSeasonFilterList();
+  await Promise.all([loadPlayerClubsFilter(), loadPlayerLeaguesFilter()]);
   loadPlayerSeason();
   loadFixtures();
 }}
@@ -2381,10 +2387,17 @@ function clearPlayer() {{
   jgSelectedPlayer = null;
   jgCareerTeamIds = [];
   jgPlayerClubs = [];
+  jgSelectedSeasons = [];
+  jgPlayerLeagues = [];
+  jgSelectedLeagueIdx = -1;
   document.getElementById('jgPlayerSelected').style.display = 'none';
   document.getElementById('jgPlayerSelected').innerHTML = '';
   document.getElementById('jgClubFilterWrap').style.display = 'none';
   document.getElementById('jgClubFilterList').innerHTML = '';
+  document.getElementById('jgSeasonFilterWrap').style.display = 'none';
+  document.getElementById('jgSeasonFilterList').innerHTML = '';
+  document.getElementById('jgLeagueFilterWrap').style.display = 'none';
+  document.getElementById('jgLeagueFilterList').innerHTML = '';
   document.getElementById('player-season-result').innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>';
   document.getElementById('fixture-player-result').innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador e uma partida acima.</div></div>';
   document.getElementById('fxFixture').innerHTML = '<option value="">Selecione o jogador primeiro</option>';
@@ -2428,7 +2441,68 @@ function onClubFilterToggle(teamId, isChecked) {{
     jgCareerTeamIds = jgCareerTeamIds.filter(id => id !== teamId);
   }}
   renderClubFilterList();
-  if (document.getElementById('jgSeason').value === 'all') loadPlayerSeason();
+  loadPlayerSeason();
+}}
+
+function renderSeasonFilterList() {{
+  const list = document.getElementById('jgSeasonFilterList');
+  const allChecked = jgSelectedSeasons.length === 0;
+  let html = '<div class="club-chip-item' + (allChecked ? ' checked' : '') + '" onclick="setSeasonsAll()"><span>Todas</span></div>';
+  SEASONS.forEach(y => {{
+    const checked = jgSelectedSeasons.includes(y);
+    html += '<label class="club-chip-item' + (checked ? ' checked' : '') + '">' +
+      '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="onSeasonToggle(' + y + ', this.checked)">' +
+      '<span>' + y + '/' + String(y + 1).slice(2) + '</span></label>';
+  }});
+  list.innerHTML = html;
+}}
+
+function setSeasonsAll() {{
+  jgSelectedSeasons = [];
+  renderSeasonFilterList();
+  loadPlayerSeason();
+}}
+
+function onSeasonToggle(year, isChecked) {{
+  if (isChecked) {{
+    if (!jgSelectedSeasons.includes(year)) jgSelectedSeasons.push(year);
+  }} else {{
+    jgSelectedSeasons = jgSelectedSeasons.filter(y => y !== year);
+  }}
+  renderSeasonFilterList();
+  loadPlayerSeason();
+}}
+
+async function loadPlayerLeaguesFilter() {{
+  const wrap = document.getElementById('jgLeagueFilterWrap');
+  const list = document.getElementById('jgLeagueFilterList');
+  if (!jgSelectedPlayer) {{ wrap.style.display = 'none'; return; }}
+  wrap.style.display = 'block';
+  list.innerHTML = '<div class="search-empty">Carregando competições…</div>';
+  try {{
+    const d = await fetchJSON('/api/numeros/player-leagues?player=' + jgSelectedPlayer.player_id);
+    jgPlayerLeagues = d.leagues;
+    jgSelectedLeagueIdx = -1;
+    renderLeagueFilterList();
+  }} catch(e) {{
+    list.innerHTML = '<div class="search-empty">Erro ao carregar competições.</div>';
+  }}
+}}
+
+function renderLeagueFilterList() {{
+  const list = document.getElementById('jgLeagueFilterList');
+  let html = '<div class="club-chip-item' + (jgSelectedLeagueIdx === -1 ? ' checked' : '') + '" onclick="setLeagueFilterByIndex(-1)"><span>Todas</span></div>';
+  jgPlayerLeagues.forEach((l, i) => {{
+    const checked = jgSelectedLeagueIdx === i;
+    html += '<div class="club-chip-item' + (checked ? ' checked' : '') + '" onclick="setLeagueFilterByIndex(' + i + ')"><span>' + l.name + '</span></div>';
+  }});
+  list.innerHTML = html;
+}}
+
+function setLeagueFilterByIndex(i) {{
+  jgSelectedLeagueIdx = i;
+  renderLeagueFilterList();
+  loadPlayerSeason();
 }}
 
 document.addEventListener('click', function(e) {{
@@ -2441,94 +2515,43 @@ document.addEventListener('click', function(e) {{
 async function loadPlayerSeason() {{
   const container = document.getElementById('player-season-result');
   if (!jgSelectedPlayer) {{ container.innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>'; return; }}
-  const player = jgSelectedPlayer.player_id;
-  const season = document.getElementById('jgSeason').value;
-  const leagueLabel = document.getElementById('jgLeagueLabel');
   container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
-
-  if (season === 'all') {{
-    if (leagueLabel) leagueLabel.style.display = 'none';
-    if (!jgCareerTeamIds.length) {{
-      container.innerHTML = '<div class="result-card"><div class="error-state">Marque ao menos um clube no filtro "Clube(s) do jogador" acima pra ver a passagem completa.</div></div>';
-      return;
-    }}
-    try {{
-      const parts = await Promise.all(jgCareerTeamIds.map(tid => fetchJSON('/api/numeros/player-club-career?player=' + player + '&team=' + tid)));
-      const combined = {{
-        name: parts[0].name, nationality: parts[0].nationality,
-        teams: parts.map(p => p.team),
-        seasons_at_club: [].concat(...parts.map(p => p.seasons_at_club)).sort((a,b)=>a-b),
-        appearences: 0, minutes: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
-        ratingSum: 0, ratingWeight: 0,
-        titles: [],
-      }};
-      parts.forEach(p => {{
-        const s = p.stats;
-        combined.appearences += naNum(s.appearences);
-        combined.minutes += naNum(s.minutes);
-        combined.goals += naNum(s.goals);
-        combined.assists += naNum(s.assists);
-        combined.yellow_cards += naNum(s.yellow_cards);
-        combined.red_cards += naNum(s.red_cards);
-        const w = naNum(s.appearences) > 0 ? naNum(s.appearences) : 1;
-        if (s.rating !== null && s.rating !== undefined) {{ combined.ratingSum += parseFloat(s.rating) * w; combined.ratingWeight += w; }}
-        p.titles.forEach(ti => {{
-          const key = ti.league + '|' + ti.season + '|' + ti.place;
-          if (!combined.titles.some(x => (x.league+'|'+x.season+'|'+x.place) === key)) combined.titles.push(ti);
-        }});
-      }});
-      const avgRating = combined.ratingWeight > 0 ? (combined.ratingSum / combined.ratingWeight) : null;
-      const firstY = combined.seasons_at_club[0];
-      const lastY = combined.seasons_at_club[combined.seasons_at_club.length - 1];
-      const spanLabel = firstY === lastY
-        ? (firstY + '/' + String(firstY + 1).slice(2))
-        : (firstY + '/' + String(firstY + 1).slice(2)) + ' a ' + (lastY + '/' + String(lastY + 1).slice(2));
-      const teamsLabel = combined.teams.map(t => clubShort(t)).join(' + ');
-      let txt = flagFor(combined.nationality) + ' ' + combined.name + ' pelo ' + teamsLabel + ' — carreira (' + spanLabel + '):\\n\\n';
-      txt += '⚔️ ' + combined.appearences + ' jogos\\n';
-      txt += '✅ ' + (combined.goals + combined.assists) + ' participações em gols\\n';
-      txt += '⚽ ' + combined.goals + ' gols\\n';
-      txt += '\\u{{1F170}}️ ' + combined.assists + ' assistências\\n';
-      txt += '⭐ Nota média: ' + fmtRating(avgRating) + '\\n';
-      txt += '🟨 ' + combined.yellow_cards + ' amarelos 🟥 ' + combined.red_cards + ' vermelhos\\n';
-      if (combined.titles.length) {{
-        txt += '\\nTítulos:\\n';
-        combined.titles.forEach(ti => {{ txt += medalFor(ti.place) + ' ' + ti.league + ' ' + ti.season + '\\n'; }});
-      }}
-      renderResultCard(container, jgCareerTeamIds.length > 1 ? 'Passagem combinada (' + jgCareerTeamIds.length + ' clubes)' : 'Passagem completa pelo clube', txt.trim(),
-        'Temporadas ' + spanLabel + ' · ' + teamsLabel + (combined.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + ' · fonte: API-Football');
-    }} catch(e) {{
-      container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
-    }}
-    return;
+  const player = jgSelectedPlayer.player_id;
+  const teamsParam = jgCareerTeamIds.join(',');
+  const seasonsParam = jgSelectedSeasons.join(',');
+  let leagueParam = '';
+  if (jgSelectedLeagueIdx !== -1 && jgPlayerLeagues[jgSelectedLeagueIdx]) {{
+    const l = jgPlayerLeagues[jgSelectedLeagueIdx];
+    leagueParam = String(l.id ?? l.name);
   }}
-
-  if (leagueLabel) leagueLabel.style.display = '';
-  const league = document.getElementById('jgLeague').value;
-  const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
   try {{
-    const d = await fetchJSON('/api/numeros/player-season?player=' + player + '&season=' + season + (league!=='0' ? '&league=' + encodeURIComponent(league) : ''));
-    const leagueSel = document.getElementById('jgLeague');
-    if (leagueSel.dataset.player !== String(player)) {{
-      fillSelect(leagueSel, [{{league_id:'0', label:'Todas'}}, ...d.competitions_available.map(c=>({{league_id: String(c.league_id ?? c.league_name), label: c.league_name}}))], 'league_id', 'label', null);
-      leagueSel.dataset.player = String(player);
-    }}
-    if (!d.stats) {{
-      container.innerHTML = '<div class="result-card"><div class="error-state">Sem estatísticas disponíveis para esta competição/temporada.</div></div>';
-      return;
-    }}
+    let url = '/api/numeros/player-stats?player=' + player;
+    if (teamsParam) url += '&teams=' + teamsParam;
+    if (seasonsParam) url += '&seasons=' + seasonsParam;
+    if (leagueParam) url += '&league=' + encodeURIComponent(leagueParam);
+    const d = await fetchJSON(url);
     const s = d.stats;
-    let txt = flagFor(d.nationality) + ' ' + d.name + ' pelo ' + naText(d.team) + ' — ' + naText(d.league) + ' ' + seasonLabel + ':\\n\\n';
+    const seasons = d.seasons || [];
+    const seasonLabel = seasons.length <= 1
+      ? (seasons.length ? (seasons[0] + '/' + String(seasons[0] + 1).slice(2)) : 'todas')
+      : (seasons[0] + '/' + String(seasons[0] + 1).slice(2)) + ' a ' + (seasons[seasons.length - 1] + '/' + String(seasons[seasons.length - 1] + 1).slice(2));
+    const teamsLabel = d.teams && d.teams.length ? d.teams.map(t => clubShort(t)).join(' + ') : 'todos os times';
+    const leagueLabel = (d.leagues && d.leagues.length === 1) ? d.leagues[0].name : ((d.leagues && d.leagues.length > 1) ? 'várias competições' : 'todas as competições');
+    let txt = flagFor(d.nationality) + ' ' + d.name + ' pelo ' + teamsLabel + ' — ' + leagueLabel + ' (' + seasonLabel + '):\\n\\n';
     txt += '⚔️ ' + naNum(s.appearences) + ' jogos\\n';
     txt += '✅ ' + naNum(s.ga) + ' participações em gols\\n';
     txt += '⚽ ' + naNum(s.goals) + ' gols\\n';
     txt += '\\u{{1F170}}️ ' + naNum(s.assists) + ' assistências\\n';
     txt += '⭐ Nota média: ' + fmtRating(s.rating) + '\\n';
     txt += '🟨 ' + naNum(s.yellow_cards) + ' amarelos 🟥 ' + naNum(s.red_cards) + ' vermelhos\\n';
-    renderResultCard(container, 'Estatísticas na temporada', txt.trim(),
-      'Temporada ' + seasonLabel + ' · ' + naText(d.league) + ' · fonte: API-Football');
+    if (d.titles && d.titles.length) {{
+      txt += '\\nTítulos:\\n';
+      d.titles.forEach(ti => {{ txt += medalFor(ti.place) + ' ' + ti.league + ' ' + ti.season + '\\n'; }});
+    }}
+    renderResultCard(container, 'Estatísticas', txt.trim(),
+      'Temporada(s) ' + seasonLabel + ' · ' + teamsLabel + ' · ' + leagueLabel + (d.titles && d.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + ' · fonte: API-Football');
   }} catch(e) {{
-    container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+    container.innerHTML = '<div class="result-card"><div class="error-state">' + (e.message || 'Nenhum dado encontrado pra essa combinação de filtros.') + '</div></div>';
   }}
 }}
 
@@ -2585,11 +2608,6 @@ async function loadFixturePlayer() {{
 
 async function init() {{
   setupSeasonSelects();
-  const jgSeasonSel = document.getElementById('jgSeason');
-  const allOpt = document.createElement('option');
-  allOpt.value = 'all';
-  allOpt.textContent = 'Todas (carreira no clube)';
-  jgSeasonSel.appendChild(allOpt);
   try {{
     const meta = await fetchJSON('/api/numeros/meta?season=' + SEASONS[0]);
     jgAllTeams = meta.teams;
@@ -4134,17 +4152,54 @@ async def api_numeros_player_clubs(player: int):
     return {"player": player, "clubs": clubs}
 
 
-@app.get("/api/numeros/player-club-career")
-async def api_numeros_player_club_career(player: int, team: int):
-    """Agrega TODA a passagem de um jogador por um clube específico, varrendo as
-    temporadas disponíveis (mesma janela do seletor do site) e somando só as
-    competições em que o time bate com o clube selecionado — nunca soma números de
-    quando o jogador estava em outro clube. Também cruza com /trophies?player=X pra
-    listar títulos cuja temporada coincide com alguma temporada confirmada no clube.
-    Importante: a API de troféus não informa o clube do título, só liga/país/temporada —
-    então esse cruzamento é um INDÍCIO (a temporada bate com a passagem confirmada),
-    não uma certeza absoluta, e isso fica explícito na resposta."""
+@app.get("/api/numeros/player-leagues")
+async def api_numeros_player_leagues(player: int):
+    """Lista as competições (nome + id, quando existir) em que um jogador já jogou,
+    varrendo as temporadas disponíveis. Popula os chips de "Competição" na guia
+    Jogador, independente do(s) clube(s) marcado(s) no momento (a consulta real
+    sempre cruza clube+temporada+competição juntos em /api/numeros/player-stats;
+    isso aqui só serve pra saber quais opções mostrar)."""
     seasons_to_check = _af_available_seasons()
+
+    async def check_season(season):
+        data, err = await _af_get("players", {"id": player, "season": season})
+        if err or not data:
+            return []
+        resp = data.get("response", [])
+        if not resp:
+            return []
+        out = []
+        for s in resp[0].get("statistics", []):
+            lg = s.get("league") or {}
+            if lg.get("name"):
+                out.append((lg.get("name"), lg.get("id")))
+        return out
+
+    results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
+    seen = {}
+    for group in results:
+        for name, lid in group:
+            if name not in seen:
+                seen[name] = lid
+    leagues = [{"name": k, "id": v} for k, v in seen.items()]
+    leagues.sort(key=lambda x: x["name"] or "")
+    return {"player": player, "leagues": leagues}
+
+
+@app.get("/api/numeros/player-stats")
+async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = "", league: str = ""):
+    """Endpoint ÚNICO e consistente pra estatísticas de jogador — os 3 filtros
+    (clube, temporada, competição) são sempre aplicados JUNTOS da mesma forma.
+    Isso substitui os antigos /player-season (que ignorava o clube ao casar por
+    nome de competição — causava bug real: casava o "King's Cup" de OUTRO clube
+    do jogador na mesma temporada) e /player-club-career (que ignorava a
+    competição). Nunca soma duas linhas de estatística de times diferentes.
+    - teams: IDs de time separados por vírgula. Vazio = qualquer time (todos os
+      times que o jogador já teve estatística, incluindo seleção nacional).
+    - seasons: anos separados por vírgula. Vazio = todas as temporadas disponíveis.
+    - league: nome OU id (como string) da competição. Vazio = todas as competições."""
+    seasons_to_check = [int(s) for s in seasons.split(",") if s.strip().lstrip("-").isdigit()] or _af_available_seasons()
+    team_filter = {int(t) for t in teams.split(",") if t.strip().isdigit()}
 
     async def check_season(season):
         data, err = await _af_get("players", {"id": player, "season": season})
@@ -4154,30 +4209,49 @@ async def api_numeros_player_club_career(player: int, team: int):
         if not resp:
             return None
         p = resp[0].get("player", {})
-        stats = [s for s in resp[0].get("statistics", []) if (s.get("team") or {}).get("id") == team]
-        if not stats:
+        rows = []
+        for s in resp[0].get("statistics", []):
+            team = s.get("team") or {}
+            tid = team.get("id")
+            if team_filter and tid not in team_filter:
+                continue
+            if league:
+                lg = s.get("league") or {}
+                lg_id = lg.get("id")
+                is_match = (lg_id is not None and str(lg_id) == league) or (lg.get("name") == league)
+                if not is_match:
+                    continue
+            rows.append(s)
+        if not rows:
             return None
-        return season, p, stats
+        return season, p, rows
 
     results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
 
     total_app = total_min = total_goals = total_assists = total_yellow = total_red = 0
     rating_sum = 0.0
     rating_weight = 0
-    seasons_at_club = []
-    team_name = None
+    seasons_hit = []
+    teams_hit: dict = {}
+    leagues_hit: dict = {}
     name = photo = nationality = None
 
     for r in results:
         if not r:
             continue
-        season, p, stats = r
-        seasons_at_club.append(season)
+        season, p, rows = r
         if name is None:
             name = p.get("name")
             photo = p.get("photo")
             nationality = p.get("nationality")
-        for s in stats:
+        seasons_hit.append(season)
+        for s in rows:
+            team = s.get("team") or {}
+            if team.get("id"):
+                teams_hit[team["id"]] = team.get("name")
+            lg = s.get("league") or {}
+            if lg.get("name"):
+                leagues_hit[lg.get("name")] = lg.get("id")
             games = s.get("games") or {}
             goals = s.get("goals") or {}
             cards = s.get("cards") or {}
@@ -4197,185 +4271,67 @@ async def api_numeros_player_club_career(player: int, team: int):
                     rating_weight += w
                 except (TypeError, ValueError):
                     pass
-            if not team_name:
-                team_name = (s.get("team") or {}).get("name")
 
-    if not seasons_at_club:
+    if not seasons_hit:
         return JSONResponse(
-            {"error": "Nenhuma temporada encontrada pra esse jogador nesse clube (dentro da janela disponível: " + str(min(seasons_to_check)) + "–" + str(max(seasons_to_check)) + ")."},
+            {"error": "Nenhum dado encontrado pra essa combinação de clube/temporada/competição."},
             status_code=404,
         )
 
     avg_rating = (rating_sum / rating_weight) if rating_weight > 0 else None
-    seasons_at_club.sort()
+    seasons_hit = sorted(set(seasons_hit))
 
     titles = []
-    trophies_data, terr = await _af_get("trophies", {"player": player})
-    if not terr and trophies_data:
-        year_tokens = set()
-        for s in seasons_at_club:
-            year_tokens.add(str(s))
-            year_tokens.add(str(s + 1))
+    titles_note = None
+    if team_filter:
+        trophies_data, terr = await _af_get("trophies", {"player": player})
+        if not terr and trophies_data:
+            year_tokens = set()
+            for s in seasons_hit:
+                year_tokens.add(str(s))
+                year_tokens.add(str(s + 1))
 
-        def plausibly_this_club(tr: dict) -> bool:
-            # A /trophies da API-Football não informa o clube do título — só
-            # cruzar por temporada gera falso positivo real quando o jogador troca
-            # de clube no meio da janela (ex: título de Man City aparecendo pra
-            # Mahrez no Al-Ahli, mesmo ano de temporada). Por isso exigimos TAMBÉM
-            # que o país/competição do troféu seja algo que um clube saudita
-            # plausivelmente disputa — descarta ligas/copas domésticas estrangeiras.
-            country = (tr.get("country") or "").strip().lower()
-            league = (tr.get("league") or "").strip().lower()
-            if country in ("saudi arabia", "saudi-arabia"):
-                return True
-            continental_allow = {
-                "afc champions league", "afc champions league elite", "afc champions league two",
-                "afc cup", "arab club champions cup", "gcc champions league",
-                "fifa intercontinental cup", "fifa club world cup", "islamic solidarity cup",
-            }
-            if country in ("asia", "world") and league in continental_allow:
-                return True
-            return False
+            def plausibly_this_club(tr: dict) -> bool:
+                country = (tr.get("country") or "").strip().lower()
+                lgn = (tr.get("league") or "").strip().lower()
+                if country in ("saudi arabia", "saudi-arabia"):
+                    return True
+                continental_allow = {
+                    "afc champions league", "afc champions league elite", "afc champions league two",
+                    "afc cup", "arab club champions cup", "gcc champions league",
+                    "fifa intercontinental cup", "fifa club world cup", "islamic solidarity cup",
+                }
+                if country in ("asia", "world") and lgn in continental_allow:
+                    return True
+                return False
 
-        for tr in trophies_data.get("response", []):
-            if not plausibly_this_club(tr):
-                continue
-            t_season = str(tr.get("season") or "")
-            if any(y and y in t_season for y in year_tokens):
-                titles.append({
-                    "league": tr.get("league"), "country": tr.get("country"),
-                    "season": tr.get("season"), "place": tr.get("place"),
-                })
+            for tr in trophies_data.get("response", []):
+                if not plausibly_this_club(tr):
+                    continue
+                t_season = str(tr.get("season") or "")
+                if any(y and y in t_season for y in year_tokens):
+                    titles.append({
+                        "league": tr.get("league"), "country": tr.get("country"),
+                        "season": tr.get("season"), "place": tr.get("place"),
+                    })
+        titles_note = "Cruzamento por temporada + competição plausível pro clube (a API de troféus não informa o clube do título) — reduz falsos positivos, mas não é uma certeza absoluta."
 
     return {
         "player_id": player, "name": name, "photo": photo, "nationality": nationality,
-        "team": team_name, "team_id": team,
-        "seasons_at_club": seasons_at_club,
+        "teams": list(teams_hit.values()), "team_ids": list(teams_hit.keys()),
+        "leagues": [{"name": k, "id": v} for k, v in leagues_hit.items()],
+        "seasons": seasons_hit,
         "stats": {
             "appearences": total_app, "minutes": total_min, "rating": avg_rating,
             "goals": total_goals, "assists": total_assists, "ga": total_goals + total_assists,
             "yellow_cards": total_yellow, "red_cards": total_red,
         },
         "titles": titles,
-        "titles_note": "Cruzamento por temporada + competição plausível pro clube (a API de troféus não informa o clube do título) — reduz falsos positivos de outros clubes, mas ainda não é uma certeza absoluta.",
+        "titles_note": titles_note,
     }
 
 
-@app.get("/api/numeros/player-season")
-async def api_numeros_player_season(player: int, season: int = 2025, league: str = "0"):
-    """Estatísticas de um jogador na temporada. `league` pode ser: "0"/"" (Todas — agrega
-    TODAS as competições da temporada), um league_id (int, como string), ou o NOME da
-    competição quando ela não tem league_id na API (ex: algumas edições do King's Cup
-    vêm com league.id null — nesse caso o front usa o nome como valor do filtro)."""
-    data, err = await _af_get("players", {"id": player, "season": season})
-    if err:
-        return JSONResponse({"error": err}, status_code=502)
-    resp = data.get("response", [])
-    if not resp:
-        return JSONResponse({"error": "Jogador sem estatísticas nesta temporada."}, status_code=404)
-    p = resp[0].get("player", {})
-    all_stats = resp[0].get("statistics", [])
-    competitions = [
-        {"league_id": s.get("league", {}).get("id"), "league_name": s.get("league", {}).get("name"), "team": s.get("team", {}).get("name")}
-        for s in all_stats
-    ]
-
-    def matches(s):
-        lg = s.get("league") or {}
-        if lg.get("id") is not None and str(lg.get("id")) == league:
-            return True
-        if lg.get("id") is None and lg.get("name") == league:
-            return True
-        return False
-
-    if league and league != "0":
-        stats_list = [s for s in all_stats if matches(s)]
-        if not stats_list:
-            return {
-                "player_id": player, "name": p.get("name"), "photo": p.get("photo"),
-                "season": season, "competitions_available": competitions, "stats": None,
-            }
-        s = stats_list[0]
-        games = s.get("games") or {}
-        goals = s.get("goals") or {}
-        g_total = goals.get("total") or 0
-        a_total = goals.get("assists") or 0
-        return {
-            "player_id": player,
-            "name": p.get("name"),
-            "photo": p.get("photo"),
-            "nationality": p.get("nationality"),
-            "age": p.get("age"),
-            "season": season,
-            "team": (s.get("team") or {}).get("name"),
-            "league": (s.get("league") or {}).get("name"),
-            "competitions_available": competitions,
-            "stats": {
-                "appearences": games.get("appearences") or 0,
-                "minutes": games.get("minutes") or 0,
-                "rating": games.get("rating"),
-                "goals": g_total,
-                "assists": a_total,
-                "ga": g_total + a_total,
-                "yellow_cards": (s.get("cards") or {}).get("yellow") or 0,
-                "red_cards": (s.get("cards") or {}).get("red") or 0,
-            },
-        }
-
-    # league == "0" (ou vazio) => "Todas": agrega TODAS as competições da temporada
-    if not all_stats:
-        return {
-            "player_id": player, "name": p.get("name"), "photo": p.get("photo"),
-            "season": season, "competitions_available": competitions, "stats": None,
-        }
-    total_app = total_min = total_goals = total_assists = total_yellow = total_red = 0
-    rating_sum = 0.0
-    rating_weight = 0
-    team_name = None
-    for s in all_stats:
-        games = s.get("games") or {}
-        goals = s.get("goals") or {}
-        cards = s.get("cards") or {}
-        a = games.get("appearences") or 0
-        total_app += a
-        total_min += games.get("minutes") or 0
-        total_goals += goals.get("total") or 0
-        total_assists += goals.get("assists") or 0
-        total_yellow += cards.get("yellow") or 0
-        total_red += cards.get("red") or 0
-        r = games.get("rating")
-        if r is not None:
-            try:
-                rf = float(r)
-                w = a if a > 0 else 1
-                rating_sum += rf * w
-                rating_weight += w
-            except (TypeError, ValueError):
-                pass
-        if not team_name:
-            team_name = (s.get("team") or {}).get("name")
-    avg_rating = (rating_sum / rating_weight) if rating_weight > 0 else None
-    return {
-        "player_id": player,
-        "name": p.get("name"),
-        "photo": p.get("photo"),
-        "nationality": p.get("nationality"),
-        "age": p.get("age"),
-        "season": season,
-        "team": team_name,
-        "league": "Todas as competições",
-        "competitions_available": competitions,
-        "stats": {
-            "appearences": total_app,
-            "minutes": total_min,
-            "rating": avg_rating,
-            "goals": total_goals,
-            "assists": total_assists,
-            "ga": total_goals + total_assists,
-            "yellow_cards": total_yellow,
-            "red_cards": total_red,
-        },
-    }
+_AF_WINDOW_CACHE
 
 
 _AF_WINDOW_CACHE: dict = {"data": None, "ts": 0.0}
