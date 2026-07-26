@@ -2325,10 +2325,10 @@ async function loadPlayerSeason() {{
   const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
   container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
   try {{
-    const d = await fetchJSON('/api/numeros/player-season?player=' + player + '&season=' + season + (league!=='0' ? '&league=' + league : ''));
+    const d = await fetchJSON('/api/numeros/player-season?player=' + player + '&season=' + season + (league!=='0' ? '&league=' + encodeURIComponent(league) : ''));
     const leagueSel = document.getElementById('jgLeague');
     if (leagueSel.dataset.player !== String(player)) {{
-      fillSelect(leagueSel, [{{league_id:0, label:'Todas'}}, ...d.competitions_available.map(c=>({{league_id: c.league_id, label: c.league_name}}))], 'league_id', 'label', null);
+      fillSelect(leagueSel, [{{league_id:'0', label:'Todas'}}, ...d.competitions_available.map(c=>({{league_id: String(c.league_id ?? c.league_name), label: c.league_name}}))], 'league_id', 'label', null);
       leagueSel.dataset.player = String(player);
     }}
     if (!d.stats) {{
@@ -2353,12 +2353,17 @@ async function loadPlayerSeason() {{
 async function loadFixtures() {{
   const fxSel = document.getElementById('fxFixture');
   if (!jgSelectedPlayer) {{ fxSel.innerHTML = '<option value="">Selecione o jogador primeiro</option>'; return; }}
+  const player = jgSelectedPlayer.player_id;
   const team = jgSelectedPlayer.team_id;
   if (!team) {{ fxSel.innerHTML = '<option value="">Time do jogador não disponível</option>'; return; }}
   const season = document.getElementById('fxSeason').value;
-  fxSel.innerHTML = '<option value="">Carregando…</option>';
+  fxSel.innerHTML = '<option value="">Carregando partidas do jogador…</option>';
   try {{
-    const d = await fetchJSON('/api/numeros/fixtures?team=' + team + '&season=' + season);
+    const d = await fetchJSON('/api/numeros/player-fixtures?player=' + player + '&team=' + team + '&season=' + season);
+    if (!d.fixtures.length) {{
+      fxSel.innerHTML = '<option value="">Nenhuma partida encontrada nesta temporada</option>';
+      return;
+    }}
     const items = d.fixtures.map(f => ({{
       id: f.fixture_id,
       label: f.date + ' · ' + f.home + ' ' + naNum(f.goals_home) + 'x' + naNum(f.goals_away) + ' ' + f.away + ' (' + (f.round||'') + ')'
@@ -3864,11 +3869,55 @@ async def api_numeros_fixture_player(fixture: int, player: int):
     }
 
 
+@app.get("/api/numeros/player-fixtures")
+async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025):
+    """Retorna SÓ as partidas em que o jogador participou ou foi relacionado (evita
+    listar o calendário inteiro do time, que inclui jogos em que ele nem esteve no banco).
+    Cruza /fixtures (calendário do time) com /fixtures/players (elenco relacionado por
+    partida), com concorrência limitada — cada partida fica cacheada em _af_get depois
+    da primeira consulta, então buscas repetidas (outro jogador do mesmo time) ficam rápidas."""
+    data, err = await _af_get("fixtures", {"league": AF_LEAGUE_SPL, "season": season, "team": team})
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    fixtures_raw = data.get("response", [])
+    sem = asyncio.Semaphore(5)
+
+    async def check(f):
+        fx = f.get("fixture", {})
+        fid = fx.get("id")
+        async with sem:
+            d2, e2 = await _af_get("fixtures/players", {"fixture": fid})
+        if e2 or not d2:
+            return None
+        for team_block in d2.get("response", []):
+            for pl in team_block.get("players", []):
+                if pl.get("player", {}).get("id") == player:
+                    teams = f.get("teams", {})
+                    goals = f.get("goals", {})
+                    return {
+                        "fixture_id": fid,
+                        "date": (fx.get("date") or "")[:10],
+                        "round": (f.get("league") or {}).get("round"),
+                        "status": (fx.get("status") or {}).get("short"),
+                        "home": (teams.get("home") or {}).get("name"),
+                        "away": (teams.get("away") or {}).get("name"),
+                        "goals_home": goals.get("home"),
+                        "goals_away": goals.get("away"),
+                    }
+        return None
+
+    results = await asyncio.gather(*[check(f) for f in fixtures_raw])
+    fixtures = [r for r in results if r]
+    fixtures.sort(key=lambda x: x["date"] or "", reverse=True)
+    return {"season": season, "team": team, "player": player, "fixtures": fixtures}
+
+
 @app.get("/api/numeros/player-season")
-async def api_numeros_player_season(player: int, season: int = 2025, league: int = 0):
-    """Estatísticas de um jogador na temporada — se `league` for informado, filtra
-    pra aquela competição; senão retorna todas as competições em que ele atuou
-    (pra popular o seletor de competição no front)."""
+async def api_numeros_player_season(player: int, season: int = 2025, league: str = "0"):
+    """Estatísticas de um jogador na temporada. `league` pode ser: "0"/"" (Todas — agrega
+    TODAS as competições da temporada), um league_id (int, como string), ou o NOME da
+    competição quando ela não tem league_id na API (ex: algumas edições do King's Cup
+    vêm com league.id null — nesse caso o front usa o nome como valor do filtro)."""
     data, err = await _af_get("players", {"id": player, "season": season})
     if err:
         return JSONResponse({"error": err}, status_code=502)
@@ -3876,23 +3925,87 @@ async def api_numeros_player_season(player: int, season: int = 2025, league: int
     if not resp:
         return JSONResponse({"error": "Jogador sem estatísticas nesta temporada."}, status_code=404)
     p = resp[0].get("player", {})
-    stats_list = resp[0].get("statistics", [])
+    all_stats = resp[0].get("statistics", [])
     competitions = [
         {"league_id": s.get("league", {}).get("id"), "league_name": s.get("league", {}).get("name"), "team": s.get("team", {}).get("name")}
-        for s in stats_list
+        for s in all_stats
     ]
-    if league:
-        stats_list = [s for s in stats_list if s.get("league", {}).get("id") == league]
-    if not stats_list:
+
+    def matches(s):
+        lg = s.get("league") or {}
+        if lg.get("id") is not None and str(lg.get("id")) == league:
+            return True
+        if lg.get("id") is None and lg.get("name") == league:
+            return True
+        return False
+
+    if league and league != "0":
+        stats_list = [s for s in all_stats if matches(s)]
+        if not stats_list:
+            return {
+                "player_id": player, "name": p.get("name"), "photo": p.get("photo"),
+                "season": season, "competitions_available": competitions, "stats": None,
+            }
+        s = stats_list[0]
+        games = s.get("games") or {}
+        goals = s.get("goals") or {}
+        g_total = goals.get("total") or 0
+        a_total = goals.get("assists") or 0
+        return {
+            "player_id": player,
+            "name": p.get("name"),
+            "photo": p.get("photo"),
+            "nationality": p.get("nationality"),
+            "age": p.get("age"),
+            "season": season,
+            "team": (s.get("team") or {}).get("name"),
+            "league": (s.get("league") or {}).get("name"),
+            "competitions_available": competitions,
+            "stats": {
+                "appearences": games.get("appearences") or 0,
+                "minutes": games.get("minutes") or 0,
+                "rating": games.get("rating"),
+                "goals": g_total,
+                "assists": a_total,
+                "ga": g_total + a_total,
+                "yellow_cards": (s.get("cards") or {}).get("yellow") or 0,
+                "red_cards": (s.get("cards") or {}).get("red") or 0,
+            },
+        }
+
+    # league == "0" (ou vazio) => "Todas": agrega TODAS as competições da temporada
+    if not all_stats:
         return {
             "player_id": player, "name": p.get("name"), "photo": p.get("photo"),
             "season": season, "competitions_available": competitions, "stats": None,
         }
-    s = stats_list[0]
-    games = s.get("games") or {}
-    goals = s.get("goals") or {}
-    g_total = goals.get("total")
-    a_total = goals.get("assists")
+    total_app = total_min = total_goals = total_assists = total_yellow = total_red = 0
+    rating_sum = 0.0
+    rating_weight = 0
+    team_name = None
+    for s in all_stats:
+        games = s.get("games") or {}
+        goals = s.get("goals") or {}
+        cards = s.get("cards") or {}
+        a = games.get("appearences") or 0
+        total_app += a
+        total_min += games.get("minutes") or 0
+        total_goals += goals.get("total") or 0
+        total_assists += goals.get("assists") or 0
+        total_yellow += cards.get("yellow") or 0
+        total_red += cards.get("red") or 0
+        r = games.get("rating")
+        if r is not None:
+            try:
+                rf = float(r)
+                w = a if a > 0 else 1
+                rating_sum += rf * w
+                rating_weight += w
+            except (TypeError, ValueError):
+                pass
+        if not team_name:
+            team_name = (s.get("team") or {}).get("name")
+    avg_rating = (rating_sum / rating_weight) if rating_weight > 0 else None
     return {
         "player_id": player,
         "name": p.get("name"),
@@ -3900,18 +4013,18 @@ async def api_numeros_player_season(player: int, season: int = 2025, league: int
         "nationality": p.get("nationality"),
         "age": p.get("age"),
         "season": season,
-        "team": (s.get("team") or {}).get("name"),
-        "league": (s.get("league") or {}).get("name"),
+        "team": team_name,
+        "league": "Todas as competições",
         "competitions_available": competitions,
         "stats": {
-            "appearences": games.get("appearences"),
-            "minutes": games.get("minutes"),
-            "rating": games.get("rating"),
-            "goals": g_total,
-            "assists": a_total,
-            "ga": (g_total or 0) + (a_total or 0) if (g_total is not None or a_total is not None) else None,
-            "yellow_cards": (s.get("cards") or {}).get("yellow"),
-            "red_cards": (s.get("cards") or {}).get("red"),
+            "appearences": total_app,
+            "minutes": total_min,
+            "rating": avg_rating,
+            "goals": total_goals,
+            "assists": total_assists,
+            "ga": total_goals + total_assists,
+            "yellow_cards": total_yellow,
+            "red_cards": total_red,
         },
     }
 
@@ -4054,6 +4167,28 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
             }
     except Exception as e:
         return {"error": str(e)}
+
+
+@app.get("/api/admin/debug-af6")
+async def api_debug_af6(player: int = 874):
+    """Debug: testa /trophies?player=X (existe? formato?) pra decidir se dá pra mostrar titulos."""
+    af_key = os.environ.get("API_FOOTBALL_KEY", "")
+    if not af_key:
+        return {"error": "API_FOOTBALL_KEY não configurada"}
+    headers = {"x-apisports-key": af_key}
+    out = {}
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get("https://v3.football.api-sports.io/trophies", headers=headers,
+                                  params={"player": player})
+            d = r.json()
+            out["results"] = d.get("results")
+            out["errors"] = d.get("errors")
+            out["response"] = d.get("response", [])[:30]
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"
+    import json as _json
+    return HTMLResponse("<pre>" + _json.dumps(out, indent=2, ensure_ascii=False) + "</pre>")
 
 
 @app.get("/api/admin/debug-rss")
