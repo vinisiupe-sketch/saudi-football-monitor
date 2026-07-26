@@ -401,7 +401,11 @@ async def collect_all(hours: int = None) -> dict:
             for tier_label, tier_data in [("A", TIER_A), ("B", TIER_B), ("C", TIER_C)]
             for feed_url in tier_data.get("rss_feeds", [])
         ]
-        tasks = twitter_tasks + rss_tasks
+        # Leitura direta da seção do arriyadiyah — ver comentário em ARRIYADIYAH_SECTIONS.
+        secao_tasks = [
+            (tier, "secao", name, url) for tier, name, url in ARRIYADIYAH_SECTIONS
+        ]
+        tasks = twitter_tasks + rss_tasks + secao_tasks
         BATCH_SIZE = 10
         for i in range(0, len(tasks), BATCH_SIZE):
             batch = tasks[i:i + BATCH_SIZE]
@@ -409,6 +413,8 @@ async def collect_all(hours: int = None) -> dict:
             for tier, stype, name, target in batch:
                 if stype == "twitter":
                     batch_coroutines.append(_collect_twitter(client, tier, name, target))
+                elif stype == "secao":
+                    batch_coroutines.append(_collect_arriyadiyah(client, tier, name, target))
                 else:
                     batch_coroutines.append(_collect_rss(client, tier, name, target))
             results = await asyncio.gather(*batch_coroutines, return_exceptions=True)
@@ -447,6 +453,120 @@ def _rss_feed_name(url: str) -> str:
         return domain or url[:50]
     except Exception:
         return url[:50]
+
+
+# ─── arriyadiyah.com: leitura direta da seção, sem passar pelo Google News ─────
+# O feed "site:arriyadiyah.com" do Google News tem dois defeitos graves como fonte:
+# (1) indexa com atraso e não pega tudo — a notícia "الخليج يقترب من بارو" (26/07,
+#     20:14 AST) não estava em NENHUM dos 100 itens do feed horas depois;
+# (2) não entrega texto: o <summary> é só um link, então o filtro de relevância
+#     julgava a notícia pela manchete.
+# A página da seção resolve os dois: é publicada pelo próprio jornal (sem atraso)
+# e cada item já traz título, horário e o lead da matéria.
+ARRIYADIYAH_SECTIONS = [
+    ("A", "arriyadiyah.com/الكرة-السعودية", "https://arriyadiyah.com/news/section/2"),
+]
+
+_ARR_ITEM_RE = re.compile(
+    r"^(?P<title>.+?)\s*"
+    r"(?P<date>\d{4}\.\d{2}\.\d{2})\s*\|\s*"
+    r"(?P<time>\d{1,2}:\d{2})\s*(?P<ampm>[ap]m)\s*"
+    r"(?P<excerpt>.*)$",
+    re.DOTALL | re.IGNORECASE,
+)
+_ARR_LINK_RE = re.compile(r"^https?://(?:www\.)?arriyadiyah\.com/(\d+)/")
+
+
+def parse_arriyadiyah_section(html: str, source_name: str, source_tier: str) -> list[dict]:
+    """Extrai os itens da listagem da seção do arriyadiyah.
+
+    Na listagem, título + horário + lead ficam todos dentro do MESMO <a>, então o
+    texto da âncora carrega tudo que precisamos. Blocos secundários da página
+    ("mais lidas", carrosséis) usam outro formato de data, e por isso não casam com
+    _ARR_ITEM_RE — servem de filtro natural pra não coletar a mesma coisa duas vezes."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "lxml")
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=ARTICLE_MAX_AGE_HOURS)
+    riyadh = timezone(timedelta(hours=3))
+
+    artigos = []
+    vistos = set()
+    for a in soup.find_all("a", href=True):
+        link = a["href"]
+        m_link = _ARR_LINK_RE.match(link)
+        if not m_link:
+            continue
+        art_num = m_link.group(1)
+        if art_num in vistos:
+            continue
+        texto = a.get_text(" ", strip=True)
+        m = _ARR_ITEM_RE.match(texto)
+        if not m:
+            continue  # não é item da listagem principal
+        vistos.add(art_num)
+
+        titulo = m.group("title").strip()
+        excerpt = m.group("excerpt").strip()
+        try:
+            hora, minuto = (int(x) for x in m.group("time").split(":"))
+            if m.group("ampm").lower() == "pm" and hora != 12:
+                hora += 12
+            elif m.group("ampm").lower() == "am" and hora == 12:
+                hora = 0
+            ano, mes, dia = (int(x) for x in m.group("date").split("."))
+            # O site publica em horário de Riade (UTC+3).
+            publicado = datetime(ano, mes, dia, hora, minuto, tzinfo=riyadh).astimezone(timezone.utc)
+        except (ValueError, TypeError):
+            continue
+        if publicado < cutoff:
+            continue
+
+        full_text = f"{titulo} {excerpt}"
+        # O lead já é texto real (bem melhor que a manchete pelada do Google News),
+        # mas ainda pode não bastar: em "الخليج يقترب من بارو" os DOIS clubes citados
+        # (الخليج e التعاون) são variantes ambíguas, e o lead truncado corta as palavras
+        # que confirmariam o contexto. Nesses casos vale a mesma regra dos feeds —
+        # baixar a matéria e decidir com ela inteira (_confirma_pendentes).
+        pending_relevance = False
+        if not is_relevant(full_text, min_hits=2, strict_ambiguous=True):
+            if match_saudi_club(full_text.lower()) or match_saudi_club_risky(full_text.lower()):
+                pending_relevance = True
+            else:
+                continue
+
+        artigos.append({
+            "id": make_article_id(link, titulo),
+            "source_name": source_name,
+            "source_tier": source_tier,
+            "source_type": "rss",
+            "url": link,
+            "title_orig": titulo[:500],
+            "title_pt": None,
+            "body_orig": excerpt[:3000],
+            "body_pt": None,
+            "language": detect_language(full_text),
+            "published_at": publicado.isoformat(),
+            "collected_at": datetime.now(timezone.utc).isoformat(),
+            "relevance_score": compute_relevance(full_text, source_tier),
+            "pending_relevance": pending_relevance,
+        })
+    return artigos
+
+
+async def _collect_arriyadiyah(client, tier, name, url) -> Optional[list]:
+    print(f"  📰 Seção [{tier}] {name[:40]}")
+    try:
+        resp = await client.get(url, headers=HEADERS, timeout=20, follow_redirects=True)
+        if resp.status_code != 200:
+            print(f"     ✗ HTTP {resp.status_code}")
+            return None
+        artigos = parse_arriyadiyah_section(resp.text, name, tier)
+        print(f"     → {len(artigos)} artigos")
+        return artigos
+    except Exception as e:
+        print(f"     ✗ {type(e).__name__}: {e}")
+        return None
 
 
 async def _collect_rss(client, tier, name, url) -> Optional[list]:
