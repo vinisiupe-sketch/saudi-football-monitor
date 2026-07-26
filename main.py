@@ -3709,17 +3709,29 @@ async def api_injuries_rebuild():
 
 # ── MONITOR DE TRANSFERÊNCIAS ────────────────────────────────────────────────
 
+@app.get("/api/admin/fix-article")
+async def admin_fix_article_get(id: str = ""):
+    """Mesma coisa do POST, só que acionável direto pela URL (?id=...).
+
+    Existe porque o reprocessamento de um card específico precisa ser disparável
+    sem front — os outros endpoints /api/admin/* já seguem esse mesmo padrão."""
+    return await _fix_article_by_id(id)
+
+
 @app.post("/api/admin/fix-article")
 async def admin_fix_article(request: Request):
     """Força reprocessamento de um artigo específico por ID."""
+    body = await request.json()
+    return await _fix_article_by_id(body.get("id"))
+
+
+async def _fix_article_by_id(article_id: str):
     from processor import call_claude
     from glossary import GLOSSARY_PROMPT, apply_glossary
     from database import update_article_body, update_article_title, update_article_meta
     from collector import compute_relevance
     import json as _json
 
-    body = await request.json()
-    article_id = body.get("id")
     if not article_id:
         return JSONResponse({"error": "Campo 'id' obrigatório"}, status_code=400)
 
