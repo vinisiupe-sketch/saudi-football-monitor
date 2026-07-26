@@ -3833,9 +3833,15 @@ async def _af_league_start_years(league_id: int) -> dict:
 
     Serve pra normalizar as convenções divergentes descritas em _af_player_scan_seasons,
     pra que o filtro de temporada da guia Jogador signifique sempre a mesma coisa
-    ("2025/26") independente da competição. Cacheado por liga."""
-    if league_id in _AF_LEAGUE_SEASON_MAP:
-        return _AF_LEAGUE_SEASON_MAP[league_id]
+    ("2025/26") independente da competição.
+
+    NUNCA cacheia resultado vazio. Uma falha transitória (rate limit) devolvendo {} e
+    sendo cacheada faz a temporada cair no rótulo cru da API — e aí a King's Cup 2025/26
+    reaparece como "2026" e some do filtro de 2025/26, derrubando 1 jogo do total. Foi
+    exatamente o que aconteceu em produção: o total do NEOM voltou de 31 pra 30 jogos."""
+    cached = _AF_LEAGUE_SEASON_MAP.get(league_id)
+    if cached and (time.time() - cached[0]) < _AF_CACHE_TTL:
+        return cached[1]
     data, err = await _af_get("leagues", {"id": league_id})
     mapping = {}
     if not err and data:
@@ -3849,8 +3855,12 @@ async def _af_league_start_years(league_id: int) -> dict:
                     mapping[year] = int(start[:4]) if len(start) >= 4 else year
                 except ValueError:
                     mapping[year] = year
-    _AF_LEAGUE_SEASON_MAP[league_id] = mapping
-    return mapping
+    if mapping:
+        _AF_LEAGUE_SEASON_MAP[league_id] = (time.time(), mapping)
+        return mapping
+    if cached:
+        return cached[1]  # falhou agora, mas o que já sabíamos continua valendo
+    return {}
 
 
 async def _af_player_rows(player: int):
@@ -3892,7 +3902,14 @@ async def _af_player_rows(player: int):
 
     league_ids = {(r.get("league") or {}).get("id") for r in candidate_rows}
     league_ids.discard(None)
-    maps = await asyncio.gather(*[_af_league_start_years(lid) for lid in league_ids])
+    lsem = asyncio.Semaphore(3)  # sem isso, ~18 chamadas simultâneas estouram o rate limit
+
+    async def league_map(lid):
+        async with lsem:
+            return await _af_league_start_years(lid)
+
+    league_ids = list(league_ids)
+    maps = await asyncio.gather(*[league_map(lid) for lid in league_ids])
     start_year_by_league = dict(zip(league_ids, maps))
 
     rows = []
