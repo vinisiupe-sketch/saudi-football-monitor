@@ -3790,7 +3790,89 @@ async def _fix_article_by_id(article_id: str):
         return JSONResponse({"error": str(e)}, status_code=500)
 
 
+@app.get("/api/admin/refix-tweets")
+async def admin_refix_tweets(hours: int = 24, dry_run: int = 0, limit: int = 80):
+    """Retraduz tweets recentes cujo corpo perdeu a abertura da notícia.
 
+    Contexto: o prompt antigo tratava título e corpo como manchete + continuação, então
+    o modelo às vezes jogava a primeira frase no title_pt e começava o body_pt no meio.
+    Como o card exibe SÓ o corpo, o fato principal sumia da tela. O prompt já foi
+    corrigido; isto aqui conserta o que ficou gravado errado antes da correção.
+
+    Só reprocessa o que está de fato suspeito (ver _body_perdeu_abertura), pra não
+    gastar chamada de API — nem reescrever — cards que já estão corretos.
+    dry_run=1 devolve só o diagnóstico, sem tocar em nada."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT id, source_name, title_pt, body_orig, body_pt
+            FROM articles
+            WHERE source_type = 'twitter'
+              AND collected_at >= %s
+              AND is_duplicate = 0
+              AND body_pt IS NOT NULL
+              AND title_pt IS NOT NULL
+            ORDER BY collected_at DESC
+            LIMIT %s
+        """, (since, limit))
+        rows = [dict(r) for r in c.fetchall()]
+
+    suspects = [r for r in rows if _body_perdeu_abertura(r)]
+
+    if dry_run:
+        return {
+            "hours": hours, "analisados": len(rows), "suspeitos": len(suspects),
+            "amostra": [
+                {"id": r["id"], "fonte": r["source_name"],
+                 "title_pt": (r["title_pt"] or "")[:90],
+                 "body_pt_inicio": (r["body_pt"] or "")[:90]}
+                for r in suspects[:15]
+            ],
+        }
+
+    sem = asyncio.Semaphore(3)
+
+    async def refix(r):
+        async with sem:
+            try:
+                resp = await _fix_article_by_id(r["id"])
+                ok = not isinstance(resp, JSONResponse) or resp.status_code == 200
+                return {"id": r["id"], "ok": ok}
+            except Exception as e:
+                return {"id": r["id"], "ok": False, "erro": str(e)}
+
+    results = await asyncio.gather(*[refix(r) for r in suspects])
+    return {
+        "hours": hours, "analisados": len(rows), "suspeitos": len(suspects),
+        "corrigidos": sum(1 for x in results if x.get("ok")),
+        "falhas": [x for x in results if not x.get("ok")],
+    }
+
+
+def _body_perdeu_abertura(row: dict) -> bool:
+    """Heurística conservadora: o corpo traduzido não cobre o que o título traduzido diz.
+
+    Compara as palavras significativas do title_pt com as do body_pt. Se o título
+    carrega conteúdo (nomes, clubes, verbo da ação) que não aparece em lugar nenhum
+    do corpo, é sinal de que aquela primeira frase virou manchete e foi retirada do
+    corpo — exatamente o caso do tweet do Ndiaye. Quando o corpo já repete o título,
+    nada é sinalizado."""
+    title = (row.get("title_pt") or "").lower()
+    body = (row.get("body_pt") or "").lower()
+    if not title or not body:
+        return False
+    stop = {
+        "de", "do", "da", "dos", "das", "e", "o", "a", "os", "as", "para", "por", "com",
+        "em", "no", "na", "nos", "nas", "um", "uma", "que", "ao", "aos", "à", "às",
+        "se", "mais", "sobre", "após", "entre", "pelo", "pela", "seu", "sua", "the",
+    }
+    palavras = {w.strip(".,:;!?\"'()[]") for w in title.split()}
+    palavras = {w for w in palavras if len(w) > 3 and w not in stop}
+    if len(palavras) < 3:
+        return False
+    ausentes = [w for w in palavras if w not in body]
+    return (len(ausentes) / len(palavras)) >= 0.5
 
 # ─── Janela de Transferências (API Football) ─────────────────────────────────
 
