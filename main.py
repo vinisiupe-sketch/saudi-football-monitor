@@ -2362,7 +2362,9 @@ let jgCareerTeamIds = [];
 let jgPlayerClubs = [];
 let jgSelectedSeasons = [];
 let jgPlayerLeagues = [];
-let jgSelectedLeagueIdx = -1;
+let jgAllSeasons = [];
+let jgSelectedLeagueId = null;
+let jgCombos = [];
 
 async function selectPlayer(p) {{
   jgSelectedPlayer = p;
@@ -2374,11 +2376,10 @@ async function selectPlayer(p) {{
   chip.innerHTML = (p.photo ? '<img src="' + p.photo + '" class="search-avatar">' : '') +
     '<span>' + p.name + (p.team ? ' (' + p.team + ')' : '') + '</span>' +
     '<button type="button" class="chip-clear" onclick="clearPlayer()">✕</button>';
+  jgCareerTeamIds = [];
   jgSelectedSeasons = [];
-  jgSelectedLeagueIdx = -1;
-  document.getElementById('jgSeasonFilterWrap').style.display = 'block';
-  renderSeasonFilterList();
-  await Promise.all([loadPlayerClubsFilter(), loadPlayerLeaguesFilter()]);
+  jgSelectedLeagueId = null;
+  await loadPlayerFacets();
   loadPlayerSeason();
   loadFixtures();
 }}
@@ -2389,7 +2390,9 @@ function clearPlayer() {{
   jgPlayerClubs = [];
   jgSelectedSeasons = [];
   jgPlayerLeagues = [];
-  jgSelectedLeagueIdx = -1;
+  jgAllSeasons = [];
+  jgSelectedLeagueId = null;
+  jgCombos = [];
   document.getElementById('jgPlayerSelected').style.display = 'none';
   document.getElementById('jgPlayerSelected').innerHTML = '';
   document.getElementById('jgClubFilterWrap').style.display = 'none';
@@ -2403,35 +2406,76 @@ function clearPlayer() {{
   document.getElementById('fxFixture').innerHTML = '<option value="">Selecione o jogador primeiro</option>';
 }}
 
-async function loadPlayerClubsFilter() {{
-  const wrap = document.getElementById('jgClubFilterWrap');
-  const list = document.getElementById('jgClubFilterList');
-  if (!jgSelectedPlayer) {{ wrap.style.display = 'none'; return; }}
+async function loadPlayerFacets() {{
+  const wraps = ['jgClubFilterWrap','jgSeasonFilterWrap','jgLeagueFilterWrap'];
+  if (!jgSelectedPlayer) {{ wraps.forEach(w => document.getElementById(w).style.display = 'none'); return; }}
   const requestedFor = jgSelectedPlayer.player_id;
-  wrap.style.display = 'block';
-  list.innerHTML = '<div class="search-empty">Carregando clubes do jogador…</div>';
+  wraps.forEach(w => document.getElementById(w).style.display = 'block');
+  document.getElementById('jgClubFilterList').innerHTML = '<div class="search-empty">Carregando filtros do jogador…</div>';
+  document.getElementById('jgSeasonFilterList').innerHTML = '';
+  document.getElementById('jgLeagueFilterList').innerHTML = '';
   try {{
-    const d = await fetchJSON('/api/numeros/player-clubs?player=' + requestedFor + '&_=' + Date.now());
+    const d = await fetchJSON('/api/numeros/player-facets?player=' + requestedFor + '&_=' + Date.now());
     if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;  // jogador trocou enquanto isso carregava
     jgPlayerClubs = d.clubs;
-    if (!jgPlayerClubs.length) {{
-      list.innerHTML = '<div class="search-empty">Nenhum time encontrado pra esse jogador nas temporadas disponíveis.</div>';
-      jgCareerTeamIds = [];
+    jgPlayerLeagues = d.leagues;
+    jgAllSeasons = d.seasons;
+    jgCombos = d.combos;
+    if (!jgCombos.length) {{
+      document.getElementById('jgClubFilterList').innerHTML = '<div class="search-empty">Nenhum dado encontrado pra esse jogador nas temporadas disponíveis.</div>';
       return;
     }}
-    jgCareerTeamIds = [];  // vazio = todos (mesma convenção de temporada e competição)
-    renderClubFilterList();
+    renderAllFilters();
   }} catch(e) {{
     if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
-    list.innerHTML = '<div class="search-empty">Erro ao carregar clubes do jogador.</div>';
+    document.getElementById('jgClubFilterList').innerHTML = '<div class="search-empty">Erro ao carregar filtros do jogador.</div>';
   }}
+}}
+
+// Opções realmente possíveis de um filtro, considerando SÓ os outros dois.
+// É isso que faz o cruzamento valer nos dois sentidos: escolher um clube encolhe
+// temporadas e competições, e escolher uma competição encolhe os clubes.
+function availableFor(facet) {{
+  const out = new Set();
+  jgCombos.forEach(c => {{
+    if (facet !== 'club' && jgCareerTeamIds.length && !jgCareerTeamIds.includes(c.team)) return;
+    if (facet !== 'season' && jgSelectedSeasons.length && !jgSelectedSeasons.includes(c.season)) return;
+    if (facet !== 'league' && jgSelectedLeagueId !== null && c.league !== jgSelectedLeagueId) return;
+    out.add(facet === 'club' ? c.team : (facet === 'season' ? c.season : c.league));
+  }});
+  return out;
+}}
+
+// Se uma escolha antiga deixou de ser possível por causa do que acabou de mudar,
+// ela é solta (volta pra "Todos") em vez de travar a tela num cruzamento vazio.
+function pruneFilters(changed) {{
+  ['club','season','league'].forEach(f => {{
+    if (f === changed) return;
+    const ok = availableFor(f);
+    if (f === 'club') jgCareerTeamIds = jgCareerTeamIds.filter(id => ok.has(id));
+    else if (f === 'season') jgSelectedSeasons = jgSelectedSeasons.filter(y => ok.has(y));
+    else if (jgSelectedLeagueId !== null && !ok.has(jgSelectedLeagueId)) jgSelectedLeagueId = null;
+  }});
+}}
+
+function renderAllFilters() {{
+  renderClubFilterList();
+  renderSeasonFilterList();
+  renderLeagueFilterList();
+}}
+
+function applyFilterChange(changed) {{
+  pruneFilters(changed);
+  renderAllFilters();
+  loadPlayerSeason();
 }}
 
 function renderClubFilterList() {{
   const list = document.getElementById('jgClubFilterList');
+  const ok = availableFor('club');
   const allChecked = jgCareerTeamIds.length === 0;
   let html = '<div class="club-chip-item' + (allChecked ? ' checked' : '') + '" onclick="setClubsAll()"><span>Todos</span></div>';
-  html += jgPlayerClubs.map(c => {{
+  html += jgPlayerClubs.filter(c => ok.has(c.id)).map(c => {{
     const checked = jgCareerTeamIds.includes(c.id);
     return '<label class="club-chip-item' + (checked ? ' checked' : '') + '">' +
       '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="onClubFilterToggle(' + c.id + ', this.checked)">' +
@@ -2442,8 +2486,7 @@ function renderClubFilterList() {{
 
 function setClubsAll() {{
   jgCareerTeamIds = [];  // desmarca os individuais; vazio = todos
-  renderClubFilterList();
-  loadPlayerSeason();
+  applyFilterChange('club');
 }}
 
 function onClubFilterToggle(teamId, isChecked) {{
@@ -2452,27 +2495,26 @@ function onClubFilterToggle(teamId, isChecked) {{
   }} else {{
     jgCareerTeamIds = jgCareerTeamIds.filter(id => id !== teamId);
   }}
-  renderClubFilterList();
-  loadPlayerSeason();
+  applyFilterChange('club');
 }}
 
 function renderSeasonFilterList() {{
   const list = document.getElementById('jgSeasonFilterList');
+  const ok = availableFor('season');
   const allChecked = jgSelectedSeasons.length === 0;
   let html = '<div class="club-chip-item' + (allChecked ? ' checked' : '') + '" onclick="setSeasonsAll()"><span>Todas</span></div>';
-  SEASONS.forEach(y => {{
+  html += jgAllSeasons.filter(y => ok.has(y)).map(y => {{
     const checked = jgSelectedSeasons.includes(y);
-    html += '<label class="club-chip-item' + (checked ? ' checked' : '') + '">' +
+    return '<label class="club-chip-item' + (checked ? ' checked' : '') + '">' +
       '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="onSeasonToggle(' + y + ', this.checked)">' +
       '<span>' + y + '/' + String(y + 1).slice(2) + '</span></label>';
-  }});
+  }}).join('');
   list.innerHTML = html;
 }}
 
 function setSeasonsAll() {{
   jgSelectedSeasons = [];
-  renderSeasonFilterList();
-  loadPlayerSeason();
+  applyFilterChange('season');
 }}
 
 function onSeasonToggle(year, isChecked) {{
@@ -2481,43 +2523,23 @@ function onSeasonToggle(year, isChecked) {{
   }} else {{
     jgSelectedSeasons = jgSelectedSeasons.filter(y => y !== year);
   }}
-  renderSeasonFilterList();
-  loadPlayerSeason();
-}}
-
-async function loadPlayerLeaguesFilter() {{
-  const wrap = document.getElementById('jgLeagueFilterWrap');
-  const list = document.getElementById('jgLeagueFilterList');
-  if (!jgSelectedPlayer) {{ wrap.style.display = 'none'; return; }}
-  const requestedFor = jgSelectedPlayer.player_id;
-  wrap.style.display = 'block';
-  list.innerHTML = '<div class="search-empty">Carregando competições…</div>';
-  try {{
-    const d = await fetchJSON('/api/numeros/player-leagues?player=' + requestedFor + '&_=' + Date.now());
-    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;  // jogador trocou enquanto isso carregava
-    jgPlayerLeagues = d.leagues;
-    jgSelectedLeagueIdx = -1;
-    renderLeagueFilterList();
-  }} catch(e) {{
-    if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
-    list.innerHTML = '<div class="search-empty">Erro ao carregar competições.</div>';
-  }}
+  applyFilterChange('season');
 }}
 
 function renderLeagueFilterList() {{
   const list = document.getElementById('jgLeagueFilterList');
-  let html = '<div class="club-chip-item' + (jgSelectedLeagueIdx === -1 ? ' checked' : '') + '" onclick="setLeagueFilterByIndex(-1)"><span>Todas</span></div>';
-  jgPlayerLeagues.forEach((l, i) => {{
-    const checked = jgSelectedLeagueIdx === i;
-    html += '<div class="club-chip-item' + (checked ? ' checked' : '') + '" onclick="setLeagueFilterByIndex(' + i + ')"><span>' + l.name + '</span></div>';
-  }});
+  const ok = availableFor('league');
+  let html = '<div class="club-chip-item' + (jgSelectedLeagueId === null ? ' checked' : '') + '" onclick="setLeagueFilter(null)"><span>Todas</span></div>';
+  html += jgPlayerLeagues.filter(l => ok.has(l.id)).map(l => {{
+    const checked = jgSelectedLeagueId === l.id;
+    return '<div class="club-chip-item' + (checked ? ' checked' : '') + '" onclick="setLeagueFilter(' + l.id + ')"><span>' + l.name + '</span></div>';
+  }}).join('');
   list.innerHTML = html;
 }}
 
-function setLeagueFilterByIndex(i) {{
-  jgSelectedLeagueIdx = i;
-  renderLeagueFilterList();
-  loadPlayerSeason();
+function setLeagueFilter(id) {{
+  jgSelectedLeagueId = id;
+  applyFilterChange('league');
 }}
 
 document.addEventListener('click', function(e) {{
@@ -2535,10 +2557,7 @@ async function loadPlayerSeason() {{
   const player = requestedFor;
   const teamsParam = jgCareerTeamIds.join(',');
   const seasonsParam = jgSelectedSeasons.join(',');
-  let leagueParam = '';
-  if (jgSelectedLeagueIdx !== -1 && jgPlayerLeagues[jgSelectedLeagueIdx]) {{
-    leagueParam = String(jgPlayerLeagues[jgSelectedLeagueIdx].id);
-  }}
+  const leagueParam = jgSelectedLeagueId === null ? '' : String(jgSelectedLeagueId);
   try {{
     let url = '/api/numeros/player-stats?player=' + player + '&_=' + Date.now();
     if (teamsParam) url += '&teams=' + teamsParam;
@@ -4226,45 +4245,40 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
 
 
-@app.get("/api/numeros/player-clubs")
-async def api_numeros_player_clubs(player: int):
-    """Lista TODOS os times (clubes de qualquer país + seleção nacional) pelos quais
-    um jogador já passou, varrendo as temporadas disponíveis (mesma janela do site).
-    Usado pra popular o filtro "Clube(s) do jogador" depois que ele é selecionado —
-    sem restringir a clubes sauditas, já que o usuário pode querer combinar qualquer
-    parte da carreira (ex: clube saudita + clube estrangeiro anterior, ou seleção).
-    Usa a MESMA fonte normalizada de /player-stats, então o filtro nunca oferece um
-    clube que depois não renderia número nenhum."""
-    _, rows = await _af_player_rows(player)
-    seen = {}
-    for r in rows:
-        team = r["stat"].get("team") or {}
-        tid = team.get("id")
-        if tid and tid not in seen:
-            seen[tid] = {"id": tid, "name": team.get("name"), "logo": team.get("logo")}
-    clubs = list(seen.values())
-    clubs.sort(key=lambda c: c["name"] or "")
-    return {"player": player, "clubs": clubs}
+@app.get("/api/numeros/player-facets")
+async def api_numeros_player_facets(player: int):
+    """Universo real de combinações clube × competição × temporada do jogador.
 
+    Devolve não só as listas de opções, mas TODAS as combinações que de fato existem
+    (`combos`). Isso é o que permite os filtros da guia Jogador se restringirem
+    mutuamente nos dois sentidos: escolher o NEOM reduz as temporadas e competições
+    às que existem no NEOM, e escolher a Pro League reduz os clubes aos que jogaram
+    aquela competição. Sem essa lista o front teria que adivinhar (ou pedir ao
+    servidor a cada clique) quais cruzamentos são válidos.
 
-@app.get("/api/numeros/player-leagues")
-async def api_numeros_player_leagues(player: int):
-    """Lista as competições (nome + id, quando existir) em que um jogador já jogou,
-    varrendo as temporadas disponíveis. Popula os chips de "Competição" na guia
-    Jogador, independente do(s) clube(s) marcado(s) no momento (a consulta real
-    sempre cruza clube+temporada+competição juntos em /api/numeros/player-stats;
-    isso aqui só serve pra saber quais opções mostrar). Toda competição listada tem id
-    real — competições sem id foram descartadas na origem (ver _af_player_rows)."""
+    Uma requisição só: a carreira inteira já vem normalizada de _af_player_rows
+    (sem linhas de competição não identificável, temporada pelo ano de início real)."""
     _, rows = await _af_player_rows(player)
-    seen = {}
+    clubs: dict = {}
+    leagues: dict = {}
+    combos = []
     for r in rows:
-        lg = r["stat"].get("league") or {}
-        lid = lg.get("id")
-        if lid is not None and lid not in seen:
-            seen[lid] = lg.get("name")
-    leagues = [{"id": k, "name": v} for k, v in seen.items()]
-    leagues.sort(key=lambda x: x["name"] or "")
-    return {"player": player, "leagues": leagues}
+        s = r["stat"]
+        team = s.get("team") or {}
+        lg = s.get("league") or {}
+        tid, lid, season = team.get("id"), lg.get("id"), r["real_season"]
+        if tid is None or lid is None or season is None:
+            continue
+        clubs.setdefault(tid, {"id": tid, "name": team.get("name"), "logo": team.get("logo")})
+        leagues.setdefault(lid, {"id": lid, "name": lg.get("name")})
+        combos.append({"team": tid, "league": lid, "season": season})
+    return {
+        "player": player,
+        "clubs": sorted(clubs.values(), key=lambda c: c["name"] or ""),
+        "leagues": sorted(leagues.values(), key=lambda x: x["name"] or ""),
+        "seasons": sorted({c["season"] for c in combos}, reverse=True),
+        "combos": combos,
+    }
 
 
 @app.get("/api/numeros/player-stats")
