@@ -1224,13 +1224,17 @@ async def api_token_status_post(request: Request):
 
 @app.get("/api/admin/collect-now")
 async def api_collect_now(hours: int = 12):
-    """Coleta sob demanda com janela ampliada, e ESPERA terminar (diferente do
-    POST /api/collect, que dispara em background).
+    """Coleta sob demanda com janela ampliada, disparada em BACKGROUND.
 
     Serve pra resgatar matéria que ficou de fora porque a janela do ciclo normal
     é curta: o agendador roda a cada 30min e só olha as últimas ~2h, então uma
-    notícia de 5h atrás nunca entra sozinha, mesmo com a fonte funcionando."""
-    return await run_pipeline(True, hours)
+    notícia de 5h atrás nunca entra sozinha, mesmo com a fonte funcionando.
+
+    Roda solta de propósito: a pipeline leva minutos, e se ficasse presa ao request
+    o cliente desconectaria antes do fim e o FastAPI cancelaria a coleta no meio
+    (foi o que aconteceu na primeira versão). Acompanhe o resultado em /api/logs."""
+    asyncio.create_task(run_pipeline(True, hours))
+    return {"status": "started", "hours": hours, "acompanhe": "/api/logs"}
 
 
 @app.post("/api/collect")
