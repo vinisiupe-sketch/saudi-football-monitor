@@ -2537,8 +2537,7 @@ async function loadPlayerSeason() {{
   const seasonsParam = jgSelectedSeasons.join(',');
   let leagueParam = '';
   if (jgSelectedLeagueIdx !== -1 && jgPlayerLeagues[jgSelectedLeagueIdx]) {{
-    const l = jgPlayerLeagues[jgSelectedLeagueIdx];
-    leagueParam = String(l.id ?? l.name);
+    leagueParam = String(jgPlayerLeagues[jgSelectedLeagueIdx].id);
   }}
   try {{
     let url = '/api/numeros/player-stats?player=' + player + '&_=' + Date.now();
@@ -2565,11 +2564,8 @@ async function loadPlayerSeason() {{
       txt += '\\nTítulos:\\n';
       d.titles.forEach(ti => {{ txt += medalFor(ti.place) + ' ' + ti.league + ' ' + ti.season + '\\n'; }});
     }}
-    if (d.data_caveat) {{
-      txt += '\\n⚠️ ' + d.data_caveat;
-    }}
     renderResultCard(container, 'Estatísticas', txt.trim(),
-      'Temporada(s) ' + seasonLabel + ' · ' + teamsLabel + ' · ' + leagueLabel + (d.titles && d.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + (d.data_caveat ? ' · ⚠️ competição sem ID único na fonte' : '') + ' · fonte: API-Football');
+      'Temporada(s) ' + seasonLabel + ' · ' + teamsLabel + ' · ' + leagueLabel + (d.titles && d.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + ' · fonte: API-Football');
   }} catch(e) {{
     if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
     container.innerHTML = '<div class="result-card"><div class="error-state">' + (e.message || 'Nenhum dado encontrado pra essa combinação de filtros.') + '</div></div>';
@@ -3799,6 +3795,98 @@ def _af_available_seasons() -> list[int]:
     return [2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016]
 
 
+def _af_player_scan_seasons() -> list[int]:
+    """Janela de temporadas varrida ao montar a carreira de um jogador.
+
+    Vai até o ano seguinte de propósito: a API-Football NÃO usa uma convenção única
+    pra numerar temporada. A Pro League (307) rotula pelo ano de INÍCIO — 2025/26 = 2025.
+    Já a King's Cup (504) rotula pelo ano de TÉRMINO — 2025/26 = 2026 (confirmado em
+    /leagues?id=504: season 2026 vai de 2025-08-31 a 2026-05-08). Se varrêssemos só até
+    2025 perderíamos silenciosamente a copa da temporada corrente."""
+    return list(range(2016, datetime.now().year + 2))
+
+
+_AF_LEAGUE_SEASON_MAP: dict = {}
+
+
+async def _af_league_start_years(league_id: int) -> dict:
+    """{ano_rotulado_pela_API: ano_real_de_INÍCIO} pra uma competição.
+
+    Serve pra normalizar as convenções divergentes descritas em _af_player_scan_seasons,
+    pra que o filtro de temporada da guia Jogador signifique sempre a mesma coisa
+    ("2025/26") independente da competição. Cacheado por liga."""
+    if league_id in _AF_LEAGUE_SEASON_MAP:
+        return _AF_LEAGUE_SEASON_MAP[league_id]
+    data, err = await _af_get("leagues", {"id": league_id})
+    mapping = {}
+    if not err and data:
+        for item in data.get("response", []):
+            for s in item.get("seasons", []):
+                year = s.get("year")
+                if year is None:
+                    continue
+                start = s.get("start") or ""
+                try:
+                    mapping[year] = int(start[:4]) if len(start) >= 4 else year
+                except ValueError:
+                    mapping[year] = year
+    _AF_LEAGUE_SEASON_MAP[league_id] = mapping
+    return mapping
+
+
+async def _af_player_rows(player: int):
+    """Linhas de estatística confiáveis de um jogador, já normalizadas por temporada real.
+
+    Regra central: DESCARTA linhas cujo league.id é null. Isso não é preciosismo — foi
+    verificado ao vivo que essas linhas são fabricadas pelo agregador da API-Football.
+    Exemplo real (player 297749, NEOM): /players?id=...&season=2025 devolvia uma linha
+    "King's Cup" sem id com 19 jogos e 2 gols, enquanto a consulta direta à competição
+    real (/players?id=...&league=504&season=2025) devolve ZERO registros, e a edição
+    correta (league=504&season=2026) devolve 1 jogo e 0 gols — que é o número certo.
+    Como não dá pra reconsultar uma competição sem id, essas linhas são inutilizáveis
+    e somá-las só produziria número errado."""
+    seasons_to_check = _af_player_scan_seasons()
+    sem = asyncio.Semaphore(4)
+
+    async def fetch_season(season):
+        async with sem:
+            data, err = await _af_get("players", {"id": player, "season": season})
+        if err or not data:
+            return None
+        resp = data.get("response", [])
+        return resp[0] if resp else None
+
+    raw = await asyncio.gather(*[fetch_season(s) for s in seasons_to_check])
+
+    player_info = None
+    candidate_rows = []
+    for entry in raw:
+        if not entry:
+            continue
+        if player_info is None:
+            player_info = entry.get("player", {})
+        for s in entry.get("statistics", []):
+            lg = s.get("league") or {}
+            if lg.get("id") is None:
+                continue  # linha sem competição identificável — comprovadamente não confiável
+            candidate_rows.append(s)
+
+    league_ids = {(r.get("league") or {}).get("id") for r in candidate_rows}
+    league_ids.discard(None)
+    maps = await asyncio.gather(*[_af_league_start_years(lid) for lid in league_ids])
+    start_year_by_league = dict(zip(league_ids, maps))
+
+    rows = []
+    for s in candidate_rows:
+        lg = s.get("league") or {}
+        lid = lg.get("id")
+        labelled = lg.get("season")
+        mapping = start_year_by_league.get(lid) or {}
+        real_season = mapping.get(labelled, labelled)
+        rows.append({"stat": s, "real_season": real_season})
+    return player_info, rows
+
+
 @app.get("/api/numeros/meta")
 async def api_numeros_meta(season: int = 2025):
     """Times da SPL na temporada (pra popular filtros de clube/jogador)."""
@@ -4144,32 +4232,16 @@ async def api_numeros_player_clubs(player: int):
     um jogador já passou, varrendo as temporadas disponíveis (mesma janela do site).
     Usado pra popular o filtro "Clube(s) do jogador" depois que ele é selecionado —
     sem restringir a clubes sauditas, já que o usuário pode querer combinar qualquer
-    parte da carreira (ex: clube saudita + clube estrangeiro anterior, ou seleção)."""
-    seasons_to_check = _af_available_seasons()
-    sem = asyncio.Semaphore(4)  # evita rate-limit da API-Football derrubando temporadas em silêncio
-
-    async def check_season(season):
-        async with sem:
-            data, err = await _af_get("players", {"id": player, "season": season})
-        if err or not data:
-            return []
-        resp = data.get("response", [])
-        if not resp:
-            return []
-        out = []
-        for s in resp[0].get("statistics", []):
-            team = s.get("team") or {}
-            tid = team.get("id")
-            if tid:
-                out.append((tid, team.get("name"), team.get("logo")))
-        return out
-
-    results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
+    parte da carreira (ex: clube saudita + clube estrangeiro anterior, ou seleção).
+    Usa a MESMA fonte normalizada de /player-stats, então o filtro nunca oferece um
+    clube que depois não renderia número nenhum."""
+    _, rows = await _af_player_rows(player)
     seen = {}
-    for group in results:
-        for tid, name, logo in group:
-            if tid not in seen:
-                seen[tid] = {"id": tid, "name": name, "logo": logo}
+    for r in rows:
+        team = r["stat"].get("team") or {}
+        tid = team.get("id")
+        if tid and tid not in seen:
+            seen[tid] = {"id": tid, "name": team.get("name"), "logo": team.get("logo")}
     clubs = list(seen.values())
     clubs.sort(key=lambda c: c["name"] or "")
     return {"player": player, "clubs": clubs}
@@ -4181,32 +4253,16 @@ async def api_numeros_player_leagues(player: int):
     varrendo as temporadas disponíveis. Popula os chips de "Competição" na guia
     Jogador, independente do(s) clube(s) marcado(s) no momento (a consulta real
     sempre cruza clube+temporada+competição juntos em /api/numeros/player-stats;
-    isso aqui só serve pra saber quais opções mostrar)."""
-    seasons_to_check = _af_available_seasons()
-    sem = asyncio.Semaphore(4)  # evita rate-limit da API-Football derrubando temporadas em silêncio
-
-    async def check_season(season):
-        async with sem:
-            data, err = await _af_get("players", {"id": player, "season": season})
-        if err or not data:
-            return []
-        resp = data.get("response", [])
-        if not resp:
-            return []
-        out = []
-        for s in resp[0].get("statistics", []):
-            lg = s.get("league") or {}
-            if lg.get("name"):
-                out.append((lg.get("name"), lg.get("id")))
-        return out
-
-    results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
+    isso aqui só serve pra saber quais opções mostrar). Toda competição listada tem id
+    real — competições sem id foram descartadas na origem (ver _af_player_rows)."""
+    _, rows = await _af_player_rows(player)
     seen = {}
-    for group in results:
-        for name, lid in group:
-            if name not in seen:
-                seen[name] = lid
-    leagues = [{"name": k, "id": v} for k, v in seen.items()]
+    for r in rows:
+        lg = r["stat"].get("league") or {}
+        lid = lg.get("id")
+        if lid is not None and lid not in seen:
+            seen[lid] = lg.get("name")
+    leagues = [{"id": k, "name": v} for k, v in seen.items()]
     leagues.sort(key=lambda x: x["name"] or "")
     return {"player": player, "leagues": leagues}
 
@@ -4222,38 +4278,17 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     - teams: IDs de time separados por vírgula. Vazio = qualquer time (todos os
       times que o jogador já teve estatística, incluindo seleção nacional).
     - seasons: anos separados por vírgula. Vazio = todas as temporadas disponíveis.
-    - league: nome OU id (como string) da competição. Vazio = todas as competições."""
-    seasons_to_check = [int(s) for s in seasons.split(",") if s.strip().lstrip("-").isdigit()] or _af_available_seasons()
+    - league: id da competição (como string). Vazio = todas as competições.
+
+    Toda a leitura vem de _af_player_rows, que já descarta linhas sem competição
+    identificável e normaliza a temporada pelo ano de início real. Por isso os três
+    filtros operam sobre a mesma lista e sempre significam a mesma coisa."""
+    season_filter = {int(s) for s in seasons.split(",") if s.strip().lstrip("-").isdigit()}
     team_filter = {int(t) for t in teams.split(",") if t.strip().isdigit()}
-    sem = asyncio.Semaphore(4)  # evita rate-limit da API-Football derrubando temporadas em silêncio
+    league_filter = league.strip()
 
-    async def check_season(season):
-        async with sem:
-            data, err = await _af_get("players", {"id": player, "season": season})
-        if err or not data:
-            return None
-        resp = data.get("response", [])
-        if not resp:
-            return None
-        p = resp[0].get("player", {})
-        rows = []
-        for s in resp[0].get("statistics", []):
-            team = s.get("team") or {}
-            tid = team.get("id")
-            if team_filter and tid not in team_filter:
-                continue
-            if league:
-                lg = s.get("league") or {}
-                lg_id = lg.get("id")
-                is_match = (lg_id is not None and str(lg_id) == league) or (lg.get("name") == league)
-                if not is_match:
-                    continue
-            rows.append(s)
-        if not rows:
-            return None
-        return season, p, rows
-
-    results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
+    player_info, all_rows = await _af_player_rows(player)
+    player_info = player_info or {}
 
     total_app = total_min = total_goals = total_assists = total_yellow = total_red = 0
     rating_sum = 0.0
@@ -4261,46 +4296,47 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     seasons_hit = []
     teams_hit: dict = {}
     leagues_hit: dict = {}
-    leagues_no_id = set()
-    name = photo = nationality = None
+    name = player_info.get("name")
+    photo = player_info.get("photo")
+    nationality = player_info.get("nationality")
 
-    for r in results:
-        if not r:
+    for r in all_rows:
+        s = r["stat"]
+        real_season = r["real_season"]
+        team = s.get("team") or {}
+        lg = s.get("league") or {}
+
+        if team_filter and team.get("id") not in team_filter:
             continue
-        season, p, rows = r
-        if name is None:
-            name = p.get("name")
-            photo = p.get("photo")
-            nationality = p.get("nationality")
-        seasons_hit.append(season)
-        for s in rows:
-            team = s.get("team") or {}
-            if team.get("id"):
-                teams_hit[team["id"]] = team.get("name")
-            lg = s.get("league") or {}
-            if lg.get("name"):
-                leagues_hit[lg.get("name")] = lg.get("id")
-                if lg.get("id") is None:
-                    leagues_no_id.add(lg.get("name"))
-            games = s.get("games") or {}
-            goals = s.get("goals") or {}
-            cards = s.get("cards") or {}
-            a = games.get("appearences") or 0
-            total_app += a
-            total_min += games.get("minutes") or 0
-            total_goals += goals.get("total") or 0
-            total_assists += goals.get("assists") or 0
-            total_yellow += cards.get("yellow") or 0
-            total_red += cards.get("red") or 0
-            rt = games.get("rating")
-            if rt is not None:
-                try:
-                    rf = float(rt)
-                    w = a if a > 0 else 1
-                    rating_sum += rf * w
-                    rating_weight += w
-                except (TypeError, ValueError):
-                    pass
+        if season_filter and real_season not in season_filter:
+            continue
+        if league_filter and str(lg.get("id")) != league_filter:
+            continue
+
+        seasons_hit.append(real_season)
+        if team.get("id"):
+            teams_hit[team["id"]] = team.get("name")
+        if lg.get("id") is not None:
+            leagues_hit[lg.get("id")] = lg.get("name")
+        games = s.get("games") or {}
+        goals = s.get("goals") or {}
+        cards = s.get("cards") or {}
+        a = games.get("appearences") or 0
+        total_app += a
+        total_min += games.get("minutes") or 0
+        total_goals += goals.get("total") or 0
+        total_assists += goals.get("assists") or 0
+        total_yellow += cards.get("yellow") or 0
+        total_red += cards.get("red") or 0
+        rt = games.get("rating")
+        if rt is not None:
+            try:
+                rf = float(rt)
+                w = a if a > 0 else 1
+                rating_sum += rf * w
+                rating_weight += w
+            except (TypeError, ValueError):
+                pass
 
     if not seasons_hit:
         return JSONResponse(
@@ -4346,20 +4382,10 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
                     })
         titles_note = "Cruzamento por temporada + competição plausível pro clube (a API de troféus não informa o clube do título) — reduz falsos positivos, mas não é uma certeza absoluta."
 
-    data_caveat = None
-    if leagues_no_id:
-        data_caveat = (
-            "A fonte (API-Football) não fornece um ID único pra estas competições: "
-            + ", ".join(sorted(leagues_no_id))
-            + ". Os números vêm exatamente como a API-Football reporta, sem nenhum ajuste "
-              "nosso — mas por não terem ID, essas competições correm risco de conter "
-              "categorização incorreta na origem dos dados."
-        )
-
     return {
         "player_id": player, "name": name, "photo": photo, "nationality": nationality,
         "teams": list(teams_hit.values()), "team_ids": list(teams_hit.keys()),
-        "leagues": [{"name": k, "id": v} for k, v in leagues_hit.items()],
+        "leagues": [{"id": k, "name": v} for k, v in leagues_hit.items()],
         "seasons": seasons_hit,
         "stats": {
             "appearences": total_app, "minutes": total_min, "rating": avg_rating,
@@ -4368,7 +4394,6 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
         },
         "titles": titles,
         "titles_note": titles_note,
-        "data_caveat": data_caveat,
     }
 
 
