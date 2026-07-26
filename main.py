@@ -1881,6 +1881,19 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
   padding: 0 2px; line-height: 1;
 }}
 .chip-clear:hover {{ color: var(--c-text); }}
+
+.club-filter-wrap {{ margin-bottom: 14px; }}
+.club-chip-list {{ display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }}
+.club-chip-item {{
+  display: flex; align-items: center; gap: 6px; padding: 5px 12px 5px 8px;
+  background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 99px;
+  font-size: .78rem; font-weight: 600; color: var(--c-muted-3); cursor: pointer;
+  transition: all .15s; user-select: none;
+}}
+.club-chip-item:hover {{ border-color: var(--c-muted-3); }}
+.club-chip-item.checked {{ color: var(--c-text); border-color: var(--c-text); background: var(--c-bg-soft); }}
+.club-chip-item img {{ width: 16px; height: 16px; object-fit: contain; }}
+.club-chip-item input {{ display: none; }}
 </style>
 </head>
 <body>
@@ -1966,6 +1979,10 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
     </div>
 
     <div id="jg-temporada" class="subtab-panel active">
+      <div id="jgClubFilterWrap" class="club-filter-wrap" style="display:none">
+        <label class="picker-label">Clube(s) do jogador <span class="optional-tag">(marque 1 ou mais para combinar)</span></label>
+        <div id="jgClubFilterList" class="club-chip-list"></div>
+      </div>
       <div class="filters-row">
         <label>Temporada
           <select id="jgSeason" onchange="loadPlayerSeason()"></select>
@@ -2215,14 +2232,12 @@ function selectClub(id) {{
   chip.innerHTML = '<img src="' + (t.logo||'') + '" class="search-crest"><span>' + t.name + '</span>' +
     '<button type="button" class="chip-clear" onclick="clearClub()">✕</button>';
   if (!document.getElementById('jgPlayerSearch').value.trim()) loadSquadPreview();
-  if (jgSelectedPlayer && document.getElementById('jgSeason').value === 'all') loadPlayerSeason();
 }}
 
 function clearClub() {{
   jgSelectedTeam = null;
   document.getElementById('jgClubSelected').style.display = 'none';
   document.getElementById('jgClubSelected').innerHTML = '';
-  if (jgSelectedPlayer && document.getElementById('jgSeason').value === 'all') loadPlayerSeason();
   if (!document.getElementById('jgPlayerSearch').value.trim()) {{
     document.getElementById('jgPlayerResults').style.display = 'none';
     document.getElementById('jgPlayerResults').innerHTML = '';
@@ -2271,7 +2286,8 @@ function onPlayerSearchInput() {{
     return;
   }}
   jgPlayerSearchTimer = setTimeout(async () => {{
-    const season = document.getElementById('jgSeason').value;
+    const rawSeason = document.getElementById('jgSeason').value;
+    const season = (rawSeason === 'all' || !rawSeason) ? SEASONS[0] : rawSeason;
     const box = document.getElementById('jgPlayerResults');
     box.innerHTML = '<div class="search-empty">Buscando…</div>';
     box.style.display = 'block';
@@ -2288,6 +2304,9 @@ function onPlayerSearchInput() {{
 
 function selectPlayerByIndex(i) {{ selectPlayer(_lastPlayerResults[i]); }}
 
+let jgCareerTeamIds = [];
+let jgPlayerClubs = [];
+
 function selectPlayer(p) {{
   jgSelectedPlayer = p;
   document.getElementById('jgPlayerSearch').value = '';
@@ -2298,17 +2317,64 @@ function selectPlayer(p) {{
   chip.innerHTML = (p.photo ? '<img src="' + p.photo + '" class="search-avatar">' : '') +
     '<span>' + p.name + (p.team ? ' (' + p.team + ')' : '') + '</span>' +
     '<button type="button" class="chip-clear" onclick="clearPlayer()">✕</button>';
+  loadPlayerClubsFilter();
   loadPlayerSeason();
   loadFixtures();
 }}
 
 function clearPlayer() {{
   jgSelectedPlayer = null;
+  jgCareerTeamIds = [];
+  jgPlayerClubs = [];
   document.getElementById('jgPlayerSelected').style.display = 'none';
   document.getElementById('jgPlayerSelected').innerHTML = '';
+  document.getElementById('jgClubFilterWrap').style.display = 'none';
+  document.getElementById('jgClubFilterList').innerHTML = '';
   document.getElementById('player-season-result').innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>';
   document.getElementById('fixture-player-result').innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador e uma partida acima.</div></div>';
   document.getElementById('fxFixture').innerHTML = '<option value="">Selecione o jogador primeiro</option>';
+}}
+
+async function loadPlayerClubsFilter() {{
+  const wrap = document.getElementById('jgClubFilterWrap');
+  const list = document.getElementById('jgClubFilterList');
+  if (!jgSelectedPlayer) {{ wrap.style.display = 'none'; return; }}
+  wrap.style.display = 'block';
+  list.innerHTML = '<div class="search-empty">Carregando clubes do jogador…</div>';
+  try {{
+    const d = await fetchJSON('/api/numeros/player-clubs?player=' + jgSelectedPlayer.player_id);
+    jgPlayerClubs = d.clubs;
+    if (!jgPlayerClubs.length) {{
+      list.innerHTML = '<div class="search-empty">Nenhum clube da SPL encontrado pra esse jogador nas temporadas disponíveis.</div>';
+      jgCareerTeamIds = [];
+      return;
+    }}
+    const preselectId = jgSelectedPlayer.team_id;
+    jgCareerTeamIds = jgPlayerClubs.some(c => c.id === preselectId) ? [preselectId] : [jgPlayerClubs[0].id];
+    renderClubFilterList();
+  }} catch(e) {{
+    list.innerHTML = '<div class="search-empty">Erro ao carregar clubes do jogador.</div>';
+  }}
+}}
+
+function renderClubFilterList() {{
+  const list = document.getElementById('jgClubFilterList');
+  list.innerHTML = jgPlayerClubs.map(c => {{
+    const checked = jgCareerTeamIds.includes(c.id);
+    return '<label class="club-chip-item' + (checked ? ' checked' : '') + '">' +
+      '<input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="onClubFilterToggle(' + c.id + ', this.checked)">' +
+      (c.logo ? '<img src="' + c.logo + '">' : '') + '<span>' + clubShort(c.name) + '</span></label>';
+  }}).join('');
+}}
+
+function onClubFilterToggle(teamId, isChecked) {{
+  if (isChecked) {{
+    if (!jgCareerTeamIds.includes(teamId)) jgCareerTeamIds.push(teamId);
+  }} else {{
+    jgCareerTeamIds = jgCareerTeamIds.filter(id => id !== teamId);
+  }}
+  renderClubFilterList();
+  if (document.getElementById('jgSeason').value === 'all') loadPlayerSeason();
 }}
 
 document.addEventListener('click', function(e) {{
@@ -2328,31 +2394,55 @@ async function loadPlayerSeason() {{
 
   if (season === 'all') {{
     if (leagueLabel) leagueLabel.style.display = 'none';
-    if (!jgSelectedTeam) {{
-      container.innerHTML = '<div class="result-card"><div class="error-state">Selecione um clube acima pra ver a passagem completa do jogador por ele.</div></div>';
+    if (!jgCareerTeamIds.length) {{
+      container.innerHTML = '<div class="result-card"><div class="error-state">Marque ao menos um clube no filtro "Clube(s) do jogador" acima pra ver a passagem completa.</div></div>';
       return;
     }}
     try {{
-      const d = await fetchJSON('/api/numeros/player-club-career?player=' + player + '&team=' + jgSelectedTeam.id);
-      const s = d.stats;
-      const firstY = d.seasons_at_club[0];
-      const lastY = d.seasons_at_club[d.seasons_at_club.length - 1];
+      const parts = await Promise.all(jgCareerTeamIds.map(tid => fetchJSON('/api/numeros/player-club-career?player=' + player + '&team=' + tid)));
+      const combined = {{
+        name: parts[0].name, nationality: parts[0].nationality,
+        teams: parts.map(p => p.team),
+        seasons_at_club: [].concat(...parts.map(p => p.seasons_at_club)).sort((a,b)=>a-b),
+        appearences: 0, minutes: 0, goals: 0, assists: 0, yellow_cards: 0, red_cards: 0,
+        ratingSum: 0, ratingWeight: 0,
+        titles: [],
+      }};
+      parts.forEach(p => {{
+        const s = p.stats;
+        combined.appearences += naNum(s.appearences);
+        combined.minutes += naNum(s.minutes);
+        combined.goals += naNum(s.goals);
+        combined.assists += naNum(s.assists);
+        combined.yellow_cards += naNum(s.yellow_cards);
+        combined.red_cards += naNum(s.red_cards);
+        const w = naNum(s.appearences) > 0 ? naNum(s.appearences) : 1;
+        if (s.rating !== null && s.rating !== undefined) {{ combined.ratingSum += parseFloat(s.rating) * w; combined.ratingWeight += w; }}
+        p.titles.forEach(ti => {{
+          const key = ti.league + '|' + ti.season + '|' + ti.place;
+          if (!combined.titles.some(x => (x.league+'|'+x.season+'|'+x.place) === key)) combined.titles.push(ti);
+        }});
+      }});
+      const avgRating = combined.ratingWeight > 0 ? (combined.ratingSum / combined.ratingWeight) : null;
+      const firstY = combined.seasons_at_club[0];
+      const lastY = combined.seasons_at_club[combined.seasons_at_club.length - 1];
       const spanLabel = firstY === lastY
         ? (firstY + '/' + String(firstY + 1).slice(2))
         : (firstY + '/' + String(firstY + 1).slice(2)) + ' a ' + (lastY + '/' + String(lastY + 1).slice(2));
-      let txt = flagFor(d.nationality) + ' ' + d.name + ' pelo ' + naText(d.team) + ' — carreira no clube (' + spanLabel + '):\\n\\n';
-      txt += '⚔️ ' + naNum(s.appearences) + ' jogos\\n';
-      txt += '✅ ' + naNum(s.ga) + ' participações em gols\\n';
-      txt += '⚽ ' + naNum(s.goals) + ' gols\\n';
-      txt += '\\u{{1F170}}️ ' + naNum(s.assists) + ' assistências\\n';
-      txt += '⭐ Nota média: ' + fmtRating(s.rating) + '\\n';
-      txt += '🟨 ' + naNum(s.yellow_cards) + ' amarelos 🟥 ' + naNum(s.red_cards) + ' vermelhos\\n';
-      if (d.titles.length) {{
-        txt += '\\n🏆 Títulos (temporada coincide com a passagem pelo clube):\\n';
-        d.titles.forEach(t => {{ txt += '• ' + t.league + ' ' + t.season + ' — ' + t.place + '\\n'; }});
+      const teamsLabel = combined.teams.map(t => clubShort(t)).join(' + ');
+      let txt = flagFor(combined.nationality) + ' ' + combined.name + ' pelo ' + teamsLabel + ' — carreira (' + spanLabel + '):\\n\\n';
+      txt += '⚔️ ' + combined.appearences + ' jogos\\n';
+      txt += '✅ ' + (combined.goals + combined.assists) + ' participações em gols\\n';
+      txt += '⚽ ' + combined.goals + ' gols\\n';
+      txt += '\\u{{1F170}}️ ' + combined.assists + ' assistências\\n';
+      txt += '⭐ Nota média: ' + fmtRating(avgRating) + '\\n';
+      txt += '🟨 ' + combined.yellow_cards + ' amarelos 🟥 ' + combined.red_cards + ' vermelhos\\n';
+      if (combined.titles.length) {{
+        txt += '\\n🏆 Títulos (temporada coincide com a passagem pelo(s) clube(s)):\\n';
+        combined.titles.forEach(ti => {{ txt += '• ' + ti.league + ' ' + ti.season + ' — ' + ti.place + '\\n'; }});
       }}
-      renderResultCard(container, 'Passagem completa pelo clube', txt.trim(),
-        'Temporadas ' + spanLabel + ' · ' + naText(d.team) + (d.titles.length ? ' · ' + d.titles_note : '') + ' · fonte: API-Football');
+      renderResultCard(container, jgCareerTeamIds.length > 1 ? 'Passagem combinada (' + jgCareerTeamIds.length + ' clubes)' : 'Passagem completa pelo clube', txt.trim(),
+        'Temporadas ' + spanLabel + ' · ' + teamsLabel + (combined.titles.length ? ' · cruzamento de títulos por temporada, não por clube exato' : '') + ' · fonte: API-Football');
     }} catch(e) {{
       container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
     }}
@@ -3953,6 +4043,39 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     fixtures = [r for r in results if r]
     fixtures.sort(key=lambda x: x["date"] or "", reverse=True)
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
+
+
+@app.get("/api/numeros/player-clubs")
+async def api_numeros_player_clubs(player: int):
+    """Lista os clubes (da SPL) pelos quais um jogador já passou, varrendo as
+    temporadas disponíveis (mesma janela do site). Usado pra popular um filtro de
+    clube(s) específico do jogador depois que ele é selecionado, em vez de fazer o
+    usuário procurar entre os 18 clubes da liga quando só 1 ou 2 são relevantes."""
+    seasons_to_check = _af_available_seasons()
+
+    async def check_season(season):
+        data, err = await _af_get("players", {"id": player, "season": season})
+        if err or not data:
+            return []
+        resp = data.get("response", [])
+        if not resp:
+            return []
+        out = []
+        for s in resp[0].get("statistics", []):
+            team = s.get("team") or {}
+            if team.get("id"):
+                out.append((team.get("id"), team.get("name"), team.get("logo")))
+        return out
+
+    results = await asyncio.gather(*[check_season(s) for s in seasons_to_check])
+    seen = {}
+    for group in results:
+        for tid, name, logo in group:
+            if tid not in seen:
+                seen[tid] = {"id": tid, "name": name, "logo": logo}
+    clubs = list(seen.values())
+    clubs.sort(key=lambda c: c["name"] or "")
+    return {"player": player, "clubs": clubs}
 
 
 @app.get("/api/numeros/player-club-career")
