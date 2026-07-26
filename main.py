@@ -1989,7 +1989,7 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 
     <div id="jg-temporada" class="subtab-panel active">
       <div id="jgClubFilterWrap" class="club-filter-wrap" style="display:none">
-        <label class="picker-label">Clube(s) do jogador <span class="optional-tag">(marque 1 ou mais para combinar)</span></label>
+        <label class="picker-label">Clube(s) do jogador <span class="optional-tag">(marque 1 ou mais, ou "Todos")</span></label>
         <div id="jgClubFilterList" class="club-chip-list"></div>
       </div>
       <div id="jgSeasonFilterWrap" class="club-filter-wrap" style="display:none">
@@ -2419,7 +2419,7 @@ async function loadPlayerClubsFilter() {{
       jgCareerTeamIds = [];
       return;
     }}
-    jgCareerTeamIds = jgPlayerClubs.map(c => c.id);
+    jgCareerTeamIds = [];  // vazio = todos (mesma convenção de temporada e competição)
     renderClubFilterList();
   }} catch(e) {{
     if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
@@ -2429,7 +2429,7 @@ async function loadPlayerClubsFilter() {{
 
 function renderClubFilterList() {{
   const list = document.getElementById('jgClubFilterList');
-  const allChecked = jgPlayerClubs.length > 0 && jgCareerTeamIds.length === jgPlayerClubs.length;
+  const allChecked = jgCareerTeamIds.length === 0;
   let html = '<div class="club-chip-item' + (allChecked ? ' checked' : '') + '" onclick="setClubsAll()"><span>Todos</span></div>';
   html += jgPlayerClubs.map(c => {{
     const checked = jgCareerTeamIds.includes(c.id);
@@ -2441,7 +2441,7 @@ function renderClubFilterList() {{
 }}
 
 function setClubsAll() {{
-  jgCareerTeamIds = jgPlayerClubs.map(c => c.id);
+  jgCareerTeamIds = [];  // desmarca os individuais; vazio = todos
   renderClubFilterList();
   loadPlayerSeason();
 }}
@@ -4349,7 +4349,8 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
 
     titles = []
     titles_note = None
-    if team_filter:
+    if True:  # títulos são cruzados por temporada + competição plausível, não dependem
+              # do filtro de clube estar preenchido (vazio agora significa "todos")
         trophies_data, terr = await _af_get("trophies", {"player": player})
         if not terr and trophies_data:
             year_tokens = set()
