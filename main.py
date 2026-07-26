@@ -1845,13 +1845,49 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 
 .player-picker {{ display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }}
 .player-avatar-preview {{ width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--c-bg-soft); }}
+
+.player-picker-v2 {{ display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 16px; }}
+.picker-group {{ position: relative; min-width: 240px; flex: 1; }}
+.picker-label {{ font-size: .68rem; color: var(--c-muted-3); text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 4px; }}
+.optional-tag {{ text-transform: none; font-weight: 400; opacity: .7; }}
+.search-combo {{ position: relative; }}
+.search-combo input {{
+  width: 100%; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--c-border);
+  background: var(--c-bg-card); color: var(--c-text); font-size: .8rem; outline: none;
+}}
+.search-combo input:focus {{ border-color: var(--c-muted-3); }}
+.search-results {{
+  display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 20;
+  background: var(--c-bg-card); border: 1px solid var(--c-border); border-radius: 10px;
+  margin-top: 4px; max-height: 260px; overflow-y: auto; box-shadow: 0 8px 24px rgba(0,0,0,.15);
+}}
+.search-item {{
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; font-size: .8rem;
+  cursor: pointer; color: var(--c-text);
+}}
+.search-item:hover {{ background: var(--c-bg-soft); }}
+.search-item small {{ color: var(--c-muted-3); font-weight: 400; }}
+.search-empty {{ padding: 10px; font-size: .76rem; color: var(--c-muted-3); }}
+.search-crest {{ width: 20px; height: 20px; object-fit: contain; }}
+.search-avatar {{ width: 24px; height: 24px; border-radius: 50%; object-fit: cover; background: var(--c-bg-soft); }}
+.search-avatar-ph {{ width: 24px; height: 24px; border-radius: 50%; background: var(--c-bg-soft); display: inline-block; }}
+.selected-chip {{
+  display: none; align-items: center; gap: 6px; margin-top: 6px; padding: 5px 10px;
+  background: var(--c-bg-soft); border-radius: 99px; font-size: .78rem; font-weight: 600;
+  color: var(--c-text); width: fit-content;
+}}
+.chip-clear {{
+  background: none; border: none; color: var(--c-muted-3); cursor: pointer; font-size: .75rem;
+  padding: 0 2px; line-height: 1;
+}}
+.chip-clear:hover {{ color: var(--c-text); }}
 </style>
 </head>
 <body>
 {hdr}
 <div class="numeros-wrap">
   <div class="numeros-title">Números — Saudi Pro League</div>
-  <div class="numeros-subtitle">Estatísticas via API-Football, prontas pra copiar e colar. Dados ausentes aparecem como "Dado não disponível" — nada é estimado.</div>
+  <div class="numeros-subtitle">Estatísticas via API-Football, prontas pra copiar e colar. Estatísticas numéricas ausentes aparecem como 0; dados cadastrais ausentes (nacionalidade, posição, clube) aparecem como "Não informado" — nada é estimado ou inventado.</div>
 
   <div class="tabbar">
     <button class="tab-btn active" onclick="showTab('rankings',this)">Rankings</button>
@@ -1876,6 +1912,8 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
         <select id="rkLimit" onchange="loadRankings()">
           <option value="5">5</option><option value="10" selected>10</option>
           <option value="15">15</option><option value="20">20</option>
+          <option value="25">25</option><option value="30">30</option>
+          <option value="999">Todos</option>
         </select>
       </label>
     </div>
@@ -1891,8 +1929,11 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
       </label>
       <label>Exibir
         <select id="stMode" onchange="loadStandings()">
-          <option value="7">G7 (top 7)</option>
-          <option value="18">Tabela completa</option>
+          <option value="4">G4</option>
+          <option value="5">G5</option>
+          <option value="7" selected>G7</option>
+          <option value="8">G8</option>
+          <option value="all">Completa</option>
         </select>
       </label>
     </div>
@@ -1900,13 +1941,23 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
   </div>
 
   <div id="tab-jogador" class="tab-panel">
-    <div class="player-picker">
-      <label>Clube
-        <select id="jgTeam" onchange="onTeamChange()"></select>
-      </label>
-      <label>Jogador
-        <select id="jgPlayer" onchange="onPlayerChange()"><option value="">Selecione o clube primeiro</option></select>
-      </label>
+    <div class="player-picker-v2">
+      <div class="picker-group">
+        <label class="picker-label">Clube <span class="optional-tag">(opcional)</span></label>
+        <div class="search-combo">
+          <input type="text" id="jgClubSearch" placeholder="Buscar clube por nome..." autocomplete="off" oninput="onClubSearchInput()">
+          <div id="jgClubResults" class="search-results"></div>
+        </div>
+        <div id="jgClubSelected" class="selected-chip"></div>
+      </div>
+      <div class="picker-group">
+        <label class="picker-label">Jogador</label>
+        <div class="search-combo">
+          <input type="text" id="jgPlayerSearch" placeholder="Digite ao menos 4 letras do nome..." autocomplete="off" oninput="onPlayerSearchInput()">
+          <div id="jgPlayerResults" class="search-results"></div>
+        </div>
+        <div id="jgPlayerSelected" class="selected-chip"></div>
+      </div>
     </div>
 
     <div class="subtabbar">
@@ -1946,9 +1997,26 @@ const CLUB_SHORT = {CLUB_SHORT_JS};
 const SEASONS = {SEASONS_JS};
 
 function flagFor(nat) {{ return FLAG_MAP[nat] || '🏳️'; }}
-function clubShort(name) {{ return CLUB_SHORT[name] || (name || '').replace(/^Al[- ]/,'').trim() || name || '—'; }}
+function clubShort(name) {{
+  if (!name) return '—';
+  if (CLUB_SHORT[name]) return CLUB_SHORT[name];
+  let s = name
+    .replace(/\\bSaudi\\b/gi, '')
+    .replace(/\\bClub\\b/gi, '')
+    .replace(/\\bFC\\b/gi, '')
+    .replace(/\\bSC\\b/gi, '')
+    .replace(/^Al[- ]/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return s || name;
+}}
 function pad2(n) {{ return String(n ?? 0).padStart(2,'0'); }}
-function na(v) {{ return (v === null || v === undefined || v === '') ? 'Dado não disponível' : v; }}
+function naNum(v) {{ return (v === null || v === undefined) ? 0 : v; }}
+function naText(v) {{ return (v === null || v === undefined || v === '') ? 'Não informado' : v; }}
+function fmtRating(v) {{
+  const n = (v === null || v === undefined || isNaN(parseFloat(v))) ? 0 : parseFloat(v);
+  return n.toFixed(1);
+}}
 
 function rankBadges(items, valueKey) {{
   const badges = ['🥇','🥈','🥉'];
@@ -2034,49 +2102,56 @@ async function fetchJSON(url) {{
   return d;
 }}
 
+async function getRankingRows(sortKey, path, season, team, limit) {{
+  if (team !== '0') {{
+    const d = await fetchJSON('/api/numeros/team-stats?team=' + team + '&season=' + season + '&sort=' + sortKey + '&limit=' + limit);
+    return {{ players: d.players, teamFiltered: true, teamName: d.players.length ? d.players[0].team : '' }};
+  }}
+  const d = await fetchJSON('/api/numeros/' + path + '?season=' + season + '&limit=' + limit);
+  return {{ players: d.players, teamFiltered: false, teamName: '' }};
+}}
+
 async function loadRankings() {{
   const season = document.getElementById('rkSeason').value;
   const team = document.getElementById('rkTeam').value;
   const limit = document.getElementById('rkLimit').value;
-  const qs = 'season=' + season + '&team=' + team + '&limit=' + limit;
-
   const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
 
   try {{
-    const d = await fetchJSON('/api/numeros/topscorers?' + qs);
-    const badges = rankBadges(d.players, 'goals');
-    let txt = '⚽🇸🇦 ARTILHARIA — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
-    d.players.forEach((p, i) => {{
-      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + ' (' + clubShort(p.team) + ') - ' + na(p.goals) + '\\n';
+    const r = await getRankingRows('goals', 'topscorers', season, team, limit);
+    const badges = rankBadges(r.players, 'goals');
+    let txt = '⚽🇸🇦 ARTILHARIA — SAUDI PRO LEAGUE ' + seasonLabel + (r.teamFiltered ? ' · ' + clubShort(r.teamName) : '') + '\\n\\n';
+    r.players.forEach((p, i) => {{
+      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + (r.teamFiltered ? '' : ' (' + clubShort(p.team) + ')') + ' - ' + naNum(p.goals) + '\\n';
     }});
     renderResultCard(document.getElementById('rk-artilharia'), 'Artilharia', txt.trim(),
-      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (team!=='0' ? ' · clube filtrado' : '') + ' · fonte: API-Football');
+      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (r.teamFiltered ? ' · ranking interno completo do elenco (' + clubShort(r.teamName) + ')' : '') + ' · fonte: API-Football');
   }} catch(e) {{
     document.getElementById('rk-artilharia').innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
   }}
 
   try {{
-    const d = await fetchJSON('/api/numeros/topassists?' + qs);
-    const badges = rankBadges(d.players, 'assists');
-    let txt = '\\u{{1F170}}️🇸🇦 ASSISTÊNCIAS — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
-    d.players.forEach((p, i) => {{
-      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + ' (' + clubShort(p.team) + ') - ' + na(p.assists) + '\\n';
+    const r = await getRankingRows('assists', 'topassists', season, team, limit);
+    const badges = rankBadges(r.players, 'assists');
+    let txt = '\\u{{1F170}}️🇸🇦 ASSISTÊNCIAS — SAUDI PRO LEAGUE ' + seasonLabel + (r.teamFiltered ? ' · ' + clubShort(r.teamName) : '') + '\\n\\n';
+    r.players.forEach((p, i) => {{
+      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + (r.teamFiltered ? '' : ' (' + clubShort(p.team) + ')') + ' - ' + naNum(p.assists) + '\\n';
     }});
     renderResultCard(document.getElementById('rk-assistencias'), 'Assistências', txt.trim(),
-      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (team!=='0' ? ' · clube filtrado' : '') + ' · fonte: API-Football');
+      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (r.teamFiltered ? ' · ranking interno completo do elenco (' + clubShort(r.teamName) + ')' : '') + ' · fonte: API-Football');
   }} catch(e) {{
     document.getElementById('rk-assistencias').innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
   }}
 
   try {{
-    const d = await fetchJSON('/api/numeros/goal-contributions?' + qs);
-    const badges = rankBadges(d.players, 'ga');
-    let txt = '📊🇸🇦 PARTICIPAÇÕES EM GOLS — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
-    d.players.forEach((p, i) => {{
-      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + ' - ' + na(p.ga) + ' [' + pad2(p.goals) + '⚽+' + pad2(p.assists) + '\\u{{1F170}}️]\\n';
+    const r = await getRankingRows('ga', 'goal-contributions', season, team, limit);
+    const badges = rankBadges(r.players, 'ga');
+    let txt = '📊🇸🇦 PARTICIPAÇÕES EM GOLS — SAUDI PRO LEAGUE ' + seasonLabel + (r.teamFiltered ? ' · ' + clubShort(r.teamName) : '') + '\\n\\n';
+    r.players.forEach((p, i) => {{
+      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + (r.teamFiltered ? '' : ' (' + clubShort(p.team) + ')') + ' - ' + naNum(p.ga) + ' [' + pad2(p.goals) + '⚽+' + pad2(p.assists) + '\\u{{1F170}}️]\\n';
     }});
     renderResultCard(document.getElementById('rk-ga'), 'Participações em Gols (G+A)', txt.trim(),
-      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (team!=='0' ? ' · clube filtrado' : '') + ' · combina top-20 de artilharia e assistências · fonte: API-Football');
+      'Temporada ' + seasonLabel + ' · Saudi Pro League' + (r.teamFiltered ? ' · ranking interno completo do elenco (' + clubShort(r.teamName) + ')' : ' · combina top-20 de artilharia e assistências') + ' · fonte: API-Football');
   }} catch(e) {{
     document.getElementById('rk-ga').innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
   }}
@@ -2089,12 +2164,13 @@ async function loadStandings() {{
   const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
   try {{
     const d = await fetchJSON('/api/numeros/standings?season=' + season);
-    const rows = mode === '7' ? d.table.slice(0,7) : d.table;
-    const label = mode === '7' ? 'G7' : 'CLASSIFICAÇÃO COMPLETA';
+    const n = mode === 'all' ? d.table.length : parseInt(mode, 10);
+    const rows = d.table.slice(0, n);
+    const label = mode === 'all' ? 'CLASSIFICAÇÃO COMPLETA' : 'G' + n;
     let txt = label + ' — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
     txt += 'POS\\tTIME\\tPTS\\tJ\\tV\\tSG\\n';
     rows.forEach(r => {{
-      txt += r.rank + '\\t' + r.team.toUpperCase() + '\\t' + na(r.points) + '\\t' + na(r.played) + '\\t' + na(r.wins) + '\\t' + na(r.goals_diff) + '\\n';
+      txt += r.rank + '\\t' + clubShort(r.team).toUpperCase() + '\\t' + naNum(r.points) + '\\t' + naNum(r.played) + '\\t' + naNum(r.wins) + '\\t' + naNum(r.goals_diff) + '\\n';
     }});
     renderResultCard(container, label, txt.trim(),
       'Temporada ' + seasonLabel + ' · Saudi Pro League · formato tabulado (TSV) — cole direto em planilha ou Canva · fonte: API-Football');
@@ -2103,28 +2179,147 @@ async function loadStandings() {{
   }}
 }}
 
-async function onTeamChange() {{
-  const team = document.getElementById('jgTeam').value;
-  const playerSel = document.getElementById('jgPlayer');
-  if (!team) {{ fillSelect(playerSel, [], 'id', 'name', 'Selecione o clube primeiro'); return; }}
-  playerSel.innerHTML = '<option value="">Carregando…</option>';
-  try {{
-    const d = await fetchJSON('/api/numeros/squad?team=' + team);
-    fillSelect(playerSel, d.players, 'id', 'name', 'Selecione o jogador');
-  }} catch(e) {{
-    playerSel.innerHTML = '<option value="">Erro ao carregar elenco</option>';
+let jgAllTeams = [];
+let jgSelectedTeam = null;
+let jgSelectedPlayer = null;
+let jgPlayerSearchTimer = null;
+let _lastPlayerResults = [];
+
+function renderClubResults(list) {{
+  const box = document.getElementById('jgClubResults');
+  if (!list.length) {{ box.innerHTML = '<div class="search-empty">Nenhum clube encontrado.</div>'; box.style.display = 'block'; return; }}
+  box.innerHTML = list.map(t =>
+    '<div class="search-item" onclick="selectClub(' + t.id + ')">' +
+    '<img src="' + (t.logo||'') + '" class="search-crest" onerror="this.style.visibility=\\'hidden\\'">' +
+    '<span>' + t.name + '</span></div>'
+  ).join('');
+  box.style.display = 'block';
+}}
+
+function onClubSearchInput() {{
+  const q = document.getElementById('jgClubSearch').value.trim().toLowerCase();
+  if (!q) {{ document.getElementById('jgClubResults').style.display = 'none'; return; }}
+  const matches = jgAllTeams.filter(t => t.name.toLowerCase().includes(q)).slice(0, 8);
+  renderClubResults(matches);
+}}
+
+function selectClub(id) {{
+  const t = jgAllTeams.find(x => x.id === id);
+  if (!t) return;
+  jgSelectedTeam = t;
+  document.getElementById('jgClubSearch').value = '';
+  document.getElementById('jgClubResults').style.display = 'none';
+  document.getElementById('jgClubResults').innerHTML = '';
+  const chip = document.getElementById('jgClubSelected');
+  chip.style.display = 'flex';
+  chip.innerHTML = '<img src="' + (t.logo||'') + '" class="search-crest"><span>' + t.name + '</span>' +
+    '<button type="button" class="chip-clear" onclick="clearClub()">✕</button>';
+  if (!document.getElementById('jgPlayerSearch').value.trim()) loadSquadPreview();
+}}
+
+function clearClub() {{
+  jgSelectedTeam = null;
+  document.getElementById('jgClubSelected').style.display = 'none';
+  document.getElementById('jgClubSelected').innerHTML = '';
+  if (!document.getElementById('jgPlayerSearch').value.trim()) {{
+    document.getElementById('jgPlayerResults').style.display = 'none';
+    document.getElementById('jgPlayerResults').innerHTML = '';
   }}
 }}
 
-function onPlayerChange() {{
+async function loadSquadPreview() {{
+  if (!jgSelectedTeam) return;
+  const box = document.getElementById('jgPlayerResults');
+  box.innerHTML = '<div class="search-empty">Carregando elenco…</div>';
+  box.style.display = 'block';
+  try {{
+    const d = await fetchJSON('/api/numeros/squad?team=' + jgSelectedTeam.id);
+    renderPlayerResults(d.players.map(p => ({{ player_id: p.id, name: p.name, photo: p.photo, team: jgSelectedTeam.name, team_id: jgSelectedTeam.id, team_logo: jgSelectedTeam.logo }})));
+  }} catch(e) {{
+    box.innerHTML = '<div class="search-empty">Erro ao carregar elenco.</div>';
+  }}
+}}
+
+function renderPlayerResults(list) {{
+  _lastPlayerResults = list;
+  const box = document.getElementById('jgPlayerResults');
+  if (!list.length) {{ box.innerHTML = '<div class="search-empty">Nenhum jogador encontrado.</div>'; box.style.display = 'block'; return; }}
+  box.innerHTML = list.map((p, i) =>
+    '<div class="search-item" onclick="selectPlayerByIndex(' + i + ')">' +
+    (p.photo ? '<img src="' + p.photo + '" class="search-avatar" onerror="this.style.visibility=\\'hidden\\'">' : '<span class="search-avatar-ph"></span>') +
+    '<span>' + p.name + (p.team ? ' <small>(' + p.team + ')</small>' : '') + '</span></div>'
+  ).join('');
+  box.style.display = 'block';
+}}
+
+function onPlayerSearchInput() {{
+  const q = document.getElementById('jgPlayerSearch').value.trim();
+  clearTimeout(jgPlayerSearchTimer);
+  if (!q) {{
+    if (jgSelectedTeam) {{ loadSquadPreview(); }} else {{
+      document.getElementById('jgPlayerResults').style.display = 'none';
+      document.getElementById('jgPlayerResults').innerHTML = '';
+    }}
+    return;
+  }}
+  if (q.length < 4) {{
+    const box = document.getElementById('jgPlayerResults');
+    box.innerHTML = '<div class="search-empty">Digite ao menos 4 letras…</div>';
+    box.style.display = 'block';
+    return;
+  }}
+  jgPlayerSearchTimer = setTimeout(async () => {{
+    const season = document.getElementById('jgSeason').value;
+    const box = document.getElementById('jgPlayerResults');
+    box.innerHTML = '<div class="search-empty">Buscando…</div>';
+    box.style.display = 'block';
+    try {{
+      let url = '/api/numeros/player-search?q=' + encodeURIComponent(q) + '&season=' + season;
+      if (jgSelectedTeam) url += '&team=' + jgSelectedTeam.id;
+      const d = await fetchJSON(url);
+      renderPlayerResults(d.players);
+    }} catch(e) {{
+      box.innerHTML = '<div class="search-empty">' + e.message + '</div>';
+    }}
+  }}, 350);
+}}
+
+function selectPlayerByIndex(i) {{ selectPlayer(_lastPlayerResults[i]); }}
+
+function selectPlayer(p) {{
+  jgSelectedPlayer = p;
+  document.getElementById('jgPlayerSearch').value = '';
+  document.getElementById('jgPlayerResults').style.display = 'none';
+  document.getElementById('jgPlayerResults').innerHTML = '';
+  const chip = document.getElementById('jgPlayerSelected');
+  chip.style.display = 'flex';
+  chip.innerHTML = (p.photo ? '<img src="' + p.photo + '" class="search-avatar">' : '') +
+    '<span>' + p.name + (p.team ? ' (' + p.team + ')' : '') + '</span>' +
+    '<button type="button" class="chip-clear" onclick="clearPlayer()">✕</button>';
   loadPlayerSeason();
   loadFixtures();
 }}
 
+function clearPlayer() {{
+  jgSelectedPlayer = null;
+  document.getElementById('jgPlayerSelected').style.display = 'none';
+  document.getElementById('jgPlayerSelected').innerHTML = '';
+  document.getElementById('player-season-result').innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>';
+  document.getElementById('fixture-player-result').innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador e uma partida acima.</div></div>';
+  document.getElementById('fxFixture').innerHTML = '<option value="">Selecione o jogador primeiro</option>';
+}}
+
+document.addEventListener('click', function(e) {{
+  if (!e.target.closest('.search-combo')) {{
+    const cr = document.getElementById('jgClubResults'); if (cr) cr.style.display = 'none';
+    const pr = document.getElementById('jgPlayerResults'); if (pr && !jgSelectedTeam) pr.style.display = 'none';
+  }}
+}});
+
 async function loadPlayerSeason() {{
-  const player = document.getElementById('jgPlayer').value;
   const container = document.getElementById('player-season-result');
-  if (!player) {{ container.innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>'; return; }}
+  if (!jgSelectedPlayer) {{ container.innerHTML = '<div class="result-card"><div class="loading-state">Selecione um jogador acima.</div></div>'; return; }}
+  const player = jgSelectedPlayer.player_id;
   const season = document.getElementById('jgSeason').value;
   const league = document.getElementById('jgLeague').value;
   const seasonLabel = season + '/' + String(Number(season)+1).slice(2);
@@ -2132,41 +2327,41 @@ async function loadPlayerSeason() {{
   try {{
     const d = await fetchJSON('/api/numeros/player-season?player=' + player + '&season=' + season + (league!=='0' ? '&league=' + league : ''));
     const leagueSel = document.getElementById('jgLeague');
-    if (leagueSel.dataset.player !== player) {{
+    if (leagueSel.dataset.player !== String(player)) {{
       fillSelect(leagueSel, [{{league_id:0, label:'Todas'}}, ...d.competitions_available.map(c=>({{league_id: c.league_id, label: c.league_name}}))], 'league_id', 'label', null);
-      leagueSel.dataset.player = player;
+      leagueSel.dataset.player = String(player);
     }}
     if (!d.stats) {{
       container.innerHTML = '<div class="result-card"><div class="error-state">Sem estatísticas disponíveis para esta competição/temporada.</div></div>';
       return;
     }}
     const s = d.stats;
-    let txt = flagFor(d.nationality) + ' ' + d.name + ' pelo ' + na(d.team) + ' — ' + na(d.league) + ' ' + seasonLabel + ':\\n\\n';
-    txt += '⚔️ ' + na(s.appearences) + ' jogos\\n';
-    txt += '✅ ' + na(s.ga) + ' participações em gols\\n';
-    txt += '⚽ ' + na(s.goals) + ' gols\\n';
-    txt += '\\u{{1F170}}️ ' + na(s.assists) + ' assistências\\n';
-    if (s.rating) txt += '⭐ Nota média: ' + s.rating + '\\n';
-    if (s.yellow_cards || s.red_cards) txt += '🟨 ' + na(s.yellow_cards) + ' amarelos 🟥 ' + na(s.red_cards) + ' vermelhos\\n';
+    let txt = flagFor(d.nationality) + ' ' + d.name + ' pelo ' + naText(d.team) + ' — ' + naText(d.league) + ' ' + seasonLabel + ':\\n\\n';
+    txt += '⚔️ ' + naNum(s.appearences) + ' jogos\\n';
+    txt += '✅ ' + naNum(s.ga) + ' participações em gols\\n';
+    txt += '⚽ ' + naNum(s.goals) + ' gols\\n';
+    txt += '\\u{{1F170}}️ ' + naNum(s.assists) + ' assistências\\n';
+    txt += '⭐ Nota média: ' + fmtRating(s.rating) + '\\n';
+    txt += '🟨 ' + naNum(s.yellow_cards) + ' amarelos 🟥 ' + naNum(s.red_cards) + ' vermelhos\\n';
     renderResultCard(container, 'Estatísticas na temporada', txt.trim(),
-      'Temporada ' + seasonLabel + ' · ' + na(d.league) + ' · fonte: API-Football');
+      'Temporada ' + seasonLabel + ' · ' + naText(d.league) + ' · fonte: API-Football');
   }} catch(e) {{
     container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
   }}
 }}
 
 async function loadFixtures() {{
-  const player = document.getElementById('jgPlayer').value;
-  const team = document.getElementById('jgTeam').value;
   const fxSel = document.getElementById('fxFixture');
-  if (!player || !team) {{ fxSel.innerHTML = '<option value="">Selecione o jogador primeiro</option>'; return; }}
+  if (!jgSelectedPlayer) {{ fxSel.innerHTML = '<option value="">Selecione o jogador primeiro</option>'; return; }}
+  const team = jgSelectedPlayer.team_id;
+  if (!team) {{ fxSel.innerHTML = '<option value="">Time do jogador não disponível</option>'; return; }}
   const season = document.getElementById('fxSeason').value;
   fxSel.innerHTML = '<option value="">Carregando…</option>';
   try {{
     const d = await fetchJSON('/api/numeros/fixtures?team=' + team + '&season=' + season);
     const items = d.fixtures.map(f => ({{
       id: f.fixture_id,
-      label: f.date + ' · ' + f.home + ' ' + na(f.goals_home) + 'x' + na(f.goals_away) + ' ' + f.away + ' (' + (f.round||'') + ')'
+      label: f.date + ' · ' + f.home + ' ' + naNum(f.goals_home) + 'x' + naNum(f.goals_away) + ' ' + f.away + ' (' + (f.round||'') + ')'
     }}));
     fillSelect(fxSel, items, 'id', 'label', 'Selecione a partida');
   }} catch(e) {{
@@ -2176,23 +2371,23 @@ async function loadFixtures() {{
 
 async function loadFixturePlayer() {{
   const fixture = document.getElementById('fxFixture').value;
-  const player = document.getElementById('jgPlayer').value;
   const container = document.getElementById('fixture-player-result');
-  if (!fixture || !player) return;
+  if (!fixture || !jgSelectedPlayer) return;
+  const player = jgSelectedPlayer.player_id;
   container.innerHTML = '<div class="result-card"><div class="loading-state">Carregando…</div></div>';
   try {{
     const d = await fetchJSON('/api/numeros/fixture-player?fixture=' + fixture + '&player=' + player);
-    let txt = d.name + ' — ' + na(d.team) + '\\n\\n';
-    txt += '⏱️ ' + na(d.minutes) + ' min em campo (' + na(d.position) + ')\\n';
-    if (d.rating) txt += '⭐ Nota: ' + d.rating + '\\n';
-    txt += '⚽ Gols: ' + na(d.goals) + '  \\u{{1F170}}️ Assistências: ' + na(d.assists) + '\\n';
+    let txt = d.name + ' — ' + naText(d.team) + '\\n\\n';
+    txt += '⏱️ ' + naNum(d.minutes) + ' min em campo (' + naText(d.position) + ')\\n';
+    txt += '⭐ Nota: ' + fmtRating(d.rating) + '\\n';
+    txt += '⚽ Gols: ' + naNum(d.goals) + '  \\u{{1F170}}️ Assistências: ' + naNum(d.assists) + '\\n';
     if (d.goals_conceded !== null || d.saves !== null) {{
-      txt += '🧤 ' + na(d.goals_conceded) + ' gols sofridos · ' + na(d.saves) + ' defesas\\n';
+      txt += '🧤 ' + naNum(d.goals_conceded) + ' gols sofridos · ' + naNum(d.saves) + ' defesas\\n';
     }}
-    txt += '🎯 Finalizações: ' + na(d.shots_on) + '/' + na(d.shots_total) + ' no alvo\\n';
-    txt += '📈 Passes: ' + na(d.passes_total) + ' (' + na(d.passes_accuracy) + '% de acerto)\\n';
-    txt += '🤝 Duelos vencidos: ' + na(d.duels_won) + '/' + na(d.duels_total) + '\\n';
-    if (d.fouls_drawn !== null) txt += '👊 Faltas sofridas: ' + na(d.fouls_drawn) + '\\n';
+    txt += '🎯 Finalizações: ' + naNum(d.shots_on) + '/' + naNum(d.shots_total) + ' no alvo\\n';
+    txt += '📈 Passes: ' + naNum(d.passes_total) + ' (' + naNum(d.passes_accuracy) + '% de acerto)\\n';
+    txt += '🤝 Duelos vencidos: ' + naNum(d.duels_won) + '/' + naNum(d.duels_total) + '\\n';
+    txt += '👊 Faltas sofridas: ' + naNum(d.fouls_drawn) + '\\n';
     if (d.yellow_cards) txt += '🟨 Cartão amarelo\\n';
     if (d.red_cards) txt += '🟥 Cartão vermelho\\n';
     renderResultCard(container, 'Estatísticas na partida', txt.trim(), 'Fonte: API-Football (dados por partida)');
@@ -2205,12 +2400,13 @@ async function init() {{
   setupSeasonSelects();
   try {{
     const meta = await fetchJSON('/api/numeros/meta?season=' + SEASONS[0]);
+    jgAllTeams = meta.teams;
     fillSelect(document.getElementById('rkTeam'), [{{id:0,name:'Todos'}}, ...meta.teams], 'id', 'name', null);
-    fillSelect(document.getElementById('jgTeam'), meta.teams, 'id', 'name', 'Selecione o clube');
   }} catch(e) {{}}
   loadRankings();
   loadStandings();
 }}
+
 init();
 </script>
 </body></html>
@@ -3484,6 +3680,86 @@ async def api_numeros_goal_contributions(season: int = 2025, limit: int = 20, te
     }
 
 
+@app.get("/api/numeros/team-stats")
+async def api_numeros_team_stats(team: int, season: int = 2025, sort: str = "goals", limit: int = 40):
+    """Ranking INTERNO COMPLETO de um clube: pagina por TODOS os jogadores retornados
+    por /players?team=X&league=307&season=Y (confirmado paginado — ver debug histórico),
+    incluindo jogadores com 0 gols/assistências. Diferente dos rankings gerais (topscorers/
+    topassists, limitados ao top-20 da competição), aqui o universo é o elenco real do
+    clube, então a ordenação interna é sempre completa e correta."""
+    page = 1
+    rows: list[dict] = []
+    while True:
+        data, err = await _af_get("players", {"team": team, "league": AF_LEAGUE_SPL, "season": season, "page": page})
+        if err:
+            return JSONResponse({"error": err}, status_code=502)
+        resp = data.get("response", [])
+        for entry in resp:
+            player = entry.get("player") or {}
+            stats_list = entry.get("statistics") or []
+            s = stats_list[0] if stats_list else {}
+            games = s.get("games") or {}
+            goals = s.get("goals") or {}
+            g = goals.get("total") or 0
+            a = goals.get("assists") or 0
+            rows.append({
+                "player_id": player.get("id"),
+                "name": player.get("name"),
+                "photo": player.get("photo"),
+                "nationality": player.get("nationality"),
+                "team": (s.get("team") or {}).get("name"),
+                "team_id": (s.get("team") or {}).get("id"),
+                "team_logo": (s.get("team") or {}).get("logo"),
+                "appearences": games.get("appearences") or 0,
+                "goals": g,
+                "assists": a,
+                "ga": g + a,
+            })
+        paging = data.get("paging") or {}
+        if paging.get("current", 1) >= paging.get("total", 1):
+            break
+        page += 1
+        if page > 6:
+            break
+    key = sort if sort in ("goals", "assists", "ga") else "goals"
+    rows.sort(key=lambda r: r[key], reverse=True)
+    rows = rows[:max(1, min(limit, 60))]
+    return {
+        "season": season, "team": team, "sort": key, "count": len(rows), "players": rows,
+        "note": "Ranking interno completo do elenco (todos os jogadores retornados pela API-Football pra esse clube/temporada/liga, incluindo 0 gols/assistências).",
+    }
+
+
+@app.get("/api/numeros/player-search")
+async def api_numeros_player_search(q: str, season: int = 2025, team: int = 0):
+    """Busca jogador por nome parcial (mínimo 4 caracteres — exigência da própria
+    API-Football), escopada à Saudi Pro League. Filtro de clube é opcional."""
+    q = (q or "").strip()
+    if len(q) < 4:
+        return {"error": "Digite ao menos 4 caracteres para buscar.", "players": []}
+    params = {"search": q, "league": AF_LEAGUE_SPL, "season": season}
+    if team:
+        params["team"] = team
+    data, err = await _af_get("players", params)
+    if err:
+        return JSONResponse({"error": err}, status_code=502)
+    resp = data.get("response", [])
+    players = []
+    for entry in resp:
+        player = entry.get("player") or {}
+        stats_list = entry.get("statistics") or []
+        s = stats_list[0] if stats_list else {}
+        players.append({
+            "player_id": player.get("id"),
+            "name": player.get("name"),
+            "photo": player.get("photo"),
+            "team": (s.get("team") or {}).get("name"),
+            "team_id": (s.get("team") or {}).get("id"),
+            "team_logo": (s.get("team") or {}).get("logo"),
+        })
+    return {"query": q, "count": len(players), "players": players}
+
+
 @app.get("/api/numeros/standings")
 async def api_numeros_standings(season: int = 2025):
     data, err = await _af_get("standings", {"league": AF_LEAGUE_SPL, "season": season})
@@ -3778,61 +4054,6 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
             }
     except Exception as e:
         return {"error": str(e)}
-
-
-@app.get("/api/admin/debug-af4")
-async def api_debug_af4(team: int = 2939, season: int = 2025, page: int = 1):
-    """Debug: /players?team=X&league=307&season=Y&page=N - checa paginacao pra ranking completo por clube."""
-    af_key = os.environ.get("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return {"error": "API_FOOTBALL_KEY não configurada"}
-    headers = {"x-apisports-key": af_key}
-    out = {}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get("https://v3.football.api-sports.io/players", headers=headers,
-                                  params={"team": team, "league": 307, "season": season, "page": page})
-            d = r.json()
-            out["results"] = d.get("results")
-            out["paging"] = d.get("paging")
-            out["errors"] = d.get("errors")
-            resp = d.get("response", [])
-            out["response_count"] = len(resp)
-            out["players_sample"] = [
-                {"name": p.get("player",{}).get("name"), "goals": (p.get("statistics") or [{}])[0].get("goals")}
-                for p in resp[:25]
-            ]
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    return out
-
-
-@app.get("/api/admin/debug-af5")
-async def api_debug_af5(q: str = "ronaldo", season: int = 2025):
-    """Debug: testa /players?search=X&league=307&season=Y (busca de jogador por nome parcial)."""
-    af_key = os.environ.get("API_FOOTBALL_KEY", "")
-    if not af_key:
-        return {"error": "API_FOOTBALL_KEY não configurada"}
-    headers = {"x-apisports-key": af_key}
-    out = {}
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.get("https://v3.football.api-sports.io/players", headers=headers,
-                                  params={"search": q, "league": 307, "season": season})
-            d = r.json()
-            out["results"] = d.get("results")
-            out["errors"] = d.get("errors")
-            out["paging"] = d.get("paging")
-            resp = d.get("response", [])
-            out["sample"] = [
-                {"name": p.get("player",{}).get("name"), "photo": p.get("player",{}).get("photo"),
-                 "team": (p.get("statistics") or [{}])[0].get("team",{}).get("name")}
-                for p in resp[:10]
-            ]
-    except Exception as e:
-        out["error"] = f"{type(e).__name__}: {e}"
-    import json as _json
-    return HTMLResponse("<pre>" + _json.dumps(out, indent=2, ensure_ascii=False) + "</pre>")
 
 
 @app.get("/api/admin/debug-rss")
