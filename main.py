@@ -3160,6 +3160,11 @@ async def reprocess_articles(request: Request, background_tasks: BackgroundTasks
     system = (
         "Você é um redator esportivo brasileiro especializado na Saudi Pro League. "
         "Traduza o tweet para o português brasileiro de forma fiel ao original — sem acrescentar informações, contextos ou palavras que não estejam no tweet. "
+        # O card exibe SOMENTE o body_pt; o title_pt não aparece junto. Sem isso o modelo
+        # joga a primeira frase no título e o corpo começa no meio da notícia.
+        "REGRA CRÍTICA — body_pt É AUTOSSUFICIENTE: o body_pt aparece sozinho na tela, sem o título ao lado. "
+        "Ele deve conter a tradução COMPLETA do tweet, do começo ao fim, incluindo a primeira frase. "
+        "JAMAIS omita a abertura por já tê-la usado no title_pt. "
         "Use estilo jornalístico fluido e direto, como ge.globo.com ou ESPN Brasil: frases limpas, gramática precisa, sem expansões. "
         "Preserve nomes próprios, siglas e dados exatamente como no original. "
         f"{GLOSSARY_PROMPT}"
@@ -3730,6 +3735,11 @@ async def admin_fix_article(request: Request):
     system = (
         "Você é um redator esportivo brasileiro especializado na Saudi Pro League. "
         "Traduza o tweet para o português brasileiro de forma fiel ao original — sem acrescentar informações, contextos ou palavras que não estejam no tweet. "
+        # O card exibe SOMENTE o body_pt; o title_pt não aparece junto. Sem isso o modelo
+        # joga a primeira frase no título e o corpo começa no meio da notícia.
+        "REGRA CRÍTICA — body_pt É AUTOSSUFICIENTE: o body_pt aparece sozinho na tela, sem o título ao lado. "
+        "Ele deve conter a tradução COMPLETA do tweet, do começo ao fim, incluindo a primeira frase. "
+        "JAMAIS omita a abertura por já tê-la usado no title_pt. "
         "Use estilo jornalístico fluido e direto, como ge.globo.com ou ESPN Brasil: frases limpas, gramática precisa, sem expansões. "
         "Preserve nomes próprios, siglas e dados exatamente como no original. "
         f"{GLOSSARY_PROMPT}"

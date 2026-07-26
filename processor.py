@@ -80,6 +80,16 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
         "Use os termos certos do futebol: 'meio-campista', 'zagueiro', 'lateral', 'atacante', 'volante', 'emprestar', 'janela de transferências', 'elenco', 'contratação', 'rescisão'. "
         "Adapte expressões idiomáticas para soar natural em português — mas NUNCA adicione informações ausentes no original. "
         "Se o original tem 1 frase, body_pt tem 1 frase. Se tem 3 linhas, body_pt tem 3 linhas. Não transforme tweets em artigos. "
+        # O card do site exibe SOMENTE o body_pt — o title_pt nunca é mostrado ao lado dele.
+        # Sem esta regra o modelo move a primeira frase pro título e não a repete no corpo,
+        # e o lead da notícia desaparece da tela (ex: um tweet que abria com
+        # "EXCLUSIVE: Al Hilal open talks to sign Iliman Ndiaye" virou um corpo que só
+        # começava em "As negociações estão em estágio inicial...", sem dizer o principal).
+        "REGRA CRÍTICA — body_pt É AUTOSSUFICIENTE: o body_pt é exibido SOZINHO, sem o título ao lado. "
+        "Portanto body_pt deve ser a tradução COMPLETA do texto original, do começo ao fim, incluindo a primeira frase. "
+        "JAMAIS omita a abertura do texto sob o argumento de que ela já foi usada no title_pt. "
+        "O title_pt é um rótulo interno e NÃO subtrai conteúdo do corpo — quem lê só o body_pt "
+        "precisa entender a notícia inteira, incluindo quem é o clube, quem é o jogador e qual é o fato principal. "
         "Se o texto já estiver em português, ajuste gramática e terminologia técnica apenas — NUNCA altere os fatos. "
         "PONTO DE VISTA — FUTEBOL SAUDITA: quando a notícia envolver um clube saudita e um europeu, "
         "o título e o corpo devem ter o clube saudita como sujeito principal da ação "
