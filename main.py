@@ -1894,6 +1894,15 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 .club-chip-item.checked {{ color: var(--c-text); border-color: var(--c-text); background: var(--c-bg-soft); }}
 .club-chip-item img {{ width: 16px; height: 16px; object-fit: contain; }}
 .club-chip-item input {{ display: none; }}
+
+.col-copy-row {{ display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }}
+.col-copy-btn {{
+  background: var(--c-bg-soft); color: var(--c-muted-3); border: 1px solid var(--c-border);
+  padding: 4px 10px; font-size: .68rem; font-weight: 700; border-radius: 6px; cursor: pointer;
+  transition: all .15s;
+}}
+.col-copy-btn:hover {{ color: var(--c-text); border-color: var(--c-muted-3); }}
+.col-copy-btn.copied {{ background: var(--c-success); color: white; border-color: var(--c-success); }}
 </style>
 </head>
 <body>
@@ -2119,6 +2128,36 @@ function renderResultCard(container, title, bodyText, meta) {{
   container.querySelector('.result-card').dataset.copytext = bodyText;
 }}
 
+function renderStandingsCard(container, title, bodyText, meta, columns) {{
+  const colButtons = columns.map((c, i) =>
+    '<button class="copy-btn col-copy-btn" data-col="' + i + '" onclick="copyColumn(this)">\\u{{1F4CB}} ' + c.key + '</button>'
+  ).join('');
+  container.innerHTML =
+    '<div class="result-card">' +
+    '<div class="result-head"><span class="result-title">' + title + '</span>' +
+    '<button class="copy-btn" onclick="copyBlock(this, this.closest(\\'.result-card\\').dataset.copytext)">\\u{{1F4CB}} Copiar tudo</button></div>' +
+    '<div class="col-copy-row">' + colButtons + '</div>' +
+    '<div class="result-pre">' + bodyText.replace(/</g,'&lt;') + '</div>' +
+    (meta ? '<div class="result-meta">' + meta + '</div>' : '') +
+    '</div>';
+  const card = container.querySelector('.result-card');
+  card.dataset.copytext = bodyText;
+  card._columns = columns;
+}}
+
+function copyColumn(btn) {{
+  const card = btn.closest('.result-card');
+  const idx = parseInt(btn.dataset.col, 10);
+  const col = card._columns[idx];
+  const text = col.key + '\\n' + col.values.join('\\n');
+  navigator.clipboard.writeText(text).then(() => {{
+    const orig = btn.textContent;
+    btn.textContent = '\\u2705';
+    btn.classList.add('copied');
+    setTimeout(() => {{ btn.textContent = orig; btn.classList.remove('copied'); }}, 1400);
+  }});
+}}
+
 async function fetchJSON(url) {{
   const r = await fetch(url);
   const d = await r.json();
@@ -2196,8 +2235,17 @@ async function loadStandings() {{
     rows.forEach(r => {{
       txt += r.rank + '\\t' + clubShort(r.team).toUpperCase() + '\\t' + naNum(r.points) + '\\t' + naNum(r.played) + '\\t' + naNum(r.wins) + '\\t' + naNum(r.goals_diff) + '\\n';
     }});
-    renderResultCard(container, label, txt.trim(),
-      'Temporada ' + seasonLabel + ' · Saudi Pro League · formato tabulado (TSV) — cole direto em planilha ou Canva · fonte: API-Football');
+    const columns = [
+      {{ key: 'POS', values: rows.map(r => String(r.rank)) }},
+      {{ key: 'TIME', values: rows.map(r => clubShort(r.team).toUpperCase()) }},
+      {{ key: 'PTS', values: rows.map(r => String(naNum(r.points))) }},
+      {{ key: 'J', values: rows.map(r => String(naNum(r.played))) }},
+      {{ key: 'V', values: rows.map(r => String(naNum(r.wins))) }},
+      {{ key: 'SG', values: rows.map(r => String(naNum(r.goals_diff))) }},
+    ];
+    renderStandingsCard(container, label, txt.trim(),
+      'Temporada ' + seasonLabel + ' · Saudi Pro League · formato tabulado (TSV) — cole direto em planilha ou Canva · fonte: API-Football',
+      columns);
   }} catch(e) {{
     container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
   }}
