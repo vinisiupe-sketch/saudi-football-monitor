@@ -4673,6 +4673,53 @@ async def api_test_af(name: str = "Neymar", league: int = 307, season: int = 202
         return {"error": str(e)}
 
 
+@app.get("/api/admin/debug-secao")
+async def api_debug_secao(url: str = "https://arriyadiyah.com/news/section/2", n: int = 8):
+    """Diagnóstico do coletor da seção do arriyadiyah: mostra o que o servidor
+    realmente recebe e onde o parser está falhando (fetch, âncoras ou regex)."""
+    from bs4 import BeautifulSoup
+    from collector import (
+        HEADERS, _ARR_LINK_RE, _ARR_ITEM_RE, parse_arriyadiyah_section,
+    )
+    out = {"url": url}
+    try:
+        async with httpx.AsyncClient(timeout=25, follow_redirects=True) as client:
+            r = await client.get(url, headers=HEADERS)
+        out["status"] = r.status_code
+        out["html_len"] = len(r.text)
+        out["final_url"] = str(r.url)
+        if r.status_code != 200:
+            out["html_sample"] = r.text[:500]
+            return out
+        soup = BeautifulSoup(r.text, "lxml")
+        ancoras = [a for a in soup.find_all("a", href=True) if _ARR_LINK_RE.match(a["href"])]
+        out["ancoras_de_artigo"] = len(ancoras)
+        amostras = []
+        for a in ancoras[:n]:
+            txt = a.get_text(" ", strip=True)
+            amostras.append({
+                "href": a["href"][:90],
+                "texto_len": len(txt),
+                "texto": txt[:220],
+                "casou_regex": bool(_ARR_ITEM_RE.match(txt)),
+            })
+        out["amostras"] = amostras
+        out["total_casaram"] = sum(
+            1 for a in ancoras if _ARR_ITEM_RE.match(a.get_text(" ", strip=True))
+        )
+        artigos = parse_arriyadiyah_section(r.text, "debug", "A")
+        out["artigos_parseados"] = len(artigos)
+        out["artigos"] = [
+            {"titulo": x["title_orig"][:70], "publicado": x["published_at"],
+             "pendente": x["pending_relevance"], "score": x["relevance_score"],
+             "url": x["url"][:80]}
+            for x in artigos[:n]
+        ]
+    except Exception as e:
+        out["erro"] = f"{type(e).__name__}: {e}"
+    return out
+
+
 @app.get("/api/admin/debug-rss")
 async def api_debug_rss(url: str = "https://news.google.com/rss/search?q=site:arriyadiyah.com&hl=ar&gl=SA&ceid=SA:ar", n: int = 3, titles_only: int = 0):
     """Inspeciona um feed RSS bruto: link real, summary, e o que o scraper consegue extrair dele."""
