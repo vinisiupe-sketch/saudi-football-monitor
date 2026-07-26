@@ -4047,10 +4047,14 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
 
 @app.get("/api/numeros/player-clubs")
 async def api_numeros_player_clubs(player: int):
-    """Lista os clubes (da SPL) pelos quais um jogador já passou, varrendo as
+    """Lista os clubes SAUDITAS pelos quais um jogador já passou, varrendo as
     temporadas disponíveis (mesma janela do site). Usado pra popular um filtro de
     clube(s) específico do jogador depois que ele é selecionado, em vez de fazer o
-    usuário procurar entre os 18 clubes da liga quando só 1 ou 2 são relevantes."""
+    usuário procurar entre os 18 clubes da liga quando só 1 ou 2 são relevantes.
+    Filtra por league.country == "Saudi Arabia" pra excluir clubes estrangeiros e
+    seleção nacional (o /players?id=X&season=Y do jogador traz TODAS as competições
+    que ele disputou naquele ano civil, incluindo clubes de fora e seleção — sem esse
+    filtro apareceriam coisas como "Real Madrid" ou "Portugal" na lista)."""
     seasons_to_check = _af_available_seasons()
 
     async def check_season(season):
@@ -4062,6 +4066,9 @@ async def api_numeros_player_clubs(player: int):
             return []
         out = []
         for s in resp[0].get("statistics", []):
+            league = s.get("league") or {}
+            if league.get("country") != "Saudi Arabia":
+                continue
             team = s.get("team") or {}
             if team.get("id"):
                 out.append((team.get("id"), team.get("name"), team.get("logo")))
