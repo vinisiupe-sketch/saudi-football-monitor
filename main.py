@@ -3987,6 +3987,115 @@ async def _af_league_start_years(league_id: int) -> dict:
     return {}
 
 
+_AF_LIGA_POR_NOME: dict = {}
+
+
+async def _af_liga_saudita_por_nome(nome: str):
+    """Resolve o id de uma competição saudita pelo nome (ex: "King's Cup" -> 504).
+
+    Existe porque a linha corrompida da API traz o NOME da competição mas não o id;
+    sem resolver o id não dá pra ir buscar as partidas dela."""
+    if not nome:
+        return None
+    if nome in _AF_LIGA_POR_NOME:
+        return _AF_LIGA_POR_NOME[nome]
+    data, err = await _af_get("leagues", {"search": nome})
+    lid = None
+    if not err and data:
+        for item in data.get("response", []):
+            pais = ((item.get("country") or {}).get("name") or "").lower()
+            lg = item.get("league") or {}
+            if pais in ("saudi-arabia", "saudi arabia") and (lg.get("name") or "").lower() == nome.lower():
+                lid = lg.get("id")
+                break
+    if lid:
+        _AF_LIGA_POR_NOME[nome] = lid
+    return lid
+
+
+async def _af_reconstruir_por_partidas(player: int, team_id: int, league_id: int, season: int):
+    """Conta jogos/gols/assistências/cartões a partir das escalações e eventos.
+
+    Serve pras competições que a API não cobre com estatística por jogador
+    (`statistics_players: false`) mas cobre com escalação e eventos — caso da
+    King's Cup 2025/26. Aqui o número deixa de ser "reportado pela fonte" e passa
+    a ser CONTADO por nós a partir dos fatos de cada partida; por isso quem consome
+    recebe a marca `reconstruido: True` e a interface avisa.
+
+    Minutos e nota não são reconstruíveis por esse caminho e ficam de fora."""
+    fx, err = await _af_get("fixtures", {"league": league_id, "season": season, "team": team_id})
+    if err or not fx:
+        return None
+    fixture_ids = [
+        (f.get("fixture") or {}).get("id")
+        for f in fx.get("response", [])
+        if (f.get("fixture") or {}).get("id")
+    ]
+    if not fixture_ids:
+        return None
+
+    sem = asyncio.Semaphore(4)
+
+    async def uma_partida(fid):
+        async with sem:
+            lu, e1 = await _af_get("fixtures/lineups", {"fixture": fid, "team": team_id})
+            ev, e2 = await _af_get("fixtures/events", {"fixture": fid, "team": team_id})
+        if e1 and e2:
+            return None
+        eventos = (ev or {}).get("response", []) if not e2 else []
+
+        titular = False
+        for bloco in ((lu or {}).get("response", []) if not e1 else []):
+            for p in bloco.get("startXI", []) or []:
+                if ((p.get("player") or {}).get("id")) == player:
+                    titular = True
+
+        entrou = any(
+            e.get("type") == "subst" and ((e.get("assist") or {}).get("id")) == player
+            for e in eventos
+        )
+        gols = sum(
+            1 for e in eventos
+            if e.get("type") == "Goal"
+            and e.get("detail") not in ("Missed Penalty", "Own Goal")
+            and ((e.get("player") or {}).get("id")) == player
+        )
+        assist = sum(
+            1 for e in eventos
+            if e.get("type") == "Goal"
+            and e.get("detail") not in ("Missed Penalty", "Own Goal")
+            and ((e.get("assist") or {}).get("id")) == player
+        )
+        amarelos = sum(
+            1 for e in eventos
+            if e.get("type") == "Card" and e.get("detail") == "Yellow Card"
+            and ((e.get("player") or {}).get("id")) == player
+        )
+        vermelhos = sum(
+            1 for e in eventos
+            if e.get("type") == "Card" and e.get("detail") in ("Red Card", "Second Yellow card")
+            and ((e.get("player") or {}).get("id")) == player
+        )
+        return {
+            "jogou": titular or entrou, "gols": gols, "assist": assist,
+            "amarelos": amarelos, "vermelhos": vermelhos, "fixture": fid,
+        }
+
+    resultados = [r for r in await asyncio.gather(*[uma_partida(f) for f in fixture_ids]) if r]
+    jogos = sum(1 for r in resultados if r["jogou"])
+    if jogos == 0:
+        return None
+    return {
+        "reconstruido": True,
+        "appearences": jogos,
+        "goals": sum(r["gols"] for r in resultados),
+        "assists": sum(r["assist"] for r in resultados),
+        "yellow_cards": sum(r["amarelos"] for r in resultados),
+        "red_cards": sum(r["vermelhos"] for r in resultados),
+        "partidas_analisadas": len(fixture_ids),
+    }
+
+
 async def _af_player_rows(player: int):
     """Linhas de estatística confiáveis de um jogador, já normalizadas por temporada real.
 
@@ -4395,6 +4504,16 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     fixtures = [r for r in results if r]
     fixtures.sort(key=lambda x: x["date"] or "", reverse=True)
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
+
+
+@app.get("/api/numeros/debug-reconstruir")
+async def api_debug_reconstruir(player: int, team: int, liga: str = "King's Cup", season: int = 2026):
+    """Testa a reconstrução por partidas antes de ligá-la no fluxo principal."""
+    lid = await _af_liga_saudita_por_nome(liga)
+    if not lid:
+        return {"erro": f"não resolvi o id da competição '{liga}'"}
+    r = await _af_reconstruir_por_partidas(player, team, lid, season)
+    return {"player": player, "team": team, "liga": liga, "liga_id": lid, "season": season, "resultado": r}
 
 
 @app.get("/api/numeros/debug-af")
