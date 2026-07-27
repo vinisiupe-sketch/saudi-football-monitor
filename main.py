@@ -2598,8 +2598,13 @@ async function loadPlayerSeason() {{
       txt += '\\nTítulos:\\n';
       d.titles.forEach(ti => {{ txt += medalFor(ti.place) + ' ' + ti.league + ' ' + ti.season + '\\n'; }});
     }}
+    if (d.competicoes_sem_dados && d.competicoes_sem_dados.length) {{
+      txt += '\\n⚠️ Fora da conta: ' + d.competicoes_sem_dados.join(', ') +
+             '. A API-Football registra a participação, mas não tem estatísticas por jogador nessa edição — ' +
+             'preferimos não somar a inventar número.';
+    }}
     renderResultCard(container, 'Estatísticas', txt.trim(),
-      'Temporada(s) ' + seasonLabel + ' · ' + teamsLabel + ' · ' + leagueLabel + (d.titles && d.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + ' · fonte: API-Football');
+      'Temporada(s) ' + seasonLabel + ' · ' + teamsLabel + ' · ' + leagueLabel + (d.titles && d.titles.length ? ' · títulos: cruzamento por temporada + competição plausível, não por clube exato' : '') + (d.competicoes_sem_dados && d.competicoes_sem_dados.length ? ' · ⚠️ ' + d.competicoes_sem_dados.length + ' competição(ões) sem dados na fonte' : '') + ' · fonte: API-Football');
   }} catch(e) {{
     if (!jgSelectedPlayer || jgSelectedPlayer.player_id !== requestedFor) return;
     container.innerHTML = '<div class="result-card"><div class="error-state">' + (e.message || 'Nenhum dado encontrado pra essa combinação de filtros.') + '</div></div>';
@@ -4008,6 +4013,7 @@ async def _af_player_rows(player: int):
 
     player_info = None
     candidate_rows = []
+    descartadas = []
     for entry in raw:
         if not entry:
             continue
@@ -4016,7 +4022,17 @@ async def _af_player_rows(player: int):
         for s in entry.get("statistics", []):
             lg = s.get("league") or {}
             if lg.get("id") is None:
-                continue  # linha sem competição identificável — comprovadamente não confiável
+                # Linha sem competição identificável — não confiável, fica FORA da conta.
+                # Mas é registrada pra poder avisar o usuário, em vez de a competição
+                # sumir da tela sem explicação (foi a dúvida real: "cadê a King's Cup?").
+                tm = s.get("team") or {}
+                descartadas.append({
+                    "league": lg.get("name"),
+                    "team_id": tm.get("id"),
+                    "team": tm.get("name"),
+                    "season": lg.get("season"),
+                })
+                continue
             candidate_rows.append(s)
 
     league_ids = {(r.get("league") or {}).get("id") for r in candidate_rows}
@@ -4039,7 +4055,7 @@ async def _af_player_rows(player: int):
         mapping = start_year_by_league.get(lid) or {}
         real_season = mapping.get(labelled, labelled)
         rows.append({"stat": s, "real_season": real_season})
-    return player_info, rows
+    return player_info, rows, descartadas
 
 
 @app.get("/api/numeros/meta")
@@ -4449,7 +4465,7 @@ async def api_numeros_player_facets(player: int):
 
     Uma requisição só: a carreira inteira já vem normalizada de _af_player_rows
     (sem linhas de competição não identificável, temporada pelo ano de início real)."""
-    _, rows = await _af_player_rows(player)
+    _, rows, _descartadas = await _af_player_rows(player)
     clubs: dict = {}
     leagues: dict = {}
     combos = []
@@ -4492,7 +4508,7 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     team_filter = {int(t) for t in teams.split(",") if t.strip().isdigit()}
     league_filter = league.strip()
 
-    player_info, all_rows = await _af_player_rows(player)
+    player_info, all_rows, descartadas = await _af_player_rows(player)
     player_info = player_info or {}
 
     total_app = total_min = total_goals = total_assists = total_yellow = total_red = 0
@@ -4600,6 +4616,14 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
         },
         "titles": titles,
         "titles_note": titles_note,
+        # Competições que a fonte cita pro jogador mas sem dado utilizável (ver
+        # _af_player_rows). Vão como aviso, nunca somadas — preferimos dizer
+        # "não temos" a exibir número inventado.
+        "competicoes_sem_dados": sorted({
+            d["league"] for d in descartadas
+            if d.get("league")
+            and (not team_filter or d.get("team_id") in team_filter)
+        }),
     }
 
 
