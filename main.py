@@ -4176,7 +4176,18 @@ async def _af_player_rows(player: int):
     # 2025/26 do R. Enrique: 5 jogos e 4 gols, batendo com a realidade.
     reconstruidas = []
     sem_dados = []
+    # Um mesmo jogador pode ter, na mesma competição, uma linha corrompida E uma boa
+    # (a corrompida vem rotulada numa temporada, a boa em outra). Reconstruir nesse caso
+    # contaria a competição duas vezes — foi o que aconteceu: o L. Rodríguez pulou de
+    # 31 pra 32 jogos. Então só reconstrói o que a fonte realmente não cobre.
+    ja_cobertos = {
+        (((r["stat"].get("team") or {}).get("id")), ((r["stat"].get("league") or {}).get("id")))
+        for r in rows
+    }
     for d in descartadas:
+        lid_conhecido = await _af_liga_saudita_por_nome(d.get("league"))
+        if lid_conhecido and (d.get("team_id"), lid_conhecido) in ja_cobertos:
+            continue  # a fonte já entrega essa competição pra esse time — nada a fazer
         recon = await _reconstruir_linha_descartada(player, d)
         if not recon:
             sem_dados.append(d)
