@@ -141,5 +141,33 @@ def create_scheduler() -> AsyncIOScheduler:
         id="janela_scrape_daily",
         replace_existing=True,
     )
-    print(f"⏰ Scheduler iniciado: coleta a cada {COLLECT_INTERVAL}min + scrape janela às 07h")
+    scheduler.add_job(
+        run_varredura_competicoes,
+        trigger="cron",
+        hour=5,
+        minute=30,
+        id="varredura_competicoes_daily",
+        replace_existing=True,
+    )
+    print(
+        f"⏰ Scheduler iniciado: coleta a cada {COLLECT_INTERVAL}min "
+        "+ varredura de competições às 05h30 + scrape janela às 07h"
+    )
     return scheduler
+
+
+async def run_varredura_competicoes():
+    """Reapura as competições que a API-Football não cobre por jogador.
+
+    Roda de madrugada, longe do horário de jogo, porque reprocessa a competição
+    inteira (~2 chamadas por partida). Se a API restaurar a cobertura de alguma
+    delas, ela simplesmente deixa de ser detectada e o app volta a usar o número
+    da fonte — sem precisar mexer aqui."""
+    try:
+        from main import _af_varrer_tudo
+        r = await _af_varrer_tudo()
+        print(f"🧮 Varredura de competições: {r.get('competicoes_detectadas')} detectadas")
+        return r
+    except Exception as e:
+        print(f"❌ Erro na varredura de competições: {e}")
+        return {"erro": str(e)}

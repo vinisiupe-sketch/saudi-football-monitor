@@ -98,6 +98,45 @@ def init_db():
                 value TEXT NOT NULL
             )
         """)
+        # Estatísticas que a API-Football NÃO publica por jogador em certas competições
+        # (ex: Super Cup em todas as edições; King's Cup a partir de 2025/26), mas que
+        # dá pra apurar partida a partida via escalações + eventos. Guardamos o resultado
+        # aqui pra não refazer a apuração a cada consulta — e pra que a competição apareça
+        # mesmo quando o agregado do jogador nem menciona que ela existiu.
+        # minutos e nota ficam de fora de propósito: não são apuráveis por esse caminho.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS stats_apuradas (
+                league_id    INTEGER NOT NULL,
+                season       INTEGER NOT NULL,
+                player_id    INTEGER NOT NULL,
+                team_id      INTEGER NOT NULL,
+                league_name  TEXT,
+                team_name    TEXT,
+                player_name  TEXT,
+                appearences  INTEGER DEFAULT 0,
+                goals        INTEGER DEFAULT 0,
+                assists      INTEGER DEFAULT 0,
+                yellow_cards INTEGER DEFAULT 0,
+                red_cards    INTEGER DEFAULT 0,
+                updated_at   TEXT NOT NULL,
+                PRIMARY KEY (league_id, season, player_id, team_id)
+            )
+        """)
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS idx_stats_apuradas_player
+            ON stats_apuradas (player_id)
+        """)
+        # Controle da varredura: guarda quais partidas já foram apuradas, pra que a
+        # atualização diária processe só o que é novo em vez de tudo de novo.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS partidas_apuradas (
+                fixture_id  INTEGER PRIMARY KEY,
+                league_id   INTEGER NOT NULL,
+                season      INTEGER NOT NULL,
+                status      TEXT,
+                apurada_em  TEXT NOT NULL
+            )
+        """)
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
@@ -992,3 +1031,84 @@ def upsert_janela_player_photo(player_id: str, photo_url: str) -> None:
             """, [player_id, photo_url])
     except Exception:
         pass
+
+
+# ─── Estatísticas apuradas por nós (competições sem cobertura da API) ─────────
+
+def salvar_stats_apuradas(linhas: list[dict]) -> int:
+    """Grava/atualiza os totais apurados de uma competição.
+
+    Sobrescreve o total do jogador naquela (liga, temporada, time) em vez de somar:
+    a varredura recalcula sempre a partir de todas as partidas conhecidas, então o
+    valor que chega aqui já é o total correto. Somar causaria inflação a cada rodada."""
+    if not linhas:
+        return 0
+    agora = datetime.now(timezone.utc).isoformat()
+    gravadas = 0
+    with get_conn() as conn:
+        c = conn.cursor()
+        for l in linhas:
+            c.execute("""
+                INSERT INTO stats_apuradas (
+                    league_id, season, player_id, team_id, league_name, team_name,
+                    player_name, appearences, goals, assists, yellow_cards, red_cards, updated_at
+                ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (league_id, season, player_id, team_id) DO UPDATE SET
+                    league_name  = EXCLUDED.league_name,
+                    team_name    = EXCLUDED.team_name,
+                    player_name  = EXCLUDED.player_name,
+                    appearences  = EXCLUDED.appearences,
+                    goals        = EXCLUDED.goals,
+                    assists      = EXCLUDED.assists,
+                    yellow_cards = EXCLUDED.yellow_cards,
+                    red_cards    = EXCLUDED.red_cards,
+                    updated_at   = EXCLUDED.updated_at
+            """, [
+                l["league_id"], l["season"], l["player_id"], l["team_id"],
+                l.get("league_name"), l.get("team_name"), l.get("player_name"),
+                l.get("appearences", 0), l.get("goals", 0), l.get("assists", 0),
+                l.get("yellow_cards", 0), l.get("red_cards", 0), agora,
+            ])
+            gravadas += 1
+    return gravadas
+
+
+def get_stats_apuradas_do_jogador(player_id: int) -> list[dict]:
+    """Todas as linhas apuradas por nós para um jogador."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("SELECT * FROM stats_apuradas WHERE player_id = %s", [player_id])
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
+def get_partidas_ja_apuradas(league_id: int, season: int) -> dict:
+    """{fixture_id: status} das partidas já processadas — permite varredura incremental."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(
+                "SELECT fixture_id, status FROM partidas_apuradas WHERE league_id = %s AND season = %s",
+                [league_id, season],
+            )
+            return {row[0]: row[1] for row in c.fetchall()}
+    except Exception:
+        return {}
+
+
+def marcar_partidas_apuradas(fixtures: list[tuple]) -> None:
+    """fixtures = [(fixture_id, league_id, season, status), ...]"""
+    if not fixtures:
+        return
+    agora = datetime.now(timezone.utc).isoformat()
+    with get_conn() as conn:
+        c = conn.cursor()
+        for fid, lid, season, status in fixtures:
+            c.execute("""
+                INSERT INTO partidas_apuradas (fixture_id, league_id, season, status, apurada_em)
+                VALUES (%s,%s,%s,%s,%s)
+                ON CONFLICT (fixture_id) DO UPDATE SET
+                    status = EXCLUDED.status, apurada_em = EXCLUDED.apurada_em
+            """, [fid, lid, season, status, agora])

@@ -3993,6 +3993,175 @@ async def _af_league_start_years(league_id: int) -> dict:
     return {}
 
 
+# Competições continentais onde clubes sauditas jogam. As sauditas são descobertas
+# sozinhas (/leagues?country=Saudi-Arabia); estas precisam ser nomeadas porque são
+# de "país" World/Asia e não sairiam naquela consulta.
+AF_LIGAS_CONTINENTAIS = [
+    17,    # AFC Champions League Elite
+    18,    # AFC Champions League Two
+    1168,  # FIFA Intercontinental Cup
+]
+
+
+def _cobertura_exige_apuracao(cov: dict) -> bool:
+    """True quando a API não publica estatística por jogador, mas dá pra apurar.
+
+    É esta flag que torna o sistema à prova de futuro: se a API-Football restaurar a
+    cobertura de uma competição, ela vira False sozinha e voltamos a usar o número da
+    fonte, sem ninguém precisar mexer no código. Verificado que a flag é fiel: acusou
+    corretamente Pro League (tem), King's Cup 2025/26 (não tem) e Super Cup (nunca teve)."""
+    fx = (cov or {}).get("fixtures") or {}
+    return (not fx.get("statistics_players")) and bool(fx.get("events")) and bool(fx.get("lineups"))
+
+
+async def _af_competicoes_a_apurar(seasons: list[int]) -> list[dict]:
+    """Descobre quais (competição, temporada) precisam de apuração nossa."""
+    alvos = {}
+
+    async def registrar(item, season_filtro=None):
+        lg = item.get("league") or {}
+        lid = lg.get("id")
+        if lid is None:
+            return
+        for s in item.get("seasons", []) or []:
+            ano = s.get("year")
+            if ano is None or (season_filtro and ano not in season_filtro):
+                continue
+            if _cobertura_exige_apuracao(s.get("coverage")):
+                alvos[(lid, ano)] = {"league_id": lid, "season": ano, "league_name": lg.get("name")}
+
+    for season in seasons:
+        data, err = await _af_get("leagues", {"country": "Saudi-Arabia", "season": season})
+        if not err and data:
+            for item in data.get("response", []):
+                await registrar(item, {season})
+
+    for lid in AF_LIGAS_CONTINENTAIS:
+        data, err = await _af_get("leagues", {"id": lid})
+        if not err and data:
+            for item in data.get("response", []):
+                await registrar(item, set(seasons))
+
+    return sorted(alvos.values(), key=lambda a: (a["league_id"], a["season"]))
+
+
+async def _af_varrer_competicao(league_id: int, season: int, league_name: str = None) -> dict:
+    """Apura, partida a partida, os números de todos os jogadores de uma competição.
+
+    Reprocessa a competição inteira em vez de somar só as partidas novas: são ~2
+    chamadas por partida (escalação + eventos), o que dá ordem de 130 requisições por
+    competição — irrelevante diante do limite diário de 75.000 — e elimina a chance de
+    somar duas vezes a mesma partida, que seria o erro mais provável no caminho
+    incremental. O total gravado é sempre recalculado do zero."""
+    from database import salvar_stats_apuradas, marcar_partidas_apuradas
+
+    fx, err = await _af_get("fixtures", {"league": league_id, "season": season})
+    if err or not fx:
+        return {"league_id": league_id, "season": season, "erro": err or "sem resposta"}
+    partidas = [
+        f for f in fx.get("response", [])
+        if ((f.get("fixture") or {}).get("status") or {}).get("short") in ("FT", "AET", "PEN")
+    ]
+    if not partidas:
+        return {"league_id": league_id, "season": season, "partidas": 0, "linhas": 0}
+
+    sem = asyncio.Semaphore(4)
+
+    async def apurar(f):
+        fid = (f.get("fixture") or {}).get("id")
+        async with sem:
+            lu, e1 = await _af_get("fixtures/lineups", {"fixture": fid})
+            ev, e2 = await _af_get("fixtures/events", {"fixture": fid})
+        if e1 and e2:
+            return fid, None, []
+        registros = []
+
+        # Titulares e reservas relacionados: só quem começou conta como jogo aqui;
+        # quem entrou é detectado pelos eventos de substituição abaixo.
+        atuou = {}
+        for bloco in ((lu or {}).get("response", []) if not e1 else []):
+            tid = ((bloco.get("team") or {}).get("id"))
+            tname = ((bloco.get("team") or {}).get("name"))
+            for p in bloco.get("startXI", []) or []:
+                pl = p.get("player") or {}
+                if pl.get("id"):
+                    atuou[pl["id"]] = {"team_id": tid, "team_name": tname, "player_name": pl.get("name")}
+
+        eventos = (ev or {}).get("response", []) if not e2 else []
+        for e in eventos:
+            tid = ((e.get("team") or {}).get("id"))
+            tname = ((e.get("team") or {}).get("name"))
+            if e.get("type") == "subst":
+                entrou = e.get("assist") or {}
+                if entrou.get("id"):
+                    atuou.setdefault(entrou["id"], {
+                        "team_id": tid, "team_name": tname, "player_name": entrou.get("name")})
+
+        contagem = {pid: {"goals": 0, "assists": 0, "yellow_cards": 0, "red_cards": 0} for pid in atuou}
+        for e in eventos:
+            tipo, detalhe = e.get("type"), e.get("detail")
+            autor = (e.get("player") or {}).get("id")
+            ajuda = (e.get("assist") or {}).get("id")
+            if tipo == "Goal" and detalhe not in ("Missed Penalty", "Own Goal"):
+                if autor in contagem:
+                    contagem[autor]["goals"] += 1
+                if ajuda in contagem:
+                    contagem[ajuda]["assists"] += 1
+            elif tipo == "Card" and autor in contagem:
+                if detalhe == "Yellow Card":
+                    contagem[autor]["yellow_cards"] += 1
+                elif detalhe in ("Red Card", "Second Yellow card"):
+                    contagem[autor]["red_cards"] += 1
+
+        for pid, info in atuou.items():
+            c = contagem.get(pid, {})
+            registros.append({
+                "player_id": pid, "team_id": info["team_id"], "team_name": info["team_name"],
+                "player_name": info["player_name"], "goals": c.get("goals", 0),
+                "assists": c.get("assists", 0), "yellow_cards": c.get("yellow_cards", 0),
+                "red_cards": c.get("red_cards", 0),
+            })
+        status = ((f.get("fixture") or {}).get("status") or {}).get("short")
+        return fid, status, registros
+
+    resultados = await asyncio.gather(*[apurar(f) for f in partidas])
+
+    totais = {}
+    processadas = []
+    for fid, status, registros in resultados:
+        if status:
+            processadas.append((fid, league_id, season, status))
+        for r in registros:
+            chave = (r["player_id"], r["team_id"])
+            acc = totais.setdefault(chave, {
+                "league_id": league_id, "season": season, "league_name": league_name,
+                "player_id": r["player_id"], "team_id": r["team_id"],
+                "team_name": r["team_name"], "player_name": r["player_name"],
+                "appearences": 0, "goals": 0, "assists": 0, "yellow_cards": 0, "red_cards": 0,
+            })
+            acc["appearences"] += 1
+            for k in ("goals", "assists", "yellow_cards", "red_cards"):
+                acc[k] += r[k]
+
+    linhas = list(totais.values())
+    salvar_stats_apuradas(linhas)
+    marcar_partidas_apuradas(processadas)
+    return {
+        "league_id": league_id, "season": season, "league_name": league_name,
+        "partidas": len(partidas), "jogadores": len(linhas),
+    }
+
+
+async def _af_varrer_tudo(seasons: list[int] = None) -> dict:
+    """Descobre e varre todas as competições sem cobertura por jogador."""
+    seasons = seasons or _af_player_scan_seasons()
+    alvos = await _af_competicoes_a_apurar(seasons)
+    resultados = []
+    for a in alvos:
+        resultados.append(await _af_varrer_competicao(a["league_id"], a["season"], a["league_name"]))
+    return {"competicoes_detectadas": len(alvos), "resultados": resultados}
+
+
 _AF_LIGA_POR_NOME: dict = {}
 
 
@@ -4174,39 +4343,43 @@ async def _af_player_rows(player: int):
     # Competição que a fonte cita mas não cobre com estatística por jogador: em vez de
     # desistir, conta pelas partidas (escalação + eventos). Confirmado com a King's Cup
     # 2025/26 do R. Enrique: 5 jogos e 4 gols, batendo com a realidade.
+    # Competições que a fonte não cobre por jogador entram pelo que NÓS apuramos
+    # partida a partida e guardamos (ver _af_varrer_competicao). Vem do banco, então
+    # não custa requisição nenhuma aqui — e, principalmente, aparece mesmo quando o
+    # agregado do jogador não menciona a competição: era o caso do Toney, cuja King's
+    # Cup 2025/26 não existia em nenhuma linha, nem corrompida.
+    from database import get_stats_apuradas_do_jogador
+
     reconstruidas = []
-    sem_dados = []
-    # Um mesmo jogador pode ter, na mesma competição, uma linha corrompida E uma boa
-    # (a corrompida vem rotulada numa temporada, a boa em outra). Reconstruir nesse caso
-    # contaria a competição duas vezes — foi o que aconteceu: o L. Rodríguez pulou de
-    # 31 pra 32 jogos. Então só reconstrói o que a fonte realmente não cobre.
     ja_cobertos = {
         (((r["stat"].get("team") or {}).get("id")), ((r["stat"].get("league") or {}).get("id")))
         for r in rows
     }
-    for d in descartadas:
-        lid_conhecido = await _af_liga_saudita_por_nome(d.get("league"))
-        if lid_conhecido and (d.get("team_id"), lid_conhecido) in ja_cobertos:
-            continue  # a fonte já entrega essa competição pra esse time — nada a fazer
-        recon = await _reconstruir_linha_descartada(player, d)
-        if not recon:
-            sem_dados.append(d)
-            continue
-        r, lid, season_usada = recon["res"], recon["league_id"], recon["season"]
-        mapa = await _af_league_start_years(lid)
+    for ap in get_stats_apuradas_do_jogador(player):
+        chave = (ap["team_id"], ap["league_id"])
+        if chave in ja_cobertos:
+            continue  # a fonte já entrega essa competição pra esse time — não duplicar
+        mapa = await _af_league_start_years(ap["league_id"])
         rows.append({
             "stat": {
-                "team": {"id": d.get("team_id"), "name": d.get("team")},
-                "league": {"id": lid, "name": d.get("league"), "season": season_usada},
-                "games": {"appearences": r["appearences"], "minutes": None, "rating": None},
-                "goals": {"total": r["goals"], "assists": r["assists"]},
-                "cards": {"yellow": r["yellow_cards"], "red": r["red_cards"]},
+                "team": {"id": ap["team_id"], "name": ap.get("team_name")},
+                "league": {"id": ap["league_id"], "name": ap.get("league_name"), "season": ap["season"]},
+                "games": {"appearences": ap["appearences"], "minutes": None, "rating": None},
+                "goals": {"total": ap["goals"], "assists": ap["assists"]},
+                "cards": {"yellow": ap["yellow_cards"], "red": ap["red_cards"]},
             },
-            "real_season": mapa.get(season_usada, season_usada),
+            "real_season": mapa.get(ap["season"], ap["season"]),
             "reconstruido": True,
         })
-        reconstruidas.append({"league": d.get("league"), "team_id": d.get("team_id")})
+        ja_cobertos.add(chave)
+        reconstruidas.append({"league": ap.get("league_name"), "team_id": ap["team_id"]})
 
+    # Sobra o que nem a fonte cobre nem conseguimos apurar — vira aviso na tela.
+    sem_dados = [
+        d for d in descartadas
+        if not any(r["league"] == d.get("league") and r["team_id"] == d.get("team_id")
+                   for r in reconstruidas)
+    ]
     return player_info, rows, sem_dados, reconstruidas
 
 
@@ -4564,6 +4737,18 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     fixtures = [r for r in results if r]
     fixtures.sort(key=lambda x: x["date"] or "", reverse=True)
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
+
+
+@app.get("/api/admin/varrer-competicoes")
+async def api_varrer_competicoes(seasons: str = "", so_detectar: int = 0):
+    """Apura e guarda as competições que a API não cobre por jogador.
+
+    so_detectar=1 mostra o que seria varrido, sem gastar requisição de partida.
+    seasons vazio = janela completa; ou "2025,2026" pra limitar."""
+    anos = [int(s) for s in seasons.split(",") if s.strip().isdigit()] or _af_player_scan_seasons()
+    if so_detectar:
+        return {"seasons": anos, "alvos": await _af_competicoes_a_apurar(anos)}
+    return await _af_varrer_tudo(anos)
 
 
 @app.get("/api/numeros/debug-reconstruir")
