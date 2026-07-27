@@ -4619,9 +4619,13 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
         # Competições que a fonte cita pro jogador mas sem dado utilizável (ver
         # _af_player_rows). Vão como aviso, nunca somadas — preferimos dizer
         # "não temos" a exibir número inventado.
+        # Exclui as que ENTRARAM na conta por outra linha (válida): o mesmo jogador
+        # pode ter uma linha corrompida e uma boa da mesma competição, e avisar que
+        # falta o que já está somado seria contraditório.
         "competicoes_sem_dados": sorted({
             d["league"] for d in descartadas
             if d.get("league")
+            and d["league"] not in set(leagues_hit.values())
             and (not team_filter or d.get("team_id") in team_filter)
         }),
     }
