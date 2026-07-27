@@ -4381,6 +4381,20 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
 
 
+@app.get("/api/numeros/debug-af")
+async def api_numeros_debug_af(path: str, q: str = ""):
+    """Proxy cru pra API-Football. path='players', q='id=1&league=504&season=2025'."""
+    params = {}
+    for part in q.split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            params[k] = v
+    data, err = await _af_get(path, params)
+    if err:
+        return {"error": err, "path": path, "params": params}
+    return {"path": path, "params": params, "results": data.get("results"), "response": data.get("response")}
+
+
 @app.get("/api/numeros/debug-player-scan")
 async def api_debug_player_scan(player: int):
     """Mostra, temporada a temporada, o que a API-Football devolveu pra um jogador.
