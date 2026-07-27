@@ -2598,6 +2598,12 @@ async function loadPlayerSeason() {{
       txt += '\\nTítulos:\\n';
       d.titles.forEach(ti => {{ txt += medalFor(ti.place) + ' ' + ti.league + ' ' + ti.season + '\\n'; }});
     }}
+    if (d.competicoes_reconstruidas && d.competicoes_reconstruidas.length) {{
+      txt += '\\nℹ️ ' + d.competicoes_reconstruidas.join(', ') +
+             ': a API-Football não publica estatística por jogador nessa edição, ' +
+             'então jogos, gols e cartões foram contados por nós partida a partida ' +
+             '(escalações + eventos). Minutos e nota não entram nessa contagem.';
+    }}
     if (d.competicoes_sem_dados && d.competicoes_sem_dados.length) {{
       txt += '\\n⚠️ Fora da conta: ' + d.competicoes_sem_dados.join(', ') +
              '. A API-Football registra a participação, mas não tem estatísticas por jogador nessa edição — ' +
@@ -4164,7 +4170,50 @@ async def _af_player_rows(player: int):
         mapping = start_year_by_league.get(lid) or {}
         real_season = mapping.get(labelled, labelled)
         rows.append({"stat": s, "real_season": real_season})
-    return player_info, rows, descartadas
+
+    # Competição que a fonte cita mas não cobre com estatística por jogador: em vez de
+    # desistir, conta pelas partidas (escalação + eventos). Confirmado com a King's Cup
+    # 2025/26 do R. Enrique: 5 jogos e 4 gols, batendo com a realidade.
+    reconstruidas = []
+    sem_dados = []
+    for d in descartadas:
+        recon = await _reconstruir_linha_descartada(player, d)
+        if not recon:
+            sem_dados.append(d)
+            continue
+        r, lid, season_usada = recon["res"], recon["league_id"], recon["season"]
+        mapa = await _af_league_start_years(lid)
+        rows.append({
+            "stat": {
+                "team": {"id": d.get("team_id"), "name": d.get("team")},
+                "league": {"id": lid, "name": d.get("league"), "season": season_usada},
+                "games": {"appearences": r["appearences"], "minutes": None, "rating": None},
+                "goals": {"total": r["goals"], "assists": r["assists"]},
+                "cards": {"yellow": r["yellow_cards"], "red": r["red_cards"]},
+            },
+            "real_season": mapa.get(season_usada, season_usada),
+            "reconstruido": True,
+        })
+        reconstruidas.append({"league": d.get("league"), "team_id": d.get("team_id")})
+
+    return player_info, rows, sem_dados, reconstruidas
+
+
+async def _reconstruir_linha_descartada(player: int, d: dict):
+    """Resolve a competição da linha corrompida e conta os números pelas partidas.
+
+    A temporada rotulada na linha corrompida não é necessariamente a que a competição
+    usa (a King's Cup rotula pelo ano de término), por isso tenta as duas."""
+    lid = await _af_liga_saudita_por_nome(d.get("league"))
+    tid = d.get("team_id")
+    labelled = d.get("season")
+    if not lid or not tid or labelled is None:
+        return None
+    for season in (labelled, labelled + 1):
+        r = await _af_reconstruir_por_partidas(player, tid, lid, season)
+        if r:
+            return {"res": r, "league_id": lid, "season": season}
+    return None
 
 
 @app.get("/api/numeros/meta")
@@ -4584,7 +4633,7 @@ async def api_numeros_player_facets(player: int):
 
     Uma requisição só: a carreira inteira já vem normalizada de _af_player_rows
     (sem linhas de competição não identificável, temporada pelo ano de início real)."""
-    _, rows, _descartadas = await _af_player_rows(player)
+    _, rows, _sem_dados, _reconstruidas = await _af_player_rows(player)
     clubs: dict = {}
     leagues: dict = {}
     combos = []
@@ -4627,7 +4676,7 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
     team_filter = {int(t) for t in teams.split(",") if t.strip().isdigit()}
     league_filter = league.strip()
 
-    player_info, all_rows, descartadas = await _af_player_rows(player)
+    player_info, all_rows, descartadas, reconstruidas = await _af_player_rows(player)
     player_info = player_info or {}
 
     total_app = total_min = total_goals = total_assists = total_yellow = total_red = 0
@@ -4746,6 +4795,15 @@ async def api_numeros_player_stats(player: int, teams: str = "", seasons: str = 
             if d.get("league")
             and d["league"] not in set(leagues_hit.values())
             and (not team_filter or d.get("team_id") in team_filter)
+        }),
+        # Competições cujos números NÓS contamos a partir de escalações e eventos,
+        # porque a fonte não publica estatística por jogador nelas. Vai explícito:
+        # o usuário precisa saber que ali o número é apuração nossa, não da API.
+        "competicoes_reconstruidas": sorted({
+            r["league"] for r in reconstruidas
+            if r.get("league")
+            and r["league"] in set(leagues_hit.values())
+            and (not team_filter or r.get("team_id") in team_filter)
         }),
     }
 
