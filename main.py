@@ -4381,6 +4381,47 @@ async def api_numeros_player_fixtures(player: int, team: int, season: int = 2025
     return {"season": season, "team": team, "player": player, "fixtures": fixtures}
 
 
+@app.get("/api/numeros/debug-player-scan")
+async def api_debug_player_scan(player: int):
+    """Mostra, temporada a temporada, o que a API-Football devolveu pra um jogador.
+
+    Serve pra separar duas causas que dão o mesmo sintoma (competição sumida):
+    falha nossa na varredura (temporada que deu erro e foi ignorada em silêncio)
+    versus ausência de dado na fonte."""
+    from collector import HEADERS  # noqa: F401  (mantém import local coerente)
+    seasons = _af_player_scan_seasons()
+    sem = asyncio.Semaphore(4)
+
+    async def check(s):
+        async with sem:
+            data, err = await _af_get("players", {"id": player, "season": s})
+        if err:
+            return {"season": s, "erro": err}
+        resp = (data or {}).get("response", [])
+        if not resp:
+            return {"season": s, "linhas": 0}
+        linhas = []
+        for st in resp[0].get("statistics", []):
+            lg = st.get("league") or {}
+            tm = st.get("team") or {}
+            g = st.get("games") or {}
+            linhas.append({
+                "liga": lg.get("name"), "liga_id": lg.get("id"),
+                "season_rotulada": lg.get("season"),
+                "time": tm.get("name"), "jogos": (g or {}).get("appearences"),
+                "gols": (st.get("goals") or {}).get("total"),
+            })
+        return {"season": s, "linhas": len(linhas), "detalhe": linhas}
+
+    res = await asyncio.gather(*[check(s) for s in seasons])
+    return {
+        "player": player,
+        "temporadas_varridas": seasons,
+        "com_erro": [r["season"] for r in res if "erro" in r],
+        "resultado": [r for r in res if r.get("linhas") or "erro" in r],
+    }
+
+
 @app.get("/api/numeros/player-facets")
 async def api_numeros_player_facets(player: int):
     """Universo real de combinações clube × competição × temporada do jogador.
