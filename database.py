@@ -1112,3 +1112,38 @@ def marcar_partidas_apuradas(fixtures: list[tuple]) -> None:
                 ON CONFLICT (fixture_id) DO UPDATE SET
                     status = EXCLUDED.status, apurada_em = EXCLUDED.apurada_em
             """, [fid, lid, season, status, agora])
+
+
+def filtrar_artigos_ja_salvos(articles: list[dict]) -> tuple[list, int]:
+    """Separa os artigos que já estão no banco, ANTES de gastar scraping e tradução.
+
+    Motivo: a pipeline roda a cada 30 min com janela de algumas horas, então o mesmo
+    tweet volta a ser coletado várias vezes. Antes, o descarte só acontecia no
+    save_article — depois de já ter raspado o artigo e pago a tradução. Medido nos
+    logs de 20 execuções reais: 19 artigos novos contra 186 duplicados, ou seja
+    ~91% das traduções eram jogadas no lixo.
+
+    Retorna (novos, quantidade_descartada)."""
+    if not articles:
+        return [], 0
+    ids = [a["id"] for a in articles if a.get("id")]
+    urls = [a["url"] for a in articles if a.get("url")]
+    existentes_id, existentes_url = set(), set()
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            if ids:
+                c.execute("SELECT id FROM articles WHERE id = ANY(%s)", [ids])
+                existentes_id = {r[0] for r in c.fetchall()}
+            if urls:
+                c.execute("SELECT url FROM articles WHERE url = ANY(%s)", [urls])
+                existentes_url = {r[0] for r in c.fetchall()}
+    except Exception:
+        # Se a consulta falhar, segue o fluxo antigo: melhor pagar a tradução do que
+        # perder artigo novo por causa de um problema momentâneo no banco.
+        return articles, 0
+    novos = [
+        a for a in articles
+        if a.get("id") not in existentes_id and (a.get("url") or "") not in existentes_url
+    ]
+    return novos, len(articles) - len(novos)

@@ -250,8 +250,22 @@ def _confirma_pendentes(articles: list[dict]) -> list[dict]:
 
 async def process_and_save(raw_articles: list[dict]) -> dict:
     from scraper import enrich_with_article
+    from database import filtrar_artigos_ja_salvos
     print(f"\n⚙️  Processando {len(raw_articles)} artigos...")
     articles = deduplicate(raw_articles)
+
+    # Descarta o que já está no banco ANTES de raspar e traduzir. A pipeline roda a
+    # cada 30 min com janela de horas, então o mesmo tweet reaparece várias vezes;
+    # antes o descarte só acontecia no save_article, depois de já ter pago a tradução.
+    # Medido em 20 execuções reais: 19 artigos novos contra 186 duplicados — ~91% do
+    # gasto de tradução ia pro lixo.
+    articles, ja_existiam = filtrar_artigos_ja_salvos(articles)
+    if ja_existiam:
+        print(f"   ⏭️  {ja_existiam} já estavam no banco — pulados antes de traduzir")
+    if not articles:
+        print("   💾 nada novo pra processar\n")
+        return {"articles_new": 0, "articles_dup": ja_existiam}
+
     print(f"   🔗 Buscando artigos completos...")
     async with httpx.AsyncClient() as client:
         articles = list(await asyncio.gather(*[enrich_with_article(a, client) for a in articles]))
@@ -267,6 +281,9 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
         else:
             dup_count += 1
     new_count = len(new_saved)
+    # dup_count aqui deve ficar em ~0: o descarte real acontece antes de traduzir.
+    # Se voltar a subir, é sinal de que o pré-filtro parou de funcionar.
+    dup_count += ja_existiam
     print(f"   💾 {new_count} novos, {dup_count} já existiam\n")
 
     # Extrai lesões dos artigos novos com category='lesao'
