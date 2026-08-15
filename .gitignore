@@ -20,3 +20,4 @@ data/
 gitlog.txt
 do_push.py
 fix_git_lock.bat
+_tmp_*
