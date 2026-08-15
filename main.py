@@ -2237,9 +2237,11 @@ async function carregarJogosDoDia() {{
         const t = await fetchJSON('/api/numeros/fim-de-jogo?fixture=' + j.fixture);
         const box = document.getElementById('fj-txt-' + j.fixture);
         if (box && t.texto) {{
-          box.textContent = t.texto;
+          box.textContent = t.texto + (t.aviso ? '\\n\\n⚠️ ' + t.aviso : '');
           const b = document.getElementById('fj-btn-' + j.fixture);
-          if (b) {{ b.style.display = ''; b.onclick = () => copyBlock(b, t.texto); }}
+          // Texto incompleto não ganha botão: copiar agora geraria post errado.
+          // A lista se re-atualiza sozinha em 60s e tenta de novo.
+          if (b && t.completo) {{ b.style.display = ''; b.onclick = () => copyBlock(b, t.texto); }}
         }}
       }} catch(e) {{}}
     }});
@@ -4786,34 +4788,56 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
     ev, e2 = await _af_get("fixtures/events", {"fixture": fixture_id, "type": "Goal"})
     eventos = (ev or {}).get("response", []) if not e2 else []
 
-    def linhas_do_time(team_id):
-        out = []
-        for e in eventos:
-            if ((e.get("team") or {}).get("id")) != team_id:
-                continue
-            det = e.get("detail")
-            autor = _nome_artilheiro((e.get("player") or {}).get("name"))
-            if det == "Missed Penalty":
-                continue
-            if det == "Own Goal":
-                out.append(f"⚽ {autor} (gc)")
-                continue
-            ajuda = (e.get("assist") or {}).get("name")
-            if det == "Penalty":
-                out.append(f"⚽ {autor} (p)")
-            elif ajuda:
-                out.append(f"⚽ {autor} ({_nome_artilheiro(ajuda)})")
-            else:
-                out.append(f"⚽ {autor}")
-        return out
+    def _linha(e):
+        """Formata o evento. Devolve None pro que não vira linha de gol."""
+        det = e.get("detail")
+        if det == "Missed Penalty":
+            return None
+        autor = _nome_artilheiro((e.get("player") or {}).get("name"))
+        if det == "Own Goal":
+            return f"⚽ {autor} (gc)"
+        if det == "Penalty":
+            return f"⚽ {autor} (p)"
+        ajuda = (e.get("assist") or {}).get("name")
+        if ajuda:
+            return f"⚽ {autor} ({_nome_artilheiro(ajuda)})"
+        return f"⚽ {autor}"
 
-    # Gol contra entra na lista do time que MARCOU o ponto, não do time do jogador.
-    l_casa, l_fora = linhas_do_time(casa.get("id")), linhas_do_time(fora.get("id"))
+    id_casa, id_fora = casa.get("id"), fora.get("id")
+    gc, gf = gols.get("home") or 0, gols.get("away") or 0
+
+    def _montar_listas(inverter_gc: bool):
+        """inverter_gc=True credita o gol contra ao time que MARCOU o ponto,
+        não ao time do jogador que fez. Qual das duas convenções a API usa é
+        decidido logo abaixo comparando com o placar oficial — não por suposição."""
+        lc, lf = [], []
+        for e in eventos:
+            linha = _linha(e)
+            if linha is None:
+                continue
+            tid = (e.get("team") or {}).get("id")
+            if inverter_gc and e.get("detail") == "Own Goal":
+                tid = id_fora if tid == id_casa else id_casa
+            (lc if tid == id_casa else lf).append(linha)
+        return lc, lf
+
+    tem_gc = any(e.get("detail") == "Own Goal" for e in eventos)
+    l_casa, l_fora = _montar_listas(inverter_gc=tem_gc)
+    # O placar oficial é o árbitro da atribuição: se a convenção escolhida não
+    # bate com ele e há gol contra em jogo, tenta a outra antes de desistir.
+    if tem_gc and (len(l_casa) != gc or len(l_fora) != gf):
+        alt_c, alt_f = _montar_listas(inverter_gc=False)
+        if len(alt_c) == gc and len(alt_f) == gf:
+            l_casa, l_fora = alt_c, alt_f
+
+    # Eventos podem ainda não ter sido publicados nos minutos seguintes ao apito
+    # final — é exatamente quando o post é gerado. Sem esta checagem o texto sai
+    # sem os gols e (pior) fica cacheado assim pra sempre.
+    completo = (len(l_casa) == gc and len(l_fora) == gf)
 
     nome_casa, nome_fora = _time_curto(casa.get("name")), _time_curto(fora.get("name"))
     cor_casa = TEAM_CORES.get(casa.get("name"), "")
     cor_fora = TEAM_CORES.get(fora.get("name"), "")
-    gc, gf = gols.get("home") or 0, gols.get("away") or 0
     htc, htf = ht.get("home") or 0, ht.get("away") or 0
 
     dados = {
@@ -4825,13 +4849,18 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
         "gols_contra": sum(1 for e in eventos if e.get("detail") == "Own Goal"),
         "virada": (htc > htf and gc < gf) or (htf > htc and gf < gc),
     }
-    narrativa = await _narrativa_do_jogo(dados) if status in ("FT", "AET", "PEN") else ""
+    encerrado = status in ("FT", "AET", "PEN")
+    # Sem os gols na mão, a narrativa sairia baseada em dados incompletos.
+    narrativa = await _narrativa_do_jogo(dados) if (encerrado and completo) else ""
 
     placar = f"{gc}x{gf}"
     if status == "PEN" and pen.get("home") is not None:
         placar += f" ({pen.get('home')}x{pen.get('away')} nos pênaltis)"
 
-    partes = ["⏱️ FIM DE JOGO", ""]
+    minuto = ((f.get("fixture") or {}).get("status") or {}).get("elapsed")
+    cabecalho = "⏱️ FIM DE JOGO" if encerrado else f"⏱️ PARCIAL{f' — {minuto}' + chr(39) if minuto else ''}"
+
+    partes = [cabecalho, ""]
     if narrativa:
         partes += [narrativa, ""]
     partes.append(f"{cor_casa} {nome_casa} {placar} {nome_fora} {cor_fora}".strip())
@@ -4841,11 +4870,18 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
         partes += [""] + l_fora
 
     resultado = {
-        "fixture": fixture_id, "status": status,
+        "fixture": fixture_id, "status": status, "encerrado": encerrado,
+        "completo": completo,
         "casa": nome_casa, "fora": nome_fora, "placar": placar,
         "narrativa": narrativa, "texto": "\n".join(partes),
     }
-    if status in ("FT", "AET", "PEN"):
+    if not completo:
+        resultado["aviso"] = (
+            f"a API ainda não publicou todos os gols ({len(l_casa)+len(l_fora)} de {gc+gf}) — "
+            "atualize em instantes"
+        )
+    # Só congela no cache quando o jogo acabou E os gols conferem com o placar.
+    if encerrado and completo:
         _FIM_JOGO_CACHE[fixture_id] = resultado
     return resultado
 
