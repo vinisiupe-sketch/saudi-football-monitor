@@ -4629,6 +4629,108 @@ async def api_varrer_competicoes(seasons: str = "", so_detectar: int = 0):
     return {"status": "started", "seasons": anos, "acompanhe": "/api/admin/stats-apuradas"}
 
 
+TRIAGEM_SYSTEM = (
+    "Você classifica notícias de futebol saudita em UMA categoria. "
+    "Responda SOMENTE com JSON, sem texto extra.\n"
+    "Categorias:\n"
+    "- mercado: transferências, sondagens, rumores, negociações, renovações, contratações, saídas, salários de contrato\n"
+    "- lesao: machucados, cirurgias, recuperação, desfalques por questão médica\n"
+    "- competicao: resultados, placares, tabela, jogos, sorteios, arbitragem\n"
+    "- entrevista: declarações de jogador, técnico ou dirigente\n"
+    "- treino: pré-temporada, amistosos, sessões de treino\n"
+    "- financas: dívidas, receitas, patrocínio, fair play financeiro, gestão do clube\n"
+    "- geral: qualquer outro assunto\n"
+    "Na dúvida entre mercado e outra categoria, escolha mercado. "
+    "Na dúvida entre lesao e outra categoria, escolha lesao."
+)
+
+
+@app.get("/api/admin/testar-triagem")
+async def api_testar_triagem(n: int = 60, chars: int = 300):
+    """Mede se o Haiku classifica tão bem quanto o Sonnet, usando artigos reais.
+
+    A referência é a categoria que o Sonnet já gravou. Não é verdade absoluta, mas é
+    exatamente a decisão que hoje custa caro — se o Haiku reproduz, a triagem barata
+    serve. O que importa mais é o RECALL de mercado/lesão: pular uma notícia de
+    transferência de verdade é o erro caro; classificar algo a mais é só ruído."""
+    from processor import call_claude, CLAUDE_MODEL_TRIAGEM
+    import json as _json
+
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT id, title_orig, body_orig, category
+            FROM articles
+            WHERE category IS NOT NULL AND title_orig IS NOT NULL AND is_duplicate = 0
+            ORDER BY collected_at DESC LIMIT %s
+        """, (n,))
+        arts = [dict(r) for r in c.fetchall()]
+    if not arts:
+        return {"erro": "sem artigos com categoria"}
+
+    LOTE = 20
+    previsto = {}
+    async with httpx.AsyncClient() as client:
+        for i in range(0, len(arts), LOTE):
+            lote = arts[i:i + LOTE]
+            itens = ""
+            for idx, a in enumerate(lote):
+                texto = (a.get("body_orig") or "")[:chars]
+                itens += f'\n{idx+1}) {a.get("title_orig","")[:150]}\n{texto}\n'
+            prompt = (
+                'Classifique cada item. Responda: {"cats": ["categoria1", "categoria2", ...]} '
+                f'com exatamente {len(lote)} itens, na ordem.\n{itens}'
+            )
+            try:
+                raw = (await call_claude(prompt, TRIAGEM_SYSTEM, client,
+                                         max_tokens=500, model=CLAUDE_MODEL_TRIAGEM)).strip()
+                if raw.startswith("```"):
+                    raw = raw.split("```")[1]
+                    if raw.startswith("json"):
+                        raw = raw[4:]
+                cats = _json.loads(raw.strip()).get("cats", [])
+                for idx, a in enumerate(lote):
+                    if idx < len(cats):
+                        previsto[a["id"]] = str(cats[idx]).strip().lower()
+            except Exception as e:
+                return {"erro": f"{type(e).__name__}: {e}", "classificados_ate_agora": len(previsto)}
+
+    ALVO = {"mercado", "lesao"}
+    igual = vp = vn = fp = fn = 0
+    divergencias = []
+    for a in arts:
+        p = previsto.get(a["id"])
+        if p is None:
+            continue
+        real = (a["category"] or "").lower()
+        if p == real:
+            igual += 1
+        manter_real, manter_prev = real in ALVO, p in ALVO
+        if manter_real and manter_prev:
+            vp += 1
+        elif not manter_real and not manter_prev:
+            vn += 1
+        elif manter_prev and not manter_real:
+            fp += 1
+        else:
+            fn += 1
+            divergencias.append({"titulo": (a["title_orig"] or "")[:110],
+                                 "sonnet": real, "haiku": p})
+    total = vp + vn + fp + fn
+    return {
+        "artigos_testados": total,
+        "concordancia_categoria_exata": f"{igual/total*100:.1f}%" if total else None,
+        "decisao_manter_ou_pular": {
+            "acerto": f"{(vp+vn)/total*100:.1f}%" if total else None,
+            "recall_mercado_lesao": f"{vp/(vp+fn)*100:.1f}%" if (vp+fn) else "s/ casos",
+            "precisao_mercado_lesao": f"{vp/(vp+fp)*100:.1f}%" if (vp+fp) else "s/ casos",
+            "perdidos_por_engano": fn,
+            "traduzidos_a_mais": fp,
+        },
+        "amostra_do_que_seria_perdido": divergencias[:10],
+    }
+
+
 @app.get("/api/admin/stats-apuradas")
 async def api_stats_apuradas_resumo():
     """Quanto já foi apurado e guardado, por competição e temporada."""

@@ -57,13 +57,19 @@ def deduplicate(articles: list[dict]) -> list[dict]:
     return kept
 
 
+CLAUDE_MODEL_TRIAGEM = "claude-haiku-4-5-20251001"
+
+
 async def call_claude(
     prompt: str,
     system: str,
     client: httpx.AsyncClient,
     max_tokens: int = 1000,
     cache_system: bool = False,
+    model: str = None,
 ) -> str:
+    """model=None usa o modelo padrão (Sonnet). Passe outro pra tarefas baratas,
+    como a triagem de categoria, que não precisa da qualidade de tradução."""
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         raise ValueError("ANTHROPIC_API_KEY não configurada.")
@@ -76,7 +82,7 @@ async def call_claude(
         system_payload = system
 
     payload = {
-        "model": CLAUDE_MODEL,
+        "model": model or CLAUDE_MODEL,
         "max_tokens": max_tokens,
         "system": system_payload,
         "messages": [{"role": "user", "content": prompt}],
