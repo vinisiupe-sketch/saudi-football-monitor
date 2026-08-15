@@ -98,6 +98,62 @@ async def call_claude(
     return resp.json()["content"][0]["text"]
 
 
+TRIAGEM_SYSTEM = (
+    "Você classifica notícias de futebol saudita em UMA categoria. "
+    "Responda SOMENTE com JSON, sem texto extra.\n"
+    "Categorias:\n"
+    "- mercado: transferências, sondagens, rumores, negociações, renovações, contratações, saídas, salários de contrato\n"
+    "- lesao: machucados, cirurgias, recuperação, desfalques por questão médica\n"
+    "- competicao: resultados, placares, tabela, jogos, sorteios, arbitragem\n"
+    "- entrevista: declarações de jogador, técnico ou dirigente\n"
+    "- treino: pré-temporada, amistosos, sessões de treino\n"
+    "- financas: dívidas, receitas, patrocínio, fair play financeiro, gestão do clube\n"
+    "- geral: qualquer outro assunto\n"
+    "Na dúvida entre mercado e outra categoria, escolha mercado. "
+    "Na dúvida entre lesao e outra categoria, escolha lesao."
+)
+
+# 600 caracteres de contexto, não menos: medido com 100 artigos reais, cair pra 300
+# derruba o acerto de "não perder mercado/lesão" de 95,5% pra 85,7%. O ganho de
+# economia por encurtar é irrisório perto do risco de deixar furo passar.
+TRIAGEM_CHARS = 600
+TRIAGEM_LOTE = 20
+
+
+async def triar_categorias(articles: list[dict], client: httpx.AsyncClient) -> None:
+    """Preenche art['categoria_triagem'] usando um modelo barato.
+
+    Existe porque a categoria só era conhecida DEPOIS da tradução — vinha no mesmo
+    JSON. Ou seja, pra descobrir que uma notícia era de 'competicao' já se tinha
+    pago pra traduzi-la. Aqui a decisão vem antes, por ~1/40 do preço."""
+    if not articles:
+        return
+    for i in range(0, len(articles), TRIAGEM_LOTE):
+        lote = articles[i:i + TRIAGEM_LOTE]
+        itens = ""
+        for idx, a in enumerate(lote):
+            itens += f'\n{idx+1}) {(a.get("title_orig") or "")[:150]}\n{(a.get("body_orig") or "")[:TRIAGEM_CHARS]}\n'
+        prompt = (
+            'Classifique cada item. Responda: {"cats": ["categoria1", "categoria2", ...]} '
+            f'com exatamente {len(lote)} itens, na ordem.\n{itens}'
+        )
+        try:
+            raw = (await call_claude(prompt, TRIAGEM_SYSTEM, client,
+                                     max_tokens=500, model=CLAUDE_MODEL_TRIAGEM)).strip()
+            if raw.startswith("```"):
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            cats = json.loads(raw.strip()).get("cats", [])
+            for idx, a in enumerate(lote):
+                if idx < len(cats):
+                    a["categoria_triagem"] = str(cats[idx]).strip().lower()
+        except Exception as e:
+            # Falha na triagem NÃO pode virar notícia perdida: sem categoria definida,
+            # o artigo segue para tradução normalmente.
+            print(f"   ⚠️  Triagem falhou no lote {i//TRIAGEM_LOTE+1}: {type(e).__name__}: {e} — lote segue para tradução")
+
+
 async def translate_articles(articles: list[dict]) -> list[dict]:
     from glossary import GLOSSARY_PROMPT, apply_glossary
 
@@ -279,6 +335,29 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
     articles = _confirma_pendentes(articles)
     if len(articles) != antes:
         print(f"   🔎 {antes - len(articles)} descartados na reavaliação pós-scraping")
+
+    # Triagem barata antes da tradução cara. Só roda se houver filtro de categoria
+    # ativo — com todas as categorias ligadas, não gasta nada.
+    from database import get_categorias_ativas
+    ativas = set(get_categorias_ativas())
+    fora_do_filtro = []
+    if ativas:
+        async with httpx.AsyncClient() as client:
+            await triar_categorias(articles, client)
+        selecionados = []
+        for a in articles:
+            cat = a.get("categoria_triagem")
+            # Sem categoria (triagem falhou) segue para tradução: perder notícia é
+            # pior que traduzir a mais.
+            if cat is None or cat in ativas:
+                selecionados.append(a)
+            else:
+                a["category"] = cat
+                fora_do_filtro.append(a)
+        if fora_do_filtro:
+            print(f"   🗂️  {len(fora_do_filtro)} fora das categorias ativas — guardados sem traduzir")
+        articles = selecionados
+
     articles = await translate_articles(articles)
     new_saved, dup_count = [], 0
     for art in articles:
@@ -286,6 +365,19 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
             new_saved.append(art)
         else:
             dup_count += 1
+
+    # Os que ficaram fora do filtro são guardados com o texto original e a categoria,
+    # sem title_pt/body_pt. Não aparecem na tela (a consulta exige tradução), mas o
+    # histórico fica — se você reabrir a categoria depois, o material está lá.
+    guardados = 0
+    for art in fora_do_filtro:
+        art["title_pt"] = None
+        art["body_pt"] = None
+        if save_article(art):
+            guardados += 1
+    if guardados:
+        print(f"   📦 {guardados} guardados sem tradução")
+
     new_count = len(new_saved)
     # dup_count aqui deve ficar em ~0: o descarte real acontece antes de traduzir.
     # Se voltar a subir, é sinal de que o pré-filtro parou de funcionar.

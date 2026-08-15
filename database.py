@@ -240,7 +240,10 @@ def update_article_meta(article_id: str, category: str = None, relevance_score: 
 
 
 def get_recent_articles(hours: int = 24, limit: int = 100, tier: str = None) -> list[dict]:
-    """Retorna artigos recentes ordenados por published_at DESC."""
+    """Retorna artigos recentes ordenados por published_at DESC.
+
+    Exige title_pt: artigos guardados sem tradução (fora das categorias ativas)
+    ficam no banco mas não vão pra tela."""
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         if tier:
@@ -248,6 +251,7 @@ def get_recent_articles(hours: int = 24, limit: int = 100, tier: str = None) -> 
                 """
                 SELECT * FROM articles
                 WHERE is_duplicate = 0
+                  AND title_pt IS NOT NULL
                   AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
                   AND source_tier = %s
                 ORDER BY published_at DESC
@@ -259,6 +263,7 @@ def get_recent_articles(hours: int = 24, limit: int = 100, tier: str = None) -> 
                 """
                 SELECT * FROM articles
                 WHERE is_duplicate = 0
+                  AND title_pt IS NOT NULL
                   AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
                 ORDER BY published_at DESC
                 LIMIT %s
@@ -377,6 +382,36 @@ def set_state(key: str, value: str):
             INSERT INTO app_state (key, value) VALUES (%s, %s)
             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
         """, (key, value))
+
+
+CATEGORIAS_ATIVAS_KEY = "categorias_ativas"
+TODAS_CATEGORIAS = ["mercado", "lesao", "competicao", "entrevista", "treino", "financas", "geral"]
+
+
+def get_categorias_ativas() -> list[str]:
+    """Categorias que hoje merecem tradução. Lista vazia = todas (sem triagem).
+
+    Fica no banco, não no código, pra você abrir e fechar a janela pelo botão da
+    interface sem depender de deploy."""
+    import json as _json
+    try:
+        raw = get_state(CATEGORIAS_ATIVAS_KEY)
+        if not raw:
+            return []
+        cats = _json.loads(raw)
+        return [c for c in cats if c in TODAS_CATEGORIAS] if isinstance(cats, list) else []
+    except Exception:
+        return []
+
+
+def set_categorias_ativas(cats: list[str]) -> list[str]:
+    """Grava as categorias ativas. Lista vazia (ou todas marcadas) desliga a triagem."""
+    import json as _json
+    validas = [c for c in (cats or []) if c in TODAS_CATEGORIAS]
+    if len(validas) == len(TODAS_CATEGORIAS):
+        validas = []  # todas marcadas = sem filtro, e sem custo de triagem
+    set_state(CATEGORIAS_ATIVAS_KEY, _json.dumps(validas))
+    return validas
 
 
 SOURCE_OVERRIDE_KEY = "source_overrides"

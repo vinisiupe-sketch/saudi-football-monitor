@@ -376,6 +376,18 @@ async def dashboard():
     .cat-filter {{ background:transparent; border:1.5px solid var(--c-border-2); border-radius:99px; padding:5px 13px; font-size:0.62rem; font-weight:700; color:var(--c-muted-4); cursor:pointer; text-transform:uppercase; letter-spacing:0.06em; white-space:nowrap; transition:all .15s; }}
     .cat-filter:hover {{ border-color:var(--c-text); color:var(--c-text); }}
     .cat-filter.active {{ background:var(--c-text); color:var(--c-bg); border-color:var(--c-text); }}
+    .coleta-btn {{ background:transparent; border:1.5px solid var(--c-border-2); border-radius:99px; padding:4px 11px; font-size:0.6rem; font-weight:700; color:var(--c-muted-4); cursor:pointer; letter-spacing:0.05em; margin-left:auto; }}
+    .coleta-btn:hover {{ border-color:var(--c-text); color:var(--c-text); }}
+    .coleta-painel {{ display:none; margin:0 24px 12px; padding:14px 16px; border:1.5px solid var(--c-border-2); border-radius:12px; }}
+    .coleta-painel.aberto {{ display:block; }}
+    .coleta-titulo {{ font-size:0.7rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px; }}
+    .coleta-aviso {{ font-size:0.68rem; color:var(--c-muted-4); line-height:1.45; margin-bottom:10px; }}
+    .coleta-itens {{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; }}
+    .coleta-item {{ display:inline-flex; align-items:center; gap:5px; border:1.5px solid var(--c-border-2); border-radius:99px; padding:5px 12px; font-size:0.65rem; font-weight:700; cursor:pointer; user-select:none; }}
+    .coleta-item.on {{ background:var(--c-text); color:var(--c-bg); border-color:var(--c-text); }}
+    .coleta-acoes {{ display:flex; align-items:center; gap:10px; }}
+    .coleta-salvar {{ background:var(--c-text); color:var(--c-bg); border:none; border-radius:99px; padding:6px 16px; font-size:0.65rem; font-weight:800; cursor:pointer; }}
+    .coleta-status {{ font-size:0.66rem; color:var(--c-muted-4); }}
     .card.hidden-by-filter {{ display: none; }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
 
@@ -646,7 +658,17 @@ async def dashboard():
   {_header("/")}
   <div class="topbar">
     <span class="count">{len(articles)} notícias · 48h</span>
+    <button class="coleta-btn" onclick="toggleColetaPainel()" title="Escolher quais categorias são traduzidas">⚙️ Coleta</button>
   </div>
+  </div>
+  <div id="coletaPainel" class="coleta-painel">
+    <div class="coleta-titulo">Categorias que são traduzidas</div>
+    <div class="coleta-aviso">O que ficar desmarcado é guardado sem tradução e não aparece aqui. Economiza tokens — reversível a qualquer momento.</div>
+    <div id="coletaItens" class="coleta-itens"></div>
+    <div class="coleta-acoes">
+      <button class="coleta-salvar" onclick="salvarColeta()">Salvar</button>
+      <span id="coletaStatus" class="coleta-status"></span>
+    </div>
   </div>
   <div class="cat-filters">
     <button class="cat-filter active" onclick="filterCat(this,'')">Todos</button>
@@ -849,6 +871,47 @@ function fecharGerarModal() {{
   }},{{passive:false}});
   document.addEventListener('touchend',e=>onEnd(e.changedTouches[0].clientX));
 }})();
+// -- Painel de coleta: escolhe quais categorias VALEM traducao --------------
+// Diferente do filtro de exibicao: aqui a decisao acontece ANTES de gastar token.
+// O que fica desmarcado e guardado sem traduzir e nao chega na tela.
+const CAT_ROTULOS={{mercado:'🔀 Mercado',lesao:'🩺 Lesao',competicao:'🏆 Competicao',entrevista:'🎙 Entrevista',treino:'🏋 Treino',financas:'💰 Financas',geral:'📰 Geral'}};
+let _coletaAtivas=[];
+function toggleColetaPainel(){{
+  const p=document.getElementById('coletaPainel');
+  p.classList.toggle('aberto');
+  if(p.classList.contains('aberto')) carregarColeta();
+}}
+async function carregarColeta(){{
+  try{{
+    const d=await (await fetch('/api/categorias-ativas')).json();
+    _coletaAtivas=d.ativas.slice();
+    renderColeta();
+  }}catch(e){{ document.getElementById('coletaStatus').textContent='Erro ao carregar.'; }}
+}}
+function renderColeta(){{
+  document.getElementById('coletaItens').innerHTML=Object.keys(CAT_ROTULOS).map(function(c){{
+    return '<span class="coleta-item'+(_coletaAtivas.indexOf(c)>=0?' on':'')+'" onclick="alternarCat(&quot;'+c+'&quot;)">'+CAT_ROTULOS[c]+'</span>';
+  }}).join('');
+}}
+function alternarCat(c){{
+  _coletaAtivas = _coletaAtivas.indexOf(c)>=0 ? _coletaAtivas.filter(function(x){{return x!==c;}}) : _coletaAtivas.concat([c]);
+  renderColeta();
+}}
+async function salvarColeta(){{
+  const st=document.getElementById('coletaStatus');
+  if(!_coletaAtivas.length){{ st.textContent='Marque ao menos uma categoria.'; return; }}
+  st.textContent='Salvando...';
+  try{{
+    const r=await fetch('/api/categorias-ativas',{{method:'POST',
+      headers:{{'Content-Type':'application/json'}},
+      body:JSON.stringify({{ativas:_coletaAtivas}})}});
+    const d=await r.json();
+    st.textContent = d.filtro_ligado
+      ? 'Salvo. So essas categorias serao traduzidas daqui pra frente.'
+      : 'Salvo. Todas ativas - sem filtro e sem custo de triagem.';
+  }}catch(e){{ st.textContent='Erro ao salvar.'; }}
+}}
+
 let _catFilter='';
 function filterCat(btn,cat){{
   _catFilter=cat;
@@ -4627,6 +4690,24 @@ async def api_varrer_competicoes(seasons: str = "", so_detectar: int = 0):
     # antes do fim — aí o FastAPI cancela a varredura no meio, deixando dado parcial.
     asyncio.create_task(_af_varrer_tudo(anos))
     return {"status": "started", "seasons": anos, "acompanhe": "/api/admin/stats-apuradas"}
+
+
+@app.get("/api/categorias-ativas")
+async def api_get_categorias_ativas():
+    """Categorias que hoje passam pela tradução. Vazio = todas."""
+    from database import get_categorias_ativas, TODAS_CATEGORIAS
+    ativas = get_categorias_ativas()
+    return {"ativas": ativas or TODAS_CATEGORIAS, "filtro_ligado": bool(ativas),
+            "todas": TODAS_CATEGORIAS}
+
+
+@app.post("/api/categorias-ativas")
+async def api_set_categorias_ativas(request: Request):
+    """Liga/desliga categorias sem deploy — o valor fica no banco."""
+    from database import set_categorias_ativas, TODAS_CATEGORIAS
+    body = await request.json()
+    salvas = set_categorias_ativas(body.get("ativas") or [])
+    return {"ok": True, "ativas": salvas or TODAS_CATEGORIAS, "filtro_ligado": bool(salvas)}
 
 
 TRIAGEM_SYSTEM = (
