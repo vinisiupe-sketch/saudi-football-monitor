@@ -1906,6 +1906,20 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 .result-head {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }}
 .result-title {{ font-size: .85rem; font-weight: 700; color: var(--c-text); }}
 .copy-btn {{
+    .fj-topo {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }}
+    .fj-info {{ font-size:0.72rem; color:var(--c-muted-4); }}
+    .fj-refresh {{ background:transparent; border:1.5px solid var(--c-border-2); border-radius:99px; padding:5px 14px; font-size:0.65rem; font-weight:700; color:var(--c-muted-4); cursor:pointer; }}
+    .fj-refresh:hover {{ border-color:var(--c-text); color:var(--c-text); }}
+    .fj-status {{ font-size:0.66rem; color:var(--c-muted-4); }}
+    .fj-card {{ margin-bottom:12px; }}
+    .fj-cab {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }}
+    .fj-conf {{ font-weight:800; font-size:0.95rem; }}
+    .fj-selo {{ font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; border:1.5px solid var(--c-border-2); border-radius:99px; padding:3px 9px; color:var(--c-muted-4); }}
+    .fj-selo.fj-vivo {{ border-color:#22c55e; color:#22c55e; }}
+    .fj-selo.fj-fim {{ border-color:var(--c-text); color:var(--c-text); }}
+    .fj-texto {{ white-space:pre-wrap; font-family:inherit; font-size:0.9rem; line-height:1.6; margin:0; padding:12px 14px; border-radius:10px; background:var(--c-bg-soft); }}
+    .fj-aguardando {{ font-size:0.75rem; color:var(--c-muted-4); padding:6px 0; }}
+    .nome-completo {{ color:var(--c-muted-4); font-weight:400; }}
   display: flex; align-items: center; gap: 5px;
   background: var(--c-text); color: var(--c-bg); border: none; border-radius: 8px;
   padding: 6px 14px; font-size: .72rem; font-weight: 700; cursor: pointer;
@@ -1995,6 +2009,16 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
     <button class="tab-btn active" onclick="showTab('rankings',this)">Rankings</button>
     <button class="tab-btn" onclick="showTab('classificacao',this)">Classificação</button>
     <button class="tab-btn" onclick="showTab('jogador',this)">Jogador</button>
+    <button class="tab-btn" onclick="showTab('fimdejogo',this); carregarJogosDoDia()">⏱️ Fim de Jogo</button>
+  </div>
+
+  <div id="tab-fimdejogo" class="tab-panel">
+    <div class="fj-topo">
+      <span class="fj-info">Jogos de hoje e ontem. Quando a partida encerra, o texto aparece pronto — é só copiar.</span>
+      <button class="fj-refresh" onclick="carregarJogosDoDia()">Atualizar</button>
+      <span id="fjStatus" class="fj-status"></span>
+    </div>
+    <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
   </div>
 
   <div id="tab-rankings" class="tab-panel active">
@@ -2189,6 +2213,61 @@ function showTab(name, btn) {{
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
 }}
+// ── FIM DE JOGO ───────────────────────────────────────────────────────────
+// Objetivo é velocidade: abrir a guia e copiar. A lista se atualiza sozinha, e o
+// texto de cada jogo encerrado é buscado em paralelo, já pronto no card.
+let _fjTimer = null;
+
+async function carregarJogosDoDia() {{
+  const lista = document.getElementById('fjLista');
+  const st = document.getElementById('fjStatus');
+  st.textContent = 'atualizando…';
+  try {{
+    const d = await fetchJSON('/api/numeros/jogos-do-dia?dias=2&_=' + Date.now());
+    if (!d.jogos.length) {{
+      lista.innerHTML = '<div class="result-card"><div class="loading-state">Nenhum jogo hoje nem ontem.</div></div>';
+      st.textContent = '';
+      return;
+    }}
+    lista.innerHTML = d.jogos.map(j => cardDoJogo(j)).join('');
+    // Busca o texto dos encerrados em paralelo — quando chega, preenche o card.
+    d.jogos.filter(j => j.encerrado).forEach(async j => {{
+      try {{
+        const t = await fetchJSON('/api/numeros/fim-de-jogo?fixture=' + j.fixture);
+        const box = document.getElementById('fj-txt-' + j.fixture);
+        if (box && t.texto) {{
+          box.textContent = t.texto;
+          const b = document.getElementById('fj-btn-' + j.fixture);
+          if (b) {{ b.style.display = ''; b.onclick = () => copyBlock(b, t.texto); }}
+        }}
+      }} catch(e) {{}}
+    }});
+    st.textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR').slice(0,5);
+  }} catch(e) {{
+    lista.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+    st.textContent = '';
+  }}
+  clearTimeout(_fjTimer);
+  _fjTimer = setTimeout(carregarJogosDoDia, 60000);
+}}
+
+function cardDoJogo(j) {{
+  const placar = (j.gols_casa === null || j.gols_casa === undefined) ? 'x' : j.gols_casa + 'x' + j.gols_fora;
+  let selo;
+  if (j.encerrado) selo = '<span class="fj-selo fj-fim">encerrado</span>';
+  else if (j.minuto !== null && j.minuto !== undefined) selo = '<span class="fj-selo fj-vivo">' + j.minuto + "'</span>";
+  else selo = '<span class="fj-selo">' + (j.data || '').slice(11) + '</span>';
+  return '<div class="result-card fj-card">' +
+    '<div class="fj-cab">' + selo +
+      '<span class="fj-conf">' + j.cor_casa + ' ' + j.casa + ' ' + placar + ' ' + j.fora + ' ' + j.cor_fora + '</span>' +
+      '<button class="copy-btn" id="fj-btn-' + j.fixture + '" style="display:none">📋 Copiar</button>' +
+    '</div>' +
+    (j.encerrado
+      ? '<pre class="fj-texto" id="fj-txt-' + j.fixture + '">gerando texto…</pre>'
+      : '<div class="fj-aguardando">Em andamento — o texto aparece assim que o jogo acabar.</div>') +
+  '</div>';
+}}
+
 function showSubtab(group, name, btn) {{
   const prefix = group === 'rk' ? 'rk-' : 'jg-';
   const parent = btn.closest(group === 'rk' ? '#tab-rankings' : '#tab-jogador');
@@ -4611,6 +4690,203 @@ async def _af_indice_jogadores(season: int) -> list[dict]:
     elif cached:
         return cached[1]
     return jogadores
+
+
+# Bolinhas de cor de cada clube, como o Vini usa nos posts. Chaveado pelo nome que a
+# API-Football devolve, pra não depender do encurtamento dar certo.
+TEAM_CORES = {
+    "Al-Hilal Saudi FC": "🔵⚪️", "Al Riyadh": "⚫️🔴", "Al-Ittihad FC": "⚫️🟡",
+    "Al-Nassr": "🟡🔵", "Damac": "🔴🟤", "Al-Fayha": "🟠🔵",
+    "Al Khaleej Saihat": "🟢🟡", "Al Kholood": "🔴🟢", "Al Okhdood": "🔵⚫️",
+    "Al Shabab": "⚪️⚫️", "Al-Ettifaq": "🟢🔴", "Al-Fateh": "🔵🟢",
+    "Al-Ahli Jeddah": "🟢⚪️", "Al Taawon": "🟡⚪️", "Al-Qadisiyah FC": "🔴🟡",
+    "NEOM": "🔵🟣", "Al-Hazm": "🟡🟡", "Al Najma": "🟢⚫️",
+    "Al-Faisaly FC": "🔴⚪️", "Al Diriyah": "🟤⚪️", "Abha": "🔵🔴",
+}
+
+TEAM_CURTO = {
+    "Al Khaleej Saihat": "Khaleej", "Al Kholood": "Kholood", "Al Najma": "Najmah",
+    "Al Okhdood": "Okhdood", "Al Riyadh": "Riyadh", "Al Shabab": "Shabab",
+    "Al Taawon": "Taawoun", "Al-Ahli Jeddah": "Ahli", "Al-Ettifaq": "Ettifaq",
+    "Al-Fateh": "Fateh", "Al-Fayha": "Fayha", "Al-Hazm": "Hazem",
+    "Al-Hilal Saudi FC": "Hilal", "Al-Ittihad FC": "Ittihad", "Al-Nassr": "Nassr",
+    "Al-Qadisiyah FC": "Qadsiah", "Damac": "Damac", "NEOM": "Neom",
+    "Al-Faisaly FC": "Faisaly", "Al Diriyah": "Diriyah", "Abha": "Abha",
+}
+
+
+def _time_curto(nome: str) -> str:
+    if nome in TEAM_CURTO:
+        return TEAM_CURTO[nome]
+    limpo = re.sub(r"^Al[-\s]+", "", nome or "").strip()
+    return re.sub(r"\s+(FC|SC|Club|Saudi FC)$", "", limpo).strip() or (nome or "")
+
+
+def _nome_artilheiro(nome: str) -> str:
+    """Tira a inicial abreviada: 'M. Dembele' -> 'Dembele'.
+
+    É como o Vini escreve nos posts. Quando ele quiser manter a inicial (caso do
+    'R. Messi', pra não confundir com o Lionel), é um ajuste rápido na hora de postar."""
+    return re.sub(r"^[A-Z]\.\s+", "", (nome or "").strip())
+
+
+_FIM_JOGO_CACHE: dict = {}  # {fixture_id: texto} — jogo encerrado não muda mais
+
+NARRATIVA_SYSTEM = (
+    "Você escreve a primeira linha de posts de fim de jogo do futebol saudita, no estilo "
+    "de um perfil brasileiro de cobertura. UMA frase curta, direta, em português do Brasil.\n"
+    "Exemplos do tom desejado:\n"
+    "- \"Em jogo de muitos gols, o Ettifaq estreia com vitória contra o Riyadh.\"\n"
+    "- \"Em jogo de 3 pênaltis, o Al Hilal toma susto mas estreia com vitória na Saudi Pro League.\"\n"
+    "- \"Neom faz ótimo primeiro tempo, segura no segundo e começa a SPL com vitória!\"\n"
+    "Use só os fatos informados. Não invente nome, lance nem contexto que não esteja nos dados. "
+    "Não repita o placar em números. Responda apenas com a frase, sem aspas."
+)
+
+
+async def _narrativa_do_jogo(dados: dict) -> str:
+    """Sugestão de frase de abertura. Falha nunca derruba o resto do texto."""
+    from processor import call_claude, CLAUDE_MODEL_TRIAGEM
+    g = dados
+    resumo = (
+        f"{g['casa']} {g['gols_casa']} x {g['gols_fora']} {g['fora']}, {g['rodada']} da Saudi Pro League.\n"
+        f"Intervalo: {g['ht_casa']} x {g['ht_fora']}.\n"
+        f"Gols: " + "; ".join(g["linha_gols"]) + ".\n"
+        f"Pênaltis convertidos no jogo: {g['penaltis']}. Gols contra: {g['gols_contra']}.\n"
+        f"Virada: {'sim' if g['virada'] else 'não'}. Empate: {'sim' if g['gols_casa']==g['gols_fora'] else 'não'}."
+    )
+    try:
+        async with httpx.AsyncClient() as client:
+            frase = await call_claude(resumo, NARRATIVA_SYSTEM, client,
+                                      max_tokens=120, model=CLAUDE_MODEL_TRIAGEM)
+        return frase.strip().strip('"')
+    except Exception as e:
+        print(f"   ⚠️  Narrativa falhou: {type(e).__name__}: {e}")
+        return ""
+
+
+async def _montar_fim_de_jogo(fixture_id: int) -> dict:
+    """Texto pronto de FIM DE JOGO no formato usado nos posts."""
+    if fixture_id in _FIM_JOGO_CACHE:
+        return _FIM_JOGO_CACHE[fixture_id]
+
+    fx, err = await _af_get("fixtures", {"id": fixture_id})
+    if err or not fx or not fx.get("response"):
+        return {"erro": err or "partida não encontrada"}
+    f = fx["response"][0]
+    status = ((f.get("fixture") or {}).get("status") or {}).get("short")
+    times = f.get("teams") or {}
+    casa, fora = times.get("home") or {}, times.get("away") or {}
+    gols = f.get("goals") or {}
+    score = f.get("score") or {}
+    ht = score.get("halftime") or {}
+    pen = score.get("penalty") or {}
+
+    ev, e2 = await _af_get("fixtures/events", {"fixture": fixture_id, "type": "Goal"})
+    eventos = (ev or {}).get("response", []) if not e2 else []
+
+    def linhas_do_time(team_id):
+        out = []
+        for e in eventos:
+            if ((e.get("team") or {}).get("id")) != team_id:
+                continue
+            det = e.get("detail")
+            autor = _nome_artilheiro((e.get("player") or {}).get("name"))
+            if det == "Missed Penalty":
+                continue
+            if det == "Own Goal":
+                out.append(f"⚽ {autor} (gc)")
+                continue
+            ajuda = (e.get("assist") or {}).get("name")
+            if det == "Penalty":
+                out.append(f"⚽ {autor} (p)")
+            elif ajuda:
+                out.append(f"⚽ {autor} ({_nome_artilheiro(ajuda)})")
+            else:
+                out.append(f"⚽ {autor}")
+        return out
+
+    # Gol contra entra na lista do time que MARCOU o ponto, não do time do jogador.
+    l_casa, l_fora = linhas_do_time(casa.get("id")), linhas_do_time(fora.get("id"))
+
+    nome_casa, nome_fora = _time_curto(casa.get("name")), _time_curto(fora.get("name"))
+    cor_casa = TEAM_CORES.get(casa.get("name"), "")
+    cor_fora = TEAM_CORES.get(fora.get("name"), "")
+    gc, gf = gols.get("home") or 0, gols.get("away") or 0
+    htc, htf = ht.get("home") or 0, ht.get("away") or 0
+
+    dados = {
+        "casa": nome_casa, "fora": nome_fora, "gols_casa": gc, "gols_fora": gf,
+        "ht_casa": htc, "ht_fora": htf,
+        "rodada": (f.get("league") or {}).get("round") or "",
+        "linha_gols": [f"{(e.get('time') or {}).get('elapsed')}' {_nome_artilheiro((e.get('player') or {}).get('name'))} ({_time_curto((e.get('team') or {}).get('name'))})" for e in eventos],
+        "penaltis": sum(1 for e in eventos if e.get("detail") == "Penalty"),
+        "gols_contra": sum(1 for e in eventos if e.get("detail") == "Own Goal"),
+        "virada": (htc > htf and gc < gf) or (htf > htc and gf < gc),
+    }
+    narrativa = await _narrativa_do_jogo(dados) if status in ("FT", "AET", "PEN") else ""
+
+    placar = f"{gc}x{gf}"
+    if status == "PEN" and pen.get("home") is not None:
+        placar += f" ({pen.get('home')}x{pen.get('away')} nos pênaltis)"
+
+    partes = ["⏱️ FIM DE JOGO", ""]
+    if narrativa:
+        partes += [narrativa, ""]
+    partes.append(f"{cor_casa} {nome_casa} {placar} {nome_fora} {cor_fora}".strip())
+    if l_casa:
+        partes += [""] + l_casa
+    if l_fora:
+        partes += [""] + l_fora
+
+    resultado = {
+        "fixture": fixture_id, "status": status,
+        "casa": nome_casa, "fora": nome_fora, "placar": placar,
+        "narrativa": narrativa, "texto": "\n".join(partes),
+    }
+    if status in ("FT", "AET", "PEN"):
+        _FIM_JOGO_CACHE[fixture_id] = resultado
+    return resultado
+
+
+@app.get("/api/numeros/fim-de-jogo")
+async def api_fim_de_jogo(fixture: int):
+    """Texto pronto pra copiar do post de fim de jogo."""
+    return await _montar_fim_de_jogo(fixture)
+
+
+@app.get("/api/numeros/jogos-do-dia")
+async def api_jogos_do_dia(dias: int = 1):
+    """Jogos da SPL de hoje (e dos últimos dias), com status ao vivo.
+
+    Serve pra tela de fim de jogo: assim que uma partida encerra, ela aparece aqui
+    com o texto pronto — sem precisar procurar rodada nem partida."""
+    hoje = datetime.now(timezone.utc).date()
+    jogos = []
+    for delta in range(dias):
+        d = (hoje - timedelta(days=delta)).isoformat()
+        data, err = await _af_get("fixtures", {"league": AF_LEAGUE_SPL,
+                                              "season": _af_temporada_corrente(), "date": d})
+        if err or not data:
+            continue
+        for f in data.get("response", []):
+            fx = f.get("fixture") or {}
+            st = (fx.get("status") or {})
+            t = f.get("teams") or {}
+            g = f.get("goals") or {}
+            jogos.append({
+                "fixture": fx.get("id"),
+                "data": (fx.get("date") or "")[:16].replace("T", " "),
+                "status": st.get("short"), "minuto": st.get("elapsed"),
+                "encerrado": st.get("short") in ("FT", "AET", "PEN"),
+                "casa": _time_curto((t.get("home") or {}).get("name")),
+                "fora": _time_curto((t.get("away") or {}).get("name")),
+                "cor_casa": TEAM_CORES.get((t.get("home") or {}).get("name"), ""),
+                "cor_fora": TEAM_CORES.get((t.get("away") or {}).get("name"), ""),
+                "gols_casa": g.get("home"), "gols_fora": g.get("away"),
+            })
+    jogos.sort(key=lambda x: x["data"], reverse=True)
+    return {"jogos": jogos}
 
 
 @app.get("/api/numeros/debug-af")
