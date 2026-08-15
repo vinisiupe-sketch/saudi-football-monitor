@@ -2402,6 +2402,14 @@ async function loadSquadPreview() {{
   }}
 }}
 
+// A API devolve o nome abreviado ("A. Lacazette") — mostrar o nome por extenso ao
+// lado evita a dúvida de qual "A." é, principalmente com sobrenomes repetidos.
+function nomeExibido(p) {{
+  const completo = (p.full_name || '').trim();
+  if (!completo || completo === p.name) return p.name;
+  return p.name + ' <small class="nome-completo">· ' + completo + '</small>';
+}}
+
 function renderPlayerResults(list) {{
   _lastPlayerResults = list;
   const box = document.getElementById('jgPlayerResults');
@@ -2409,7 +2417,7 @@ function renderPlayerResults(list) {{
   box.innerHTML = list.map((p, i) =>
     '<div class="search-item" onclick="selectPlayerByIndex(' + i + ')">' +
     (p.photo ? '<img src="' + p.photo + '" class="search-avatar" onerror="this.style.visibility=\\'hidden\\'">' : '<span class="search-avatar-ph"></span>') +
-    '<span>' + p.name + (p.team ? ' <small>(' + p.team + ')</small>' : '') + '</span></div>'
+    '<span>' + nomeExibido(p) + (p.team ? ' <small>(' + p.team + ')</small>' : '') + '</span></div>'
   ).join('');
   box.style.display = 'block';
 }}
@@ -2464,7 +2472,7 @@ async function selectPlayer(p) {{
   const chip = document.getElementById('jgPlayerSelected');
   chip.style.display = 'flex';
   chip.innerHTML = (p.photo ? '<img src="' + p.photo + '" class="search-avatar">' : '') +
-    '<span>' + p.name + (p.team ? ' (' + p.team + ')' : '') + '</span>' +
+    '<span>' + ((p.full_name || '').trim() || p.name) + (p.team ? ' (' + p.team + ')' : '') + '</span>' +
     '<button type="button" class="chip-clear" onclick="clearPlayer()">✕</button>';
   jgCareerTeamIds = [];
   jgSelectedSeasons = [];
@@ -4579,11 +4587,15 @@ async def _af_indice_jogadores(season: int) -> list[dict]:
             if not p.get("id"):
                 continue
             s = (entry.get("statistics") or [{}])[0]
+            completo = " ".join(filter(None, [p.get("firstname"), p.get("lastname")])).strip()
             jogadores.append({
                 "player_id": p.get("id"),
                 "name": p.get("name"),
                 "firstname": p.get("firstname"),
                 "lastname": p.get("lastname"),
+                # Nome por extenso: o "name" da API vem abreviado ("A. Lacazette"),
+                # e é justamente o nome completo que identifica o jogador na busca.
+                "full_name": completo or p.get("name"),
                 "photo": p.get("photo"),
                 "team": (s.get("team") or {}).get("name"),
                 "team_id": (s.get("team") or {}).get("id"),
@@ -4599,6 +4611,21 @@ async def _af_indice_jogadores(season: int) -> list[dict]:
     elif cached:
         return cached[1]
     return jogadores
+
+
+@app.get("/api/numeros/debug-af")
+async def api_numeros_debug_af(path: str, q: str = ""):
+    """Proxy cru pra API-Football. path='fixtures', q='league=307&season=2026'."""
+    params = {}
+    for part in q.split("&"):
+        if "=" in part:
+            k, v = part.split("=", 1)
+            params[k] = v
+    data, err = await _af_get(path, params)
+    if err:
+        return {"error": err, "path": path, "params": params}
+    return {"path": path, "params": params, "results": data.get("results"),
+            "response": data.get("response")}
 
 
 @app.get("/api/numeros/player-search")
@@ -4625,8 +4652,10 @@ async def api_numeros_player_search(q: str, season: int = 2025, team: int = 0):
                 p = entry.get("player") or {}
                 s = (entry.get("statistics") or [{}])[0]
                 if p.get("id"):
+                    completo = " ".join(filter(None, [p.get("firstname"), p.get("lastname")])).strip()
                     encontrados[p["id"]] = {
                         "player_id": p.get("id"), "name": p.get("name"), "photo": p.get("photo"),
+                        "full_name": completo or p.get("name"),
                         "team": (s.get("team") or {}).get("name"),
                         "team_id": (s.get("team") or {}).get("id"),
                         "team_logo": (s.get("team") or {}).get("logo"),
@@ -4641,8 +4670,15 @@ async def api_numeros_player_search(q: str, season: int = 2025, team: int = 0):
         if alvo in _sem_acento(campos):
             encontrados.setdefault(j["player_id"], {
                 "player_id": j["player_id"], "name": j.get("name"), "photo": j.get("photo"),
+                "full_name": j.get("full_name"),
                 "team": j.get("team"), "team_id": j.get("team_id"), "team_logo": j.get("team_logo"),
             })
+
+    # O índice tem o nome por extenso; completa quem veio da busca da API sem ele.
+    _por_id = {j["player_id"]: j for j in await _af_indice_jogadores(season)}
+    for pid, p in encontrados.items():
+        if not p.get("full_name") and pid in _por_id:
+            p["full_name"] = _por_id[pid].get("full_name")
 
     players = sorted(encontrados.values(), key=lambda x: (x.get("name") or ""))
     return {"query": q, "count": len(players), "players": players}
