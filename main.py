@@ -3970,7 +3970,25 @@ def _body_perdeu_abertura(row: dict) -> bool:
 # ─── Números (estatísticas via API-Football) ─────────────────────────────────
 AF_LEAGUE_SPL = 307  # Saudi Pro League — confirmado via /leagues?id=307
 _AF_CACHE: dict = {}
-_AF_CACHE_TTL = 1800  # 30min — evita estourar rate limit da API-Football
+_AF_CACHE_TTL = 1800  # 30min — padrão pra consultas sem temporada definida
+
+# O cache único de 30 min tratava igual duas coisas muito diferentes: a temporada em
+# andamento, que muda a cada rodada, e as encerradas, que não mudam nunca mais. Com
+# isso a classificação podia ficar meia hora velha depois de um jogo, enquanto dados
+# de 2019 eram rebuscados na API sem necessidade.
+_AF_CACHE_TTL_CORRENTE = 180     # 3min — temporada em andamento
+_AF_CACHE_TTL_HISTORICO = 21600  # 6h — temporada encerrada não muda
+
+
+def _af_ttl(params: dict) -> int:
+    """Quanto tempo a resposta desta consulta pode ficar guardada."""
+    s = params.get("season")
+    if s is None:
+        return _AF_CACHE_TTL
+    try:
+        return _AF_CACHE_TTL_CORRENTE if int(s) >= _af_temporada_corrente() else _AF_CACHE_TTL_HISTORICO
+    except (TypeError, ValueError):
+        return _AF_CACHE_TTL
 
 async def _af_get(path: str, params: dict) -> tuple[dict | None, str | None]:
     """GET genérico na API-Football com cache em memória e mensagens de erro claras.
@@ -3981,7 +3999,7 @@ async def _af_get(path: str, params: dict) -> tuple[dict | None, str | None]:
     cache_key = path + "?" + json.dumps(params, sort_keys=True)
     now = time.time()
     cached = _AF_CACHE.get(cache_key)
-    if cached and (now - cached[0]) < _AF_CACHE_TTL:
+    if cached and (now - cached[0]) < _af_ttl(params):
         return cached[1], None
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
