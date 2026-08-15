@@ -4078,6 +4078,10 @@ _AF_CACHE_TTL = 1800  # 30min — padrão pra consultas sem temporada definida
 # de 2019 eram rebuscados na API sem necessidade.
 _AF_CACHE_TTL_CORRENTE = 180     # 3min — temporada em andamento
 _AF_CACHE_TTL_HISTORICO = 21600  # 6h — temporada encerrada não muda
+# Jogo ao vivo e o minuto seguinte ao apito: aqui o cache é o inimigo. Medido em
+# 15/08/2026 — a partida ficou 11min congelada em "78'" porque a consulta por id
+# não tem season e caía no padrão de 30min.
+_AF_TTL_AO_VIVO = 30             # 30s — placar e eventos de jogo em andamento
 
 
 def _af_ttl(params: dict) -> int:
@@ -4090,16 +4094,21 @@ def _af_ttl(params: dict) -> int:
     except (TypeError, ValueError):
         return _AF_CACHE_TTL
 
-async def _af_get(path: str, params: dict) -> tuple[dict | None, str | None]:
+async def _af_get(path: str, params: dict, ttl: int | None = None) -> tuple[dict | None, str | None]:
     """GET genérico na API-Football com cache em memória e mensagens de erro claras.
-    Retorna (data, None) em sucesso ou (None, mensagem_erro)."""
+    Retorna (data, None) em sucesso ou (None, mensagem_erro).
+
+    ttl: sobrescreve o tempo de cache. Necessário porque _af_ttl() deduz o TTL da
+    temporada nos params, e consultas SEM season (fixture por id, jogos por data)
+    caíam no padrão de 30min — inaceitável pra jogo ao vivo, onde o placar de
+    meia hora atrás é simplesmente o placar errado."""
     af_key = os.environ.get("API_FOOTBALL_KEY", "")
     if not af_key:
         return None, "API_FOOTBALL_KEY não configurada no servidor."
     cache_key = path + "?" + json.dumps(params, sort_keys=True)
     now = time.time()
     cached = _AF_CACHE.get(cache_key)
-    if cached and (now - cached[0]) < _af_ttl(params):
+    if cached and (now - cached[0]) < (ttl if ttl is not None else _af_ttl(params)):
         return cached[1], None
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
@@ -4773,7 +4782,7 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
     if fixture_id in _FIM_JOGO_CACHE:
         return _FIM_JOGO_CACHE[fixture_id]
 
-    fx, err = await _af_get("fixtures", {"id": fixture_id})
+    fx, err = await _af_get("fixtures", {"id": fixture_id}, ttl=_AF_TTL_AO_VIVO)
     if err or not fx or not fx.get("response"):
         return {"erro": err or "partida não encontrada"}
     f = fx["response"][0]
@@ -4785,7 +4794,8 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
     ht = score.get("halftime") or {}
     pen = score.get("penalty") or {}
 
-    ev, e2 = await _af_get("fixtures/events", {"fixture": fixture_id, "type": "Goal"})
+    ev, e2 = await _af_get("fixtures/events", {"fixture": fixture_id, "type": "Goal"},
+                           ttl=_AF_TTL_AO_VIVO)
     eventos = (ev or {}).get("response", []) if not e2 else []
 
     def _linha(e):
@@ -4903,7 +4913,8 @@ async def api_jogos_do_dia(dias: int = 1):
     for delta in range(dias):
         d = (hoje - timedelta(days=delta)).isoformat()
         data, err = await _af_get("fixtures", {"league": AF_LEAGUE_SPL,
-                                              "season": _af_temporada_corrente(), "date": d})
+                                              "season": _af_temporada_corrente(), "date": d},
+                                  ttl=_AF_TTL_AO_VIVO)
         if err or not data:
             continue
         for f in data.get("response", []):
