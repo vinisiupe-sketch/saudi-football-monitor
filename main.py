@@ -2,6 +2,7 @@
 Saudi Football Monitor — FastAPI app principal.
 """
 import os
+import re
 import asyncio
 import json
 import time
