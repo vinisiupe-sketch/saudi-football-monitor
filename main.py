@@ -2117,6 +2117,16 @@ function clubShort(name) {{
   return s || name;
 }}
 function pad2(n) {{ return String(n ?? 0).padStart(2,'0'); }}
+
+// Detalhe "[03⚽+01🅰]" das participações em gols, escondendo a parte zerada:
+// "+00🅰" só ocupava espaço e dava a impressão de dado faltando.
+function detalheGA(gols, assist) {{
+  const g = Number(gols) || 0, a = Number(assist) || 0;
+  const partes = [];
+  if (g > 0) partes.push(pad2(g) + '⚽');
+  if (a > 0) partes.push(pad2(a) + '\\u{{1F170}}️');
+  return partes.length ? ' [' + partes.join('+') + ']' : '';
+}}
 function naNum(v) {{ return (v === null || v === undefined) ? 0 : v; }}
 function naText(v) {{ return (v === null || v === undefined || v === '') ? 'Não informado' : v; }}
 function fmtRating(v) {{
@@ -2291,7 +2301,7 @@ async function loadRankings() {{
     const badges = rankBadges(r.players, 'ga');
     let txt = '📊🇸🇦 PARTICIPAÇÕES EM GOLS — SAUDI PRO LEAGUE ' + seasonLabel + (r.teamFiltered ? ' · ' + clubShort(r.teamName) : '') + '\\n\\n';
     r.players.forEach((p, i) => {{
-      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + (r.teamFiltered ? '' : ' (' + clubShort(p.team) + ')') + ' - ' + naNum(p.ga) + ' [' + pad2(p.goals) + '⚽+' + pad2(p.assists) + '\\u{{1F170}}️]\\n';
+      txt += badges[i] + ' ' + flagFor(p.nationality) + ' ' + p.name + (r.teamFiltered ? '' : ' (' + clubShort(p.team) + ')') + ' - ' + naNum(p.ga) + detalheGA(p.goals, p.assists) + '\\n';
     }});
     renderResultCard(document.getElementById('rk-ga'), 'Participações em Gols (G+A)', txt.trim(),
       'Temporada ' + seasonLabel + ' · Saudi Pro League' + (r.teamFiltered ? ' · ranking interno completo do elenco (' + clubShort(r.teamName) + ')' : ' · combina top-20 de artilharia e assistências') + ' · fonte: API-Football');
