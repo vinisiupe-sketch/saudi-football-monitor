@@ -2055,7 +2055,7 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
       <div class="picker-group">
         <label class="picker-label">Jogador</label>
         <div class="search-combo">
-          <input type="text" id="jgPlayerSearch" placeholder="Digite ao menos 4 letras do nome..." autocomplete="off" oninput="onPlayerSearchInput()">
+          <input type="text" id="jgPlayerSearch" placeholder="Nome, sobrenome ou parte dele..." autocomplete="off" oninput="onPlayerSearchInput()">
           <div id="jgPlayerResults" class="search-results"></div>
         </div>
         <div id="jgPlayerSelected" class="selected-chip"></div>
@@ -2424,9 +2424,9 @@ function onPlayerSearchInput() {{
     }}
     return;
   }}
-  if (q.length < 4) {{
+  if (q.length < 3) {{
     const box = document.getElementById('jgPlayerResults');
-    box.innerHTML = '<div class="search-empty">Digite ao menos 4 letras…</div>';
+    box.innerHTML = '<div class="search-empty">Digite ao menos 3 letras…</div>';
     box.style.display = 'block';
     return;
   }}
@@ -4545,33 +4545,106 @@ async def api_numeros_team_stats(team: int, season: int = 2025, sort: str = "goa
     }
 
 
+_AF_INDICE_JOGADORES: dict = {}
+_AF_INDICE_TTL = 21600  # 6h — elenco não muda de hora em hora
+
+
+def _sem_acento(s: str) -> str:
+    """Compara nomes ignorando acento: 'Núñez' casa com 'nunez'."""
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", (s or "").lower())
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+async def _af_indice_jogadores(season: int) -> list[dict]:
+    """Elenco inteiro da SPL na temporada, com primeiro e último nome separados.
+
+    Existe porque a busca da API-Football casa apenas pelo NOME DE EXIBIÇÃO. Procurar
+    "Alexandre" devolve "Alexandre Mendy" mas não "A. Lacazette", cujo firstname é
+    Alexandre — o mesmo motivo pelo qual "Ramiro" não achava "R. Enrique". Com o
+    elenco indexado localmente dá pra casar por qualquer parte do nome."""
+    cached = _AF_INDICE_JOGADORES.get(season)
+    if cached and (time.time() - cached[0]) < _AF_INDICE_TTL:
+        return cached[1]
+
+    jogadores, page = [], 1
+    while page <= 40:
+        data, err = await _af_get("players", {"league": AF_LEAGUE_SPL, "season": season, "page": page})
+        if err or not data:
+            break
+        for entry in data.get("response", []):
+            p = entry.get("player") or {}
+            if not p.get("id"):
+                continue
+            s = (entry.get("statistics") or [{}])[0]
+            jogadores.append({
+                "player_id": p.get("id"),
+                "name": p.get("name"),
+                "firstname": p.get("firstname"),
+                "lastname": p.get("lastname"),
+                "photo": p.get("photo"),
+                "team": (s.get("team") or {}).get("name"),
+                "team_id": (s.get("team") or {}).get("id"),
+                "team_logo": (s.get("team") or {}).get("logo"),
+            })
+        paging = data.get("paging") or {}
+        if paging.get("current", 1) >= paging.get("total", 1):
+            break
+        page += 1
+
+    if jogadores:  # nunca cacheia índice vazio (falha transitória não vira busca quebrada)
+        _AF_INDICE_JOGADORES[season] = (time.time(), jogadores)
+    elif cached:
+        return cached[1]
+    return jogadores
+
+
 @app.get("/api/numeros/player-search")
 async def api_numeros_player_search(q: str, season: int = 2025, team: int = 0):
-    """Busca jogador por nome parcial (mínimo 4 caracteres — exigência da própria
-    API-Football), escopada à Saudi Pro League. Filtro de clube é opcional."""
+    """Busca jogador por qualquer parte do nome, escopada à Saudi Pro League.
+
+    Combina duas fontes: a busca da própria API (boa pro nome de exibição) e um
+    índice local do elenco (que permite achar pelo primeiro nome, coisa que a API
+    não faz). Filtro de clube é opcional."""
     q = (q or "").strip()
-    if len(q) < 4:
-        return {"error": "Digite ao menos 4 caracteres para buscar.", "players": []}
-    params = {"search": q, "league": AF_LEAGUE_SPL, "season": season}
-    if team:
-        params["team"] = team
-    data, err = await _af_get("players", params)
-    if err:
-        return JSONResponse({"error": err}, status_code=502)
-    resp = data.get("response", [])
-    players = []
-    for entry in resp:
-        player = entry.get("player") or {}
-        stats_list = entry.get("statistics") or []
-        s = stats_list[0] if stats_list else {}
-        players.append({
-            "player_id": player.get("id"),
-            "name": player.get("name"),
-            "photo": player.get("photo"),
-            "team": (s.get("team") or {}).get("name"),
-            "team_id": (s.get("team") or {}).get("id"),
-            "team_logo": (s.get("team") or {}).get("logo"),
-        })
+    if len(q) < 3:
+        return {"error": "Digite ao menos 3 caracteres para buscar.", "players": []}
+
+    encontrados: dict = {}
+
+    # 1) Busca da API — exige 4+ caracteres, então só vale a partir daí.
+    if len(q) >= 4:
+        params = {"search": q, "league": AF_LEAGUE_SPL, "season": season}
+        if team:
+            params["team"] = team
+        data, err = await _af_get("players", params)
+        if not err and data:
+            for entry in data.get("response", []):
+                p = entry.get("player") or {}
+                s = (entry.get("statistics") or [{}])[0]
+                if p.get("id"):
+                    encontrados[p["id"]] = {
+                        "player_id": p.get("id"), "name": p.get("name"), "photo": p.get("photo"),
+                        "team": (s.get("team") or {}).get("name"),
+                        "team_id": (s.get("team") or {}).get("id"),
+                        "team_logo": (s.get("team") or {}).get("logo"),
+                    }
+
+    # 2) Índice local — pega o que a API não pega (primeiro nome, sobrenome composto).
+    alvo = _sem_acento(q)
+    for j in await _af_indice_jogadores(season):
+        if team and j.get("team_id") != team:
+            continue
+        campos = " ".join(filter(None, [j.get("name"), j.get("firstname"), j.get("lastname")]))
+        if alvo in _sem_acento(campos):
+            encontrados.setdefault(j["player_id"], {
+                "player_id": j["player_id"], "name": j.get("name"), "photo": j.get("photo"),
+                "team": j.get("team"), "team_id": j.get("team_id"), "team_logo": j.get("team_logo"),
+            })
+
+    players = sorted(encontrados.values(), key=lambda x: (x.get("name") or ""))
     return {"query": q, "count": len(players), "players": players}
 
 
