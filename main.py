@@ -1848,7 +1848,9 @@ async def numeros_page():
     hdr = _header("/numeros")
     FLAG_MAP_JS = '{"Saudi Arabia": "🇸🇦", "Portugal": "🇵🇹", "Brazil": "🇧🇷", "Argentina": "🇦🇷", "Colombia": "🇨🇴", "England": "🇬🇧", "France": "🇫🇷", "Belgium": "🇧🇪", "Netherlands": "🇳🇱", "Spain": "🇪🇸", "Italy": "🇮🇹", "Germany": "🇩🇪", "Norway": "🇳🇴", "Sweden": "🇸🇪", "Denmark": "🇩🇰", "Greece": "🇬🇷", "Senegal": "🇸🇳", "Mali": "🇲🇱", "Ivory Coast": "🇨🇮", "Cote d\'Ivoire": "🇨🇮", "Cameroon": "🇨🇲", "Nigeria": "🇳🇬", "Ghana": "🇬🇭", "Algeria": "🇩🇿", "Morocco": "🇲🇦", "Tunisia": "🇹🇳", "Egypt": "🇪🇬", "Guinea": "🇬🇳", "Croatia": "🇭🇷", "Serbia": "🇷🇸", "Poland": "🇵🇱", "Ukraine": "🇺🇦", "Russia": "🇷🇺", "Uruguay": "🇺🇾", "Chile": "🇨🇱", "Mexico": "🇲🇽", "USA": "🇺🇸", "United States": "🇺🇸", "Japan": "🇯🇵", "South Korea": "🇰🇷", "Korea Republic": "🇰🇷", "Australia": "🇦🇺", "Iran": "🇮🇷", "Iraq": "🇮🇶", "Jordan": "🇯🇴", "Bosnia": "🇧🇦", "Bosnia and Herzegovina": "🇧🇦", "Montenegro": "🇲🇪", "Wales": "🏴", "Scotland": "🏴", "Ireland": "🇮🇪", "Turkey": "🇹🇷", "Czech Republic": "🇨🇿", "Slovakia": "🇸🇰", "Austria": "🇦🇹", "Switzerland": "🇨🇭", "Georgia": "🇬🇪", "Armenia": "🇦🇲", "Tajikistan": "🇹🇯", "Ecuador": "🇪🇨", "Peru": "🇵🇪", "Venezuela": "🇻🇪", "Paraguay": "🇵🇾", "Bolivia": "🇧🇴", "Costa Rica": "🇨🇷", "Panama": "🇵🇦", "Jamaica": "🇯🇲", "Qatar": "🇶🇦", "UAE": "🇦🇪", "United Arab Emirates": "🇦🇪", "Kuwait": "🇰🇼", "Bahrain": "🇧🇭", "Oman": "🇴🇲", "Syria": "🇸🇾", "Lebanon": "🇱🇧", "Palestine": "🇵🇸", "Albania": "🇦🇱", "North Macedonia": "🇲🇰", "Slovenia": "🇸🇮", "Romania": "🇷🇴", "Bulgaria": "🇧🇬", "Hungary": "🇭🇺", "Finland": "🇫🇮", "Iceland": "🇮🇸", "Israel": "🇮🇱", "China": "🇨🇳", "India": "🇮🇳", "DR Congo": "🇨🇩", "Congo": "🇨🇬", "Gabon": "🇬🇦", "Burkina Faso": "🇧🇫", "Zambia": "🇿🇲", "South Africa": "🇿🇦", "Kenya": "🇰🇪", "Angola": "🇦🇴", "Cape Verde": "🇨🇻", "Equatorial Guinea": "🇬🇶", "Gambia": "🇬🇲", "Guinea-Bissau": "🇬🇼", "Benin": "🇧🇯", "Togo": "🇹🇬", "Niger": "🇳🇪", "Libya": "🇱🇾", "Sudan": "🇸🇩", "Mauritania": "🇲🇷"}'
     CLUB_SHORT_JS = '{"Al Khaleej Saihat": "Khaleej", "Al Kholood": "Kholood", "Al Najma": "Najma", "Al Okhdood": "Okhdood", "Al Riyadh": "Riyadh", "Al Shabab": "Shabab", "Al Taawon": "Taawoun", "Al-Ahli Jeddah": "Ahli", "Al-Ettifaq": "Ettifaq", "Al-Fateh": "Fateh", "Al-Fayha": "Fayha", "Al-Hazm": "Hazm", "Al-Hilal Saudi FC": "Hilal", "Al-Ittihad FC": "Ittihad", "Al-Nassr": "Nassr", "Al-Qadisiyah FC": "Qadsiah", "Damac": "Damac", "NEOM": "Neom"}'
-    SEASONS_JS = '[2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016]'
+    # Mesma fonte usada pelo backend — evita a lista da tela ficar defasada da API,
+    # que foi o que aconteceu quando a 2026/27 começou e o filtro não a oferecia.
+    SEASONS_JS = json.dumps(_af_available_seasons())
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -4002,9 +4004,25 @@ async def _af_get(path: str, params: dict) -> tuple[dict | None, str | None]:
         return None, f"Erro ao consultar API-Football: {type(e).__name__}: {e}"
 
 
+AF_PRIMEIRA_TEMPORADA = 2016
+
+
+def _af_temporada_corrente() -> int:
+    """Ano com que a API-Football rotula a temporada da Pro League em andamento.
+
+    A liga saudita vira em agosto (2026/27 começa em 13/08/2026 e a API chama de
+    2026). Antes de agosto, a temporada corrente ainda é a do ano anterior."""
+    hoje = datetime.now()
+    return hoje.year if hoje.month >= 8 else hoje.year - 1
+
+
 def _af_available_seasons() -> list[int]:
-    """Anos com cobertura de top_scorers confirmada (só esses rendem rankings completos)."""
-    return [2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016]
+    """Temporadas oferecidas nos filtros, da mais recente pra mais antiga.
+
+    Calculado em vez de fixo: a lista antiga era hardcoded e parava em 2025, então
+    quando a temporada 2026/27 começou o filtro simplesmente não a oferecia, mesmo
+    com a API já devolvendo classificação e artilharia. Agora entra sozinha."""
+    return list(range(_af_temporada_corrente(), AF_PRIMEIRA_TEMPORADA - 1, -1))
 
 
 def _af_player_scan_seasons() -> list[int]:
