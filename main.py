@@ -17,6 +17,7 @@ from database import init_db, get_recent_articles, get_low_score_articles, get_c
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
+import elenco_tm
 from glossary import SPL_CLUBS, YELO_CLUBS
 
 scheduler = None
@@ -4942,88 +4943,6 @@ async def api_jogos_do_dia(dias: int = 1):
     return {"jogos": jogos}
 
 
-# ── Elencos ──────────────────────────────────────────────────────────────────
-_AF_PAISES_CACHE: tuple[float, dict] | None = None
-_AF_PAISES_TTL = 86400  # a lista de países não muda; 24h é folgado
-
-
-async def _af_paises() -> dict:
-    """Mapa nome-do-país -> {code, flag}, vindo do endpoint /countries da API.
-
-    Escrever esse mapa à mão seria inventar dado: a grafia que a API usa em
-    `nationality` é a que precisa casar, e só ela sabe qual é. O nome vem ora
-    com hífen ("Saudi-Arabia") ora com espaço ("Saudi Arabia"), então as duas
-    formas entram como chave."""
-    global _AF_PAISES_CACHE
-    agora = time.time()
-    if _AF_PAISES_CACHE and (agora - _AF_PAISES_CACHE[0]) < _AF_PAISES_TTL:
-        return _AF_PAISES_CACHE[1]
-    data, err = await _af_get("countries", {}, ttl=_AF_PAISES_TTL)
-    if err or not data:
-        return _AF_PAISES_CACHE[1] if _AF_PAISES_CACHE else {}
-    mapa: dict[str, dict] = {}
-    for c in data.get("response", []):
-        nome, code, flag = c.get("name"), c.get("code"), c.get("flag")
-        if not nome:
-            continue
-        info = {"code": code, "flag": flag, "nome": nome.replace("-", " ")}
-        for chave in {nome, nome.replace("-", " ")}:
-            mapa[chave.lower()] = info
-            mapa[_sem_acento(chave).lower()] = info
-    # A API é inconsistente consigo mesma: /countries diz "Turkey", mas o campo
-    # nationality do jogador diz "Türkiye". Isto não é traduzir país — é anotar
-    # uma divergência observada entre dois endpoints da MESMA fonte. Só entra
-    # aqui o que foi visto de fato; o resto continua caindo no aviso da tela.
-    for apelido, oficial in {"türkiye": "turkey",
-                             "côte d'ivoire": "ivory-coast",
-                             "bosnia and herzegovina": "bosnia"}.items():
-        if oficial in mapa:
-            mapa[apelido] = mapa[oficial]
-            mapa[_sem_acento(apelido).lower()] = mapa[oficial]
-    if mapa:
-        _AF_PAISES_CACHE = (agora, mapa)
-    return mapa
-
-
-def _bandeira_de_iso(code: str | None) -> str | None:
-    """Emoji da bandeira a partir do código que a própria API devolve.
-
-    Dois formatos aparecem: ISO de 2 letras ("BR") e subdivisão ("GB-ENG", que é
-    como a API identifica Inglaterra, Escócia e País de Gales). O segundo caso
-    fazia a bandeira sumir — foi o que aconteceu com o Toney, do Ahli. As duas
-    formas são construídas pela regra do padrão Unicode, não por tabela."""
-    c = (code or "").strip()
-    if not c:
-        return None
-    if len(c) == 2 and c.isalpha():
-        return "".join(chr(0x1F1E6 + ord(x) - ord("A")) for x in c.upper())
-    if "-" in c:
-        corpo = c.lower().replace("-", "")
-        if corpo.isalnum():
-            return "\U0001F3F4" + "".join(chr(0xE0000 + ord(x)) for x in corpo) + "\U000E007F"
-    return None
-
-
-def _num(v):
-    """None e string vazia viram None — nunca 0. Zero é uma informação real
-    (jogou e não marcou); ausência é outra, e misturar as duas mente."""
-    if v is None or v == "":
-        return None
-    try:
-        return int(v)
-    except (TypeError, ValueError):
-        try:
-            return float(v)
-        except (TypeError, ValueError):
-            return None
-
-
-def _texto_ou_nada(v):
-    """A API às vezes devolve '\\n    ' no lugar de altura/local de nascimento."""
-    t = (v or "").strip() if isinstance(v, str) else v
-    return t or None
-
-
 _ELENCOS_HTML = """<!DOCTYPE html>
 <html lang="pt">
 <head>
@@ -5117,8 +5036,8 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 __HDR__
 <div class="wrap">
   <h1>Elencos</h1>
-  <p class="sub">Dados da API-Football. Campos que a fonte não informa aparecem como “—”; nada é estimado.
-     Pé preferido e posição detalhada não existem nessa API.</p>
+  <p class="sub">Dados do Transfermarkt: elenco, posição detalhada, pé preferido e números da temporada.
+     Campos que a fonte não informa aparecem como “—”; nada é estimado.</p>
 
   <div id="escudos" class="escudos"></div>
 
@@ -5159,7 +5078,8 @@ let ESCALACAO = null;   // última escalação carregada, pra poder voltar a ela
 let TIME_ATUAL = null;
 let ordenarPor = null, ordemAsc = false;
 
-const GRUPO = {Goalkeeper:'G', Defender:'D', Midfielder:'M', Attacker:'A'};
+// O setor (G/D/M/A) já vem pronto do backend, derivado da posição detalhada
+// do TM — não há mais rótulo em inglês pra traduzir aqui.
 const GRUPO_PT = {G:'GOL', D:'DEF', M:'MEI', A:'ATA'};
 
 function na(v, suf){ return (v === null || v === undefined) ? '—' : (v + (suf || '')); }
@@ -5232,7 +5152,7 @@ function porGrupos(lista){
 function grupoDe(p){
   if (p.grupo) return p.grupo;
   const j = porId(p.id);
-  return (j && GRUPO[j.posicao]) || 'M';
+  return (j && j.grupo) || 'M';
 }
 
 function aplicarEscalacao(){
@@ -5241,7 +5161,7 @@ function aplicarEscalacao(){
   SLOTS = e.sem_posicoes
     ? porGrupos(e.titulares)
     : e.titulares.map(function(t){
-        return {x: t.x, y: t.y, g: t.grupo || grupoDe(t), id: t.id, rotulo: t.nome, numero: t.numero};
+        return {x: t.x, y: t.y, g: grupoDe(t), id: t.id};
       });
   if (e.formacao) {
     FORM = e.formacao;
@@ -5293,7 +5213,7 @@ function preencherAuto(){
   const usados = new Set();
   SLOTS.forEach(function(s){ s.id = null; });
   const disponiveis = function(g){
-    return ELENCO.filter(function(j){ return GRUPO[j.posicao] === g && !usados.has(j.id); })
+    return ELENCO.filter(function(j){ return j.grupo === g && !usados.has(j.id); })
       .sort(function(a,b){
         const ma = a.minutos || 0, mb = b.minutos || 0;
         if (mb !== ma) return mb - ma;
@@ -5369,13 +5289,14 @@ const COLUNAS = [
   {k:'nacionalidade',t:'País'},
   {k:'idade',        t:'Idade', num:true},
   {k:'altura',       t:'Alt.',  num:true},
-  {k:'posicao',      t:'Pos.'},
+  {k:'pe',           t:'Pé'},
+  {k:'posicao',      t:'Posição'},
   {k:'jogos',        t:'J',     num:true},
   {k:'gols',         t:'G',     num:true},
   {k:'assistencias', t:'A',     num:true},
   {k:'amarelos',     t:'🟨',    num:true},
   {k:'vermelhos',    t:'🟥',    num:true},
-  {k:'nota',         t:'Nota',  num:true},
+  {k:'minutos',      t:'Min',   num:true},
 ];
 
 function ordenar(k){
@@ -5424,13 +5345,14 @@ function renderTabela(){
     h += '<td>' + marcaPais +
          (j.nacionalidade ? j.nacionalidade : '<span class="vazio">não informado</span>') + '</td>';
     h += '<td class="num">' + na(j.idade) + '</td>';
-    h += '<td class="num">' + (j.altura !== null ? j.altura + ' cm' : '<span class="vazio">—</span>') + '</td>';
-    const g = GRUPO[j.posicao];
-    h += '<td>' + (g ? '<span class="pos-tag pos-' + g + '">' + GRUPO_PT[g] + '</span>' : '<span class="vazio">—</span>') + '</td>';
+    h += '<td class="num">' + (na(j.altura) === '—' ? '<span class="vazio">—</span>' : j.altura + ' cm') + '</td>';
+    h += '<td>' + (j.pe ? j.pe : '<span class="vazio">—</span>') + '</td>';
+    h += '<td>' + (j.grupo ? '<span class="pos-tag pos-' + j.grupo + '">' + GRUPO_PT[j.grupo] + '</span> ' : '') +
+         (j.posicao ? j.posicao : '<span class="vazio">—</span>') + '</td>';
     ['jogos','gols','assistencias','amarelos','vermelhos'].forEach(function(k){
       h += '<td class="num">' + na(j[k]) + '</td>';
     });
-    h += '<td class="num">' + (j.nota !== null ? Number(j.nota).toFixed(2) : '<span class="vazio">—</span>') + '</td>';
+    h += '<td class="num">' + (na(j.minutos) === '—' ? '<span class="vazio">—</span>' : j.minutos + "'") + '</td>';
     h += '</tr>';
   });
   h += '</tbody></table>';
@@ -5496,414 +5418,100 @@ async def elencos_page():
 
 
 @app.get("/api/elencos/times")
-async def api_elencos_times(season: int = 0):
-    """Clubes da Saudi Pro League na temporada, com escudo."""
-    season = season or _af_temporada_corrente()
-    data, err = await _af_get("teams", {"league": AF_LEAGUE_SPL, "season": season})
-    if err or not data:
-        return {"erro": err or "sem resposta da API"}
-    times = [{"id": (t.get("team") or {}).get("id"),
-              "nome": (t.get("team") or {}).get("name"),
-              "escudo": (t.get("team") or {}).get("logo")}
-             for t in data.get("response", [])]
-    times = [t for t in times if t["id"]]
-    times.sort(key=lambda t: (t["nome"] or "").lower())
-    return {"season": season, "times": times}
-
-
-# A API-Football usa o país de NASCIMENTO no campo `nationality` em alguns casos.
-# Não existe outro campo pra ler — nem `birth.country` ajuda, porque nesses casos
-# os dois vêm iguais. São correções manuais, informadas pelo Vini, e por isso
-# ficam explícitas aqui e sinalizadas na resposta do endpoint.
-ELENCOS_NACIONALIDADE_CORRIGIDA = {
-    71272: "Saudi Arabia",   # Faris Abdi — nasceu nos EUA, defende a Arábia Saudita
-    35532: "Mexico",         # Julián Quiñones — nasceu na Colômbia, naturalizado mexicano
-}
-
-
-def _grid_para_campo(linha: int, coluna: int, total_linhas: int, na_linha: int) -> tuple[float, float]:
-    """Converte a grade "linha:coluna" da escalação em coordenadas do campinho.
-
-    Linha 1 é o goleiro; a última é o ataque. Coluna 1 é a esquerda — conferido
-    em NEOM 4-4-2 (16/08/2026), onde o lateral-esquerdo Islam Hawsawi saiu em
-    2:1 e o lateral-direito Al Burayk em 2:4."""
-    if total_linhas <= 1:
-        y = 92.0
-    else:
-        y = 92.0 - (linha - 1) * (76.0 / (total_linhas - 1))
-    x = (coluna / (na_linha + 1)) * 100.0
-    return round(x, 1), round(y, 1)
-
-
-_POS_GRUPO_AF = {"G": "G", "D": "D", "M": "M", "F": "A"}
-
-
-@app.get("/api/elencos/escalacao")
-async def api_elencos_escalacao(team: int, season: int = 0):
-    """Escalação e formação do último jogo do clube na Pro League."""
-    season = season or _af_temporada_corrente()
-    fx, err = await _af_get("fixtures", {"team": team, "season": season,
-                                         "league": AF_LEAGUE_SPL, "last": 1}, ttl=_AF_TTL_AO_VIVO)
-    if err or not fx or not fx.get("response"):
-        return {"erro": err or "nenhuma partida encontrada nesta temporada"}
-    f = fx["response"][0]
-    fid = (f.get("fixture") or {}).get("id")
-
-    lu, e2 = await _af_get("fixtures/lineups", {"fixture": fid}, ttl=1800)
-    if e2 or not lu or not lu.get("response"):
-        return {"erro": e2 or "a API ainda não publicou a escalação desta partida",
-                "fixture": fid}
-    bloco = next((b for b in lu["response"] if ((b.get("team") or {}).get("id")) == team), None)
-    if not bloco:
-        return {"erro": "escalação deste clube não veio na resposta", "fixture": fid}
-
-    titulares_brutos = bloco.get("startXI") or []
-    por_linha: dict[int, int] = {}
-    for p in titulares_brutos:
-        g = ((p.get("player") or {}).get("grid") or "")
-        if ":" in g:
-            por_linha[int(g.split(":")[0])] = por_linha.get(int(g.split(":")[0]), 0) + 1
-    total_linhas = max(por_linha) if por_linha else 1
-
-    # Nem toda partida vem com a grade: o Al Diriyah x Al-Ahli de 13/08/2026 veio
-    # com formation, grid e pos todos nulos. Nesse caso o campo não pode ser
-    # desenhado a partir daqui, e quem monta é a tela, pelo grupo de cada jogador.
-    sem_posicoes = not por_linha
-
-    titulares = []
-    for p in titulares_brutos:
-        pl = p.get("player") or {}
-        g = pl.get("grid") or ""
-        if ":" in g:
-            linha, coluna = (int(x) for x in g.split(":")[:2])
-            x, y = _grid_para_campo(linha, coluna, total_linhas, por_linha.get(linha, 1))
-        else:
-            linha, coluna, x, y = 0, 0, 50.0, 50.0
-        titulares.append({"id": pl.get("id"), "nome": _texto_ou_nada(pl.get("name")),
-                          "numero": _num(pl.get("number")),
-                          "grupo": _POS_GRUPO_AF.get(pl.get("pos") or "") or None,
-                          "x": x, "y": y})
-
-    suplentes = [{"id": (p.get("player") or {}).get("id"),
-                  "nome": _texto_ou_nada((p.get("player") or {}).get("name"))}
-                 for p in (bloco.get("substitutes") or [])]
-
-    casa, fora = (f.get("teams") or {}).get("home") or {}, (f.get("teams") or {}).get("away") or {}
-    adversario = fora.get("name") if casa.get("id") == team else casa.get("name")
-    gols = f.get("goals") or {}
-    return {
-        "fixture": fid,
-        "data": ((f.get("fixture") or {}).get("date") or "")[:10],
-        "adversario": adversario,
-        "mandante": casa.get("id") == team,
-        "placar": f"{gols.get('home')}x{gols.get('away')}",
-        "formacao": bloco.get("formation"),
-        "sem_posicoes": sem_posicoes,
-        "titulares": titulares,
-        "suplentes": suplentes,
-    }
-
-
-async def _af_sairam_do_time(team: int) -> set[int]:
-    """Ids de quem já deixou o clube, segundo o histórico de transferências.
-
-    O elenco publicado pela API fica desatualizado: em 16/08/2026 o Al Kholood
-    ainda listava Hattan Bahbri, que havia ido pro Al Diriyah. Como aqui a fonte
-    é a mesma API, o cruzamento é por id — sem casar nome, que erraria."""
-    data, err = await _af_get("transfers", {"team": team}, ttl=21600)
-    if err or not data:
-        return set()
-    fora: set[int] = set()
-    for item in data.get("response", []):
-        pid = (item.get("player") or {}).get("id")
-        movs = [m for m in (item.get("transfers") or []) if m.get("date")]
-        if not pid or not movs:
-            continue
-        ultimo = max(movs, key=lambda m: m["date"])
-        times = ultimo.get("teams") or {}
-        saiu = (times.get("out") or {}).get("id")
-        entrou = (times.get("in") or {}).get("id")
-        if saiu == team and entrou != team:
-            fora.add(pid)
-    return fora
-
-
-def _nome_chave(n: str) -> str:
-    return re.sub(r"[^a-z ]", "", _sem_acento(n or "").lower()).strip()
-
-
-def _saidas_pela_janela(nome_do_clube: str) -> list[str]:
-    """Nomes que o Transfermarkt registra como saídas deste clube na janela.
-
-    Serve de segunda fonte porque a API-Football erra nos dois lugares: o Al
-    Kholood ainda listava Hattan Bahbri no elenco E o histórico de transferências
-    dele parava no próprio Kholood (conferido em 16/08/2026), embora ele já
-    estivesse no Al Diriyah."""
-    alvo = _janela_clube_limpo(nome_do_clube)
-    if not alvo:
-        return []
+async def api_elencos_times():
+    """Clubes da Saudi Pro League, deduzidos do calendário do Transfermarkt."""
     try:
-        linhas = get_window_transfers()
-    except Exception:
-        return []
-    return [r["player_name"] for r in linhas
-            if r.get("direction") == "out"
-            and _janela_clube_limpo(r.get("team_out_name")) == alvo
-            and r.get("player_name")]
+        return {"season": elenco_tm.TM_SAISON, "times": await elenco_tm.clubes()}
+    except Exception as e:
+        return {"erro": f"{type(e).__name__}: {e}"}
 
 
-def _casa_com_saida(nome: str, saidas: list[str]) -> str | None:
-    """Casa um nome do elenco com a lista de saídas, tolerando grafias diferentes.
+def _elenco_pais(nacs: list[str]) -> dict:
+    """Primeira nacionalidade é a que vale; as demais ficam como informação extra.
 
-    As duas fontes escrevem o mesmo jogador de formas distintas ("Hattan Bahbri"
-    na API, "Hattan Bahebri" no TM). O critério é deliberadamente conservador —
-    primeiro nome idêntico E sobrenome muito parecido, ou nome inteiro quase
-    igual — porque um falso positivo esconde um jogador que está no clube."""
-    from difflib import SequenceMatcher
-    a = _nome_chave(nome)
-    if not a:
-        return None
-    for s in saidas:
-        b = _nome_chave(s)
-        if not b:
-            continue
-        if a == b:
-            return s
-        ta, tb = a.split(), b.split()
-        if ta and tb and ta[0] == tb[0] and len(ta) > 1 and len(tb) > 1:
-            if SequenceMatcher(None, " ".join(ta[1:]), " ".join(tb[1:])).ratio() >= 0.85:
-                return s
-        if SequenceMatcher(None, a, b).ratio() >= 0.92:
-            return s
-    return None
-
-
-async def _af_stats_temporada(team: int, season: int) -> tuple[dict, str | None]:
-    """Números da temporada por jogador, indexados por id.
-
-    Atenção: este endpoint NÃO devolve o elenco. Ele lista apenas quem tem
-    registro estatístico na temporada — 20 dos 37 jogadores do Hilal, medido em
-    16/08/2026. Usá-lo como fonte do elenco escondia metade do plantel e, pior,
-    quebrava o filtro de estrangeiros (Núñez, Hernández e Akçiçek sumiam)."""
-    por_id: dict[int, dict] = {}
-    pagina, total_paginas = 1, 1
-    while pagina <= total_paginas and pagina <= 10:
-        data, err = await _af_get(
-            "players", {"team": team, "season": season, "page": pagina}, ttl=1800)
-        if err or not data:
-            return por_id, (err if pagina == 1 else None)
-        total_paginas = (data.get("paging") or {}).get("total") or 1
-        for item in data.get("response", []):
-            p = item.get("player") or {}
-            if p.get("id") is not None:
-                por_id[p["id"]] = item
-        pagina += 1
-    return por_id, None
-
-
-def _elenco_stats(item: dict) -> dict:
-    """Extrai os números da Pro League de um registro de /players."""
-    stats = item.get("statistics") or []
-    st = next((s for s in stats if ((s.get("league") or {}).get("id")) == AF_LEAGUE_SPL), None)
-    st = st or (stats[0] if stats else {})
-    g, gols, cartoes = st.get("games") or {}, st.get("goals") or {}, st.get("cards") or {}
-    vermelhos = None
-    if cartoes.get("red") is not None or cartoes.get("yellowred") is not None:
-        vermelhos = (_num(cartoes.get("red")) or 0) + (_num(cartoes.get("yellowred")) or 0)
+    O TM lista a nacionalidade esportiva primeiro — Bounou sai como Marrocos, não
+    Canadá, onde nasceu. É justamente o que faltava na API-Football, que devolvia
+    o país de nascimento e obrigou a corrigir Faris Abdi e Quiñones à mão."""
+    principal = (nacs[0] if nacs else None)
     return {
-        "jogos": _num(g.get("appearences")), "titular": _num(g.get("lineups")),
-        "minutos": _num(g.get("minutes")), "gols": _num(gols.get("total")),
-        "assistencias": _num(gols.get("assists")), "amarelos": _num(cartoes.get("yellow")),
-        "vermelhos": vermelhos, "nota": _num(g.get("rating")),
-        "numero_stats": _num(g.get("number")), "posicao_stats": _texto_ou_nada(g.get("position")),
+        "nacionalidade": principal,
+        "nacionalidades": nacs or [],
+        "pais_bandeira": _janela_bandeira(principal) if principal else None,
+        "estrangeiro": (principal.strip().lower() != "arábia saudita") if principal else None,
     }
 
 
 @app.get("/api/elencos/jogadores")
-async def api_elencos_jogadores(team: int, season: int = 0):
-    """Elenco completo de um clube com os números da temporada.
+async def api_elencos_jogadores(team: int):
+    """Elenco completo do clube, cadastro e números, tudo do Transfermarkt."""
+    try:
+        plantel, numeros = await asyncio.gather(
+            elenco_tm.elenco(team), elenco_tm.desempenho(team))
+    except Exception as e:
+        return {"erro": f"{type(e).__name__}: {e}"}
+    if not plantel:
+        return {"erro": "o Transfermarkt não devolveu elenco para este clube"}
 
-    Temporada corrente: o elenco vem de players/squads (a lista oficial) e os
-    números são casados por id. Temporada passada: aí o correto é quem de fato
-    jogou naquele ano, então a lista sai do próprio /players."""
-    season = season or _af_temporada_corrente()
-    corrente = season >= _af_temporada_corrente()
-    paises = await _af_paises()
-    stats_por_id, err = await _af_stats_temporada(team, season)
-
-    base: list[dict] = []
-    origem = "elenco oficial"
-    nome_clube = ""
-    if corrente:
-        squad, err_s = await _af_get("players/squads", {"team": team}, ttl=1800)
-        if err_s and not stats_por_id:
-            return {"erro": err_s}
-        resp = (squad or {}).get("response") or []
-        nome_clube = ((resp[0] if resp else {}).get("team") or {}).get("name") or ""
-        for p in ((resp[0] if resp else {}).get("players") or []):
-            base.append({"id": p.get("id"), "nome": _texto_ou_nada(p.get("name")),
-                         "idade": _num(p.get("age")), "numero": _num(p.get("number")),
-                         "posicao": _texto_ou_nada(p.get("position")), "foto": p.get("photo")})
-    if not base and stats_por_id:
-        origem = "quem atuou na temporada"
-        for pid, item in stats_por_id.items():
-            p = item.get("player") or {}
-            s = _elenco_stats(item)
-            base.append({"id": pid, "nome": _texto_ou_nada(p.get("name")),
-                         "idade": _num(p.get("age")), "numero": s["numero_stats"],
-                         "posicao": s["posicao_stats"], "foto": p.get("photo")})
-    if not base:
-        # Al-Diriyah, recém-promovido, não tem elenco nem estatística publicados
-        # pela API (verificado em 16/08/2026): as duas consultas voltam vazias e a
-        # tela ficava em branco. Os relacionados do último jogo são o que existe.
-        origem = "relacionados do último jogo"
-        esc = await api_elencos_escalacao(team, season)
-        if isinstance(esc, dict) and not esc.get("erro"):
-            for p in (esc.get("titulares") or []) + (esc.get("suplentes") or []):
-                if p.get("id"):
-                    base.append({"id": p["id"], "nome": p.get("nome"), "idade": None,
-                                 "numero": p.get("numero"), "posicao": None, "foto": None})
-    if not base:
-        return {"erro": err or "a API não publica elenco nem escalação para este clube"}
-
-    saiu_do_clube: list[str] = []
-    if corrente:
-        fora = await _af_sairam_do_time(team)
-        saidas_tm = _saidas_pela_janela(nome_clube)
-        antes = len(base)
-        restante = []
-        for b in base:
-            motivo = None
-            if b["id"] in fora:
-                motivo = "histórico de transferências da API"
-            else:
-                casou = _casa_com_saida(b["nome"] or "", saidas_tm)
-                if casou:
-                    motivo = f"janela (TM: {casou})"
-            if motivo:
-                saiu_do_clube.append(f"{b['nome']} [{motivo}]")
-            else:
-                restante.append(b)
-        base = restante
-        if antes and len(base) < antes // 2:   # descarte grande demais: dado suspeito
-            base = None                        # sinaliza pra restaurar abaixo
-    if base is None:
-        squad, _ = await _af_get("players/squads", {"team": team}, ttl=1800)
-        resp = (squad or {}).get("response") or []
-        base = [{"id": p.get("id"), "nome": _texto_ou_nada(p.get("name")),
-                 "idade": _num(p.get("age")), "numero": _num(p.get("number")),
-                 "posicao": _texto_ou_nada(p.get("position")), "foto": p.get("photo")}
-                for p in ((resp[0] if resp else {}).get("players") or [])]
-        saiu_do_clube = []
-
-    # Nacionalidade e altura não vêm em players/squads. Quem não tem registro na
-    # temporada precisa da ficha — sem isso o filtro de estrangeiros mente.
-    faltando = [b["id"] for b in base
-                if b["id"] is not None and b["id"] not in stats_por_id]
-    perfis: dict[int, dict] = {}
-    falhas: list[str] = []
-
-    async def _buscar_perfis(ids: list[int]) -> list[int]:
-        """Devolve os ids que NÃO foram resolvidos, pra permitir uma segunda tentativa."""
-        restaram: list[int] = []
-        # Lotes pequenos com pausa: disparar tudo de uma vez estourava o limite
-        # por minuto da API e as falhas voltavam como jogador sem nacionalidade —
-        # indistinguível de jogador que a fonte realmente não tem. Medido em
-        # 16/08/2026 no Al-Ahli: 18 dos 36 vieram vazios por esse motivo.
-        for i in range(0, len(ids), 5):
-            lote = ids[i:i + 5]
-            res = await asyncio.gather(*[
-                _af_get("players/profiles", {"player": pid}, ttl=86400) for pid in lote
-            ], return_exceptions=True)
-            for pid, r in zip(lote, res):
-                if isinstance(r, Exception):
-                    falhas.append(f"{type(r).__name__}")
-                    restaram.append(pid)
-                    continue
-                d, e = r
-                if e or not d:
-                    if e:
-                        falhas.append(e)
-                    restaram.append(pid)
-                    continue
-                resp = d.get("response") or []
-                if resp:
-                    perfis[pid] = resp[0].get("player") or {}
-                # resposta vazia é resposta: a fonte não tem ficha desse jogador
-            if i + 5 < len(ids):
-                await asyncio.sleep(0.4)
-        return restaram
-
-    restaram = await _buscar_perfis(faltando)
-    if restaram:
-        await asyncio.sleep(1.2)
-        restaram = await _buscar_perfis(restaram)
-
-    sem_pais: set[str] = set()
-    sem_ficha: list[str] = []
-    corrigidos: list[str] = []
+    sem_bandeira, sem_posicao = set(), set()
     jogadores = []
-    for b in base:
-        item = stats_por_id.get(b["id"])
-        p = (item or {}).get("player") or perfis.get(b["id"]) or {}
-        s = _elenco_stats(item) if item else {}
-
-        nac = ELENCOS_NACIONALIDADE_CORRIGIDA.get(b["id"]) or _texto_ou_nada(p.get("nationality"))
-        if b["id"] in ELENCOS_NACIONALIDADE_CORRIGIDA:
-            corrigidos.append(b["nome"] or str(b["id"]))
-        info = None
-        if nac:
-            info = paises.get(nac.lower()) or paises.get(_sem_acento(nac).lower())
-        if nac and not info:
-            sem_pais.add(nac)
-        if not nac and b["nome"]:
-            sem_ficha.append(b["nome"])
-
+    for p in plantel:
+        d = numeros.get(p["id"], {})
+        pais = _elenco_pais(p.get("nacionalidades") or [])
+        if pais["nacionalidade"] and not pais["pais_bandeira"]:
+            sem_bandeira.add(pais["nacionalidade"])
+        if p.get("posicao") and not p.get("grupo"):
+            sem_posicao.add(p["posicao"])
         jogadores.append({
-            "id": b["id"],
-            "nome": b["nome"] or _texto_ou_nada(p.get("name")),
-            "nome_completo": " ".join(x for x in [_texto_ou_nada(p.get("firstname")),
-                                                  _texto_ou_nada(p.get("lastname"))] if x) or None,
-            "foto": b["foto"] or p.get("photo"),
-            "idade": b["idade"] if b["idade"] is not None else _num(p.get("age")),
-            "altura": _num((_texto_ou_nada(p.get("height")) or "").replace("cm", "").strip()),
-            "nacionalidade": nac,
-            "pais_bandeira": _bandeira_de_iso(info["code"]) if info else None,
-            "pais_flag_url": info["flag"] if info else None,
-            "estrangeiro": (nac.lower() not in ("saudi arabia", "saudi-arabia")) if nac else None,
-            "numero": b["numero"] if b["numero"] is not None else s.get("numero_stats"),
-            "posicao": b["posicao"] or s.get("posicao_stats") or _texto_ou_nada(p.get("position")),
-            "jogos": s.get("jogos"), "titular": s.get("titular"), "minutos": s.get("minutos"),
-            "gols": s.get("gols"), "assistencias": s.get("assistencias"),
-            "amarelos": s.get("amarelos"), "vermelhos": s.get("vermelhos"),
-            "nota": s.get("nota"), "lesionado": bool(p.get("injured")),
+            "id": p["id"], "nome": p["nome"], "foto": p["foto"],
+            "numero": p["numero"], "posicao": p["posicao"], "grupo": p["grupo"],
+            "idade": p["idade"], "nascimento": p["nascimento"],
+            "altura": p["altura"], "pe": p["pe"],
+            "valor": p.get("valor"), "contrato": p.get("contrato"),
+            "jogos": d.get("jogos"), "gols": d.get("gols"),
+            "assistencias": d.get("assistencias"), "amarelos": d.get("amarelos"),
+            "vermelhos": d.get("vermelhos"), "segundo_amarelo": d.get("segundo_amarelo"),
+            "minutos": d.get("minutos"),
+            **pais,
         })
 
-    ordem = {"Goalkeeper": 0, "Defender": 1, "Midfielder": 2, "Attacker": 3}
-    jogadores.sort(key=lambda j: (ordem.get(j["posicao"], 9), -(j["minutos"] or 0),
+    ordem = {"G": 0, "D": 1, "M": 2, "A": 3}
+    jogadores.sort(key=lambda j: (ordem.get(j["grupo"], 9), -(j["minutos"] or 0),
                                   j["numero"] if j["numero"] is not None else 999))
     avisos = []
-    if sem_pais:
-        avisos.append("nacionalidades sem bandeira na API: " + ", ".join(sorted(sem_pais)))
-    if sem_ficha:
-        avisos.append(f"{len(sem_ficha)} sem nacionalidade na fonte "
-                      f"(ficam fora do filtro de estrangeiros): " + ", ".join(sorted(sem_ficha)[:6]))
-    # Falha de consulta e ausência de dado precisam ser distinguíveis: a primeira
-    # some ao recarregar, a segunda não. Sem isso, um erro de rede vira "jogador
-    # sem nacionalidade" e ninguém percebe.
-    if restaram:
-        avisos.append(f"{len(restaram)} fichas não puderam ser consultadas agora "
-                      f"({falhas[0] if falhas else 'motivo desconhecido'}) — recarregue em instantes")
-    if saiu_do_clube:
-        avisos.append(f"{len(saiu_do_clube)} ainda constavam no elenco da API mas já saíram: "
-                      + ", ".join(sorted(saiu_do_clube)[:6]))
-    if corrigidos:
-        avisos.append("nacionalidade corrigida à mão (a API usa o país de nascimento): "
-                      + ", ".join(sorted(set(corrigidos))))
-    if origem != "elenco oficial":
-        avisos.append(f"a API não publica o elenco deste clube — lista montada a partir de: {origem}")
-    return {"season": season, "team": team, "total": len(jogadores), "origem": origem,
+    if sem_bandeira:
+        avisos.append("nacionalidades sem bandeira mapeada: " + ", ".join(sorted(sem_bandeira)))
+    if sem_posicao:
+        avisos.append("posições sem setor definido: " + ", ".join(sorted(sem_posicao)))
+    return {"season": elenco_tm.TM_SAISON, "team": team, "total": len(jogadores),
             "jogadores": jogadores, "avisos": avisos}
+
+
+@app.get("/api/elencos/escalacao")
+async def api_elencos_escalacao(team: int):
+    """Escalação e formação do último jogo encerrado, lidas da súmula do TM."""
+    try:
+        jogo = await elenco_tm.ultimo_jogo(team)
+        if not jogo:
+            return {"erro": "nenhuma partida encerrada nesta temporada"}
+        times = await elenco_tm.escalacao(jogo["sumula"])
+    except Exception as e:
+        return {"erro": f"{type(e).__name__}: {e}"}
+    if not times:
+        return {"erro": "a súmula não traz escalação", "sumula": jogo.get("sumula")}
+
+    mandante = jogo["casa_id"] == team
+    bloco = times[0] if mandante else (times[1] if len(times) > 1 else times[0])
+    coords = elenco_tm.posicoes_no_campo(bloco.get("formacao"), len(bloco["titulares"]))
+    titulares = [{"id": pid, "x": coords[i][0], "y": coords[i][1]}
+                 for i, pid in enumerate(bloco["titulares"]) if i < len(coords)]
+    return {
+        "sumula": jogo["sumula"], "data": jogo["data"],
+        "adversario": jogo["fora"] if mandante else jogo["casa"],
+        "mandante": mandante, "placar": (jogo.get("placar") or "").replace(":", "x"),
+        "formacao": bloco.get("formacao"),
+        "sem_posicoes": not bloco.get("formacao"),
+        "titulares": titulares, "suplentes": [{"id": p} for p in bloco.get("banco") or []],
+    }
 
 
 @app.get("/api/numeros/debug-af")
