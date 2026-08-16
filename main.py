@@ -6749,9 +6749,11 @@ async def api_janela_inspecionar_tm(caminho: str, tabela: int = 0):
                     im = th.find("img")
                     rot = (im.get("title") or im.get("alt") or "")[:22] if im else ""
                 if not rot:
-                    # ícone sem texto nem imagem: o nome da coluna costuma estar
-                    # na classe ou no title de algum elemento interno
-                    rot = re.sub(r"\s+", " ", str(th))[:110]
+                    # Coluna só com ícone: o TM nomeia a coluna na chave de
+                    # ordenação do link do cabeçalho (.../sort/tore, /sort/assists).
+                    a = th.find("a", class_="sort-link")
+                    m = re.search(r"/sort/([^/?#]+)", a.get("href") or "") if a else None
+                    rot = ("sort:" + m.group(1)) if m else re.sub(r"\s+", " ", str(th))[:80]
                 ths.append(rot or "?")
             corpo = t.find("tbody")
             trs = corpo.find_all("tr", recursive=False) if corpo else []
