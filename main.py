@@ -6709,6 +6709,49 @@ async def api_janela_post():
     return _montar_post_janela()
 
 
+@app.get("/api/janela/inspecionar-tm")
+async def api_janela_inspecionar_tm(caminho: str, tabela: int = 0):
+    """TEMPORÁRIO — resumo estrutural de uma página do Transfermarkt.
+
+    Existe porque o ambiente onde escrevo o parser não alcança o TM; o Railway
+    alcança. Aceita só o caminho, nunca uma URL completa, pra não virar proxy
+    aberto. Remover assim que o parser de elenco estiver validado."""
+    import httpx as _hx
+    from bs4 import BeautifulSoup as _BS
+    from janela_scraper import TM_BASE, TM_HEADERS
+    if "://" in caminho or ".." in caminho:
+        return {"erro": "informe apenas o caminho, sem domínio"}
+    url = TM_BASE.rstrip("/") + "/" + caminho.lstrip("/")
+    try:
+        async with _hx.AsyncClient(timeout=30.0, follow_redirects=True, headers=TM_HEADERS) as c:
+            r = await c.get(url)
+        if r.status_code != 200:
+            return {"url": url, "http": r.status_code}
+        soup = _BS(r.text, "lxml")
+
+        def _cel(td):
+            d = {"txt": td.get_text(" ", strip=True)[:60]}
+            ls = [{"t": a.get_text(strip=True)[:30], "h": (a.get("href") or "")[:70]} for a in td.select("a[href]")]
+            if ls: d["links"] = ls[:3]
+            ims = [i.get("title") or i.get("alt") for i in td.select("img") if (i.get("title") or i.get("alt"))]
+            if ims: d["imgs"] = ims[:3]
+            return d
+
+        tabelas = soup.select("table")
+        saida = []
+        for idx, t in enumerate(tabelas[:8]):
+            ths = [th.get_text(" ", strip=True)[:22] for th in t.select("thead th")]
+            corpo = t.find("tbody")
+            trs = corpo.find_all("tr", recursive=False) if corpo else []
+            info = {"i": idx, "classe": " ".join(t.get("class") or []), "cabecalho": ths, "linhas": len(trs)}
+            if idx == tabela:
+                info["amostra"] = [[_cel(td) for td in tr.find_all("td", recursive=False)] for tr in trs[:3]]
+            saida.append(info)
+        return {"url": url, "http": 200, "qtd_tabelas": len(tabelas), "tabelas": saida}
+    except Exception as e:
+        return {"url": url, "erro": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/api/af-window-transfers")
 async def api_af_window_transfers(refresh: bool = False, background_tasks: BackgroundTasks = None):
     """
