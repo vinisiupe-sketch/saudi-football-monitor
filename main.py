@@ -5410,71 +5410,143 @@ async def api_elencos_times(season: int = 0):
     return {"season": season, "times": times}
 
 
-@app.get("/api/elencos/jogadores")
-async def api_elencos_jogadores(team: int, season: int = 0):
-    """Elenco de um clube com os dados e números da temporada."""
-    season = season or _af_temporada_corrente()
-    paises = await _af_paises()
-    jogadores, pagina, total_paginas = [], 1, 1
-    sem_pais: set[str] = set()
+async def _af_stats_temporada(team: int, season: int) -> tuple[dict, str | None]:
+    """Números da temporada por jogador, indexados por id.
 
+    Atenção: este endpoint NÃO devolve o elenco. Ele lista apenas quem tem
+    registro estatístico na temporada — 20 dos 37 jogadores do Hilal, medido em
+    16/08/2026. Usá-lo como fonte do elenco escondia metade do plantel e, pior,
+    quebrava o filtro de estrangeiros (Núñez, Hernández e Akçiçek sumiam)."""
+    por_id: dict[int, dict] = {}
+    pagina, total_paginas = 1, 1
     while pagina <= total_paginas and pagina <= 10:
         data, err = await _af_get(
             "players", {"team": team, "season": season, "page": pagina}, ttl=1800)
         if err or not data:
-            if pagina == 1:
-                return {"erro": err or "sem resposta da API"}
-            break
-        total_paginas = ((data.get("paging") or {}).get("total") or 1)
+            return por_id, (err if pagina == 1 else None)
+        total_paginas = (data.get("paging") or {}).get("total") or 1
         for item in data.get("response", []):
             p = item.get("player") or {}
-            # A estatística da Pro League é a que interessa; se o jogador só tem
-            # números de outra competição, cai no primeiro registro disponível.
-            stats = item.get("statistics") or []
-            st = next((s for s in stats
-                       if ((s.get("league") or {}).get("id")) == AF_LEAGUE_SPL), None)
-            st = st or (stats[0] if stats else {})
-            g = st.get("games") or {}
-            gols = st.get("goals") or {}
-            cartoes = st.get("cards") or {}
-
-            nac = _texto_ou_nada(p.get("nationality"))
-            info = paises.get((nac or "").lower()) if nac else None
-            if nac and not info:
-                sem_pais.add(nac)
-
-            jogadores.append({
-                "id": p.get("id"),
-                "nome": _texto_ou_nada(p.get("name")),
-                "nome_completo": " ".join(x for x in [_texto_ou_nada(p.get("firstname")),
-                                                     _texto_ou_nada(p.get("lastname"))] if x) or None,
-                "foto": p.get("photo"),
-                "idade": _num(p.get("age")),
-                "altura": _num((_texto_ou_nada(p.get("height")) or "").replace("cm", "").strip()),
-                "nacionalidade": nac,
-                "pais_bandeira": _bandeira_de_iso(info["code"]) if info else None,
-                "pais_flag_url": info["flag"] if info else None,
-                "estrangeiro": (nac.lower() not in ("saudi arabia", "saudi-arabia")) if nac else None,
-                "numero": _num(g.get("number")),
-                "posicao": _texto_ou_nada(g.get("position")),
-                "jogos": _num(g.get("appearences")),
-                "titular": _num(g.get("lineups")),
-                "minutos": _num(g.get("minutes")),
-                "gols": _num(gols.get("total")),
-                "assistencias": _num(gols.get("assists")),
-                "amarelos": _num(cartoes.get("yellow")),
-                "vermelhos": (_num(cartoes.get("red")) or 0) + (_num(cartoes.get("yellowred")) or 0)
-                             if (cartoes.get("red") is not None or cartoes.get("yellowred") is not None) else None,
-                "nota": _num(g.get("rating")),
-                "lesionado": bool(p.get("injured")),
-            })
+            if p.get("id") is not None:
+                por_id[p["id"]] = item
         pagina += 1
+    return por_id, None
+
+
+def _elenco_stats(item: dict) -> dict:
+    """Extrai os números da Pro League de um registro de /players."""
+    stats = item.get("statistics") or []
+    st = next((s for s in stats if ((s.get("league") or {}).get("id")) == AF_LEAGUE_SPL), None)
+    st = st or (stats[0] if stats else {})
+    g, gols, cartoes = st.get("games") or {}, st.get("goals") or {}, st.get("cards") or {}
+    vermelhos = None
+    if cartoes.get("red") is not None or cartoes.get("yellowred") is not None:
+        vermelhos = (_num(cartoes.get("red")) or 0) + (_num(cartoes.get("yellowred")) or 0)
+    return {
+        "jogos": _num(g.get("appearences")), "titular": _num(g.get("lineups")),
+        "minutos": _num(g.get("minutes")), "gols": _num(gols.get("total")),
+        "assistencias": _num(gols.get("assists")), "amarelos": _num(cartoes.get("yellow")),
+        "vermelhos": vermelhos, "nota": _num(g.get("rating")),
+        "numero_stats": _num(g.get("number")), "posicao_stats": _texto_ou_nada(g.get("position")),
+    }
+
+
+@app.get("/api/elencos/jogadores")
+async def api_elencos_jogadores(team: int, season: int = 0):
+    """Elenco completo de um clube com os números da temporada.
+
+    Temporada corrente: o elenco vem de players/squads (a lista oficial) e os
+    números são casados por id. Temporada passada: aí o correto é quem de fato
+    jogou naquele ano, então a lista sai do próprio /players."""
+    season = season or _af_temporada_corrente()
+    corrente = season >= _af_temporada_corrente()
+    paises = await _af_paises()
+    stats_por_id, err = await _af_stats_temporada(team, season)
+
+    base: list[dict] = []
+    if corrente:
+        squad, err_s = await _af_get("players/squads", {"team": team}, ttl=1800)
+        if err_s and not stats_por_id:
+            return {"erro": err_s}
+        resp = (squad or {}).get("response") or []
+        for p in ((resp[0] if resp else {}).get("players") or []):
+            base.append({"id": p.get("id"), "nome": _texto_ou_nada(p.get("name")),
+                         "idade": _num(p.get("age")), "numero": _num(p.get("number")),
+                         "posicao": _texto_ou_nada(p.get("position")), "foto": p.get("photo")})
+    if not base:
+        if err and not stats_por_id:
+            return {"erro": err}
+        for pid, item in stats_por_id.items():
+            p = item.get("player") or {}
+            s = _elenco_stats(item)
+            base.append({"id": pid, "nome": _texto_ou_nada(p.get("name")),
+                         "idade": _num(p.get("age")), "numero": s["numero_stats"],
+                         "posicao": s["posicao_stats"], "foto": p.get("photo")})
+
+    # Nacionalidade e altura não vêm em players/squads. Quem não tem registro na
+    # temporada precisa da ficha — sem isso o filtro de estrangeiros mente.
+    faltando = [b["id"] for b in base
+                if b["id"] is not None and b["id"] not in stats_por_id]
+    perfis: dict[int, dict] = {}
+    for i in range(0, len(faltando), 8):        # em lotes, pra não enfileirar 20 chamadas
+        lote = faltando[i:i + 8]
+        res = await asyncio.gather(*[
+            _af_get("players/profiles", {"player": pid}, ttl=86400) for pid in lote
+        ], return_exceptions=True)
+        for pid, r in zip(lote, res):
+            if isinstance(r, Exception):
+                continue
+            d, e = r
+            if e or not d:
+                continue
+            resp = d.get("response") or []
+            if resp:
+                perfis[pid] = resp[0].get("player") or {}
+
+    sem_pais: set[str] = set()
+    sem_ficha: list[str] = []
+    jogadores = []
+    for b in base:
+        item = stats_por_id.get(b["id"])
+        p = (item or {}).get("player") or perfis.get(b["id"]) or {}
+        s = _elenco_stats(item) if item else {}
+
+        nac = _texto_ou_nada(p.get("nationality"))
+        info = paises.get((nac or "").lower()) if nac else None
+        if nac and not info:
+            sem_pais.add(nac)
+        if not nac and b["nome"]:
+            sem_ficha.append(b["nome"])
+
+        jogadores.append({
+            "id": b["id"],
+            "nome": b["nome"] or _texto_ou_nada(p.get("name")),
+            "nome_completo": " ".join(x for x in [_texto_ou_nada(p.get("firstname")),
+                                                  _texto_ou_nada(p.get("lastname"))] if x) or None,
+            "foto": b["foto"] or p.get("photo"),
+            "idade": b["idade"] if b["idade"] is not None else _num(p.get("age")),
+            "altura": _num((_texto_ou_nada(p.get("height")) or "").replace("cm", "").strip()),
+            "nacionalidade": nac,
+            "pais_bandeira": _bandeira_de_iso(info["code"]) if info else None,
+            "pais_flag_url": info["flag"] if info else None,
+            "estrangeiro": (nac.lower() not in ("saudi arabia", "saudi-arabia")) if nac else None,
+            "numero": b["numero"] if b["numero"] is not None else s.get("numero_stats"),
+            "posicao": b["posicao"] or s.get("posicao_stats"),
+            "jogos": s.get("jogos"), "titular": s.get("titular"), "minutos": s.get("minutos"),
+            "gols": s.get("gols"), "assistencias": s.get("assistencias"),
+            "amarelos": s.get("amarelos"), "vermelhos": s.get("vermelhos"),
+            "nota": s.get("nota"), "lesionado": bool(p.get("injured")),
+        })
 
     ordem = {"Goalkeeper": 0, "Defender": 1, "Midfielder": 2, "Attacker": 3}
-    jogadores.sort(key=lambda j: (ordem.get(j["posicao"], 9), -(j["jogos"] or 0), j["nome"] or ""))
+    jogadores.sort(key=lambda j: (ordem.get(j["posicao"], 9), -(j["minutos"] or 0),
+                                  j["numero"] if j["numero"] is not None else 999))
     avisos = []
     if sem_pais:
         avisos.append("nacionalidades sem bandeira na API: " + ", ".join(sorted(sem_pais)))
+    if sem_ficha:
+        avisos.append(f"{len(sem_ficha)} sem nacionalidade na fonte "
+                      f"(ficam fora do filtro de estrangeiros): " + ", ".join(sorted(sem_ficha)[:6]))
     return {"season": season, "team": team, "total": len(jogadores),
             "jogadores": jogadores, "avisos": avisos}
 
