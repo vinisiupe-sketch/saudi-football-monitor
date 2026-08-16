@@ -4967,8 +4967,17 @@ async def _af_paises() -> dict:
         if not nome:
             continue
         info = {"code": code, "flag": flag, "nome": nome.replace("-", " ")}
-        mapa[nome.lower()] = info
-        mapa[nome.replace("-", " ").lower()] = info
+        for chave in {nome, nome.replace("-", " ")}:
+            mapa[chave.lower()] = info
+            mapa[_sem_acento(chave).lower()] = info
+    # A API é inconsistente consigo mesma: /countries diz "Turkey", mas o campo
+    # nationality do jogador diz "Türkiye". Isto não é traduzir país — é anotar
+    # uma divergência observada entre dois endpoints da MESMA fonte. Só entra
+    # aqui o que foi visto de fato; o resto continua caindo no aviso da tela.
+    for apelido, oficial in {"türkiye": "turkey"}.items():
+        if oficial in mapa:
+            mapa[apelido] = mapa[oficial]
+            mapa[_sem_acento(apelido).lower()] = mapa[oficial]
     if mapa:
         _AF_PAISES_CACHE = (agora, mapa)
     return mapa
@@ -5512,7 +5521,9 @@ async def api_elencos_jogadores(team: int, season: int = 0):
         s = _elenco_stats(item) if item else {}
 
         nac = _texto_ou_nada(p.get("nationality"))
-        info = paises.get((nac or "").lower()) if nac else None
+        info = None
+        if nac:
+            info = paises.get(nac.lower()) or paises.get(_sem_acento(nac).lower())
         if nac and not info:
             sem_pais.add(nac)
         if not nac and b["nome"]:
