@@ -122,6 +122,7 @@ _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
 _ICO_ANALISE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
 _ICO_NUMEROS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
+_ICO_ELENCOS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
@@ -163,6 +164,7 @@ def _header(active: str) -> str:
         ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "",     "#f97316"),
         ("/analise",     _ICO_ANALISE, "Análise",     "",     "#d97706"),
         ("/numeros",     _ICO_NUMEROS, "Números",     "",     "#0ea5e9"),
+        ("/elencos",     _ICO_ELENCOS, "Elencos",     "",     "#14b8a6"),
     ]
     items = ""
     for href, ico, label, badge_tab, color in pages:
@@ -4938,6 +4940,543 @@ async def api_jogos_do_dia(dias: int = 1):
             })
     jogos.sort(key=lambda x: x["data"], reverse=True)
     return {"jogos": jogos}
+
+
+# ── Elencos ──────────────────────────────────────────────────────────────────
+_AF_PAISES_CACHE: tuple[float, dict] | None = None
+_AF_PAISES_TTL = 86400  # a lista de países não muda; 24h é folgado
+
+
+async def _af_paises() -> dict:
+    """Mapa nome-do-país -> {code, flag}, vindo do endpoint /countries da API.
+
+    Escrever esse mapa à mão seria inventar dado: a grafia que a API usa em
+    `nationality` é a que precisa casar, e só ela sabe qual é. O nome vem ora
+    com hífen ("Saudi-Arabia") ora com espaço ("Saudi Arabia"), então as duas
+    formas entram como chave."""
+    global _AF_PAISES_CACHE
+    agora = time.time()
+    if _AF_PAISES_CACHE and (agora - _AF_PAISES_CACHE[0]) < _AF_PAISES_TTL:
+        return _AF_PAISES_CACHE[1]
+    data, err = await _af_get("countries", {}, ttl=_AF_PAISES_TTL)
+    if err or not data:
+        return _AF_PAISES_CACHE[1] if _AF_PAISES_CACHE else {}
+    mapa: dict[str, dict] = {}
+    for c in data.get("response", []):
+        nome, code, flag = c.get("name"), c.get("code"), c.get("flag")
+        if not nome:
+            continue
+        info = {"code": code, "flag": flag, "nome": nome.replace("-", " ")}
+        mapa[nome.lower()] = info
+        mapa[nome.replace("-", " ").lower()] = info
+    if mapa:
+        _AF_PAISES_CACHE = (agora, mapa)
+    return mapa
+
+
+def _bandeira_de_iso(code: str | None) -> str | None:
+    if not code or len(code) != 2 or not code.isalpha():
+        return None
+    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in code.upper())
+
+
+def _num(v):
+    """None e string vazia viram None — nunca 0. Zero é uma informação real
+    (jogou e não marcou); ausência é outra, e misturar as duas mente."""
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+
+def _texto_ou_nada(v):
+    """A API às vezes devolve '\\n    ' no lugar de altura/local de nascimento."""
+    t = (v or "").strip() if isinstance(v, str) else v
+    return t or None
+
+
+_ELENCOS_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Elencos · IARABÃO</title>
+__THEME__
+<style>
+__HEADER_CSS__
+:root{
+  --bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);
+  --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:#14b8a6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.wrap{max-width:1600px;margin:0 auto;padding:18px 20px 60px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--text2);font-size:.8rem;margin:0 0 16px}
+
+.escudos{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.escudo{width:44px;height:44px;border-radius:10px;border:1px solid var(--border);
+  background:var(--surface);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .15s;padding:5px}
+.escudo img{max-width:100%;max-height:100%;object-fit:contain}
+.escudo:hover{border-color:var(--accent);transform:translateY(-2px)}
+.escudo.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent)}
+
+.barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.ctrl{padding:7px 12px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:13px;cursor:pointer}
+.chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);
+  cursor:pointer;padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface)}
+.chk input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+
+.painel{display:grid;grid-template-columns:minmax(320px,460px) 1fr;gap:20px;align-items:start}
+@media(max-width:1100px){.painel{grid-template-columns:1fr}}
+
+/* ── campo ── */
+.campo-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px}
+.campo{position:relative;width:100%;aspect-ratio:68/100;border-radius:10px;
+  background:linear-gradient(180deg,#14803f,#0f6d35);overflow:hidden}
+.campo .linha{position:absolute;border:2px solid rgba(255,255,255,.35)}
+.c-borda{inset:3%}
+.c-meio{left:3%;right:3%;top:50%;height:0;border-width:0;border-top:2px solid rgba(255,255,255,.35)}
+.c-circulo{left:50%;top:50%;width:26%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%}
+.c-area-b{left:22%;right:22%;bottom:3%;height:16%;border-bottom:none}
+.c-area-c{left:22%;right:22%;top:3%;height:16%;border-top:none}
+
+.slot{position:absolute;transform:translate(-50%,-50%);width:76px;
+  display:flex;flex-direction:column;align-items:center;gap:2px}
+.slot .disco{position:relative;width:46px;height:46px;border-radius:50%;
+  background:rgba(255,255,255,.16);border:2px dashed rgba(255,255,255,.5);
+  display:flex;align-items:center;justify-content:center;
+  font-size:.62rem;color:#fff;font-weight:700}
+.slot.ocupado .disco{border-style:solid;border-color:#fff;background:#fff}
+.slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover}
+.slot .band{position:absolute;right:-6px;bottom:-3px;width:20px;height:20px;border-radius:50%;
+  border:2px solid #fff;background:#ddd;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.slot .band img{width:100%;height:100%;object-fit:cover}
+.slot .band span{font-size:.6rem}
+.slot .rot{font-size:.6rem;color:#fff;font-weight:700;text-align:center;line-height:1.15;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);max-width:76px;overflow-wrap:break-word}
+.slot .cam{font-size:.55rem;color:rgba(255,255,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.7)}
+.slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.35)}
+.slot{cursor:grab}
+
+/* ── tabela ── */
+.tab-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:auto}
+table{border-collapse:collapse;width:100%;font-size:.78rem}
+th,td{padding:7px 8px;text-align:left;white-space:nowrap}
+thead th{position:sticky;top:0;background:var(--surface2);color:var(--text2);
+  font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;user-select:none;z-index:2}
+tbody tr{border-top:1px solid var(--border);cursor:grab}
+tbody tr:hover{background:var(--surface2)}
+tbody tr.escalado{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.jog{display:flex;align-items:center;gap:8px}
+.jog img{width:26px;height:26px;border-radius:50%;object-fit:cover;background:var(--surface2)}
+.vazio{color:var(--text2)}
+.pos-tag{display:inline-block;padding:1px 6px;border-radius:5px;font-size:.62rem;font-weight:700}
+.pos-G{background:#f59e0b22;color:#f59e0b}
+.pos-D{background:#3b82f622;color:#60a5fa}
+.pos-M{background:#22c55e22;color:#4ade80}
+.pos-A{background:#ef444422;color:#f87171}
+.estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
+.aviso{font-size:.72rem;color:#f59e0b;margin:8px 0 0}
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Elencos</h1>
+  <p class="sub">Dados da API-Football. Campos que a fonte não informa aparecem como “—”; nada é estimado.
+     Pé preferido e posição detalhada não existem nessa API.</p>
+
+  <div id="escudos" class="escudos"></div>
+
+  <div class="barra">
+    <select id="temporada" class="ctrl" onchange="recarregar()"></select>
+    <select id="formacao" class="ctrl" onchange="trocarFormacao()"></select>
+    <button class="ctrl" onclick="preencherAuto()">↻ Escalar automático</button>
+    <button class="ctrl" onclick="limparCampo()">Limpar campo</button>
+    <label class="chk"><input type="checkbox" id="soEstrangeiros" onchange="renderTabela()"> Só estrangeiros</label>
+    <span id="contador" class="sub" style="margin:0"></span>
+  </div>
+
+  <div class="painel">
+    <div class="campo-caixa">
+      <div id="campo" class="campo">
+        <div class="linha c-borda"></div><div class="linha c-meio"></div>
+        <div class="linha c-circulo"></div><div class="linha c-area-b"></div><div class="linha c-area-c"></div>
+      </div>
+      <p class="sub" style="margin:8px 0 0">Arraste um jogador da lista para uma posição. Arraste entre posições para trocar. Clique numa posição ocupada para esvaziar.</p>
+    </div>
+
+    <div>
+      <div class="tab-caixa"><div id="tabela"><div class="estado">Escolha um clube acima.</div></div></div>
+      <p id="avisos" class="aviso" style="display:none"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+const FORMACOES = __FORMACOES__;
+const SEASONS = __SEASONS__;
+let ELENCO = [];        // jogadores do clube atual
+let CAMPO = [];         // id do jogador em cada casa, ou null
+let FORM = '4-3-3';
+let TIME_ATUAL = null;
+let ordenarPor = null, ordemAsc = false;
+
+const GRUPO = {Goalkeeper:'G', Defender:'D', Midfielder:'M', Attacker:'A'};
+const GRUPO_PT = {G:'GOL', D:'DEF', M:'MEI', A:'ATA'};
+
+function na(v, suf){ return (v === null || v === undefined) ? '—' : (v + (suf || '')); }
+function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
+
+// ── carga ──
+async function carregarTimes(){
+  const sel = document.getElementById('temporada');
+  sel.innerHTML = SEASONS.map(function(s){
+    return '<option value="' + s + '">' + s + '/' + String(s+1).slice(2) + '</option>';
+  }).join('');
+  const r = await fetch('/api/elencos/times?season=' + sel.value);
+  const d = await r.json();
+  if (d.erro) { document.getElementById('escudos').innerHTML = '<span class="sub">' + d.erro + '</span>'; return; }
+  document.getElementById('escudos').innerHTML = d.times.map(function(t){
+    return '<div class="escudo" data-id="' + t.id + '" title="' + t.nome + '" onclick="selecionarTime(' + t.id + ',this)">' +
+           '<img src="' + t.escudo + '" alt="' + t.nome + '"></div>';
+  }).join('');
+}
+
+function recarregar(){
+  carregarTimes().then(function(){ if (TIME_ATUAL) selecionarTime(TIME_ATUAL, null); });
+}
+
+async function selecionarTime(id, el){
+  TIME_ATUAL = id;
+  document.querySelectorAll('.escudo').forEach(function(e){
+    e.classList.toggle('active', Number(e.dataset.id) === id);
+  });
+  document.getElementById('tabela').innerHTML = '<div class="estado">Carregando elenco…</div>';
+  const season = document.getElementById('temporada').value;
+  try {
+    const r = await fetch('/api/elencos/jogadores?team=' + id + '&season=' + season);
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    ELENCO = d.jogadores;
+    const av = document.getElementById('avisos');
+    if (d.avisos && d.avisos.length) { av.textContent = '⚠️ ' + d.avisos.join(' · '); av.style.display = ''; }
+    else av.style.display = 'none';
+    preencherAuto();
+    renderTabela();
+  } catch(e) {
+    document.getElementById('tabela').innerHTML = '<div class="estado">Erro: ' + e.message + '</div>';
+  }
+}
+
+// ── campo ──
+function trocarFormacao(){
+  FORM = document.getElementById('formacao').value;
+  CAMPO = new Array(FORMACOES[FORM].length).fill(null);
+  preencherAuto();
+}
+
+function limparCampo(){
+  CAMPO = new Array(FORMACOES[FORM].length).fill(null);
+  renderCampo(); renderTabela();
+}
+
+function preencherAuto(){
+  // Preenche por grupo, priorizando quem mais jogou. Sem minutagem (pré-temporada),
+  // o desempate é o número da camisa, que já reflete a hierarquia do elenco.
+  const casas = FORMACOES[FORM];
+  CAMPO = new Array(casas.length).fill(null);
+  const usados = new Set();
+  const disponiveis = function(g){
+    return ELENCO.filter(function(j){ return GRUPO[j.posicao] === g && !usados.has(j.id); })
+      .sort(function(a,b){
+        const ma = a.minutos || 0, mb = b.minutos || 0;
+        if (mb !== ma) return mb - ma;
+        return (a.numero || 99) - (b.numero || 99);
+      });
+  };
+  casas.forEach(function(c, i){
+    const cand = disponiveis(c.g)[0];
+    if (cand) { CAMPO[i] = cand.id; usados.add(cand.id); }
+  });
+  renderCampo(); renderTabela();
+}
+
+function renderCampo(){
+  const campo = document.getElementById('campo');
+  campo.querySelectorAll('.slot').forEach(function(s){ s.remove(); });
+  FORMACOES[FORM].forEach(function(c, i){
+    const j = CAMPO[i] ? porId(CAMPO[i]) : null;
+    const el = document.createElement('div');
+    el.className = 'slot' + (j ? ' ocupado' : '');
+    el.style.left = c.x + '%';
+    el.style.top = c.y + '%';
+    el.draggable = true;
+    el.dataset.slot = i;
+    let disco = '<div class="disco">';
+    if (j) {
+      disco += j.foto ? '<img class="foto" src="' + j.foto + '" alt="">' : '<span>' + GRUPO_PT[c.g] + '</span>';
+      // bandeira ao lado da foto; sem nacionalidade na fonte, mostra interrogação
+      disco += '<span class="band">' + (j.pais_flag_url
+        ? '<img src="' + j.pais_flag_url + '" alt="' + (j.nacionalidade || '') + '">'
+        : '<span>?</span>') + '</span>';
+    } else {
+      disco += '<span>' + GRUPO_PT[c.g] + '</span>';
+    }
+    disco += '</div>';
+    const rot = j ? ('<div class="rot">' + (j.nome || '') + '</div>' +
+                     '<div class="cam">' + (j.numero !== null ? '#' + j.numero : '') + '</div>')
+                  : '';
+    el.innerHTML = disco + rot;
+    el.addEventListener('dragstart', function(ev){
+      ev.dataTransfer.setData('text/plain', JSON.stringify({de:'campo', slot:i}));
+    });
+    el.addEventListener('dragover', function(ev){ ev.preventDefault(); el.classList.add('alvo'); });
+    el.addEventListener('dragleave', function(){ el.classList.remove('alvo'); });
+    el.addEventListener('drop', function(ev){
+      ev.preventDefault(); el.classList.remove('alvo');
+      soltarEm(i, ev.dataTransfer.getData('text/plain'));
+    });
+    el.addEventListener('click', function(){ if (CAMPO[i]) { CAMPO[i] = null; renderCampo(); renderTabela(); } });
+    campo.appendChild(el);
+  });
+}
+
+function soltarEm(slot, carga){
+  let d; try { d = JSON.parse(carga); } catch(e) { return; }
+  if (d.de === 'campo') {
+    const t = CAMPO[slot]; CAMPO[slot] = CAMPO[d.slot]; CAMPO[d.slot] = t;   // troca
+  } else {
+    const jaEm = CAMPO.indexOf(d.id);
+    if (jaEm >= 0) CAMPO[jaEm] = null;   // ninguém joga em dois lugares
+    CAMPO[slot] = d.id;
+  }
+  renderCampo(); renderTabela();
+}
+
+// ── tabela ──
+const COLUNAS = [
+  {k:'numero',       t:'#',    num:true},
+  {k:'nome',         t:'Jogador'},
+  {k:'nacionalidade',t:'País'},
+  {k:'idade',        t:'Idade', num:true},
+  {k:'altura',       t:'Alt.',  num:true},
+  {k:'posicao',      t:'Pos.'},
+  {k:'jogos',        t:'J',     num:true},
+  {k:'gols',         t:'G',     num:true},
+  {k:'assistencias', t:'A',     num:true},
+  {k:'amarelos',     t:'🟨',    num:true},
+  {k:'vermelhos',    t:'🟥',    num:true},
+  {k:'nota',         t:'Nota',  num:true},
+];
+
+function ordenar(k){
+  if (ordenarPor === k) ordemAsc = !ordemAsc; else { ordenarPor = k; ordemAsc = false; }
+  renderTabela();
+}
+
+function renderTabela(){
+  const soEstr = document.getElementById('soEstrangeiros').checked;
+  let lista = ELENCO.slice();
+  if (soEstr) lista = lista.filter(function(j){ return j.estrangeiro === true; });
+  if (ordenarPor) {
+    lista.sort(function(a,b){
+      const va = a[ordenarPor], vb = b[ordenarPor];
+      // ausência vai sempre pro fim, independente da direção
+      if (va === null || va === undefined) return 1;
+      if (vb === null || vb === undefined) return -1;
+      if (va === vb) return 0;
+      return (va > vb ? 1 : -1) * (ordemAsc ? 1 : -1);
+    });
+  }
+  document.getElementById('contador').textContent =
+    lista.length + ' de ' + ELENCO.length + ' jogadores' +
+    (soEstr ? ' (estrangeiros)' : '');
+
+  if (!lista.length) {
+    document.getElementById('tabela').innerHTML = '<div class="estado">Nenhum jogador com esse filtro.</div>';
+    return;
+  }
+  let h = '<table><thead><tr>';
+  COLUNAS.forEach(function(c){
+    h += '<th onclick="ordenar(\\'' + c.k + '\\')"' + (c.num ? ' style="text-align:right"' : '') + '>' +
+         c.t + (ordenarPor === c.k ? (ordemAsc ? ' ↑' : ' ↓') : '') + '</th>';
+  });
+  h += '</tr></thead><tbody>';
+  lista.forEach(function(j){
+    const escalado = CAMPO.indexOf(j.id) >= 0;
+    h += '<tr draggable="true" data-id="' + j.id + '"' + (escalado ? ' class="escalado"' : '') + '>';
+    h += '<td class="num">' + (j.numero !== null ? j.numero : '<span class="vazio">—</span>') + '</td>';
+    h += '<td><div class="jog">' + (j.foto ? '<img src="' + j.foto + '" alt="">' : '<img alt="">') +
+         '<span>' + (j.nome || '—') + (j.lesionado ? ' 🤕' : '') + '</span></div></td>';
+    h += '<td>' + (j.pais_bandeira ? j.pais_bandeira + ' ' : '') +
+         (j.nacionalidade ? j.nacionalidade : '<span class="vazio">não informado</span>') + '</td>';
+    h += '<td class="num">' + na(j.idade) + '</td>';
+    h += '<td class="num">' + (j.altura !== null ? j.altura + ' cm' : '<span class="vazio">—</span>') + '</td>';
+    const g = GRUPO[j.posicao];
+    h += '<td>' + (g ? '<span class="pos-tag pos-' + g + '">' + GRUPO_PT[g] + '</span>' : '<span class="vazio">—</span>') + '</td>';
+    ['jogos','gols','assistencias','amarelos','vermelhos'].forEach(function(k){
+      h += '<td class="num">' + na(j[k]) + '</td>';
+    });
+    h += '<td class="num">' + (j.nota !== null ? Number(j.nota).toFixed(2) : '<span class="vazio">—</span>') + '</td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table>';
+  const cont = document.getElementById('tabela');
+  cont.innerHTML = h;
+  cont.querySelectorAll('tbody tr').forEach(function(tr){
+    tr.addEventListener('dragstart', function(ev){
+      ev.dataTransfer.setData('text/plain', JSON.stringify({de:'lista', id:Number(tr.dataset.id)}));
+    });
+  });
+}
+
+// ── início ──
+document.getElementById('formacao').innerHTML =
+  Object.keys(FORMACOES).map(function(f){
+    return '<option value="' + f + '"' + (f === FORM ? ' selected' : '') + '>' + f + '</option>';
+  }).join('');
+CAMPO = new Array(FORMACOES[FORM].length).fill(null);
+renderCampo();
+carregarTimes();
+</script>
+</body>
+</html>
+"""
+
+# ── Página de Elencos ────────────────────────────────────────────────────────
+# Escrita como string simples (sem f-string) de propósito: o CSS e o JS desta
+# tela são grandes e, num f-string, cada chave precisaria ser duplicada — origem
+# recorrente de erro neste arquivo. Os trechos dinâmicos entram por replace.
+
+# Cada casa do campo: x e y em %, e o grupo (G/D/M/A) que guia o preenchimento
+# automático. y=92 é a área do goleiro, y=14 é o ataque.
+_ELENCOS_FORMACOES = {
+    "4-3-3":   [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
+                (30,54,"M"),(50,60,"M"),(70,54,"M"),(15,24,"A"),(50,16,"A"),(85,24,"A")],
+    "4-2-3-1": [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
+                (36,60,"M"),(64,60,"M"),(15,36,"M"),(50,38,"M"),(85,36,"M"),(50,16,"A")],
+    "4-4-2":   [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
+                (12,52,"M"),(38,56,"M"),(62,56,"M"),(88,52,"M"),(38,18,"A"),(62,18,"A")],
+    "4-1-4-1": [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
+                (50,62,"M"),(12,42,"M"),(38,44,"M"),(62,44,"M"),(88,42,"M"),(50,16,"A")],
+    "3-5-2":   [(50,92,"G"),(27,77,"D"),(50,79,"D"),(73,77,"D"),
+                (8,55,"M"),(34,55,"M"),(50,60,"M"),(66,55,"M"),(92,55,"M"),(38,18,"A"),(62,18,"A")],
+    "3-4-3":   [(50,92,"G"),(27,77,"D"),(50,79,"D"),(73,77,"D"),
+                (10,55,"M"),(38,58,"M"),(62,58,"M"),(90,55,"M"),
+                (15,24,"A"),(50,16,"A"),(85,24,"A")],
+    "5-3-2":   [(50,92,"G"),(8,66,"D"),(27,78,"D"),(50,80,"D"),(73,78,"D"),(92,66,"D"),
+                (30,52,"M"),(50,57,"M"),(70,52,"M"),(38,18,"A"),(62,18,"A")],
+}
+
+
+@app.get("/elencos", response_class=HTMLResponse)
+async def elencos_page():
+    return HTMLResponse(
+        _ELENCOS_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _THEME_INIT_SCRIPT)
+        .replace("__HDR__", _header("/elencos"))
+        .replace("__FORMACOES__", json.dumps(
+            {k: [{"x": x, "y": y, "g": g} for x, y, g in v]
+             for k, v in _ELENCOS_FORMACOES.items()}, ensure_ascii=False))
+        .replace("__SEASONS__", json.dumps(_af_available_seasons()))
+    )
+
+
+@app.get("/api/elencos/times")
+async def api_elencos_times(season: int = 0):
+    """Clubes da Saudi Pro League na temporada, com escudo."""
+    season = season or _af_temporada_corrente()
+    data, err = await _af_get("teams", {"league": AF_LEAGUE_SPL, "season": season})
+    if err or not data:
+        return {"erro": err or "sem resposta da API"}
+    times = [{"id": (t.get("team") or {}).get("id"),
+              "nome": (t.get("team") or {}).get("name"),
+              "escudo": (t.get("team") or {}).get("logo")}
+             for t in data.get("response", [])]
+    times = [t for t in times if t["id"]]
+    times.sort(key=lambda t: (t["nome"] or "").lower())
+    return {"season": season, "times": times}
+
+
+@app.get("/api/elencos/jogadores")
+async def api_elencos_jogadores(team: int, season: int = 0):
+    """Elenco de um clube com os dados e números da temporada."""
+    season = season or _af_temporada_corrente()
+    paises = await _af_paises()
+    jogadores, pagina, total_paginas = [], 1, 1
+    sem_pais: set[str] = set()
+
+    while pagina <= total_paginas and pagina <= 10:
+        data, err = await _af_get(
+            "players", {"team": team, "season": season, "page": pagina}, ttl=1800)
+        if err or not data:
+            if pagina == 1:
+                return {"erro": err or "sem resposta da API"}
+            break
+        total_paginas = ((data.get("paging") or {}).get("total") or 1)
+        for item in data.get("response", []):
+            p = item.get("player") or {}
+            # A estatística da Pro League é a que interessa; se o jogador só tem
+            # números de outra competição, cai no primeiro registro disponível.
+            stats = item.get("statistics") or []
+            st = next((s for s in stats
+                       if ((s.get("league") or {}).get("id")) == AF_LEAGUE_SPL), None)
+            st = st or (stats[0] if stats else {})
+            g = st.get("games") or {}
+            gols = st.get("goals") or {}
+            cartoes = st.get("cards") or {}
+
+            nac = _texto_ou_nada(p.get("nationality"))
+            info = paises.get((nac or "").lower()) if nac else None
+            if nac and not info:
+                sem_pais.add(nac)
+
+            jogadores.append({
+                "id": p.get("id"),
+                "nome": _texto_ou_nada(p.get("name")),
+                "nome_completo": " ".join(x for x in [_texto_ou_nada(p.get("firstname")),
+                                                     _texto_ou_nada(p.get("lastname"))] if x) or None,
+                "foto": p.get("photo"),
+                "idade": _num(p.get("age")),
+                "altura": _num((_texto_ou_nada(p.get("height")) or "").replace("cm", "").strip()),
+                "nacionalidade": nac,
+                "pais_bandeira": _bandeira_de_iso(info["code"]) if info else None,
+                "pais_flag_url": info["flag"] if info else None,
+                "estrangeiro": (nac.lower() not in ("saudi arabia", "saudi-arabia")) if nac else None,
+                "numero": _num(g.get("number")),
+                "posicao": _texto_ou_nada(g.get("position")),
+                "jogos": _num(g.get("appearences")),
+                "titular": _num(g.get("lineups")),
+                "minutos": _num(g.get("minutes")),
+                "gols": _num(gols.get("total")),
+                "assistencias": _num(gols.get("assists")),
+                "amarelos": _num(cartoes.get("yellow")),
+                "vermelhos": (_num(cartoes.get("red")) or 0) + (_num(cartoes.get("yellowred")) or 0)
+                             if (cartoes.get("red") is not None or cartoes.get("yellowred") is not None) else None,
+                "nota": _num(g.get("rating")),
+                "lesionado": bool(p.get("injured")),
+            })
+        pagina += 1
+
+    ordem = {"Goalkeeper": 0, "Defender": 1, "Midfielder": 2, "Attacker": 3}
+    jogadores.sort(key=lambda j: (ordem.get(j["posicao"], 9), -(j["jogos"] or 0), j["nome"] or ""))
+    avisos = []
+    if sem_pais:
+        avisos.append("nacionalidades sem bandeira na API: " + ", ".join(sorted(sem_pais)))
+    return {"season": season, "team": team, "total": len(jogadores),
+            "jogadores": jogadores, "avisos": avisos}
 
 
 @app.get("/api/numeros/debug-af")
