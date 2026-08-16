@@ -5514,20 +5514,43 @@ async def api_elencos_jogadores(team: int, season: int = 0):
     faltando = [b["id"] for b in base
                 if b["id"] is not None and b["id"] not in stats_por_id]
     perfis: dict[int, dict] = {}
-    for i in range(0, len(faltando), 8):        # em lotes, pra não enfileirar 20 chamadas
-        lote = faltando[i:i + 8]
-        res = await asyncio.gather(*[
-            _af_get("players/profiles", {"player": pid}, ttl=86400) for pid in lote
-        ], return_exceptions=True)
-        for pid, r in zip(lote, res):
-            if isinstance(r, Exception):
-                continue
-            d, e = r
-            if e or not d:
-                continue
-            resp = d.get("response") or []
-            if resp:
-                perfis[pid] = resp[0].get("player") or {}
+    falhas: list[str] = []
+
+    async def _buscar_perfis(ids: list[int]) -> list[int]:
+        """Devolve os ids que NÃO foram resolvidos, pra permitir uma segunda tentativa."""
+        restaram: list[int] = []
+        # Lotes pequenos com pausa: disparar tudo de uma vez estourava o limite
+        # por minuto da API e as falhas voltavam como jogador sem nacionalidade —
+        # indistinguível de jogador que a fonte realmente não tem. Medido em
+        # 16/08/2026 no Al-Ahli: 18 dos 36 vieram vazios por esse motivo.
+        for i in range(0, len(ids), 5):
+            lote = ids[i:i + 5]
+            res = await asyncio.gather(*[
+                _af_get("players/profiles", {"player": pid}, ttl=86400) for pid in lote
+            ], return_exceptions=True)
+            for pid, r in zip(lote, res):
+                if isinstance(r, Exception):
+                    falhas.append(f"{type(r).__name__}")
+                    restaram.append(pid)
+                    continue
+                d, e = r
+                if e or not d:
+                    if e:
+                        falhas.append(e)
+                    restaram.append(pid)
+                    continue
+                resp = d.get("response") or []
+                if resp:
+                    perfis[pid] = resp[0].get("player") or {}
+                # resposta vazia é resposta: a fonte não tem ficha desse jogador
+            if i + 5 < len(ids):
+                await asyncio.sleep(0.4)
+        return restaram
+
+    restaram = await _buscar_perfis(faltando)
+    if restaram:
+        await asyncio.sleep(1.2)
+        restaram = await _buscar_perfis(restaram)
 
     sem_pais: set[str] = set()
     sem_ficha: list[str] = []
@@ -5575,6 +5598,12 @@ async def api_elencos_jogadores(team: int, season: int = 0):
     if sem_ficha:
         avisos.append(f"{len(sem_ficha)} sem nacionalidade na fonte "
                       f"(ficam fora do filtro de estrangeiros): " + ", ".join(sorted(sem_ficha)[:6]))
+    # Falha de consulta e ausência de dado precisam ser distinguíveis: a primeira
+    # some ao recarregar, a segunda não. Sem isso, um erro de rede vira "jogador
+    # sem nacionalidade" e ninguém percebe.
+    if restaram:
+        avisos.append(f"{len(restaram)} fichas não puderam ser consultadas agora "
+                      f"({falhas[0] if falhas else 'motivo desconhecido'}) — recarregue em instantes")
     return {"season": season, "team": team, "total": len(jogadores),
             "jogadores": jogadores, "avisos": avisos}
 
