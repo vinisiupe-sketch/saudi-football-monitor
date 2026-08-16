@@ -288,18 +288,25 @@ async def ultimo_jogo(clube_id: int, season: int | None = None) -> dict | None:
 
 def _parse_escalacao(soup: BeautifulSoup) -> list[dict]:
     """Devolve [{formacao, titulares:[ids], banco:[ids]}] na ordem casa, fora."""
-    # A formação aparece no cabeçalho de cada time dentro do bloco de escalação.
-    # Ler o bloco inteiro em ordem é mais robusto que apostar num seletor: em
-    # 16/08/2026 o cabeçalho do Hilal não continha o texto, mas o bloco continha.
+    # A formação precisa ficar amarrada à seção do time, não à ordem em que
+    # aparece na página: pegar as duas soltas e distribuir por índice pode
+    # trocar as escalações de lado sem ninguém perceber. Aqui cada time recebe
+    # a última formação que aparece ANTES do seu primeiro titular no HTML.
     caixa = soup.select_one("[class*=aufstellung-box]") or soup
-    formacoes = re.findall(r"\b\d(?:-\d){1,3}\b", caixa.get_text(" ", strip=True))
+    html = str(caixa)
+    marcas_form = [(m.start(), m.group(0))
+                   for m in re.finditer(r"\b\d(?:-\d){1,3}\b", html)]
+
+    def formacao_antes(pos_html: int) -> str | None:
+        anteriores = [f for p, f in marcas_form if p < pos_html]
+        return anteriores[-1] if anteriores else None
 
     # Percorre os jogadores em ordem de documento e quebra em blocos toda vez
     # que alterna entre titular e banco: sai casa-XI, casa-banco, fora-XI,
     # fora-banco. Dedupe por id porque o TM repete a lista (campo e versão
     # mobile) dentro da mesma seção.
-    blocos: list[tuple[str, list[int]]] = []
-    for a in soup.select("a[href*='/profil/spieler/']"):
+    blocos: list[dict] = []
+    for a in caixa.select("a[href*='/profil/spieler/']"):
         pid = _id_de(a.get("href", ""), r"/spieler/(\d+)")
         if not pid:
             continue
@@ -311,21 +318,21 @@ def _parse_escalacao(soup: BeautifulSoup) -> list[dict]:
             tipo = "banco"
         else:
             continue
-        if not blocos or blocos[-1][0] != tipo:
-            blocos.append((tipo, []))
-        if pid not in blocos[-1][1]:
-            blocos[-1][1].append(pid)
+        if not blocos or blocos[-1]["tipo"] != tipo:
+            pos = html.find(a.get("href", ""))
+            blocos.append({"tipo": tipo, "ids": [], "pos": pos if pos >= 0 else 0})
+        if pid not in blocos[-1]["ids"]:
+            blocos[-1]["ids"].append(pid)
 
     times = []
     i = 0
     while i < len(blocos):
-        if blocos[i][0] != "xi":
+        if blocos[i]["tipo"] != "xi":
             i += 1
             continue
-        xi = blocos[i][1]
-        banco = blocos[i + 1][1] if i + 1 < len(blocos) and blocos[i + 1][0] == "banco" else []
-        times.append({"formacao": formacoes[len(times)] if len(times) < len(formacoes) else None,
-                      "titulares": xi, "banco": banco})
+        banco = blocos[i + 1]["ids"] if i + 1 < len(blocos) and blocos[i + 1]["tipo"] == "banco" else []
+        times.append({"formacao": formacao_antes(blocos[i]["pos"]),
+                      "titulares": blocos[i]["ids"], "banco": banco})
         i += 2
     return times
 
