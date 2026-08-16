@@ -341,10 +341,26 @@ def _parse_escalacao(soup: BeautifulSoup) -> list[dict]:
     # aparece na página: pegar as duas soltas e distribuir por índice pode
     # trocar as escalações de lado sem ninguém perceber. Aqui cada time recebe
     # a última formação que aparece ANTES do seu primeiro titular no HTML.
-    caixa = soup.select_one("[class*=aufstellung-box]") or soup
+    # O TM usa UMA caixa por time. Pegar só a primeira (select_one) devolvia a
+    # escalação do mandante para todo mundo — quando o clube era visitante, o
+    # campinho vinha com os 11 do adversário. Verificado no Al-Khaleej em
+    # 16/08/2026: zero dos titulares pertencia ao elenco dele.
+    caixas = soup.select("[class*=aufstellung-box]")
+    if len(caixas) < 2:
+        caixas = [soup]      # tudo num bloco só: varre a página inteira
+
+    times: list[dict] = []
+    for caixa in caixas:
+        times.extend(_times_da_caixa(caixa))
+    return times
+
+
+def _times_da_caixa(caixa) -> list[dict]:
     html = str(caixa)
+    # Exige pelo menos dois hífens: "4-3-3" e "4-2-3-1" são formação, "4-2" e
+    # "1-1" são placar, e a súmula está cheia de placar.
     marcas_form = [(m.start(), m.group(0))
-                   for m in re.finditer(r"\b\d(?:-\d){1,3}\b", html)]
+                   for m in re.finditer(r"\b\d(?:-\d){2,3}\b", html)]
 
     def formacao_antes(pos_html: int) -> str | None:
         anteriores = [f for p, f in marcas_form if p < pos_html]

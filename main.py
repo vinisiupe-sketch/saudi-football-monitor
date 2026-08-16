@@ -4981,36 +4981,51 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .chk input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
 
 .painel{display:grid;grid-template-columns:minmax(320px,460px) 1fr;gap:20px;align-items:start}
-@media(max-width:1100px){.painel{grid-template-columns:1fr}}
+@media(max-width:1100px){
+  .painel{grid-template-columns:1fr}
+  /* Sem teto, o campo ocupava a tela inteira no celular assim que a tabela
+     carregava e empurrava tudo pra baixo. */
+  .campo-caixa{max-width:400px;margin:0 auto;width:100%}
+  .tab-caixa{max-height:none}
+  table{min-width:760px}
+}
+@media(max-width:520px){
+  .wrap{padding:12px 10px 40px}
+  .campo-caixa{max-width:330px}
+  .slot{width:66px}
+  .slot .disco{width:38px;height:38px}
+  .slot .rot{font-size:.56rem;max-width:66px}
+}
 
 /* ── campo ── */
 .campo-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px}
-.campo{position:relative;width:100%;aspect-ratio:68/100;border-radius:10px;
-  background:linear-gradient(180deg,#14803f,#0f6d35);overflow:hidden}
-.campo .linha{position:absolute;border:2px solid rgba(255,255,255,.35)}
+.campo{position:relative;width:100%;aspect-ratio:68/100;border-radius:14px;
+  background:linear-gradient(180deg,#49FCB6,#2fe0a0);overflow:hidden}
+/* Linhas e nomes em verde escuro: sobre o #49FCB6, branco não tem contraste. */
+.campo .linha{position:absolute;border:2px solid rgba(6,72,52,.28)}
 .c-borda{inset:3%}
-.c-meio{left:3%;right:3%;top:50%;height:0;border-width:0;border-top:2px solid rgba(255,255,255,.35)}
+.c-meio{left:3%;right:3%;top:50%;height:0;border-width:0;border-top:2px solid rgba(6,72,52,.28)}
 .c-circulo{left:50%;top:50%;width:26%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%}
 .c-area-b{left:22%;right:22%;bottom:3%;height:16%;border-bottom:none}
 .c-area-c{left:22%;right:22%;top:3%;height:16%;border-top:none}
 
-.slot{position:absolute;transform:translate(-50%,-50%);width:76px;
-  display:flex;flex-direction:column;align-items:center;gap:2px}
+.slot{position:absolute;transform:translate(-50%,-50%);width:82px;
+  display:flex;flex-direction:column;align-items:center;gap:4px;cursor:grab}
 .slot .disco{position:relative;width:46px;height:46px;border-radius:50%;
-  background:rgba(255,255,255,.16);border:2px dashed rgba(255,255,255,.5);
+  background:rgba(255,255,255,.35);border:2px dashed rgba(6,72,52,.35);
   display:flex;align-items:center;justify-content:center;
-  font-size:.62rem;color:#fff;font-weight:700}
-.slot.ocupado .disco{border-style:solid;border-color:#fff;background:#fff}
+  font-size:.6rem;color:#064834;font-weight:800}
+.slot.ocupado .disco{border-style:solid;border-color:#fff;background:#fff;
+  box-shadow:0 2px 6px rgba(0,0,0,.18)}
 .slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover}
-.slot .band{position:absolute;right:-6px;bottom:-3px;width:20px;height:20px;border-radius:50%;
-  border:2px solid #fff;background:#ddd;overflow:hidden;display:flex;align-items:center;justify-content:center}
-.slot .band img{width:100%;height:100%;object-fit:cover}
-.slot .band span{font-size:.6rem}
-.slot .rot{font-size:.6rem;color:#fff;font-weight:700;text-align:center;line-height:1.15;
-  text-shadow:0 1px 3px rgba(0,0,0,.7);max-width:76px;overflow-wrap:break-word}
-.slot .cam{font-size:.55rem;color:rgba(255,255,255,.85);text-shadow:0 1px 3px rgba(0,0,0,.7)}
-.slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.35)}
-.slot{cursor:grab}
+/* Bandeira como emoji: a imagem que o TM usa exige a página dele, e o emoji
+   já vem pronto na resposta. Fica no canto do disco, como no FotMob. */
+.slot .band{position:absolute;right:-5px;bottom:-2px;width:19px;height:19px;border-radius:50%;
+  border:2px solid #fff;background:#fff;display:flex;align-items:center;justify-content:center;
+  font-size:.62rem;line-height:1;overflow:hidden}
+.slot .rot{font-size:.63rem;color:#064834;font-weight:700;text-align:center;line-height:1.15;
+  max-width:82px;overflow-wrap:break-word}
+.slot.alvo .disco{border-color:#0a6b4e;box-shadow:0 0 0 4px rgba(10,107,78,.3)}
 
 /* ── tabela ── */
 .tab-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:auto}
@@ -5270,17 +5285,15 @@ function renderCampo(){
     let disco = '<div class="disco">';
     if (j) {
       disco += j.foto ? imgFoto(j, 'foto', '') : '<span>' + GRUPO_PT[c.g] + '</span>';
-      // bandeira ao lado da foto; sem nacionalidade na fonte, mostra interrogação
-      disco += '<span class="band">' + (j.pais_flag_url
-        ? '<img src="' + j.pais_flag_url + '" alt="' + (j.nacionalidade || '') + '">'
-        : '<span>?</span>') + '</span>';
+      if (j.pais_bandeira) {
+        disco += '<span class="band" title="' + (j.nacionalidade || '') + '">' + j.pais_bandeira + '</span>';
+      }
     } else {
       disco += '<span>' + GRUPO_PT[c.g] + '</span>';
     }
     disco += '</div>';
-    const rot = j ? ('<div class="rot">' + (j.nome || '') + '</div>' +
-                     '<div class="cam">' + (j.numero !== null ? '#' + j.numero : '') + '</div>')
-                  : '';
+    // Só o nome, sem o número: campo mais limpo, como no FotMob.
+    const rot = j ? '<div class="rot">' + (j.nome || '') + '</div>' : '';
     el.innerHTML = disco + rot;
     ligarReserva(el);
     el.addEventListener('dragstart', function(ev){
@@ -5539,6 +5552,29 @@ async def api_elencos_escalacao(team: int):
 
     mandante = jogo["casa_id"] == team
     bloco = times[0] if mandante else (times[1] if len(times) > 1 else times[0])
+
+    # Confere que a escalação é MESMO deste clube. Sem isso, um erro de leitura
+    # da súmula entrega os 11 do adversário e a tela só mostra "undefined" —
+    # foi o que aconteceu com todo time visitante em 16/08/2026.
+    aviso_time = None
+    try:
+        plantel, _ = await elenco_tm.elenco(team)
+        do_clube = {p["id"] for p in plantel}
+        if do_clube:
+            def pertence(b):
+                return sum(1 for i in b["titulares"] if i in do_clube)
+            if pertence(bloco) == 0:
+                melhor = max(times, key=pertence)
+                if pertence(melhor) > 0:
+                    bloco = melhor
+                else:
+                    return {"erro": "a escalação lida não corresponde ao elenco deste clube",
+                            "sumula": jogo["sumula"]}
+            faltam = [i for i in bloco["titulares"] if i not in do_clube]
+            if faltam:
+                aviso_time = f"{len(faltam)} titulares não constam no elenco atual (saíram ou são da base)"
+    except Exception:
+        pass
     coords = elenco_tm.posicoes_no_campo(bloco.get("formacao"), len(bloco["titulares"]))
     titulares = [{"id": pid, "x": coords[i][0], "y": coords[i][1]}
                  for i, pid in enumerate(bloco["titulares"]) if i < len(coords)]
@@ -5549,7 +5585,7 @@ async def api_elencos_escalacao(team: int):
         "formacao": bloco.get("formacao"),
         "sem_posicoes": not bloco.get("formacao"),
         "titulares": titulares, "suplentes": [{"id": p} for p in bloco.get("banco") or []],
-        "avisos": [a for a in (av1, av2) if a],
+        "avisos": [a for a in (av1, av2, aviso_time) if a],
     }
 
 
