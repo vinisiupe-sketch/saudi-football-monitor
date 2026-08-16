@@ -5597,8 +5597,12 @@ async def api_janela_inspecionar_tm(caminho: str):
                 # só detalha a tabela que interessa; as outras ficam no resumo
                 detalhar = any("Sucessor" in x for x in ths)
                 linhas = []
-                for tr in t.select("tbody tr")[:(4 if detalhar else 1)]:
-                    tds = tr.select("td")
+                corpo = t.find("tbody")
+                # tr/td DIRETOS: o TM aninha tabelas dentro das células, e o select
+                # recursivo misturava as linhas internas com as de verdade.
+                trs = corpo.find_all("tr", recursive=False) if corpo else []
+                for tr in trs[:(5 if detalhar else 1)]:
+                    tds = tr.find_all("td", recursive=False)
                     linhas.append([_celula(td) for td in tds] if detalhar
                                   else [td.get_text(" ", strip=True)[:40] for td in tds])
                 tabelas.append({"cabecalho": ths, "linhas": linhas})
