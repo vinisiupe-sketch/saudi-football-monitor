@@ -6754,6 +6754,9 @@ async def api_janela_inspecionar_tm(caminho: str, tabela: int = 0):
             info = {"i": idx, "classe": " ".join(t.get("class") or []), "cabecalho": ths, "linhas": len(trs)}
             if idx == tabela:
                 info["amostra"] = [[_cel(td) for td in tr.find_all("td", recursive=False)] for tr in trs[:3]]
+            if idx == tabela - 100:   # modo "só texto", pra varrer a tabela inteira
+                info["texto"] = [[td.get_text(" ", strip=True)[:18] for td in tr.find_all("td", recursive=False)]
+                                 for tr in trs]
             saida.append(info)
         return {"url": url, "http": 200, "qtd_tabelas": len(tabelas), "tabelas": saida}
     except Exception as e:
