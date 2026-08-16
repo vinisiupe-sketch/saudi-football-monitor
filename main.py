@@ -5589,6 +5589,11 @@ JANELA_PAIS_ISO = {
     "Costa do Marfim": "CI", "Gana": "GH", "Eslováquia": "SK", "Moldávia": "MD",
     "Argentina": "AR", "Grécia": "GR", "Jordânia": "JO", "Kosovo": "XK",
     "Togo": "TG", "Guiné": "GN", "Guiné-Bissau": "GW", "Mali": "ML",
+    # Grafias que o TM usa sem hífen / territórios franceses — apareceram no
+    # aviso da primeira geração real do post, não foram supostas aqui.
+    "Guiné Bissau": "GW", "Guiné Equatorial": "GQ", "Guiana Francesa": "GF",
+    "Neocaledónia": "NC", "Nova Caledónia": "NC", "Nova Caledônia": "NC",
+    "Guadalupe": "GP", "Martinica": "MQ", "Reunião": "RE", "Curaçao": "CW",
     "Ruanda": "RW", "Roménia": "RO", "Romênia": "RO", "Marrocos": "MA",
     "Croácia": "HR", "Bósnia-Herzegovina": "BA", "Gabão": "GA", "Tunísia": "TN",
     "Alemanha": "DE", "Itália": "IT", "Bélgica": "BE", "Suíça": "CH",
@@ -5736,67 +5741,6 @@ def _montar_post_janela() -> dict:
 async def api_janela_post():
     """Texto pronto pra copiar do post de entradas e saídas da janela."""
     return _montar_post_janela()
-
-
-@app.get("/api/janela/inspecionar-tm")
-async def api_janela_inspecionar_tm(caminho: str):
-    """TEMPORÁRIO — devolve um resumo estrutural de uma página do Transfermarkt.
-
-    Existe só porque o ambiente onde escrevo o parser não alcança o TM; o Railway
-    alcança. Aceita apenas o caminho (nunca uma URL completa), então não vira um
-    proxy aberto. Remover assim que o parser de treinadores estiver validado."""
-    import httpx as _hx
-    from bs4 import BeautifulSoup as _BS
-    from janela_scraper import TM_BASE, TM_HEADERS
-    if "://" in caminho or ".." in caminho:
-        return {"erro": "informe apenas o caminho, sem domínio"}
-    url = TM_BASE.rstrip("/") + "/" + caminho.lstrip("/")
-    try:
-        async with _hx.AsyncClient(timeout=30.0, follow_redirects=True, headers=TM_HEADERS) as c:
-            r = await c.get(url)
-        if r.status_code != 200:
-            return {"url": url, "http": r.status_code}
-        soup = _BS(r.text, "lxml")
-        def _celula(td):
-            d = {"txt": td.get_text(" ", strip=True)[:70]}
-            ls = [{"t": a.get_text(strip=True)[:40], "h": (a.get("href") or "")[:70]}
-                  for a in td.select("a[href]")]
-            if ls:
-                d["links"] = ls
-            ims = [i.get("title") or i.get("alt") for i in td.select("img") if (i.get("title") or i.get("alt"))]
-            if ims:
-                d["imgs"] = ims[:4]
-            return d
-
-        caixas = []
-        for box in soup.select(".box")[:12]:
-            h2 = box.select_one("h2")
-            tabelas = []
-            for t in box.select("table")[:6]:
-                ths = [th.get_text(strip=True) for th in t.select("thead th")]
-                # só detalha a tabela que interessa; as outras ficam no resumo
-                detalhar = any("Sucessor" in x for x in ths)
-                linhas = []
-                corpo = t.find("tbody")
-                # tr/td DIRETOS: o TM aninha tabelas dentro das células, e o select
-                # recursivo misturava as linhas internas com as de verdade.
-                trs = corpo.find_all("tr", recursive=False) if corpo else []
-                for tr in trs[:(5 if detalhar else 1)]:
-                    tds = tr.find_all("td", recursive=False)
-                    linhas.append([_celula(td) for td in tds] if detalhar
-                                  else [td.get_text(" ", strip=True)[:40] for td in tds])
-                tabelas.append({"cabecalho": ths, "linhas": linhas})
-            caixas.append({"titulo": (h2.get_text(strip=True) if h2 else None)[:80] if h2 else None,
-                           "texto": box.get_text(" | ", strip=True)[:500],
-                           "tabelas": tabelas})
-        bandeiras = [{"cls": " ".join(i.get("class") or []), "title": i.get("title") or i.get("alt"),
-                      "src": (i.get("src") or i.get("data-src") or "")[:70]}
-                     for i in soup.select("img")
-                     if "flagge" in ((i.get("src") or "") + (i.get("data-src") or "") + " ".join(i.get("class") or []))]
-        return {"url": url, "http": 200, "titulo_pagina": (soup.title.string or "").strip() if soup.title else None,
-                "qtd_box": len(soup.select(".box")), "bandeiras": bandeiras[:12], "caixas": caixas}
-    except Exception as e:
-        return {"url": url, "erro": f"{type(e).__name__}: {e}"}
 
 
 @app.get("/api/af-window-transfers")
