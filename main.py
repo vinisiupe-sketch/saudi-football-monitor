@@ -5066,6 +5066,7 @@ __HDR__
   <div class="barra">
     <select id="formacao" class="ctrl" onchange="trocarFormacao()"></select>
     <button class="ctrl" onclick="voltarEscalacao()">⚽ Última escalação</button>
+    <button class="ctrl" id="btnSalvar" onclick="salvarEscalacao()">💾 Salvar escalação</button>
     <button class="ctrl" onclick="limparCampo()">Limpar campo</button>
     <label class="chk"><input type="checkbox" id="soEstrangeiros" onchange="renderTabela()"> Só estrangeiros</label>
     <span id="contador" class="sub" style="margin:0"></span>
@@ -5097,6 +5098,7 @@ let ELENCO = [];        // jogadores do clube atual
 let SLOTS = [];         // [{x, y, g, id}]
 let FORM = '4-3-3';
 let ESCALACAO = null;   // última escalação carregada, pra poder voltar a ela
+let SALVA = null;       // ajuste do usuário, que tem precedência ao abrir
 let TIME_ATUAL = null;
 let ordenarPor = null, ordemAsc = false;
 
@@ -5159,9 +5161,10 @@ async function selecionarTime(id, el){
   document.getElementById('infoJogo').textContent = '';
   try {
     // Elenco e escalação em paralelo: a segunda é o que desenha o campo.
-    const [rj, re] = await Promise.all([
+    const [rj, re, rs] = await Promise.all([
       fetch('/api/elencos/jogadores?team=' + id),
-      fetch('/api/elencos/escalacao?team=' + id)
+      fetch('/api/elencos/escalacao?team=' + id),
+      fetch('/api/elencos/escalacao-salva?team=' + id)
     ]);
     const d = await rj.json();
     if (d.erro) throw new Error(d.erro);
@@ -5170,10 +5173,14 @@ async function selecionarTime(id, el){
     if (d.avisos && d.avisos.length) { av.textContent = '⚠️ ' + d.avisos.join(' · '); av.style.display = ''; }
     else av.style.display = 'none';
 
-    let esc = null;
+    let esc = null, sv = null;
     try { esc = await re.json(); } catch(e) {}
+    try { sv = await rs.json(); } catch(e) {}
     ESCALACAO = (esc && !esc.erro) ? esc : null;
-    if (ESCALACAO) aplicarEscalacao();
+    SALVA = (sv && sv.salva && (sv.salva.slots || []).length) ? sv.salva : null;
+
+    if (SALVA) aplicarSalva();
+    else if (ESCALACAO) aplicarEscalacao();
     else {
       document.getElementById('infoJogo').textContent =
         'Escalação da última partida indisponível' + (esc && esc.erro ? ' (' + esc.erro + ')' : '') +
@@ -5264,6 +5271,52 @@ function aplicarEscalacao(){
     (e.formacao ? ' · ' + e.formacao : '') +
     (e.sem_posicoes ? ' · a API não publicou as posições deste jogo; os 11 são os que atuaram, dispostos por setor' : '');
   renderCampo();
+}
+
+function aplicarSalva(){
+  if (!SALVA) return;
+  SLOTS = SALVA.slots.map(function(s){ return {x:s.x, y:s.y, g:s.g, id:s.id}; });
+  if (SALVA.formacao) {
+    FORM = SALVA.formacao;
+    const sel = document.getElementById('formacao');
+    if (!Array.prototype.some.call(sel.options, function(o){ return o.value === SALVA.formacao; })) {
+      const op = document.createElement('option');
+      op.value = SALVA.formacao; op.textContent = SALVA.formacao;
+      sel.insertBefore(op, sel.firstChild);
+    }
+    sel.value = SALVA.formacao;
+  }
+  document.getElementById('infoJogo').textContent =
+    'Sua escalação salva em ' + (SALVA.salvo_em || '').replace('T', ' ').slice(0, 16) +
+    ' · use “Última escalação” e salve de novo para voltar à do jogo.';
+  renderCampo(); renderTabela();
+}
+
+async function salvarEscalacao(){
+  if (!TIME_ATUAL) return;
+  const btn = document.getElementById('btnSalvar');
+  const orig = btn.textContent;
+  btn.textContent = 'salvando…'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/elencos/escalacao-salva', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({team: TIME_ATUAL, formacao: FORM,
+        slots: SLOTS.map(function(s){ return {id:s.id, x:s.x, y:s.y, g:s.g}; })})
+    });
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    SALVA = {formacao: FORM, slots: SLOTS.map(function(s){ return {id:s.id,x:s.x,y:s.y,g:s.g}; }),
+             salvo_em: d.salvo_em};
+    document.getElementById('infoJogo').textContent =
+      'Sua escalação salva em ' + (d.salvo_em || '').replace('T', ' ').slice(0, 16) +
+      ' · use “Última escalação” e salve de novo para voltar à do jogo.';
+    btn.textContent = '✅ Salva!';
+    setTimeout(function(){ btn.textContent = orig; btn.disabled = false; }, 1600);
+    return;
+  } catch(e) {
+    alert('Não consegui salvar: ' + e.message);
+  }
+  btn.textContent = orig; btn.disabled = false;
 }
 
 function voltarEscalacao(){
@@ -5578,6 +5631,63 @@ async def api_elencos_jogadores(team: int):
         avisos.append("posições sem setor definido: " + ", ".join(sorted(sem_posicao)))
     return {"season": elenco_tm.TM_SAISON, "team": team, "total": len(jogadores),
             "jogadores": jogadores, "avisos": avisos}
+
+
+_ELENCO_SALVA_CHAVE = "elenco_escalacao_"
+
+
+@app.get("/api/elencos/escalacao-salva")
+async def api_elencos_escalacao_salva(team: int):
+    """Escalação que o usuário ajustou e guardou para este clube."""
+    try:
+        bruto = get_state(f"{_ELENCO_SALVA_CHAVE}{team}")
+        return {"salva": json.loads(bruto) if bruto else None}
+    except Exception as e:
+        return {"salva": None, "erro": f"{type(e).__name__}: {e}"}
+
+
+@app.post("/api/elencos/escalacao-salva")
+async def api_elencos_salvar_escalacao(request: Request):
+    """Guarda a escalação ajustada à mão.
+
+    Passa a ter precedência sobre a do último jogo ao abrir o clube — voltar à
+    do jogo é uma ação explícita ("Última escalação" e salvar de novo)."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        return {"erro": "corpo inválido"}
+    try:
+        team = int(corpo.get("team") or 0)
+    except (TypeError, ValueError):
+        team = 0
+    if not team:
+        return {"erro": "clube não informado"}
+
+    # Sanear antes de gravar: coordenada fora do campo ou id estranho viraria
+    # posição impossível na próxima abertura, e o defeito ficaria persistido.
+    limpos = []
+    for s in (corpo.get("slots") or [])[:11]:
+        try:
+            pid = s.get("id")
+            limpos.append({
+                "id": int(pid) if pid is not None else None,
+                "x": round(max(0.0, min(100.0, float(s.get("x", 50)))), 1),
+                "y": round(max(0.0, min(100.0, float(s.get("y", 50)))), 1),
+                "g": (str(s.get("g") or "M")[:1]).upper(),
+            })
+        except (TypeError, ValueError):
+            continue
+    if not limpos:
+        return {"erro": "nenhuma posição válida para salvar"}
+
+    dados = {"formacao": (str(corpo.get("formacao") or "")[:12] or None),
+             "slots": limpos,
+             "salvo_em": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    try:
+        set_state(f"{_ELENCO_SALVA_CHAVE}{team}", json.dumps(dados, ensure_ascii=False))
+    except Exception as e:
+        return {"erro": f"não consegui salvar: {type(e).__name__}: {e}"}
+    return {"ok": True, "salvo_em": dados["salvo_em"], "total": len(limpos)}
 
 
 @app.get("/api/elencos/escalacao")
