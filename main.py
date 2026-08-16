@@ -6740,7 +6740,15 @@ async def api_janela_inspecionar_tm(caminho: str, tabela: int = 0):
         tabelas = soup.select("table")
         saida = []
         for idx, t in enumerate(tabelas[:8]):
-            ths = [th.get_text(" ", strip=True)[:22] for th in t.select("thead th")]
+            # O TM rotula colunas de estatística com ícone: o nome está no title
+            # da imagem, não no texto do th.
+            ths = []
+            for th in t.select("thead th"):
+                rot = th.get_text(" ", strip=True)[:22]
+                if not rot:
+                    im = th.find("img")
+                    rot = (im.get("title") or im.get("alt") or "")[:22] if im else ""
+                ths.append(rot or "?")
             corpo = t.find("tbody")
             trs = corpo.find_all("tr", recursive=False) if corpo else []
             info = {"i": idx, "classe": " ".join(t.get("class") or []), "cabecalho": ths, "linhas": len(trs)}
