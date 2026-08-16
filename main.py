@@ -5558,6 +5558,43 @@ async def tm_photo_proxy(player_id: str):
     return Response(status_code=404)
 
 
+@app.get("/api/janela/inspecionar-tm")
+async def api_janela_inspecionar_tm(caminho: str):
+    """TEMPORÁRIO — devolve um resumo estrutural de uma página do Transfermarkt.
+
+    Existe só porque o ambiente onde escrevo o parser não alcança o TM; o Railway
+    alcança. Aceita apenas o caminho (nunca uma URL completa), então não vira um
+    proxy aberto. Remover assim que o parser de treinadores estiver validado."""
+    import httpx as _hx
+    from bs4 import BeautifulSoup as _BS
+    from janela_scraper import TM_BASE, TM_HEADERS
+    if "://" in caminho or ".." in caminho:
+        return {"erro": "informe apenas o caminho, sem domínio"}
+    url = TM_BASE.rstrip("/") + "/" + caminho.lstrip("/")
+    try:
+        async with _hx.AsyncClient(timeout=30.0, follow_redirects=True, headers=TM_HEADERS) as c:
+            r = await c.get(url)
+        if r.status_code != 200:
+            return {"url": url, "http": r.status_code}
+        soup = _BS(r.text, "lxml")
+        caixas = []
+        for box in soup.select(".box")[:12]:
+            h2 = box.select_one("h2")
+            tabelas = []
+            for t in box.select("table")[:4]:
+                ths = [th.get_text(strip=True) for th in t.select("thead th")]
+                linhas = []
+                for tr in t.select("tbody tr")[:2]:
+                    linhas.append([td.get_text(" ", strip=True)[:60] for td in tr.select("td")])
+                tabelas.append({"cabecalho": ths, "primeiras_linhas": linhas})
+            caixas.append({"titulo": (h2.get_text(strip=True) if h2 else None)[:80] if h2 else None,
+                           "tabelas": tabelas})
+        return {"url": url, "http": 200, "titulo_pagina": (soup.title.string or "").strip() if soup.title else None,
+                "qtd_box": len(soup.select(".box")), "caixas": caixas}
+    except Exception as e:
+        return {"url": url, "erro": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/api/af-window-transfers")
 async def api_af_window_transfers(refresh: bool = False, background_tasks: BackgroundTasks = None):
     """
