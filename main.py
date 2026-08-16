@@ -5085,6 +5085,23 @@ let ordenarPor = null, ordemAsc = false;
 const GRUPO_PT = {G:'GOL', D:'DEF', M:'MEI', A:'ATA'};
 
 function na(v, suf){ return (v === null || v === undefined) ? '—' : (v + (suf || '')); }
+
+// Foto direto do Transfermarkt; se falhar, cai no nosso proxy uma única vez.
+// O endereço reserva vai num data-attribute e o tratador é ligado depois, em
+// ligarReserva: escrever onerror inline exigiria aspas dentro de aspas dentro
+// de string, e o escape se perdia entre as camadas.
+function imgFoto(j, classe, alt){
+  if (!j || !j.foto) return '';
+  return '<img class="' + (classe || '') + '" src="' + j.foto + '" alt="' + (alt || '') + '"' +
+         (j.foto_reserva ? ' data-res="' + j.foto_reserva + '"' : '') + '>';
+}
+
+function ligarReserva(raiz){
+  if (!raiz || !raiz.querySelectorAll) return;
+  raiz.querySelectorAll('img[data-res]').forEach(function(im){
+    im.onerror = function(){ this.onerror = null; this.src = this.dataset.res; };
+  });
+}
 function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
 
 // ── carga ──
@@ -5252,7 +5269,7 @@ function renderCampo(){
     el.dataset.slot = i;
     let disco = '<div class="disco">';
     if (j) {
-      disco += j.foto ? '<img class="foto" src="' + j.foto + '" alt="">' : '<span>' + GRUPO_PT[c.g] + '</span>';
+      disco += j.foto ? imgFoto(j, 'foto', '') : '<span>' + GRUPO_PT[c.g] + '</span>';
       // bandeira ao lado da foto; sem nacionalidade na fonte, mostra interrogação
       disco += '<span class="band">' + (j.pais_flag_url
         ? '<img src="' + j.pais_flag_url + '" alt="' + (j.nacionalidade || '') + '">'
@@ -5265,6 +5282,7 @@ function renderCampo(){
                      '<div class="cam">' + (j.numero !== null ? '#' + j.numero : '') + '</div>')
                   : '';
     el.innerHTML = disco + rot;
+    ligarReserva(el);
     el.addEventListener('dragstart', function(ev){
       ev.dataTransfer.setData('text/plain', JSON.stringify({de:'campo', slot:i}));
     });
@@ -5346,7 +5364,7 @@ function renderTabela(){
     const escalado = SLOTS.some(function(s){ return s.id === j.id; });
     h += '<tr draggable="true" data-id="' + j.id + '"' + (escalado ? ' class="escalado"' : '') + '>';
     h += '<td class="num">' + (j.numero !== null ? j.numero : '<span class="vazio">—</span>') + '</td>';
-    h += '<td><div class="jog">' + (j.foto ? '<img src="' + j.foto + '" alt="">' : '<img alt="">') +
+    h += '<td><div class="jog">' + (j.foto ? imgFoto(j, '', '') : '<img alt="">') +
          '<span>' + (j.nome || '—') + (j.lesionado ? ' 🤕' : '') + '</span></div></td>';
     // Se o emoji não sair (código fora do ISO de 2 letras), usa a imagem da
     // bandeira que a API fornece — melhor que a linha ficar sem sinal nenhum.
@@ -5368,6 +5386,7 @@ function renderTabela(){
   h += '</tbody></table>';
   const cont = document.getElementById('tabela');
   cont.innerHTML = h;
+  ligarReserva(cont);
   cont.querySelectorAll('tbody tr').forEach(function(tr){
     tr.addEventListener('dragstart', function(ev){
       ev.dataTransfer.setData('text/plain', JSON.stringify({de:'lista', id:Number(tr.dataset.id)}));
@@ -5477,7 +5496,11 @@ async def api_elencos_jogadores(team: int):
             sem_posicao.add(p["posicao"])
         jogadores.append({
             "id": p["id"], "nome": p["nome"],
-            "foto": (f"/api/tm-img?u={quote(p['foto_tm'], safe='')}" if p.get("foto_tm") else None),
+            # Direto do TM porque é mais rápido (medido: a URL abre sem referer),
+            # com o proxy como reserva caso o TM passe a bloquear hotlink.
+            "foto": p.get("foto_tm"),
+            "foto_reserva": (f"/api/tm-img?u={quote(p['foto_tm'], safe='')}"
+                             if p.get("foto_tm") else None),
             "numero": p["numero"], "posicao": p["posicao"], "grupo": p["grupo"],
             "idade": p["idade"], "nascimento": p["nascimento"],
             "altura": p["altura"], "pe": p["pe"],
