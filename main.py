@@ -5577,16 +5577,31 @@ async def api_janela_inspecionar_tm(caminho: str):
         if r.status_code != 200:
             return {"url": url, "http": r.status_code}
         soup = _BS(r.text, "lxml")
+        def _celula(td):
+            d = {"txt": td.get_text(" ", strip=True)[:70]}
+            ls = [{"t": a.get_text(strip=True)[:40], "h": (a.get("href") or "")[:70]}
+                  for a in td.select("a[href]")]
+            if ls:
+                d["links"] = ls
+            ims = [i.get("title") or i.get("alt") for i in td.select("img") if (i.get("title") or i.get("alt"))]
+            if ims:
+                d["imgs"] = ims[:4]
+            return d
+
         caixas = []
         for box in soup.select(".box")[:12]:
             h2 = box.select_one("h2")
             tabelas = []
-            for t in box.select("table")[:4]:
+            for t in box.select("table")[:6]:
                 ths = [th.get_text(strip=True) for th in t.select("thead th")]
+                # só detalha a tabela que interessa; as outras ficam no resumo
+                detalhar = any("Sucessor" in x for x in ths)
                 linhas = []
-                for tr in t.select("tbody tr")[:2]:
-                    linhas.append([td.get_text(" ", strip=True)[:60] for td in tr.select("td")])
-                tabelas.append({"cabecalho": ths, "primeiras_linhas": linhas})
+                for tr in t.select("tbody tr")[:(4 if detalhar else 1)]:
+                    tds = tr.select("td")
+                    linhas.append([_celula(td) for td in tds] if detalhar
+                                  else [td.get_text(" ", strip=True)[:40] for td in tds])
+                tabelas.append({"cabecalho": ths, "linhas": linhas})
             caixas.append({"titulo": (h2.get_text(strip=True) if h2 else None)[:80] if h2 else None,
                            "tabelas": tabelas})
         return {"url": url, "http": 200, "titulo_pagina": (soup.title.string or "").strip() if soup.title else None,
