@@ -11,7 +11,25 @@ from database import (
 )
 
 TM_BASE = "https://www.transfermarkt.com.br"
-TM_URL  = f"{TM_BASE}/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/2026"
+
+
+def _temporada_tm() -> int:
+    """Ano com que o TM rotula a temporada saudita corrente (vira em agosto).
+
+    Estava fixo em 2026 no código; em agosto de 2027 isso passaria a raspar a
+    temporada errada em silêncio, que é o pior tipo de defeito."""
+    from datetime import date
+    hoje = date.today()
+    return hoje.year if hoje.month >= 8 else hoje.year - 1
+
+
+TM_SAISON = _temporada_tm()
+TM_URL   = f"{TM_BASE}/saudi-professional-league/transfers/wettbewerb/SA1/saison_id/{TM_SAISON}"
+# Mudanças de treinador (visão detalhada): traz quem saiu e o sucessor por clube.
+TM_COACH_URL = (
+    f"{TM_BASE}/saudi-professional-league/trainerwechsel/wettbewerb/SA1"
+    f"/plus/1/saison_id/{TM_SAISON}"
+)
 TM_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -149,6 +167,128 @@ def _parse_transfers(html: str) -> list[dict]:
     return transfers
 
 
+# ── Treinadores ───────────────────────────────────────────────────────────────
+
+def _parse_coach_changes(html: str) -> list[dict]:
+    """Lê a tabela de mudanças de treinador: clube, quem saiu e o sucessor.
+
+    O TM aninha tabelas dentro das células, então as linhas precisam ser lidas
+    como filhas DIRETAS do tbody — o select recursivo mistura as linhas internas
+    com as de verdade. Linhas de seção ("Mudanças gerenciais antes da primeira
+    rodada") têm uma célula só e caem fora pelo tamanho."""
+    soup = BeautifulSoup(html, "lxml")
+    mudancas: list[dict] = []
+
+    def _tecnico(td):
+        a = td.select_one("a[href*='/profil/trainer/']")
+        if not a:
+            return None
+        nome = a.get_text(strip=True)
+        tid = _extract_id(a.get("href", ""), r"/trainer/(\d+)")
+        if not nome or not tid:
+            return None
+        return {"nome": nome, "id": tid, "href": a.get("href", "")}
+
+    for table in soup.select("table"):
+        cabecalho = [th.get_text(strip=True) for th in table.select("thead th")]
+        if not any("Sucessor" in c for c in cabecalho):
+            continue
+        corpo = table.find("tbody")
+        if not corpo:
+            continue
+        for tr in corpo.find_all("tr", recursive=False):
+            tds = tr.find_all("td", recursive=False)
+            if len(tds) < 9:
+                continue
+            img = tds[0].find("img")
+            clube = ((img.get("title") or img.get("alt") or "").strip()) if img else ""
+            if not clube:
+                continue
+            saiu, chegou = _tecnico(tds[1]), _tecnico(tds[8])
+            if saiu or chegou:
+                mudancas.append({"clube": clube, "saiu": saiu, "chegou": chegou})
+    return mudancas
+
+
+async def _coach_nationality(client, href: str) -> tuple[str, str | None]:
+    """Nacionalidade do treinador, lida da ficha dele.
+
+    A página de mudanças não traz bandeira, e pegar a primeira bandeira do perfil
+    daria errado: a ordem lá é país do clube atual, país de nascimento e só então
+    a nacionalidade. Por isso o campo é buscado pelo rótulo."""
+    try:
+        r = await client.get(TM_BASE + href if href.startswith("/") else href)
+        if r.status_code != 200:
+            return "", None
+        soup = BeautifulSoup(r.text, "lxml")
+
+        def _do_span(span):
+            im = span.select_one("img")
+            if im and (im.get("title") or im.get("alt")):
+                return (im.get("title") or im.get("alt")).strip(), \
+                       (im.get("src") or im.get("data-src") or None)
+            txt = span.get_text(" ", strip=True)
+            return (txt.split()[0] if txt else ""), None
+
+        for li in soup.select("li.data-header__label"):
+            if "Nacionalidade" in li.get_text():
+                span = li.select_one("span.data-header__content")
+                if span:
+                    nome, url = _do_span(span)
+                    if nome:
+                        return nome, url
+        # fallback: bloco "Dados de perfil"
+        for rot in soup.select("span.info-table__content--regular"):
+            if "Nacionalidade" in rot.get_text():
+                val = rot.find_next_sibling("span")
+                if val:
+                    nome, url = _do_span(val)
+                    if nome:
+                        return nome, url
+        return "", None
+    except Exception:
+        return "", None
+
+
+async def _scrape_coaches(client) -> list[dict]:
+    """Devolve as mudanças de treinador no mesmo formato das transferências."""
+    r = await client.get(TM_COACH_URL)
+    r.raise_for_status()
+    mudancas = _parse_coach_changes(r.text)
+
+    # Só quem CHEGOU precisa de bandeira — no post, as saídas são só nome.
+    nacs: dict[str, tuple[str, str | None]] = {}
+    for m in mudancas:
+        c = m.get("chegou")
+        if c and c["id"] not in nacs:
+            nacs[c["id"]] = await _coach_nationality(client, c["href"])
+
+    registros: list[dict] = []
+    for m in mudancas:
+        clube = m["clube"]
+        for quem, direcao in (("chegou", "in"), ("saiu", "out")):
+            t = m.get(quem)
+            if not t:
+                continue
+            nacionalidade, flag_url = nacs.get(t["id"], ("", None))
+            registros.append({
+                "player_id":     f"t{t['id']}",   # prefixo evita colidir com jogador
+                "player_name":   t["nome"],
+                "photo":         None,
+                "age":           "",
+                "nationality":   nacionalidade,
+                "flag_url":      flag_url,
+                "position":      "Treinador",
+                "market_value":  "",
+                "fee":           "",
+                "transfer_date": None,
+                "team_in":       {"name": clube if direcao == "in" else "", "logo": None},
+                "team_out":      {"name": clube if direcao == "out" else "", "logo": None},
+                "direction":     direcao,
+            })
+    return registros
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 async def run_janela_scrape() -> dict:
@@ -160,14 +300,22 @@ async def run_janela_scrape() -> dict:
             r = await client.get(TM_URL)
             r.raise_for_status()
 
-        transfers = _parse_transfers(r.text)
-        if not transfers:
-            return {"ok": False, "error": "Nenhuma transferencia encontrada"}
+            transfers = _parse_transfers(r.text)
+            if not transfers:
+                return {"ok": False, "error": "Nenhuma transferencia encontrada"}
 
-        saved, current_ids = upsert_window_transfers(transfers)
+            # Treinadores são um extra: se essa parte falhar, as transferências
+            # de jogadores não podem ser perdidas junto.
+            tecnicos: list[dict] = []
+            try:
+                tecnicos = await _scrape_coaches(client)
+            except Exception as e:
+                print(f"  ⚠️  Treinadores não raspados: {type(e).__name__}: {e}")
+
+        saved, current_ids = upsert_window_transfers(transfers + tecnicos)
         removed = delete_stale_window_transfers(current_ids)
-        print(f"Janela scrape: {saved} upserted, {removed} removidos")
-        return {"ok": True, "total": saved, "removed": removed}
+        print(f"Janela scrape: {saved} upserted ({len(tecnicos)} de treinador), {removed} removidos")
+        return {"ok": True, "total": saved, "tecnicos": len(tecnicos), "removed": removed}
 
     except Exception as e:
         print(f"Erro no janela scrape: {e}")

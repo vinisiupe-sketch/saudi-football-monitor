@@ -5558,6 +5558,186 @@ async def tm_photo_proxy(player_id: str):
     return Response(status_code=404)
 
 
+# ── Post de janela (entradas e saídas por clube) ─────────────────────────────
+# Cores por clube, na grafia curta que sobra depois de limpar o nome do TM.
+JANELA_CORES = {
+    "HILAL": "🔵⚪️", "RIYADH": "⚫️🔴", "ITTIHAD": "⚫️🟡", "NASSR": "🟡🔵",
+    "DAMAC": "🔴🟤", "FAYHA": "🟠🔵", "KHALEEJ": "🟢🟡", "KHOLOOD": "🔴🟢",
+    "OKHDOOD": "🔵⚫️", "SHABAB": "⚪️⚫️", "ETTIFAQ": "🟢🔴", "FATEH": "🔵🟢",
+    "AHLI": "🟢⚪️", "TAAWOUN": "🟡⚪️", "QADSIAH": "🔴🟡", "NEOM": "🔵🟣",
+    "HAZEM": "🟡🟡", "NAJMA": "🟢⚫️", "NAJMAH": "🟢⚫️", "FAISALY": "🔴⚪️",
+    "DIRIYAH": "🟤⚪️", "ABHA": "🔵🔴",
+}
+
+# Ordem em que as posições aparecem no post — do gol pra frente, técnico por último.
+JANELA_POSICOES = [
+    ("Goleiro", "G"), ("Zagueiro", "Z"), ("Lateral Dir.", "LD"), ("Lateral Esq.", "LE"),
+    ("Volante", "V"), ("Meia Central", "M"), ("Meia Ofensivo", "M"),
+    ("Ponta Direita", "A"), ("Ponta Esquerda", "A"), ("Centroavante", "A"),
+    ("Treinador", "T"),
+]
+JANELA_SIGLA = {nome: sigla for nome, sigla in JANELA_POSICOES}
+JANELA_ORDEM = {sigla: i for i, sigla in enumerate(["G", "Z", "LD", "LE", "V", "M", "A", "T"])}
+
+# Nacionalidade (grafia do Transfermarkt em pt) -> ISO 3166-1 alfa-2.
+# A bandeira é derivada do código, não escrita à mão, pra não haver emoji errado.
+JANELA_PAIS_ISO = {
+    "Arábia Saudita": "SA", "Brasil": "BR", "França": "FR", "Espanha": "ES",
+    "Senegal": "SN", "Portugal": "PT", "Albânia": "AL", "RD do Congo": "CD",
+    "Congo": "CG", "Holanda": "NL", "Países Baixos": "NL", "Argélia": "DZ",
+    "Egito": "EG", "Uruguai": "UY", "Gâmbia": "GM", "Sudão": "SD", "Sérvia": "RS",
+    "Costa do Marfim": "CI", "Gana": "GH", "Eslováquia": "SK", "Moldávia": "MD",
+    "Argentina": "AR", "Grécia": "GR", "Jordânia": "JO", "Kosovo": "XK",
+    "Togo": "TG", "Guiné": "GN", "Guiné-Bissau": "GW", "Mali": "ML",
+    "Ruanda": "RW", "Roménia": "RO", "Romênia": "RO", "Marrocos": "MA",
+    "Croácia": "HR", "Bósnia-Herzegovina": "BA", "Gabão": "GA", "Tunísia": "TN",
+    "Alemanha": "DE", "Itália": "IT", "Bélgica": "BE", "Suíça": "CH",
+    "Áustria": "AT", "Dinamarca": "DK", "Suécia": "SE", "Noruega": "NO",
+    "Finlândia": "FI", "Islândia": "IS", "Polónia": "PL", "Polônia": "PL",
+    "Ucrânia": "UA", "Rússia": "RU", "Bielorrússia": "BY", "Hungria": "HU",
+    "Chéquia": "CZ", "República Checa": "CZ", "Eslovénia": "SI", "Eslovênia": "SI",
+    "Bulgária": "BG", "Macedónia do Norte": "MK", "Macedônia do Norte": "MK",
+    "Montenegro": "ME", "Geórgia": "GE", "Arménia": "AM", "Armênia": "AM",
+    "Azerbaijão": "AZ", "Turquia": "TR", "Israel": "IL", "Chipre": "CY",
+    "Nigéria": "NG", "Camarões": "CM", "Zâmbia": "ZM", "Quénia": "KE",
+    "Quênia": "KE", "África do Sul": "ZA", "Angola": "AO", "Moçambique": "MZ",
+    "Cabo Verde": "CV", "Burkina Faso": "BF", "Benim": "BJ", "Benin": "BJ",
+    "Níger": "NE", "Chade": "TD", "Líbia": "LY", "Mauritânia": "MR",
+    "Serra Leoa": "SL", "Libéria": "LR", "Uganda": "UG", "Tanzânia": "TZ",
+    "Etiópia": "ET", "Somália": "SO", "Comores": "KM", "Madagáscar": "MG",
+    "Emirados Árabes Unidos": "AE", "Catar": "QA", "Kuwait": "KW",
+    "Bahrein": "BH", "Barém": "BH", "Omã": "OM", "Iémen": "YE", "Iêmen": "YE",
+    "Palestina": "PS", "Síria": "SY", "Líbano": "LB", "Iraque": "IQ", "Irão": "IR",
+    "Irã": "IR", "Uzbequistão": "UZ", "Tajiquistão": "TJ", "Coreia do Sul": "KR",
+    "Japão": "JP", "China": "CN", "Austrália": "AU", "Nova Zelândia": "NZ",
+    "Estados Unidos": "US", "Canadá": "CA", "México": "MX", "Colômbia": "CO",
+    "Chile": "CL", "Peru": "PE", "Paraguai": "PY", "Equador": "EC",
+    "Venezuela": "VE", "Bolívia": "BO", "Costa Rica": "CR", "Jamaica": "JM",
+    "Trindade e Tobago": "TT", "República Dominicana": "DO", "Honduras": "HN",
+    "Panamá": "PA", "Guatemala": "GT", "Irlanda": "IE", "Malta": "MT",
+    "Luxemburgo": "LU", "Lituânia": "LT", "Letónia": "LV", "Estónia": "EE",
+}
+# Nações do Reino Unido não têm código ISO próprio; a bandeira é uma sequência
+# especial, então ficam listadas à parte em vez de virarem código inventado.
+JANELA_BANDEIRA_ESPECIAL = {
+    "Inglaterra": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Escócia": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "País de Gales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
+    "Irlanda do Norte": "🇬🇧", "Reino Unido": "🇬🇧",
+}
+
+
+def _janela_bandeira(pais: str | None) -> str | None:
+    """Emoji da bandeira, ou None se o país não estiver mapeado.
+
+    Devolver None de propósito: um país sem bandeira precisa APARECER no aviso,
+    não sair com a bandeira de outro lugar."""
+    p = (pais or "").strip()
+    if not p:
+        return None
+    if p in JANELA_BANDEIRA_ESPECIAL:
+        return JANELA_BANDEIRA_ESPECIAL[p]
+    iso = JANELA_PAIS_ISO.get(p)
+    if not iso:
+        return None
+    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in iso.upper())
+
+
+def _janela_clube_limpo(nome: str | None) -> str:
+    """'Al-Hilal SFC' -> 'AL HILAL'; 'NEOM SC' -> 'NEOM'; 'Abha Club' -> 'ABHA'.
+
+    Vale mais que uma tabela de nomes: o sufixo societário do TM é o que muda,
+    o miolo não. E preserva o 'AL' de quem tem, sem colar em quem não tem."""
+    n = (nome or "").strip()
+    if not n:
+        return ""
+    n = re.sub(r"\s+(SFC|FC|SC|Club|CF)\s*$", "", n, flags=re.I).strip()
+    return n.replace("-", " ").upper()
+
+
+def _montar_post_janela() -> dict:
+    """Texto do post de entradas e saídas, agrupado por clube da liga."""
+    rows = get_window_transfers()
+    if not rows:
+        return {"erro": "sem dados de janela — rode a raspagem primeiro"}
+
+    clubes: dict[str, dict] = {}
+    sem_bandeira: set[str] = set()
+    sem_cor: set[str] = set()
+    sem_posicao: set[str] = set()
+
+    for r in rows:
+        entrada = r.get("direction") == "in"
+        bruto = r.get("team_in_name") if entrada else r.get("team_out_name")
+        clube = _janela_clube_limpo(bruto)
+        if not clube:
+            continue
+        d = clubes.setdefault(clube, {"entradas": [], "saidas": []})
+        nome = (r.get("player_name") or "").strip()
+        if not nome:
+            continue
+        if entrada:
+            pos = (r.get("position") or "").strip()
+            sigla = JANELA_SIGLA.get(pos)
+            if not sigla and pos:
+                sem_posicao.add(pos)
+            band = _janela_bandeira(r.get("nationality"))
+            if band is None and (r.get("nationality") or "").strip():
+                sem_bandeira.add(r["nationality"].strip())
+            d["entradas"].append({
+                "nome": nome, "sigla": sigla or pos or "?",
+                "bandeira": band, "pais": (r.get("nationality") or "").strip(),
+                "ordem": JANELA_ORDEM.get(sigla, 99),
+            })
+        else:
+            d["saidas"].append(nome)
+
+    destaque = ["AL HILAL", "AL NASSR", "AL AHLI", "AL ITTIHAD"]
+    def _chave(c):
+        return (destaque.index(c) if c in destaque else len(destaque), c)
+
+    blocos = []
+    for clube in sorted(clubes, key=_chave):
+        d = clubes[clube]
+        if not d["entradas"] and not d["saidas"]:
+            continue
+        token = clube.split()[-1]
+        cor = JANELA_CORES.get(token)
+        if cor is None:
+            sem_cor.add(clube)
+        linhas = [f"{clube} {cor}".strip() if cor else clube]
+        for e in sorted(d["entradas"], key=lambda x: (x["ordem"], x["nome"])):
+            # país sem bandeira mapeada vai com o nome entre colchetes: erro visível
+            marca = e["bandeira"] or (f"[{e['pais']}]" if e["pais"] else "")
+            linhas.append(f"{marca} {e['nome']} ({e['sigla']})".strip())
+        if d["saidas"]:
+            nomes = sorted(set(d["saidas"]))
+            texto = nomes[0] if len(nomes) == 1 else ", ".join(nomes[:-1]) + " e " + nomes[-1]
+            linhas.append("")
+            linhas.append(f"❌ Saídas: {texto}.")
+        blocos.append("\n".join(linhas))
+
+    avisos = []
+    if sem_cor:
+        avisos.append("clubes sem cor definida: " + ", ".join(sorted(sem_cor)))
+    if sem_bandeira:
+        avisos.append("nacionalidades sem bandeira: " + ", ".join(sorted(sem_bandeira)))
+    if sem_posicao:
+        avisos.append("posições sem sigla: " + ", ".join(sorted(sem_posicao)))
+
+    return {
+        "texto": "\n\n".join(blocos),
+        "clubes": len(blocos),
+        "entradas": sum(len(c["entradas"]) for c in clubes.values()),
+        "saidas": sum(len(c["saidas"]) for c in clubes.values()),
+        "avisos": avisos,
+    }
+
+
+@app.get("/api/janela/post")
+async def api_janela_post():
+    """Texto pronto pra copiar do post de entradas e saídas da janela."""
+    return _montar_post_janela()
+
+
 @app.get("/api/janela/inspecionar-tm")
 async def api_janela_inspecionar_tm(caminho: str):
     """TEMPORÁRIO — devolve um resumo estrutural de uma página do Transfermarkt.
@@ -5940,6 +6120,19 @@ body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacS
       <input type="checkbox" id="foreignOnly" onchange="applyFilters()" style="width:14px;height:14px;accent-color:var(--accent);cursor:pointer;">
       Estrangeiros
     </label>
+    <button class="filter-btn" onclick="gerarPost()" id="btnPost">📋 Gerar post</button>
+  </div>
+
+  <div id="postBox" style="display:none;margin:0 0 18px">
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap">
+      <strong style="font-size:14px">Entradas e saídas por clube</strong>
+      <button class="filter-btn" onclick="copiarPost(this)">📋 Copiar</button>
+      <span id="postMeta" style="font-size:12px;color:var(--text2)"></span>
+    </div>
+    <div id="postAvisos" style="display:none;font-size:12px;color:#f59e0b;margin-bottom:8px"></div>
+    <pre id="postTexto" style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.6;
+      background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin:0;
+      max-height:60vh;overflow:auto"></pre>
   </div>
 
   <div id="cards" class="cards">
@@ -5964,6 +6157,43 @@ function showToast(msg, duration) {{
   t.style.opacity = '1';
   clearTimeout(t._timer);
   t._timer = setTimeout(() => {{ t.style.opacity = '0'; }}, duration || 8000);
+}}
+
+async function gerarPost() {{
+  const box = document.getElementById('postBox');
+  const btn = document.getElementById('btnPost');
+  const orig = btn.textContent;
+  btn.textContent = 'gerando…'; btn.disabled = true;
+  try {{
+    const r = await fetch('/api/janela/post?_=' + Date.now());
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    document.getElementById('postTexto').textContent = d.texto;
+    document.getElementById('postMeta').textContent =
+      d.clubes + ' clubes · ' + d.entradas + ' entradas · ' + d.saidas + ' saídas';
+    const av = document.getElementById('postAvisos');
+    // Aviso visível: sem isso, um país sem bandeira sairia no post sem ninguém notar.
+    if (d.avisos && d.avisos.length) {{
+      av.textContent = '⚠️ ' + d.avisos.join(' · ');
+      av.style.display = '';
+    }} else {{
+      av.style.display = 'none';
+    }}
+    box.style.display = '';
+    box.scrollIntoView({{behavior: 'smooth', block: 'start'}});
+  }} catch(e) {{
+    showToast('Erro ao gerar: ' + e.message);
+  }} finally {{
+    btn.textContent = orig; btn.disabled = false;
+  }}
+}}
+
+function copiarPost(btn) {{
+  navigator.clipboard.writeText(document.getElementById('postTexto').textContent).then(() => {{
+    const o = btn.textContent;
+    btn.textContent = '✅ Copiado!';
+    setTimeout(() => {{ btn.textContent = o; }}, 1800);
+  }});
 }}
 
 async function load(refresh) {{
