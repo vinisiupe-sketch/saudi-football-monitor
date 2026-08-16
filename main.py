@@ -5607,6 +5607,7 @@ async def api_janela_inspecionar_tm(caminho: str):
                                   else [td.get_text(" ", strip=True)[:40] for td in tds])
                 tabelas.append({"cabecalho": ths, "linhas": linhas})
             caixas.append({"titulo": (h2.get_text(strip=True) if h2 else None)[:80] if h2 else None,
+                           "texto": box.get_text(" | ", strip=True)[:500],
                            "tabelas": tabelas})
         bandeiras = [{"cls": " ".join(i.get("class") or []), "title": i.get("title") or i.get("alt"),
                       "src": (i.get("src") or i.get("data-src") or "")[:70]}
