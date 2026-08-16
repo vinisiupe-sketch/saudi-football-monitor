@@ -5089,7 +5089,15 @@ function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
 async function carregarTimes(){
   const r = await fetch('/api/elencos/times');
   const d = await r.json();
-  if (d.erro) { document.getElementById('escudos').innerHTML = '<span class="sub">' + d.erro + '</span>'; return; }
+  if (d.erro) {
+    // O TM às vezes recusa a consulta por excesso de acessos; costuma liberar
+    // sozinho, então o caminho aqui é oferecer nova tentativa, não travar.
+    document.getElementById('escudos').innerHTML =
+      '<div class="sub" style="max-width:640px">Não consegui carregar a lista de clubes agora: ' + d.erro +
+      '<br>O Transfermarkt limita consultas seguidas. Espere alguns segundos e tente de novo. ' +
+      '<button class="ctrl" style="margin-top:8px" onclick="carregarTimes()">Tentar de novo</button></div>';
+    return;
+  }
   document.getElementById('escudos').innerHTML = d.times.map(function(t){
     return '<div class="escudo" data-id="' + t.id + '" title="' + t.nome + '" onclick="selecionarTime(' + t.id + ',this)">' +
            '<img src="' + t.escudo + '" alt="' + t.nome + '"></div>';
@@ -5421,9 +5429,11 @@ async def elencos_page():
 async def api_elencos_times():
     """Clubes da Saudi Pro League, deduzidos do calendário do Transfermarkt."""
     try:
-        return {"season": elenco_tm.TM_SAISON, "times": await elenco_tm.clubes()}
+        times, aviso = await elenco_tm.clubes()
     except Exception as e:
         return {"erro": f"{type(e).__name__}: {e}"}
+    return {"season": elenco_tm.TM_SAISON, "times": times,
+            "avisos": [aviso] if aviso else []}
 
 
 def _elenco_pais(nacs: list[str]) -> dict:
@@ -5444,9 +5454,11 @@ def _elenco_pais(nacs: list[str]) -> dict:
 @app.get("/api/elencos/jogadores")
 async def api_elencos_jogadores(team: int):
     """Elenco completo do clube, cadastro e números, tudo do Transfermarkt."""
+    # Sequencial de propósito: o TM bloqueia quem dispara em paralelo, e o
+    # portão interno do módulo serializa mesmo se pedirmos junto.
     try:
-        plantel, numeros = await asyncio.gather(
-            elenco_tm.elenco(team), elenco_tm.desempenho(team))
+        plantel, av1 = await elenco_tm.elenco(team)
+        numeros, av2 = await elenco_tm.desempenho(team)
     except Exception as e:
         return {"erro": f"{type(e).__name__}: {e}"}
     if not plantel:
@@ -5477,7 +5489,7 @@ async def api_elencos_jogadores(team: int):
     ordem = {"G": 0, "D": 1, "M": 2, "A": 3}
     jogadores.sort(key=lambda j: (ordem.get(j["grupo"], 9), -(j["minutos"] or 0),
                                   j["numero"] if j["numero"] is not None else 999))
-    avisos = []
+    avisos = [a for a in (av1, av2) if a]
     if sem_bandeira:
         avisos.append("nacionalidades sem bandeira mapeada: " + ", ".join(sorted(sem_bandeira)))
     if sem_posicao:
@@ -5490,10 +5502,10 @@ async def api_elencos_jogadores(team: int):
 async def api_elencos_escalacao(team: int):
     """Escalação e formação do último jogo encerrado, lidas da súmula do TM."""
     try:
-        jogo = await elenco_tm.ultimo_jogo(team)
+        jogo, av1 = await elenco_tm.ultimo_jogo(team)
         if not jogo:
-            return {"erro": "nenhuma partida encerrada nesta temporada"}
-        times = await elenco_tm.escalacao(jogo["sumula"])
+            return {"erro": av1 or "nenhuma partida encerrada nesta temporada"}
+        times, av2 = await elenco_tm.escalacao(jogo["sumula"])
     except Exception as e:
         return {"erro": f"{type(e).__name__}: {e}"}
     if not times:
@@ -5511,6 +5523,7 @@ async def api_elencos_escalacao(team: int):
         "formacao": bloco.get("formacao"),
         "sem_posicoes": not bloco.get("formacao"),
         "titulares": titulares, "suplentes": [{"id": p} for p in bloco.get("banco") or []],
+        "avisos": [a for a in (av1, av2) if a],
     }
 
 

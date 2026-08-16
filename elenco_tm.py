@@ -37,13 +37,55 @@ def _cache_set(chave: str, valor):
     return valor
 
 
-async def _sopa(caminho: str) -> BeautifulSoup | None:
+# O TM não tem API: é raspagem, e ele bloqueia quem chega rápido demais. Em
+# 16/08/2026 uma rajada de validação (elenco + desempenho + calendário + súmula
+# de vários clubes em poucos minutos) rendeu 403 em tudo. Daí as três defesas:
+# uma requisição por vez, intervalo mínimo entre elas e nova tentativa com
+# espera crescente.
+_PORTAO = asyncio.Semaphore(1)
+_INTERVALO = 1.5          # segundos entre requisições
+_ultimo_acesso = 0.0
+
+
+async def _sopa(caminho: str, tentativas: int = 3) -> BeautifulSoup:
+    global _ultimo_acesso
     url = TM_BASE.rstrip("/") + "/" + caminho.lstrip("/")
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True, headers=TM_HEADERS) as c:
-        r = await c.get(url)
-    if r.status_code != 200:
-        raise RuntimeError(f"Transfermarkt HTTP {r.status_code} em {caminho}")
-    return BeautifulSoup(r.text, "lxml")
+    erro = None
+    for tentativa in range(tentativas):
+        async with _PORTAO:
+            espera = _INTERVALO - (time.time() - _ultimo_acesso)
+            if espera > 0:
+                await asyncio.sleep(espera)
+            try:
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True,
+                                             headers=TM_HEADERS) as c:
+                    r = await c.get(url)
+            finally:
+                _ultimo_acesso = time.time()
+        if r.status_code == 200:
+            return BeautifulSoup(r.text, "lxml")
+        erro = r.status_code
+        if r.status_code in (403, 429, 503) and tentativa < tentativas - 1:
+            await asyncio.sleep(2 ** tentativa * 3)     # 3s, depois 6s
+            continue
+        break
+    raise RuntimeError(f"Transfermarkt HTTP {erro} em {caminho}")
+
+
+async def _com_cache(chave: str, ttl: int, caminho: str, parser):
+    """Busca, guarda e — se o TM bloquear — devolve o que já tinha.
+
+    Servir dado velho com aviso é melhor que tela vazia: o elenco de ontem
+    continua quase todo certo, e o bloqueio costuma passar sozinho."""
+    v = _CACHE.get(chave)
+    if v and (time.time() - v[0]) < ttl:
+        return v[1], None
+    try:
+        return _cache_set(chave, parser(await _sopa(caminho))), None
+    except Exception as e:
+        if v:
+            return v[1], f"o Transfermarkt recusou a consulta agora ({e}); mostrando dados de antes"
+        raise
 
 
 # ── helpers de leitura ───────────────────────────────────────────────────────
@@ -153,13 +195,11 @@ def _parse_elenco(soup: BeautifulSoup) -> list[dict]:
     return out
 
 
-async def elenco(clube_id: int, season: int | None = None) -> list[dict]:
+async def elenco(clube_id: int, season: int | None = None) -> tuple[list[dict], str | None]:
     season = season or TM_SAISON
-    chave = f"elenco:{clube_id}:{season}"
-    if (v := _cache_get(chave, TTL_ELENCO)) is not None:
-        return v
-    soup = await _sopa(f"x/kader/verein/{clube_id}/saison_id/{season}/plus/1")
-    return _cache_set(chave, _parse_elenco(soup))
+    return await _com_cache(f"elenco:{clube_id}:{season}", TTL_ELENCO,
+                            f"x/kader/verein/{clube_id}/saison_id/{season}/plus/1",
+                            _parse_elenco)
 
 
 # ── desempenho (leistungsdaten) ──────────────────────────────────────────────
@@ -195,13 +235,11 @@ def _parse_desempenho(soup: BeautifulSoup) -> dict[int, dict]:
     return fora
 
 
-async def desempenho(clube_id: int, season: int | None = None) -> dict[int, dict]:
+async def desempenho(clube_id: int, season: int | None = None) -> tuple[dict[int, dict], str | None]:
     season = season or TM_SAISON
-    chave = f"desemp:{clube_id}:{season}"
-    if (v := _cache_get(chave, TTL_ELENCO)) is not None:
-        return v
-    soup = await _sopa(f"x/leistungsdaten/verein/{clube_id}/plus/1/saison_id/{season}")
-    return _cache_set(chave, _parse_desempenho(soup))
+    return await _com_cache(f"desemp:{clube_id}:{season}", TTL_ELENCO,
+                            f"x/leistungsdaten/verein/{clube_id}/plus/1/saison_id/{season}",
+                            _parse_desempenho)
 
 
 # ── calendário e clubes ──────────────────────────────────────────────────────
@@ -249,19 +287,17 @@ def _parse_calendario(soup: BeautifulSoup) -> list[dict]:
     return jogos
 
 
-async def calendario(season: int | None = None) -> list[dict]:
+async def calendario(season: int | None = None) -> tuple[list[dict], str | None]:
     season = season or TM_SAISON
-    chave = f"cal:{season}"
-    if (v := _cache_get(chave, TTL_CALENDARIO)) is not None:
-        return v
-    soup = await _sopa(
-        f"saudi-professional-league/gesamtspielplan/wettbewerb/SA1/saison_id/{season}")
-    return _cache_set(chave, _parse_calendario(soup))
+    return await _com_cache(
+        f"cal:{season}", TTL_CALENDARIO,
+        f"saudi-professional-league/gesamtspielplan/wettbewerb/SA1/saison_id/{season}",
+        _parse_calendario)
 
 
-async def clubes(season: int | None = None) -> list[dict]:
+async def clubes(season: int | None = None) -> tuple[list[dict], str | None]:
     """Clubes da liga, deduzidos do calendário — uma requisição serve às duas coisas."""
-    jogos = await calendario(season)
+    jogos, aviso = await calendario(season)
     vistos: dict[int, str] = {}
     for j in jogos:
         for i, n in ((j["casa_id"], j["casa"]), (j["fora_id"], j["fora"])):
@@ -269,19 +305,20 @@ async def clubes(season: int | None = None) -> list[dict]:
                 vistos[i] = n
     return sorted(({"id": i, "nome": n,
                     "escudo": f"https://tmssl.akamaized.net//images/wappen/head/{i}.png"}
-                   for i, n in vistos.items()), key=lambda c: c["nome"].lower())
+                   for i, n in vistos.items()), key=lambda c: c["nome"].lower()), aviso
 
 
-async def ultimo_jogo(clube_id: int, season: int | None = None) -> dict | None:
+async def ultimo_jogo(clube_id: int, season: int | None = None) -> tuple[dict | None, str | None]:
     """Partida encerrada mais recente do clube (a que tem súmula e placar)."""
     hoje = date.today().isoformat()
-    disputados = [j for j in await calendario(season)
+    jogos, aviso = await calendario(season)
+    disputados = [j for j in jogos
                   if clube_id in (j["casa_id"], j["fora_id"])
                   and j["sumula"] and j["placar"] and re.match(r"^\d+:\d+$", j["placar"] or "")
                   and (not j["data"] or j["data"] <= hoje)]
     if not disputados:
-        return None
-    return max(disputados, key=lambda j: j["data"] or "")
+        return None, aviso
+    return max(disputados, key=lambda j: j["data"] or ""), aviso
 
 
 # ── escalação da súmula ──────────────────────────────────────────────────────
@@ -337,12 +374,9 @@ def _parse_escalacao(soup: BeautifulSoup) -> list[dict]:
     return times
 
 
-async def escalacao(sumula_id: int) -> list[dict]:
-    chave = f"esc:{sumula_id}"
-    if (v := _cache_get(chave, TTL_ESCALACAO)) is not None:
-        return v
-    soup = await _sopa(f"x/index/spielbericht/{sumula_id}")
-    return _cache_set(chave, _parse_escalacao(soup))
+async def escalacao(sumula_id: int) -> tuple[list[dict], str | None]:
+    return await _com_cache(f"esc:{sumula_id}", TTL_ESCALACAO,
+                            f"x/index/spielbericht/{sumula_id}", _parse_escalacao)
 
 
 def posicoes_no_campo(formacao: str | None, quantidade: int = 11) -> list[tuple[float, float]]:
