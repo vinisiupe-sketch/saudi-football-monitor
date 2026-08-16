@@ -2300,7 +2300,9 @@ function renderResultCard(container, title, bodyText, meta) {{
   container.querySelector('.result-card').dataset.copytext = bodyText;
 }}
 
-function renderStandingsCard(container, title, bodyText, meta, columns) {{
+// copyText separa o que aparece na tela do que vai pra área de transferência: o
+// cabeçalho ajuda a conferir a tabela, mas atrapalha ao colar no post/planilha.
+function renderStandingsCard(container, title, bodyText, meta, columns, copyText) {{
   const colButtons = columns.map((c, i) =>
     '<button class="copy-btn col-copy-btn" data-col="' + i + '" onclick="copyColumn(this)">\\u{{1F4CB}} ' + c.key + '</button>'
   ).join('');
@@ -2313,7 +2315,7 @@ function renderStandingsCard(container, title, bodyText, meta, columns) {{
     (meta ? '<div class="result-meta">' + meta + '</div>' : '') +
     '</div>';
   const card = container.querySelector('.result-card');
-  card.dataset.copytext = bodyText;
+  card.dataset.copytext = (copyText !== undefined && copyText !== null) ? copyText : bodyText;
   card._columns = columns;
 }}
 
@@ -2321,7 +2323,8 @@ function copyColumn(btn) {{
   const card = btn.closest('.result-card');
   const idx = parseInt(btn.dataset.col, 10);
   const col = card._columns[idx];
-  const text = col.key + '\\n' + col.values.join('\\n');
+  // Sem o nome da coluna, pela mesma razão do "Copiar tudo": o que se cola é dado.
+  const text = col.values.join('\\n');
   navigator.clipboard.writeText(text).then(() => {{
     const orig = btn.textContent;
     btn.textContent = '\\u2705';
@@ -2402,11 +2405,12 @@ async function loadStandings() {{
     const n = mode === 'all' ? d.table.length : parseInt(mode, 10);
     const rows = d.table.slice(0, n);
     const label = mode === 'all' ? 'CLASSIFICAÇÃO COMPLETA' : 'G' + n;
-    let txt = label + ' — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n';
-    txt += 'POS\\tTIME\\tPTS\\tJ\\tV\\tSG\\n';
+    let linhas = '';
     rows.forEach(r => {{
-      txt += r.rank + '\\t' + clubShort(r.team).toUpperCase() + '\\t' + naNum(r.points) + '\\t' + naNum(r.played) + '\\t' + naNum(r.wins) + '\\t' + naNum(r.goals_diff) + '\\n';
+      linhas += r.rank + '\\t' + clubShort(r.team).toUpperCase() + '\\t' + naNum(r.points) + '\\t' + naNum(r.played) + '\\t' + naNum(r.wins) + '\\t' + naNum(r.goals_diff) + '\\n';
     }});
+    const txt = label + ' — SAUDI PRO LEAGUE ' + seasonLabel + '\\n\\n'
+              + 'POS\\tTIME\\tPTS\\tJ\\tV\\tSG\\n' + linhas;
     const columns = [
       {{ key: 'POS', values: rows.map(r => String(r.rank)) }},
       {{ key: 'TIME', values: rows.map(r => clubShort(r.team).toUpperCase()) }},
@@ -2417,7 +2421,7 @@ async function loadStandings() {{
     ];
     renderStandingsCard(container, label, txt.trim(),
       'Temporada ' + seasonLabel + ' · Saudi Pro League · formato tabulado (TSV) — cole direto em planilha ou Canva · fonte: API-Football',
-      columns);
+      columns, linhas.trim());
   }} catch(e) {{
     container.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
   }}
@@ -4867,8 +4871,7 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
     if status == "PEN" and pen.get("home") is not None:
         placar += f" ({pen.get('home')}x{pen.get('away')} nos pênaltis)"
 
-    minuto = ((f.get("fixture") or {}).get("status") or {}).get("elapsed")
-    cabecalho = "⏱️ FIM DE JOGO" if encerrado else f"⏱️ PARCIAL{f' — {minuto}' + chr(39) if minuto else ''}"
+    cabecalho = "⏱️ FIM DE JOGO" if encerrado else "⏱️ FIM DE JOGO (parcial)"
 
     partes = [cabecalho, ""]
     if narrativa:
