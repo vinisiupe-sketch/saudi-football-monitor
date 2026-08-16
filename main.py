@@ -5122,9 +5122,8 @@ __HDR__
   <div id="escudos" class="escudos"></div>
 
   <div class="barra">
-    <select id="temporada" class="ctrl" onchange="recarregar()"></select>
     <select id="formacao" class="ctrl" onchange="trocarFormacao()"></select>
-    <button class="ctrl" onclick="preencherAuto()">↻ Escalar automático</button>
+    <button class="ctrl" onclick="voltarEscalacao()">⚽ Última escalação</button>
     <button class="ctrl" onclick="limparCampo()">Limpar campo</button>
     <label class="chk"><input type="checkbox" id="soEstrangeiros" onchange="renderTabela()"> Só estrangeiros</label>
     <span id="contador" class="sub" style="margin:0"></span>
@@ -5136,7 +5135,8 @@ __HDR__
         <div class="linha c-borda"></div><div class="linha c-meio"></div>
         <div class="linha c-circulo"></div><div class="linha c-area-b"></div><div class="linha c-area-c"></div>
       </div>
-      <p class="sub" style="margin:8px 0 0">Arraste um jogador da lista para uma posição. Arraste entre posições para trocar. Clique numa posição ocupada para esvaziar.</p>
+      <p id="infoJogo" class="sub" style="margin:8px 0 0"></p>
+      <p class="sub" style="margin:4px 0 0">Arraste um jogador da lista para uma posição. Arraste entre posições para trocar. Clique numa posição ocupada para esvaziar.</p>
     </div>
 
     <div>
@@ -5148,10 +5148,13 @@ __HDR__
 
 <script>
 const FORMACOES = __FORMACOES__;
-const SEASONS = __SEASONS__;
 let ELENCO = [];        // jogadores do clube atual
-let CAMPO = [];         // id do jogador em cada casa, ou null
+// Cada casa do campo carrega a própria coordenada: assim o campinho pode mostrar
+// a escalação REAL da última partida, cujas posições vêm da API e não batem
+// necessariamente com nenhum dos moldes de formação daqui.
+let SLOTS = [];         // [{x, y, g, id}]
 let FORM = '4-3-3';
+let ESCALACAO = null;   // última escalação carregada, pra poder voltar a ela
 let TIME_ATUAL = null;
 let ordenarPor = null, ordemAsc = false;
 
@@ -5163,11 +5166,7 @@ function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
 
 // ── carga ──
 async function carregarTimes(){
-  const sel = document.getElementById('temporada');
-  sel.innerHTML = SEASONS.map(function(s){
-    return '<option value="' + s + '">' + s + '/' + String(s+1).slice(2) + '</option>';
-  }).join('');
-  const r = await fetch('/api/elencos/times?season=' + sel.value);
+  const r = await fetch('/api/elencos/times');
   const d = await r.json();
   if (d.erro) { document.getElementById('escudos').innerHTML = '<span class="sub">' + d.erro + '</span>'; return; }
   document.getElementById('escudos').innerHTML = d.times.map(function(t){
@@ -5176,50 +5175,96 @@ async function carregarTimes(){
   }).join('');
 }
 
-function recarregar(){
-  carregarTimes().then(function(){ if (TIME_ATUAL) selecionarTime(TIME_ATUAL, null); });
-}
-
 async function selecionarTime(id, el){
   TIME_ATUAL = id;
   document.querySelectorAll('.escudo').forEach(function(e){
     e.classList.toggle('active', Number(e.dataset.id) === id);
   });
   document.getElementById('tabela').innerHTML = '<div class="estado">Carregando elenco…</div>';
-  const season = document.getElementById('temporada').value;
+  document.getElementById('infoJogo').textContent = '';
   try {
-    const r = await fetch('/api/elencos/jogadores?team=' + id + '&season=' + season);
-    const d = await r.json();
+    // Elenco e escalação em paralelo: a segunda é o que desenha o campo.
+    const [rj, re] = await Promise.all([
+      fetch('/api/elencos/jogadores?team=' + id),
+      fetch('/api/elencos/escalacao?team=' + id)
+    ]);
+    const d = await rj.json();
     if (d.erro) throw new Error(d.erro);
     ELENCO = d.jogadores;
     const av = document.getElementById('avisos');
     if (d.avisos && d.avisos.length) { av.textContent = '⚠️ ' + d.avisos.join(' · '); av.style.display = ''; }
     else av.style.display = 'none';
-    preencherAuto();
+
+    let esc = null;
+    try { esc = await re.json(); } catch(e) {}
+    ESCALACAO = (esc && !esc.erro) ? esc : null;
+    if (ESCALACAO) aplicarEscalacao();
+    else {
+      document.getElementById('infoJogo').textContent =
+        'Escalação da última partida indisponível' + (esc && esc.erro ? ' (' + esc.erro + ')' : '') +
+        ' — campo montado pela formação escolhida.';
+      aplicarFormacao(FORM);
+    }
     renderTabela();
   } catch(e) {
     document.getElementById('tabela').innerHTML = '<div class="estado">Erro: ' + e.message + '</div>';
   }
 }
 
+function aplicarEscalacao(){
+  const e = ESCALACAO;
+  if (!e) return;
+  SLOTS = e.titulares.map(function(t){
+    return {x: t.x, y: t.y, g: t.grupo, id: t.id, rotulo: t.nome, numero: t.numero};
+  });
+  if (e.formacao) {
+    FORM = e.formacao;
+    const sel = document.getElementById('formacao');
+    // A formação real pode não estar entre os moldes — entra na lista pra aparecer.
+    if (!Array.prototype.some.call(sel.options, function(o){ return o.value === e.formacao; })) {
+      const op = document.createElement('option');
+      op.value = e.formacao; op.textContent = e.formacao + ' (do jogo)';
+      sel.insertBefore(op, sel.firstChild);
+    }
+    sel.value = e.formacao;
+  }
+  document.getElementById('infoJogo').textContent =
+    'Escalação de ' + (e.mandante ? 'casa' : 'fora') + ' contra ' + (e.adversario || '?') +
+    ' em ' + (e.data || '?') + ' (' + (e.placar || '') + ')' +
+    (e.formacao ? ' · ' + e.formacao : '');
+  renderCampo();
+}
+
+function voltarEscalacao(){
+  if (ESCALACAO) { aplicarEscalacao(); renderTabela(); }
+  else { preencherAuto(); }
+}
+
 // ── campo ──
 function trocarFormacao(){
-  FORM = document.getElementById('formacao').value;
-  CAMPO = new Array(FORMACOES[FORM].length).fill(null);
+  const escolhida = document.getElementById('formacao').value;
+  // Se voltou pra formação do jogo, restaura as posições reais em vez do molde.
+  if (ESCALACAO && escolhida === ESCALACAO.formacao) { aplicarEscalacao(); renderTabela(); return; }
+  aplicarFormacao(escolhida);
   preencherAuto();
 }
 
+function aplicarFormacao(nome){
+  if (!FORMACOES[nome]) nome = '4-3-3';
+  FORM = nome;
+  SLOTS = FORMACOES[nome].map(function(c){ return {x:c.x, y:c.y, g:c.g, id:null}; });
+}
+
 function limparCampo(){
-  CAMPO = new Array(FORMACOES[FORM].length).fill(null);
+  SLOTS.forEach(function(s){ s.id = null; });
   renderCampo(); renderTabela();
 }
 
 function preencherAuto(){
   // Preenche por grupo, priorizando quem mais jogou. Sem minutagem (pré-temporada),
   // o desempate é o número da camisa, que já reflete a hierarquia do elenco.
-  const casas = FORMACOES[FORM];
-  CAMPO = new Array(casas.length).fill(null);
   const usados = new Set();
+  SLOTS.forEach(function(s){ s.id = null; });
   const disponiveis = function(g){
     return ELENCO.filter(function(j){ return GRUPO[j.posicao] === g && !usados.has(j.id); })
       .sort(function(a,b){
@@ -5228,9 +5273,9 @@ function preencherAuto(){
         return (a.numero || 99) - (b.numero || 99);
       });
   };
-  casas.forEach(function(c, i){
-    const cand = disponiveis(c.g)[0];
-    if (cand) { CAMPO[i] = cand.id; usados.add(cand.id); }
+  SLOTS.forEach(function(s){
+    const cand = disponiveis(s.g)[0];
+    if (cand) { s.id = cand.id; usados.add(cand.id); }
   });
   renderCampo(); renderTabela();
 }
@@ -5238,8 +5283,10 @@ function preencherAuto(){
 function renderCampo(){
   const campo = document.getElementById('campo');
   campo.querySelectorAll('.slot').forEach(function(s){ s.remove(); });
-  FORMACOES[FORM].forEach(function(c, i){
-    const j = CAMPO[i] ? porId(CAMPO[i]) : null;
+  SLOTS.forEach(function(c, i){
+    // Quem escalou pode não estar na lista do elenco (caso de clube sem elenco
+    // publicado); nesse caso usa o nome que veio na própria escalação.
+    const j = c.id ? (porId(c.id) || {id:c.id, nome:c.rotulo, numero:c.numero, foto:null}) : null;
     const el = document.createElement('div');
     el.className = 'slot' + (j ? ' ocupado' : '');
     el.style.left = c.x + '%';
@@ -5270,7 +5317,7 @@ function renderCampo(){
       ev.preventDefault(); el.classList.remove('alvo');
       soltarEm(i, ev.dataTransfer.getData('text/plain'));
     });
-    el.addEventListener('click', function(){ if (CAMPO[i]) { CAMPO[i] = null; renderCampo(); renderTabela(); } });
+    el.addEventListener('click', function(){ if (SLOTS[i].id) { SLOTS[i].id = null; renderCampo(); renderTabela(); } });
     campo.appendChild(el);
   });
 }
@@ -5278,11 +5325,12 @@ function renderCampo(){
 function soltarEm(slot, carga){
   let d; try { d = JSON.parse(carga); } catch(e) { return; }
   if (d.de === 'campo') {
-    const t = CAMPO[slot]; CAMPO[slot] = CAMPO[d.slot]; CAMPO[d.slot] = t;   // troca
+    const t = SLOTS[slot].id; SLOTS[slot].id = SLOTS[d.slot].id; SLOTS[d.slot].id = t;   // troca
+    const r = SLOTS[slot].rotulo; SLOTS[slot].rotulo = SLOTS[d.slot].rotulo; SLOTS[d.slot].rotulo = r;
   } else {
-    const jaEm = CAMPO.indexOf(d.id);
-    if (jaEm >= 0) CAMPO[jaEm] = null;   // ninguém joga em dois lugares
-    CAMPO[slot] = d.id;
+    SLOTS.forEach(function(s){ if (s.id === d.id) { s.id = null; s.rotulo = null; } });  // ninguém joga em dois lugares
+    SLOTS[slot].id = d.id;
+    SLOTS[slot].rotulo = null;
   }
   renderCampo(); renderTabela();
 }
@@ -5337,7 +5385,7 @@ function renderTabela(){
   });
   h += '</tr></thead><tbody>';
   lista.forEach(function(j){
-    const escalado = CAMPO.indexOf(j.id) >= 0;
+    const escalado = SLOTS.some(function(s){ return s.id === j.id; });
     h += '<tr draggable="true" data-id="' + j.id + '"' + (escalado ? ' class="escalado"' : '') + '>';
     h += '<td class="num">' + (j.numero !== null ? j.numero : '<span class="vazio">—</span>') + '</td>';
     h += '<td><div class="jog">' + (j.foto ? '<img src="' + j.foto + '" alt="">' : '<img alt="">') +
@@ -5373,7 +5421,7 @@ document.getElementById('formacao').innerHTML =
   Object.keys(FORMACOES).map(function(f){
     return '<option value="' + f + '"' + (f === FORM ? ' selected' : '') + '>' + f + '</option>';
   }).join('');
-CAMPO = new Array(FORMACOES[FORM].length).fill(null);
+aplicarFormacao(FORM);
 renderCampo();
 carregarTimes();
 </script>
@@ -5417,7 +5465,6 @@ async def elencos_page():
         .replace("__FORMACOES__", json.dumps(
             {k: [{"x": x, "y": y, "g": g} for x, y, g in v]
              for k, v in _ELENCOS_FORMACOES.items()}, ensure_ascii=False))
-        .replace("__SEASONS__", json.dumps(_af_available_seasons()))
     )
 
 
@@ -5435,6 +5482,117 @@ async def api_elencos_times(season: int = 0):
     times = [t for t in times if t["id"]]
     times.sort(key=lambda t: (t["nome"] or "").lower())
     return {"season": season, "times": times}
+
+
+# A API-Football usa o país de NASCIMENTO no campo `nationality` em alguns casos.
+# Não existe outro campo pra ler — nem `birth.country` ajuda, porque nesses casos
+# os dois vêm iguais. São correções manuais, informadas pelo Vini, e por isso
+# ficam explícitas aqui e sinalizadas na resposta do endpoint.
+ELENCOS_NACIONALIDADE_CORRIGIDA = {
+    71272: "Saudi Arabia",   # Faris Abdi — nasceu nos EUA, defende a Arábia Saudita
+    35532: "Mexico",         # Julián Quiñones — nasceu na Colômbia, naturalizado mexicano
+}
+
+
+def _grid_para_campo(linha: int, coluna: int, total_linhas: int, na_linha: int) -> tuple[float, float]:
+    """Converte a grade "linha:coluna" da escalação em coordenadas do campinho.
+
+    Linha 1 é o goleiro; a última é o ataque. Coluna 1 é a esquerda — conferido
+    em NEOM 4-4-2 (16/08/2026), onde o lateral-esquerdo Islam Hawsawi saiu em
+    2:1 e o lateral-direito Al Burayk em 2:4."""
+    if total_linhas <= 1:
+        y = 92.0
+    else:
+        y = 92.0 - (linha - 1) * (76.0 / (total_linhas - 1))
+    x = (coluna / (na_linha + 1)) * 100.0
+    return round(x, 1), round(y, 1)
+
+
+_POS_GRUPO_AF = {"G": "G", "D": "D", "M": "M", "F": "A"}
+
+
+@app.get("/api/elencos/escalacao")
+async def api_elencos_escalacao(team: int, season: int = 0):
+    """Escalação e formação do último jogo do clube na Pro League."""
+    season = season or _af_temporada_corrente()
+    fx, err = await _af_get("fixtures", {"team": team, "season": season,
+                                         "league": AF_LEAGUE_SPL, "last": 1}, ttl=_AF_TTL_AO_VIVO)
+    if err or not fx or not fx.get("response"):
+        return {"erro": err or "nenhuma partida encontrada nesta temporada"}
+    f = fx["response"][0]
+    fid = (f.get("fixture") or {}).get("id")
+
+    lu, e2 = await _af_get("fixtures/lineups", {"fixture": fid}, ttl=1800)
+    if e2 or not lu or not lu.get("response"):
+        return {"erro": e2 or "a API ainda não publicou a escalação desta partida",
+                "fixture": fid}
+    bloco = next((b for b in lu["response"] if ((b.get("team") or {}).get("id")) == team), None)
+    if not bloco:
+        return {"erro": "escalação deste clube não veio na resposta", "fixture": fid}
+
+    titulares_brutos = bloco.get("startXI") or []
+    por_linha: dict[int, int] = {}
+    for p in titulares_brutos:
+        g = ((p.get("player") or {}).get("grid") or "")
+        if ":" in g:
+            por_linha[int(g.split(":")[0])] = por_linha.get(int(g.split(":")[0]), 0) + 1
+    total_linhas = max(por_linha) if por_linha else 1
+
+    titulares = []
+    for p in titulares_brutos:
+        pl = p.get("player") or {}
+        g = pl.get("grid") or ""
+        if ":" in g:
+            linha, coluna = (int(x) for x in g.split(":")[:2])
+            x, y = _grid_para_campo(linha, coluna, total_linhas, por_linha.get(linha, 1))
+        else:
+            linha, coluna, x, y = 0, 0, 50.0, 50.0
+        titulares.append({"id": pl.get("id"), "nome": _texto_ou_nada(pl.get("name")),
+                          "numero": _num(pl.get("number")),
+                          "grupo": _POS_GRUPO_AF.get(pl.get("pos") or "", "M"),
+                          "x": x, "y": y})
+
+    suplentes = [{"id": (p.get("player") or {}).get("id"),
+                  "nome": _texto_ou_nada((p.get("player") or {}).get("name"))}
+                 for p in (bloco.get("substitutes") or [])]
+
+    casa, fora = (f.get("teams") or {}).get("home") or {}, (f.get("teams") or {}).get("away") or {}
+    adversario = fora.get("name") if casa.get("id") == team else casa.get("name")
+    gols = f.get("goals") or {}
+    return {
+        "fixture": fid,
+        "data": ((f.get("fixture") or {}).get("date") or "")[:10],
+        "adversario": adversario,
+        "mandante": casa.get("id") == team,
+        "placar": f"{gols.get('home')}x{gols.get('away')}",
+        "formacao": bloco.get("formation"),
+        "titulares": titulares,
+        "suplentes": suplentes,
+    }
+
+
+async def _af_sairam_do_time(team: int) -> set[int]:
+    """Ids de quem já deixou o clube, segundo o histórico de transferências.
+
+    O elenco publicado pela API fica desatualizado: em 16/08/2026 o Al Kholood
+    ainda listava Hattan Bahbri, que havia ido pro Al Diriyah. Como aqui a fonte
+    é a mesma API, o cruzamento é por id — sem casar nome, que erraria."""
+    data, err = await _af_get("transfers", {"team": team}, ttl=21600)
+    if err or not data:
+        return set()
+    fora: set[int] = set()
+    for item in data.get("response", []):
+        pid = (item.get("player") or {}).get("id")
+        movs = [m for m in (item.get("transfers") or []) if m.get("date")]
+        if not pid or not movs:
+            continue
+        ultimo = max(movs, key=lambda m: m["date"])
+        times = ultimo.get("teams") or {}
+        saiu = (times.get("out") or {}).get("id")
+        entrou = (times.get("in") or {}).get("id")
+        if saiu == team and entrou != team:
+            fora.add(pid)
+    return fora
 
 
 async def _af_stats_temporada(team: int, season: int) -> tuple[dict, str | None]:
@@ -5491,6 +5649,7 @@ async def api_elencos_jogadores(team: int, season: int = 0):
     stats_por_id, err = await _af_stats_temporada(team, season)
 
     base: list[dict] = []
+    origem = "elenco oficial"
     if corrente:
         squad, err_s = await _af_get("players/squads", {"team": team}, ttl=1800)
         if err_s and not stats_por_id:
@@ -5500,15 +5659,45 @@ async def api_elencos_jogadores(team: int, season: int = 0):
             base.append({"id": p.get("id"), "nome": _texto_ou_nada(p.get("name")),
                          "idade": _num(p.get("age")), "numero": _num(p.get("number")),
                          "posicao": _texto_ou_nada(p.get("position")), "foto": p.get("photo")})
-    if not base:
-        if err and not stats_por_id:
-            return {"erro": err}
+    if not base and stats_por_id:
+        origem = "quem atuou na temporada"
         for pid, item in stats_por_id.items():
             p = item.get("player") or {}
             s = _elenco_stats(item)
             base.append({"id": pid, "nome": _texto_ou_nada(p.get("name")),
                          "idade": _num(p.get("age")), "numero": s["numero_stats"],
                          "posicao": s["posicao_stats"], "foto": p.get("photo")})
+    if not base:
+        # Al-Diriyah, recém-promovido, não tem elenco nem estatística publicados
+        # pela API (verificado em 16/08/2026): as duas consultas voltam vazias e a
+        # tela ficava em branco. Os relacionados do último jogo são o que existe.
+        origem = "relacionados do último jogo"
+        esc = await api_elencos_escalacao(team, season)
+        if isinstance(esc, dict) and not esc.get("erro"):
+            for p in (esc.get("titulares") or []) + (esc.get("suplentes") or []):
+                if p.get("id"):
+                    base.append({"id": p["id"], "nome": p.get("nome"), "idade": None,
+                                 "numero": p.get("numero"), "posicao": None, "foto": None})
+    if not base:
+        return {"erro": err or "a API não publica elenco nem escalação para este clube"}
+
+    saiu_do_clube: list[str] = []
+    if corrente:
+        fora = await _af_sairam_do_time(team)
+        if fora:
+            antes = len(base)
+            saiu_do_clube = [b["nome"] or str(b["id"]) for b in base if b["id"] in fora]
+            base = [b for b in base if b["id"] not in fora]
+            if len(base) < antes // 2:      # descarte grande demais: dado suspeito
+                base = None                  # sinaliza pra restaurar abaixo
+    if base is None:
+        squad, _ = await _af_get("players/squads", {"team": team}, ttl=1800)
+        resp = (squad or {}).get("response") or []
+        base = [{"id": p.get("id"), "nome": _texto_ou_nada(p.get("name")),
+                 "idade": _num(p.get("age")), "numero": _num(p.get("number")),
+                 "posicao": _texto_ou_nada(p.get("position")), "foto": p.get("photo")}
+                for p in ((resp[0] if resp else {}).get("players") or [])]
+        saiu_do_clube = []
 
     # Nacionalidade e altura não vêm em players/squads. Quem não tem registro na
     # temporada precisa da ficha — sem isso o filtro de estrangeiros mente.
@@ -5555,13 +5744,16 @@ async def api_elencos_jogadores(team: int, season: int = 0):
 
     sem_pais: set[str] = set()
     sem_ficha: list[str] = []
+    corrigidos: list[str] = []
     jogadores = []
     for b in base:
         item = stats_por_id.get(b["id"])
         p = (item or {}).get("player") or perfis.get(b["id"]) or {}
         s = _elenco_stats(item) if item else {}
 
-        nac = _texto_ou_nada(p.get("nationality"))
+        nac = ELENCOS_NACIONALIDADE_CORRIGIDA.get(b["id"]) or _texto_ou_nada(p.get("nationality"))
+        if b["id"] in ELENCOS_NACIONALIDADE_CORRIGIDA:
+            corrigidos.append(b["nome"] or str(b["id"]))
         info = None
         if nac:
             info = paises.get(nac.lower()) or paises.get(_sem_acento(nac).lower())
@@ -5605,7 +5797,15 @@ async def api_elencos_jogadores(team: int, season: int = 0):
     if restaram:
         avisos.append(f"{len(restaram)} fichas não puderam ser consultadas agora "
                       f"({falhas[0] if falhas else 'motivo desconhecido'}) — recarregue em instantes")
-    return {"season": season, "team": team, "total": len(jogadores),
+    if saiu_do_clube:
+        avisos.append(f"{len(saiu_do_clube)} ainda constavam no elenco da API mas já saíram: "
+                      + ", ".join(sorted(saiu_do_clube)[:6]))
+    if corrigidos:
+        avisos.append("nacionalidade corrigida à mão (a API usa o país de nascimento): "
+                      + ", ".join(sorted(set(corrigidos))))
+    if origem != "elenco oficial":
+        avisos.append(f"a API não publica o elenco deste clube — lista montada a partir de: {origem}")
+    return {"season": season, "team": team, "total": len(jogadores), "origem": origem,
             "jogadores": jogadores, "avisos": avisos}
 
 
