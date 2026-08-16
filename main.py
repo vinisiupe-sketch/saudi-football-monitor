@@ -6764,7 +6764,23 @@ async def api_janela_inspecionar_tm(caminho: str, tabela: int = 0):
                 info["texto"] = [[td.get_text(" ", strip=True)[:18] for td in tr.find_all("td", recursive=False)]
                                  for tr in trs]
             saida.append(info)
-        return {"url": url, "http": 200, "qtd_tabelas": len(tabelas), "tabelas": saida}
+        extra = {}
+        if tabela == -1:      # modo súmula: formação + quem jogou
+            texto = soup.get_text(" ", strip=True)
+            extra["formacoes"] = sorted(set(re.findall(r"\b\d-\d(?:-\d){1,3}\b", texto)))[:8]
+            vistos, jogs = set(), []
+            for a in soup.select("a[href*='/profil/spieler/']"):
+                h = a.get("href") or ""
+                if h in vistos:
+                    continue
+                vistos.add(h)
+                pai = a.find_parent(class_=True)
+                jogs.append({"n": a.get_text(" ", strip=True)[:26], "h": h[-24:],
+                             "cls": " ".join((pai.get("class") or []))[:40] if pai else ""})
+            extra["jogadores"] = jogs[:44]
+            extra["blocos"] = [" ".join(d.get("class") or [])[:50]
+                               for d in soup.select("div[class*=aufstellung]")][:12]
+        return {"url": url, "http": 200, "qtd_tabelas": len(tabelas), "tabelas": saida, **extra}
     except Exception as e:
         return {"url": url, "erro": f"{type(e).__name__}: {e}"}
 
