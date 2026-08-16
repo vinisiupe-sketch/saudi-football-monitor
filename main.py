@@ -4981,54 +4981,59 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .chk input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
 
 .painel{display:grid;grid-template-columns:minmax(320px,460px) 1fr;gap:20px;align-items:start}
+/* Sem isso a coluna do grid assume a largura da tabela (min-width:auto) e a
+   página inteira estoura no celular, em vez de a tabela rolar por dentro. */
+.painel>*{min-width:0}
 @media(max-width:1100px){
   .painel{grid-template-columns:1fr}
-  /* Sem teto, o campo ocupava a tela inteira no celular assim que a tabela
-     carregava e empurrava tudo pra baixo. */
   .campo-caixa{max-width:400px;margin:0 auto;width:100%}
-  .tab-caixa{max-height:none}
-  table{min-width:760px}
+  table{min-width:720px}
 }
 @media(max-width:520px){
   .wrap{padding:12px 10px 40px}
-  .campo-caixa{max-width:330px}
-  .slot{width:66px}
-  .slot .disco{width:38px;height:38px}
-  .slot .rot{font-size:.56rem;max-width:66px}
+  /* Teto em vh também: só limitar a largura ainda deixava o campo alto demais. */
+  .campo-caixa{max-width:min(340px,84vw)}
+  .campo{max-height:62vh}
+  .slot{width:54px}
+  .slot .disco{width:36px;height:36px}
+  .slot .band{width:15px;height:15px;font-size:.5rem}
+  .slot .rot{font-size:.55rem}
 }
 
 /* ── campo ── */
 .campo-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px}
-.campo{position:relative;width:100%;aspect-ratio:68/100;border-radius:14px;
-  background:linear-gradient(180deg,#49FCB6,#2fe0a0);overflow:hidden}
-/* Linhas e nomes em verde escuro: sobre o #49FCB6, branco não tem contraste. */
-.campo .linha{position:absolute;border:2px solid rgba(6,72,52,.28)}
+.campo{position:relative;width:100%;aspect-ratio:68/100;border-radius:16px;
+  background:linear-gradient(180deg,#15A15F 0%,#0E8B50 100%);overflow:hidden}
+.campo .linha{position:absolute;border:2px solid rgba(255,255,255,.22)}
 .c-borda{inset:3%}
-.c-meio{left:3%;right:3%;top:50%;height:0;border-width:0;border-top:2px solid rgba(6,72,52,.28)}
+.c-meio{left:3%;right:3%;top:50%;height:0;border-width:0;border-top:2px solid rgba(255,255,255,.22)}
 .c-circulo{left:50%;top:50%;width:26%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%}
 .c-area-b{left:22%;right:22%;bottom:3%;height:16%;border-bottom:none}
 .c-area-c{left:22%;right:22%;top:3%;height:16%;border-top:none}
 
-.slot{position:absolute;transform:translate(-50%,-50%);width:82px;
-  display:flex;flex-direction:column;align-items:center;gap:4px;cursor:grab}
-.slot .disco{position:relative;width:46px;height:46px;border-radius:50%;
-  background:rgba(255,255,255,.35);border:2px dashed rgba(6,72,52,.35);
+.slot{position:absolute;transform:translate(-50%,-50%);width:64px;
+  display:flex;flex-direction:column;align-items:center;gap:5px;cursor:grab}
+.slot .disco{position:relative;width:44px;height:44px;border-radius:50%;
+  background:rgba(255,255,255,.22);border:2px dashed rgba(255,255,255,.55);
   display:flex;align-items:center;justify-content:center;
-  font-size:.6rem;color:#064834;font-weight:800}
-.slot.ocupado .disco{border-style:solid;border-color:#fff;background:#fff;
-  box-shadow:0 2px 6px rgba(0,0,0,.18)}
+  font-size:.58rem;color:#fff;font-weight:800}
+.slot.ocupado .disco{border-style:solid;border-color:#fff;background:#eef2f5;
+  box-shadow:0 2px 8px rgba(0,0,0,.25)}
 .slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover}
-/* Bandeira como emoji: a imagem que o TM usa exige a página dele, e o emoji
-   já vem pronto na resposta. Fica no canto do disco, como no FotMob. */
-.slot .band{position:absolute;right:-5px;bottom:-2px;width:19px;height:19px;border-radius:50%;
+/* Bandeira como emoji: a imagem do TM exige a página dele; o emoji já vem
+   pronto na resposta e não depende de rede. */
+.slot .band{position:absolute;right:-4px;bottom:-2px;width:18px;height:18px;border-radius:50%;
   border:2px solid #fff;background:#fff;display:flex;align-items:center;justify-content:center;
-  font-size:.62rem;line-height:1;overflow:hidden}
-.slot .rot{font-size:.63rem;color:#064834;font-weight:700;text-align:center;line-height:1.15;
-  max-width:82px;overflow-wrap:break-word}
-.slot.alvo .disco{border-color:#0a6b4e;box-shadow:0 0 0 4px rgba(10,107,78,.3)}
+  font-size:.6rem;line-height:1;overflow:hidden}
+/* Uma linha só, com reticências: nome comprido encavalava no vizinho. */
+.slot .rot{font-size:.64rem;color:#fff;font-weight:700;text-align:center;line-height:1.1;
+  max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  text-shadow:0 1px 3px rgba(0,0,0,.45)}
+.slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.4)}
 
 /* ── tabela ── */
-.tab-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:auto}
+.tab-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch}
 table{border-collapse:collapse;width:100%;font-size:.78rem}
 th,td{padding:7px 8px;text-align:left;white-space:nowrap}
 thead th{position:sticky;top:0;background:var(--surface2);color:var(--text2);
@@ -5100,6 +5105,13 @@ let ordenarPor = null, ordemAsc = false;
 const GRUPO_PT = {G:'GOL', D:'DEF', M:'MEI', A:'ATA'};
 
 function na(v, suf){ return (v === null || v === undefined) ? '—' : (v + (suf || '')); }
+
+// "Youssef En-Nesyri" -> "En-Nesyri"; "Farhah Al-Shamrani" -> "Al-Shamrani".
+// O nome completo continua no title e na tabela.
+function nomeCurto(n){
+  const partes = (n || '').trim().split(/\s+/).filter(Boolean);
+  return partes.length ? partes[partes.length - 1] : '';
+}
 
 // Foto direto do Transfermarkt; se falhar, cai no nosso proxy uma única vez.
 // O endereço reserva vai num data-attribute e o tratador é ligado depois, em
@@ -5197,14 +5209,44 @@ function grupoDe(p){
   return (j && j.grupo) || 'M';
 }
 
+// Lado do campo a partir da posição detalhada do TM. A súmula lista os titulares
+// do goleiro ao ataque, mas NÃO da esquerda para a direita dentro da linha —
+// por isso Faris Abdi (lateral-esquerdo) aparecia como zagueiro e En-Nesyri
+// (centroavante) saía na ponta. Com a posição em mãos, a linha é reordenada.
+function ladoDaPosicao(pos){
+  const p = (pos || '').toLowerCase();
+  if (p.indexOf('esquerd') > -1) return 0;   // lateral/ponta/meia esquerda
+  if (p.indexOf('direit') > -1)  return 2;   // lateral/ponta/meia direita
+  return 1;                                   // zagueiro, volante, centroavante
+}
+
+// Reordena cada faixa horizontal do campo pela lateralidade. Empate mantém a
+// ordem da súmula: sem informação de lado, inventar posição seria pior.
+function ordenarPorLado(slots){
+  const porFaixa = {};
+  slots.forEach(function(s){ (porFaixa[s.y] = porFaixa[s.y] || []).push(s); });
+  Object.keys(porFaixa).forEach(function(y){
+    const faixa = porFaixa[y];
+    if (faixa.length < 2) return;
+    const xs = faixa.map(function(s){ return s.x; }).sort(function(a,b){ return a-b; });
+    const comLado = faixa.map(function(s, i){
+      const j = porId(s.id);
+      return {slot:s, lado: ladoDaPosicao(j && j.posicao), ordem:i};
+    });
+    comLado.sort(function(a,b){ return a.lado - b.lado || a.ordem - b.ordem; });
+    comLado.forEach(function(c, i){ c.slot.x = xs[i]; });
+  });
+  return slots;
+}
+
 function aplicarEscalacao(){
   const e = ESCALACAO;
   if (!e) return;
   SLOTS = e.sem_posicoes
     ? porGrupos(e.titulares)
-    : e.titulares.map(function(t){
+    : ordenarPorLado(e.titulares.map(function(t){
         return {x: t.x, y: t.y, g: grupoDe(t), id: t.id};
-      });
+      }));
   if (e.formacao) {
     FORM = e.formacao;
     const sel = document.getElementById('formacao');
@@ -5292,8 +5334,9 @@ function renderCampo(){
       disco += '<span>' + GRUPO_PT[c.g] + '</span>';
     }
     disco += '</div>';
-    // Só o nome, sem o número: campo mais limpo, como no FotMob.
-    const rot = j ? '<div class="rot">' + (j.nome || '') + '</div>' : '';
+    // Só o sobrenome, sem número: nome inteiro encavalava no vizinho no celular.
+    const rot = j ? '<div class="rot" title="' + (j.nome || '') + '">' +
+                    nomeCurto(j.nome) + '</div>' : '';
     el.innerHTML = disco + rot;
     ligarReserva(el);
     el.addEventListener('dragstart', function(ev){
