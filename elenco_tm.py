@@ -118,12 +118,19 @@ def _parse_elenco(soup: BeautifulSoup) -> list[dict]:
         nome = link.get_text(" ", strip=True)
         if not pid or not nome:
             continue
-        # A célula traz nome e posição juntos; tirando os textos dos links
-        # sobra a posição, sem depender de índice de linha interna.
-        bruto = tds[1].get_text(" ", strip=True)
-        for a in tds[1].select("a"):
-            bruto = bruto.replace(a.get_text(" ", strip=True), " ")
-        posicao = re.sub(r"\s+", " ", bruto).strip() or None
+        # A posição fica na SEGUNDA linha da tabela interna da célula. Tentar
+        # deduzi-la subtraindo o nome do texto não funciona: o TM quebra o nome
+        # em vários nós e a subtração devolvia "A b d u l l a h ... P o n t a".
+        posicao = None
+        interna = tds[1].find("table")
+        if interna:
+            linhas_int = interna.find_all("tr")
+            if len(linhas_int) > 1:
+                posicao = re.sub(r"\s+", " ", linhas_int[-1].get_text(" ", strip=True)).strip() or None
+        if not posicao:
+            resto = tds[1].get_text("|", strip=True).split("|")
+            resto = [x for x in resto if x and x != nome]
+            posicao = resto[-1] if resto else None
 
         nacs = [i.get("title") or i.get("alt") for i in tds[3].select("img")
                 if (i.get("title") or i.get("alt"))]
@@ -201,6 +208,7 @@ async def desempenho(clube_id: int, season: int | None = None) -> dict[int, dict
 
 def _parse_calendario(soup: BeautifulSoup) -> list[dict]:
     jogos = []
+    ultima_data = None
     for tabela in soup.select("table"):
         cab = [th.get_text(strip=True) for th in tabela.select("thead th")]
         if "Resultado" not in cab:
@@ -228,7 +236,12 @@ def _parse_calendario(soup: BeautifulSoup) -> list[dict]:
             sid = _id_de(res.get("href", ""), r"/spielbericht/(\d+)") if res else None
             placar = res.get_text(strip=True) if res else None
             dm = re.search(r"(\d{2})/(\d{2})/(\d{2})", tds[0].get_text(" ", strip=True))
-            data = f"20{dm.group(3)}-{dm.group(2)}-{dm.group(1)}" if dm else None
+            if dm:
+                # A data só aparece na primeira linha de cada dia; as seguintes
+                # herdam. Sem isso, quase todo jogo ficava sem data e o "último
+                # jogo" era escolhido por desempate errado.
+                ultima_data = f"20{dm.group(3)}-{dm.group(2)}-{dm.group(1)}"
+            data = ultima_data
             if cid and vid:
                 jogos.append({"data": data, "casa_id": cid, "casa": cnome,
                               "fora_id": vid, "fora": vnome,
@@ -275,10 +288,11 @@ async def ultimo_jogo(clube_id: int, season: int | None = None) -> dict | None:
 
 def _parse_escalacao(soup: BeautifulSoup) -> list[dict]:
     """Devolve [{formacao, titulares:[ids], banco:[ids]}] na ordem casa, fora."""
-    formacoes = []
-    for h in soup.select("[class*=aufstellung-unterueberschrift]"):
-        m = re.search(r"\b\d(?:-\d){1,3}\b", h.get_text(" ", strip=True))
-        formacoes.append(m.group(0) if m else None)
+    # A formação aparece no cabeçalho de cada time dentro do bloco de escalação.
+    # Ler o bloco inteiro em ordem é mais robusto que apostar num seletor: em
+    # 16/08/2026 o cabeçalho do Hilal não continha o texto, mas o bloco continha.
+    caixa = soup.select_one("[class*=aufstellung-box]") or soup
+    formacoes = re.findall(r"\b\d(?:-\d){1,3}\b", caixa.get_text(" ", strip=True))
 
     # Percorre os jogadores em ordem de documento e quebra em blocos toda vez
     # que alterna entre titular e banco: sai casa-XI, casa-banco, fora-XI,

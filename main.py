@@ -6166,6 +6166,7 @@ JANELA_PAIS_ISO = {
     # Grafias que o TM usa sem hífen / territórios franceses — apareceram no
     # aviso da primeira geração real do post, não foram supostas aqui.
     "Guiné Bissau": "GW", "Guiné Equatorial": "GQ", "Guiana Francesa": "GF",
+    "Suriname": "SR",
     "Neocaledónia": "NC", "Nova Caledónia": "NC", "Nova Caledônia": "NC",
     "Guadalupe": "GP", "Martinica": "MQ", "Reunião": "RE", "Curaçao": "CW",
     "Ruanda": "RW", "Roménia": "RO", "Romênia": "RO", "Marrocos": "MA",
@@ -6315,82 +6316,6 @@ def _montar_post_janela() -> dict:
 async def api_janela_post():
     """Texto pronto pra copiar do post de entradas e saídas da janela."""
     return _montar_post_janela()
-
-
-@app.get("/api/janela/inspecionar-tm")
-async def api_janela_inspecionar_tm(caminho: str, tabela: int = 0):
-    """TEMPORÁRIO — resumo estrutural de uma página do Transfermarkt.
-
-    Existe porque o ambiente onde escrevo o parser não alcança o TM; o Railway
-    alcança. Aceita só o caminho, nunca uma URL completa, pra não virar proxy
-    aberto. Remover assim que o parser de elenco estiver validado."""
-    import httpx as _hx
-    from bs4 import BeautifulSoup as _BS
-    from janela_scraper import TM_BASE, TM_HEADERS
-    if "://" in caminho or ".." in caminho:
-        return {"erro": "informe apenas o caminho, sem domínio"}
-    url = TM_BASE.rstrip("/") + "/" + caminho.lstrip("/")
-    try:
-        async with _hx.AsyncClient(timeout=30.0, follow_redirects=True, headers=TM_HEADERS) as c:
-            r = await c.get(url)
-        if r.status_code != 200:
-            return {"url": url, "http": r.status_code}
-        soup = _BS(r.text, "lxml")
-
-        def _cel(td):
-            d = {"txt": td.get_text(" ", strip=True)[:60]}
-            ls = [{"t": a.get_text(strip=True)[:30], "h": (a.get("href") or "")[:70]} for a in td.select("a[href]")]
-            if ls: d["links"] = ls[:3]
-            ims = [i.get("title") or i.get("alt") for i in td.select("img") if (i.get("title") or i.get("alt"))]
-            if ims: d["imgs"] = ims[:3]
-            return d
-
-        tabelas = soup.select("table")
-        saida = []
-        for idx, t in enumerate(tabelas[:8]):
-            # O TM rotula colunas de estatística com ícone: o nome está no title
-            # da imagem, não no texto do th.
-            ths = []
-            for th in t.select("thead th"):
-                rot = th.get_text(" ", strip=True)[:22]
-                if not rot:
-                    im = th.find("img")
-                    rot = (im.get("title") or im.get("alt") or "")[:22] if im else ""
-                if not rot:
-                    # Coluna só com ícone: o TM nomeia a coluna na chave de
-                    # ordenação do link do cabeçalho (.../sort/tore, /sort/assists).
-                    a = th.find("a", class_="sort-link")
-                    m = re.search(r"/sort/([^/?#]+)", a.get("href") or "") if a else None
-                    rot = ("sort:" + m.group(1)) if m else re.sub(r"\s+", " ", str(th))[:80]
-                ths.append(rot or "?")
-            corpo = t.find("tbody")
-            trs = corpo.find_all("tr", recursive=False) if corpo else []
-            info = {"i": idx, "classe": " ".join(t.get("class") or []), "cabecalho": ths, "linhas": len(trs)}
-            if idx == tabela:
-                info["amostra"] = [[_cel(td) for td in tr.find_all("td", recursive=False)] for tr in trs[:3]]
-            if idx == tabela - 100:   # modo "só texto", pra varrer a tabela inteira
-                info["texto"] = [[td.get_text(" ", strip=True)[:18] for td in tr.find_all("td", recursive=False)]
-                                 for tr in trs]
-            saida.append(info)
-        extra = {}
-        if tabela == -1:      # modo súmula: formação + quem jogou
-            texto = soup.get_text(" ", strip=True)
-            extra["formacoes"] = sorted(set(re.findall(r"\b\d-\d(?:-\d){1,3}\b", texto)))[:8]
-            vistos, jogs = set(), []
-            for a in soup.select("a[href*='/profil/spieler/']"):
-                h = a.get("href") or ""
-                if h in vistos:
-                    continue
-                vistos.add(h)
-                pai = a.find_parent(class_=True)
-                jogs.append({"n": a.get_text(" ", strip=True)[:26], "h": h[-24:],
-                             "cls": " ".join((pai.get("class") or []))[:40] if pai else ""})
-            extra["jogadores"] = jogs[:44]
-            extra["blocos"] = [" ".join(d.get("class") or [])[:50]
-                               for d in soup.select("div[class*=aufstellung]")][:12]
-        return {"url": url, "http": 200, "qtd_tabelas": len(tabelas), "tabelas": saida, **extra}
-    except Exception as e:
-        return {"url": url, "erro": f"{type(e).__name__}: {e}"}
 
 
 @app.get("/api/af-window-transfers")
