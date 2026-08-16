@@ -6748,6 +6748,10 @@ async def api_janela_inspecionar_tm(caminho: str, tabela: int = 0):
                 if not rot:
                     im = th.find("img")
                     rot = (im.get("title") or im.get("alt") or "")[:22] if im else ""
+                if not rot:
+                    # ícone sem texto nem imagem: o nome da coluna costuma estar
+                    # na classe ou no title de algum elemento interno
+                    rot = re.sub(r"\s+", " ", str(th))[:110]
                 ths.append(rot or "?")
             corpo = t.find("tbody")
             trs = corpo.find_all("tr", recursive=False) if corpo else []
