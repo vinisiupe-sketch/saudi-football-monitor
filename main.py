@@ -4974,7 +4974,8 @@ async def _af_paises() -> dict:
     # nationality do jogador diz "Türkiye". Isto não é traduzir país — é anotar
     # uma divergência observada entre dois endpoints da MESMA fonte. Só entra
     # aqui o que foi visto de fato; o resto continua caindo no aviso da tela.
-    for apelido, oficial in {"türkiye": "turkey"}.items():
+    for apelido, oficial in {"türkiye": "turkey",
+                             "côte d'ivoire": "ivory-coast"}.items():
         if oficial in mapa:
             mapa[apelido] = mapa[oficial]
             mapa[_sem_acento(apelido).lower()] = mapa[oficial]
