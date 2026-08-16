@@ -18,6 +18,8 @@ import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
 import elenco_tm
+from janela_scraper import TM_HEADERS as _TM_H
+TM_HEADERS_UA = _TM_H.get("User-Agent", "Mozilla/5.0")
 from glossary import SPL_CLUBS, YELO_CLUBS
 
 scheduler = None
@@ -5474,7 +5476,8 @@ async def api_elencos_jogadores(team: int):
         if p.get("posicao") and not p.get("grupo"):
             sem_posicao.add(p["posicao"])
         jogadores.append({
-            "id": p["id"], "nome": p["nome"], "foto": p["foto"],
+            "id": p["id"], "nome": p["nome"],
+            "foto": (f"/api/tm-img?u={quote(p['foto_tm'], safe='')}" if p.get("foto_tm") else None),
             "numero": p["numero"], "posicao": p["posicao"], "grupo": p["grupo"],
             "idade": p["idade"], "nascimento": p["nascimento"],
             "altura": p["altura"], "pe": p["pe"],
@@ -6128,6 +6131,34 @@ async def img_proxy(url: str = ""):
 
 
 # Compat: proxy antigo por player_id (sem lm param — pode falhar para alguns players)
+@app.get("/api/tm-img")
+async def tm_img_proxy(u: str):
+    """Serve uma imagem do Transfermarkt pela nossa origem.
+
+    Existe por dois motivos: o TM recusa imagem carregada de fora do site dele
+    (por isso o Referer aqui) e o endereço da foto mudou de formato — montar a
+    URL por padrão fixo, como o /api/tm-photo fazia, virou 404. Aqui a URL vem
+    lida da página. Restrito aos domínios do TM pra não virar proxy aberto."""
+    from urllib.parse import urlparse
+    host = (urlparse(u).hostname or "").lower()
+    if not (host.endswith("transfermarkt.technology") or host.endswith("akamaized.net")
+            or host.endswith("transfermarkt.com.br") or host.endswith("transfermarkt.com")):
+        return Response(status_code=400)
+    try:
+        async with httpx.AsyncClient(timeout=8.0, headers={
+            "Referer": "https://www.transfermarkt.com.br/",
+            "User-Agent": TM_HEADERS_UA,
+        }) as client:
+            r = await client.get(u, follow_redirects=True)
+            if r.status_code == 200 and r.content:
+                return Response(content=r.content,
+                                media_type=r.headers.get("content-type", "image/jpeg"),
+                                headers={"Cache-Control": "public, max-age=604800"})
+    except Exception:
+        pass
+    return Response(status_code=404)
+
+
 @app.get("/api/tm-photo/{player_id}")
 async def tm_photo_proxy(player_id: str):
     url = f"https://img.a.transfermarkt.technology/portrait/small/{player_id}.jpg"

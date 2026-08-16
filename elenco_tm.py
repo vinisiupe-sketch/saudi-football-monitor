@@ -174,6 +174,18 @@ def _parse_elenco(soup: BeautifulSoup) -> list[dict]:
             resto = [x for x in resto if x and x != nome]
             posicao = resto[-1] if resto else None
 
+        # A foto tem que ser LIDA da página, nunca montada por padrão de URL: o
+        # TM passou a incluir um sufixo de cache no nome do arquivo, e tanto o
+        # endereço que eu inventei quanto o que já existia no app davam 404.
+        foto = None
+        for im in tds[1].select("img"):
+            cand = im.get("data-src") or im.get("src") or ""
+            if "/portrait/" in cand or "/spielerfoto/" in cand:
+                foto = cand
+                break
+        if foto and foto.startswith("//"):
+            foto = "https:" + foto
+
         nacs = [i.get("title") or i.get("alt") for i in tds[3].select("img")
                 if (i.get("title") or i.get("alt"))]
         nasc, idade = _nasc_idade(tds[2].get_text(" ", strip=True))
@@ -188,7 +200,7 @@ def _parse_elenco(soup: BeautifulSoup) -> list[dict]:
             "nacionalidades": nacs,
             "altura": _altura_cm(tds[4].get_text(strip=True)),
             "pe": (tds[5].get_text(strip=True) or None),
-            "foto": f"https://img.a.transfermarkt.technology/portrait/medium/{pid}-1.jpg",
+            "foto_tm": foto,
             "valor": (tds[9].get_text(" ", strip=True) or None) if len(tds) > 9 else None,
             "contrato": (tds[8].get_text(" ", strip=True) or None) if len(tds) > 8 else None,
         })
