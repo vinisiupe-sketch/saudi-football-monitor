@@ -5608,8 +5608,12 @@ async def api_janela_inspecionar_tm(caminho: str):
                 tabelas.append({"cabecalho": ths, "linhas": linhas})
             caixas.append({"titulo": (h2.get_text(strip=True) if h2 else None)[:80] if h2 else None,
                            "tabelas": tabelas})
+        bandeiras = [{"cls": " ".join(i.get("class") or []), "title": i.get("title") or i.get("alt"),
+                      "src": (i.get("src") or i.get("data-src") or "")[:70]}
+                     for i in soup.select("img")
+                     if "flagge" in ((i.get("src") or "") + (i.get("data-src") or "") + " ".join(i.get("class") or []))]
         return {"url": url, "http": 200, "titulo_pagina": (soup.title.string or "").strip() if soup.title else None,
-                "qtd_box": len(soup.select(".box")), "caixas": caixas}
+                "qtd_box": len(soup.select(".box")), "bandeiras": bandeiras[:12], "caixas": caixas}
     except Exception as e:
         return {"url": url, "erro": f"{type(e).__name__}: {e}"}
 
