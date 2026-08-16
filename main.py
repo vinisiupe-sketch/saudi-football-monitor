@@ -4984,9 +4984,22 @@ async def _af_paises() -> dict:
 
 
 def _bandeira_de_iso(code: str | None) -> str | None:
-    if not code or len(code) != 2 or not code.isalpha():
+    """Emoji da bandeira a partir do código que a própria API devolve.
+
+    Dois formatos aparecem: ISO de 2 letras ("BR") e subdivisão ("GB-ENG", que é
+    como a API identifica Inglaterra, Escócia e País de Gales). O segundo caso
+    fazia a bandeira sumir — foi o que aconteceu com o Toney, do Ahli. As duas
+    formas são construídas pela regra do padrão Unicode, não por tabela."""
+    c = (code or "").strip()
+    if not c:
         return None
-    return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in code.upper())
+    if len(c) == 2 and c.isalpha():
+        return "".join(chr(0x1F1E6 + ord(x) - ord("A")) for x in c.upper())
+    if "-" in c:
+        corpo = c.lower().replace("-", "")
+        if corpo.isalnum():
+            return "\U0001F3F4" + "".join(chr(0xE0000 + ord(x)) for x in corpo) + "\U000E007F"
+    return None
 
 
 def _num(v):
@@ -5328,7 +5341,11 @@ function renderTabela(){
     h += '<td class="num">' + (j.numero !== null ? j.numero : '<span class="vazio">—</span>') + '</td>';
     h += '<td><div class="jog">' + (j.foto ? '<img src="' + j.foto + '" alt="">' : '<img alt="">') +
          '<span>' + (j.nome || '—') + (j.lesionado ? ' 🤕' : '') + '</span></div></td>';
-    h += '<td>' + (j.pais_bandeira ? j.pais_bandeira + ' ' : '') +
+    // Se o emoji não sair (código fora do ISO de 2 letras), usa a imagem da
+    // bandeira que a API fornece — melhor que a linha ficar sem sinal nenhum.
+    const marcaPais = j.pais_bandeira ? j.pais_bandeira + ' '
+      : (j.pais_flag_url ? '<img src="' + j.pais_flag_url + '" style="width:16px;height:11px;object-fit:cover;vertical-align:-1px;margin-right:4px">' : '');
+    h += '<td>' + marcaPais +
          (j.nacionalidade ? j.nacionalidade : '<span class="vazio">não informado</span>') + '</td>';
     h += '<td class="num">' + na(j.idade) + '</td>';
     h += '<td class="num">' + (j.altura !== null ? j.altura + ' cm' : '<span class="vazio">—</span>') + '</td>';
