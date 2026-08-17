@@ -149,6 +149,18 @@ def create_scheduler() -> AsyncIOScheduler:
         id="varredura_competicoes_daily",
         replace_existing=True,
     )
+    # Véspera à noite: os jogos do dia seguinte entram na fila para você
+    # preencher a transmissão com calma. Nada é publicado aqui — só enfileirado.
+    # O Railway roda em UTC, então 23h aqui é 20h de Brasília. E "amanhã" também
+    # é contado em UTC, o que casa com os jogos sauditas (15h–19h UTC).
+    scheduler.add_job(
+        run_fila_bola_rolando,
+        trigger="cron",
+        hour=23,
+        minute=0,
+        id="fila_bola_rolando_diaria",
+        replace_existing=True,
+    )
     print(
         f"⏰ Scheduler iniciado: coleta a cada {COLLECT_INTERVAL}min "
         "+ varredura de competições às 05h30 + scrape janela às 07h"
@@ -170,4 +182,17 @@ async def run_varredura_competicoes():
         return r
     except Exception as e:
         print(f"❌ Erro na varredura de competições: {e}")
+        return {"erro": str(e)}
+
+
+async def run_fila_bola_rolando():
+    """Coloca na fila os BOLA ROLANDO dos jogos de amanhã."""
+    try:
+        from main import gerar_bola_rolando
+        r = await gerar_bola_rolando()
+        print(f"📝 Fila BOLA ROLANDO ({r.get('data')}): {r.get('novos')} novos, "
+              f"{r.get('ja_estavam')} já estavam")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao montar a fila de posts: {e}")
         return {"erro": str(e)}

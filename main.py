@@ -13,11 +13,12 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
 import elenco_tm
+import x_client
 from janela_scraper import TM_HEADERS as _TM_H
 TM_HEADERS_UA = _TM_H.get("User-Agent", "Mozilla/5.0")
 from glossary import SPL_CLUBS, YELO_CLUBS
@@ -125,6 +126,7 @@ _ICO_PEN2    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_SELECAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.38 3.46 16 2a4 4 0 0 1-8 0L3.62 3.46a2 2 0 0 0-1.34 2.23l.58 3.57a1 1 0 0 0 .99.84H6v10c0 1.1.9 2 2 2h8a2 2 0 0 0 2-2V10h2.15a1 1 0 0 0 .99-.84l.58-3.57a2 2 0 0 0-1.34-2.23z"/></svg>'
 _ICO_ANALISE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>'
 _ICO_NUMEROS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
+_ICO_POSTS   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>'
 _ICO_ELENCOS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
@@ -168,6 +170,7 @@ def _header(active: str) -> str:
         ("/analise",     _ICO_ANALISE, "Análise",     "",     "#d97706"),
         ("/numeros",     _ICO_NUMEROS, "Números",     "",     "#0ea5e9"),
         ("/elencos",     _ICO_ELENCOS, "Elencos",     "",     "#14b8a6"),
+        ("/posts",       _ICO_POSTS,   "Posts",       "",     "#1d9bf0"),
     ]
     items = ""
     for href, ico, label, badge_tab, color in pages:
@@ -5578,6 +5581,293 @@ async def elencos_page():
             {k: [{"x": x, "y": y, "g": g} for x, y, g in v]
              for k, v in _ELENCOS_FORMACOES.items()}, ensure_ascii=False))
     )
+
+
+_POSTS_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Posts · IARABÃO</title>
+__THEME__
+<style>
+__HEADER_CSS__
+:root{--bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);
+  --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:#1d9bf0}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:18px 16px 60px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--text2);font-size:.8rem;margin:0 0 14px}
+.barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.ctrl{padding:7px 12px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:13px;cursor:pointer}
+.ctrl:disabled{opacity:.5;cursor:default}
+.selo{font-size:.7rem;padding:2px 8px;border-radius:20px;font-weight:700}
+.s-pendente{background:#f59e0b22;color:#f59e0b}
+.s-publicado{background:#22c55e22;color:#4ade80}
+.s-cancelado{background:#6b728022;color:#9ca3af}
+.s-publicando{background:#3b82f622;color:#60a5fa}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  padding:14px;margin-bottom:12px}
+.topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.quando{font-size:.75rem;color:var(--text2)}
+textarea{width:100%;background:var(--surface2);color:var(--text);border:1px solid var(--border);
+  border-radius:10px;padding:10px;font-family:inherit;font-size:.85rem;line-height:1.5;
+  min-height:120px;resize:vertical}
+.escudos{display:flex;gap:8px;margin:10px 0}
+.escudos img{width:44px;height:44px;object-fit:contain;background:var(--surface2);
+  border-radius:8px;padding:3px}
+.acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
+.conta{font-size:.72rem;color:var(--text2)}
+.erro{font-size:.75rem;color:#f87171;margin-top:6px}
+.aviso{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24;
+  border-radius:10px;padding:10px;font-size:.8rem;margin-bottom:14px}
+.estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Posts</h1>
+  <p class="sub">Nada é publicado sozinho. O post entra na fila na véspera, você confere e publica.</p>
+  <div id="statusX"></div>
+  <div class="barra">
+    <button class="ctrl" onclick="carregar()">↻ Atualizar</button>
+    <button class="ctrl" onclick="gerar()">📝 Montar fila de amanhã</button>
+    <select id="filtro" class="ctrl" onchange="carregar()">
+      <option value="pendente">Pendentes</option>
+      <option value="">Todos</option>
+      <option value="publicado">Publicados</option>
+      <option value="cancelado">Cancelados</option>
+    </select>
+    <span id="contador" class="conta"></span>
+  </div>
+  <div id="lista"><div class="estado">Carregando…</div></div>
+</div>
+
+<script>
+function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function hora(iso){
+  if(!iso) return 'sem horário';
+  return iso.replace('T',' ').slice(0,16);
+}
+
+async function carregar(){
+  const filtro = document.getElementById('filtro').value;
+  const lista = document.getElementById('lista');
+  try{
+    const d = await (await fetch('/api/posts/fila?status=' + filtro + '&_=' + Date.now())).json();
+    document.getElementById('statusX').innerHTML = d.x_configurado ? '' :
+      '<div class="aviso">As credenciais do X ainda não estão no Railway (faltando: ' +
+      esc((d.x_faltando||[]).join(', ')) + '). A fila funciona, mas publicar vai falhar.</div>';
+    document.getElementById('contador').textContent =
+      d.posts.length + ' post(s) · ' + d.publicados_24h + ' publicados em 24h (teto ' + d.limite_diario + ')';
+    if(!d.posts.length){ lista.innerHTML = '<div class="estado">Nada aqui.</div>'; return; }
+    lista.innerHTML = d.posts.map(cartao).join('');
+  }catch(e){
+    lista.innerHTML = '<div class="estado">Erro: ' + esc(e.message) + '</div>';
+  }
+}
+
+function cartao(p){
+  const pend = p.status === 'pendente';
+  return '<div class="card" id="p' + p.id + '">' +
+    '<div class="topo">' +
+      '<span class="selo s-' + p.status + '">' + p.status + '</span>' +
+      '<span class="quando">' + esc(p.tipo) + ' · ' + hora(p.agendado_para) + '</span>' +
+    '</div>' +
+    (pend ? '<textarea id="t' + p.id + '" oninput="contarTexto(' + p.id + ')">' + esc(p.texto) + '</textarea>'
+          : '<div style="white-space:pre-wrap;font-size:.85rem;line-height:1.5">' + esc(p.texto) + '</div>') +
+    (pend ? '<div class="conta" id="c' + p.id + '"></div>' : '') +
+    ((p.imagens||[]).length ? '<div class="escudos">' + p.imagens.map(function(im){
+        return '<img src="/api/posts/imagem?p=' + encodeURIComponent(im) + '" alt="">'; }).join('') + '</div>' : '') +
+    (p.erro ? '<div class="erro">⚠️ ' + esc(p.erro) + '</div>' : '') +
+    (pend ? '<div class="acoes">' +
+        '<button class="ctrl" onclick="salvar(' + p.id + ')">Salvar texto</button>' +
+        '<button class="ctrl" style="border-color:var(--accent);color:var(--accent)" ' +
+          'onclick="publicar(' + p.id + ')">Publicar no X</button>' +
+        '<button class="ctrl" onclick="cancelar(' + p.id + ')">Cancelar</button>' +
+      '</div>' : '') +
+  '</div>';
+}
+
+function contarTexto(id){
+  const t = document.getElementById('t' + id).value;
+  const c = document.getElementById('c' + id);
+  const link = /https?:\\/\\/|www\\./i.test(t);
+  c.textContent = t.length + '/280' + (link ? ' · ATENÇÃO: tem link, custa 13x mais e será recusado' : '');
+  c.style.color = (t.length > 280 || link) ? '#f87171' : '';
+}
+
+async function salvar(id){
+  const texto = document.getElementById('t' + id).value;
+  const d = await (await fetch('/api/posts/' + id + '/texto', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({texto:texto})})).json();
+  if(d.erro) alert(d.erro); else carregar();
+}
+
+async function publicar(id){
+  const t = document.getElementById('t' + id);
+  if(t && !confirm('Publicar este post agora na conta do X?\\n\\n' + t.value)) return;
+  const d = await (await fetch('/api/posts/' + id + '/publicar', {method:'POST'})).json();
+  if(d.erro) alert('Não publicou: ' + d.erro);
+  carregar();
+}
+
+async function cancelar(id){
+  if(!confirm('Cancelar este post? Ele sai da fila e não será publicado.')) return;
+  await fetch('/api/posts/' + id + '/cancelar', {method:'POST'});
+  carregar();
+}
+
+async function gerar(){
+  const d = await (await fetch('/api/posts/gerar', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:'{}'})).json();
+  if(d.erro) alert(d.erro);
+  else alert('Fila de ' + d.data + ': ' + d.novos + ' novo(s), ' + d.ja_estavam + ' já estavam.' +
+             ((d.avisos||[]).length ? '\\n\\n' + d.avisos.join('\\n') : ''));
+  carregar();
+}
+
+carregar();
+</script>
+</body>
+</html>
+"""
+
+
+@app.get("/posts", response_class=HTMLResponse)
+async def posts_page():
+    return HTMLResponse(
+        _POSTS_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _THEME_INIT_SCRIPT)
+        .replace("__HDR__", _header("/posts"))
+    )
+
+
+@app.get("/api/posts/imagem")
+async def api_posts_imagem(p: str):
+    """Mostra na tela um escudo que já está no projeto."""
+    base = os.path.abspath(os.path.join(os.path.dirname(__file__), "public", "escudos"))
+    caminho = os.path.abspath(p)
+    # Só serve de dentro da pasta de escudos: caminho vindo da URL não pode
+    # virar leitura de arquivo arbitrário do servidor.
+    if not caminho.startswith(base + os.sep) or not os.path.exists(caminho):
+        return Response(status_code=404)
+    with open(caminho, "rb") as f:
+        return Response(content=f.read(), media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ── Fila de posts das redes ──────────────────────────────────────────────────
+
+async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
+    """Enfileira um BOLA ROLANDO para cada jogo da data (padrão: amanhã).
+
+    Idempotente pela chave do jogo: pode rodar quantas vezes quiser que não
+    duplica. É de propósito — assim um reinício do Railway não vira problema.
+    """
+    import posts_gerador as pg
+    season = _af_temporada_corrente()
+    alvo = data_iso or (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
+    data, err = await _af_get("fixtures", {"league": AF_LEAGUE_SPL,
+                                           "season": season, "date": alvo}, ttl=1800)
+    if err or not data:
+        return {"erro": err or "sem resposta da API", "data": alvo}
+
+    novos = repetidos = 0
+    sem_escudo: list[str] = []
+    for f in data.get("response", []):
+        times = f.get("teams") or {}
+        casa, fora = times.get("home") or {}, times.get("away") or {}
+        nome_casa, nome_fora = casa.get("name") or "", fora.get("name") or ""
+        if not nome_casa or not nome_fora:
+            continue
+        texto = pg.montar_bola_rolando(
+            _time_curto(nome_casa), _time_curto(nome_fora),
+            TEAM_CORES.get(nome_casa, ""), TEAM_CORES.get(nome_fora, ""),
+            (f.get("league") or {}).get("round"))
+        imagens = []
+        for n in (nome_casa, nome_fora):
+            cam = pg.escudo_de(n)
+            if cam:
+                imagens.append(cam)
+            else:
+                sem_escudo.append(n)
+        fid = (f.get("fixture") or {}).get("id")
+        quando = (f.get("fixture") or {}).get("date")
+        r = enfileirar_post("bola_rolando", pg.chave_do_jogo(fid), texto, imagens, quando)
+        if r == "novo":
+            novos += 1
+        elif r == "ja_existia":
+            repetidos += 1
+    avisos = []
+    if sem_escudo:
+        avisos.append("sem escudo no projeto: " + ", ".join(sorted(set(sem_escudo))))
+    return {"data": alvo, "novos": novos, "ja_estavam": repetidos, "avisos": avisos}
+
+
+@app.get("/api/posts/fila")
+async def api_posts_fila(status: str = ""):
+    ok_x, faltando = x_client.configurado()
+    return {"posts": listar_posts(status or None),
+            "x_configurado": ok_x, "x_faltando": faltando,
+            "publicados_24h": contar_publicados_hoje(),
+            "limite_diario": x_client.LIMITE_DIARIO}
+
+
+@app.post("/api/posts/gerar")
+async def api_posts_gerar(request: Request):
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    return await gerar_bola_rolando(corpo.get("data") or None)
+
+
+@app.post("/api/posts/{post_id}/texto")
+async def api_posts_texto(post_id: int, request: Request):
+    try:
+        corpo = await request.json()
+    except Exception:
+        return {"erro": "corpo inválido"}
+    texto = (corpo.get("texto") or "").strip()
+    if not texto:
+        return {"erro": "texto vazio"}
+    if len(texto) > 280:
+        return {"erro": f"texto com {len(texto)} caracteres; o limite do X é 280"}
+    if x_client.texto_tem_link(texto):
+        return {"erro": "o texto tem link, que custa 13x mais no X. Remova antes de salvar."}
+    return {"ok": atualizar_texto_post(post_id, texto)}
+
+
+@app.post("/api/posts/{post_id}/cancelar")
+async def api_posts_cancelar(post_id: int):
+    return {"ok": marcar_post(post_id, "cancelado")}
+
+
+@app.post("/api/posts/{post_id}/publicar")
+async def api_posts_publicar(post_id: int):
+    """Publica no X. Só sai daqui por clique — nada publica sozinho."""
+    item = obter_post(post_id)
+    if not item:
+        return {"erro": "post não encontrado"}
+    if item["status"] != "pendente":
+        return {"erro": f"este post está como '{item['status']}', não pendente"}
+    # Reserva antes de chamar a API: dois cliques rápidos publicariam duas vezes.
+    if not reservar_post_para_publicar(post_id):
+        return {"erro": "outro envio já está em andamento para este post"}
+    try:
+        r = await x_client.publicar(item["texto"], item.get("imagens") or [],
+                                    publicados_hoje=contar_publicados_hoje())
+    except Exception as e:
+        marcar_post(post_id, "pendente", erro=str(e)[:400])
+        return {"erro": str(e)}
+    marcar_post(post_id, "publicado", post_id=r.get("id"))
+    return {"ok": True, "post_id": r.get("id"), "custo": r.get("custo")}
 
 
 @app.get("/api/elencos/times")
