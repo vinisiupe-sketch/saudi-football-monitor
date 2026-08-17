@@ -81,11 +81,14 @@ def texto_tem_link(texto: str) -> bool:
     return bool(_URL_NO_TEXTO.search(texto or ""))
 
 
-async def subir_imagem(caminho: str) -> str:
-    """Sobe uma imagem e devolve o media_id."""
+async def subir_imagem(imagem) -> str:
+    """Sobe uma imagem e devolve o media_id. Aceita bytes ou caminho de arquivo."""
     cred = credenciais()
-    with open(caminho, "rb") as f:
-        dados = f.read()
+    if isinstance(imagem, (bytes, bytearray)):
+        dados = bytes(imagem)
+    else:
+        with open(imagem, "rb") as f:
+            dados = f.read()
     b64 = base64.b64encode(dados).decode()
     campos = {"media_data": b64}
     cabecalho = _cabecalho("POST", API_MEDIA, cred)   # media_data não entra na assinatura
@@ -96,7 +99,7 @@ async def subir_imagem(caminho: str) -> str:
     return str(r.json().get("media_id_string") or "")
 
 
-async def publicar(texto: str, imagens: list[str] | None = None,
+async def publicar(texto: str, imagens: list | None = None,
                    permitir_link: bool = False, publicados_hoje: int = 0) -> dict:
     """Publica e devolve {id, custo}. Levanta XErro em qualquer recusa."""
     ok, faltando = configurado()
@@ -113,9 +116,9 @@ async def publicar(texto: str, imagens: list[str] | None = None,
         raise XErro(f"limite diário de {LIMITE_DIARIO} publicações atingido")
 
     media_ids = []
-    for caminho in (imagens or [])[:4]:      # o X aceita no máximo 4
-        if os.path.exists(caminho):
-            media_ids.append(await subir_imagem(caminho))
+    for img in (imagens or [])[:4]:          # o X aceita no máximo 4
+        if isinstance(img, (bytes, bytearray)) or (isinstance(img, str) and os.path.exists(img)):
+            media_ids.append(await subir_imagem(img))
 
     corpo = {"text": texto}
     if media_ids:

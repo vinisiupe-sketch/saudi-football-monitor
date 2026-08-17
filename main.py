@@ -2,6 +2,7 @@
 Saudi Football Monitor — FastAPI app principal.
 """
 import os
+import base64
 import re
 import asyncio
 import json
@@ -13,7 +14,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -5054,6 +5055,15 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .pos-M{background:#22c55e22;color:#4ade80}
 .pos-A{background:#ef444422;color:#f87171}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
+.clube{display:flex;align-items:center;gap:12px;background:var(--surface);
+  border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
+.quadro{width:52px;height:52px;border-radius:10px;border:1px dashed var(--border);
+  background:var(--surface2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:1.4rem;color:var(--text2);flex-shrink:0;overflow:hidden}
+.quadro img{width:100%;height:100%;object-fit:contain}
+.quadro:hover{border-color:var(--accent);color:var(--accent)}
+.cores-inp{width:90px;text-align:center;font-size:1rem;padding:6px;border-radius:8px;
+  border:1px solid var(--border);background:var(--surface2);color:var(--text)}
 .aviso{font-size:.72rem;color:#f59e0b;margin:8px 0 0}
 </style>
 </head>
@@ -5630,6 +5640,15 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
 .aviso{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24;
   border-radius:10px;padding:10px;font-size:.8rem;margin-bottom:14px}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
+.clube{display:flex;align-items:center;gap:12px;background:var(--surface);
+  border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
+.quadro{width:52px;height:52px;border-radius:10px;border:1px dashed var(--border);
+  background:var(--surface2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:1.4rem;color:var(--text2);flex-shrink:0;overflow:hidden}
+.quadro img{width:100%;height:100%;object-fit:contain}
+.quadro:hover{border-color:var(--accent);color:var(--accent)}
+.cores-inp{width:90px;text-align:center;font-size:1rem;padding:6px;border-radius:8px;
+  border:1px solid var(--border);background:var(--surface2);color:var(--text)}
 </style>
 </head>
 <body>
@@ -5652,6 +5671,11 @@ __HDR__
     <span id="contador" class="conta"></span>
   </div>
   <div id="lista"><div class="estado">Carregando…</div></div>
+
+  <h2 style="font-size:1.05rem;margin:26px 0 6px">Clubes sem escudo ou cores</h2>
+  <p class="sub">Aparecem aqui quando entram num post e não estão no pacote inicial —
+     comum nas competições asiáticas. O que você subir fica no banco, não some no deploy.</p>
+  <div id="clubes"></div>
 </div>
 
 <script>
@@ -5787,7 +5811,99 @@ async function gerar(){
   carregar();
 }
 
+async function carregarClubes(){
+  const alvo = document.getElementById('clubes');
+  try{
+    const d = await (await fetch('/api/clubes/extra?_=' + Date.now())).json();
+    if(!(d.clubes||[]).length){ alvo.innerHTML = '<div class="estado">Nenhum clube pendente.</div>'; return; }
+    alvo.innerHTML = '';
+    d.clubes.forEach(function(c){
+      const linha = document.createElement('div');
+      linha.className = 'clube';
+
+      const quadro = document.createElement('div');
+      quadro.className = 'quadro';
+      quadro.title = 'Clique para enviar o escudo';
+      if(c.tem_escudo){
+        const img = document.createElement('img');
+        img.src = '/api/posts/imagem?p=' + encodeURIComponent('db:' + c.chave) + '&v=' + Date.now();
+        quadro.appendChild(img);
+      } else { quadro.textContent = '+'; }
+      quadro.addEventListener('click', function(){ escolherImagem(c.chave); });
+
+      const meio = document.createElement('div');
+      meio.style.cssText = 'flex:1;min-width:140px';
+      const nome = document.createElement('strong');
+      nome.style.fontSize = '.85rem'; nome.textContent = c.nome || c.chave;
+      const nota = document.createElement('div');
+      nota.className = 'conta';
+      nota.textContent = c.tem_escudo ? 'escudo salvo' : 'sem escudo';
+      meio.appendChild(nome); meio.appendChild(nota);
+
+      const inp = document.createElement('input');
+      inp.className = 'cores-inp'; inp.maxLength = 8;
+      inp.value = c.cores || ''; inp.placeholder = 'cores';
+
+      const bt = document.createElement('button');
+      bt.className = 'ctrl'; bt.textContent = 'Salvar cores';
+      bt.addEventListener('click', function(){ salvarCores(c.chave, inp.value); });
+
+      linha.appendChild(quadro); linha.appendChild(meio);
+      linha.appendChild(inp); linha.appendChild(bt);
+      alvo.appendChild(linha);
+    });
+  }catch(e){ alvo.innerHTML = '<div class="estado">Erro ao carregar clubes.</div>'; }
+}
+
+function escolherImagem(chave){
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.addEventListener('change', function(){
+    if(inp.files && inp.files[0]) enviarImagem(chave, inp.files[0]);
+  });
+  inp.click();
+}
+
+// Redimensiona no navegador para 512px PNG. Assim o servidor nao precisa de
+// biblioteca de imagem (o projeto nao tem Pillow) e o escudo sai no mesmo
+// padrao dos 33 que ja vieram no pacote.
+function enviarImagem(chave, arquivo){
+  const leitor = new FileReader();
+  leitor.onload = function(){
+    const img = new Image();
+    img.onload = async function(){
+      const cv = document.createElement('canvas');
+      cv.width = 512; cv.height = 512;
+      const ctx = cv.getContext('2d');
+      const escala = Math.min(512 / img.width, 512 / img.height);
+      const w = img.width * escala, h = img.height * escala;
+      ctx.drawImage(img, (512 - w) / 2, (512 - h) / 2, w, h);
+      try{
+        const d = await (await fetch('/api/clubes/extra', {method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({chave: chave, escudo_base64: cv.toDataURL('image/png')})})).json();
+        if(d.erro){ alert(d.erro); return; }
+      }catch(e){ alert('Falha ao enviar.'); return; }
+      carregarClubes();
+    };
+    img.onerror = function(){ alert('Nao consegui ler essa imagem.'); };
+    img.src = leitor.result;
+  };
+  leitor.readAsDataURL(arquivo);
+}
+
+async function salvarCores(chave, cores){
+  try{
+    const d = await (await fetch('/api/clubes/extra', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({chave: chave, cores: (cores||'').trim()})})).json();
+    if(d.erro){ alert(d.erro); return; }
+  }catch(e){ alert('Falha ao salvar.'); return; }
+  carregarClubes();
+}
+
 carregar();
+carregarClubes();
 </script>
 </body>
 </html>
@@ -5804,18 +5920,62 @@ async def posts_page():
     )
 
 
+@app.get("/api/clubes/extra")
+async def api_clubes_extra():
+    """Clubes que apareceram num post e não temos escudo ou cores."""
+    return {"clubes": listar_clubes_extra()}
+
+
+@app.post("/api/clubes/extra")
+async def api_clubes_extra_salvar(request: Request):
+    """Grava escudo (PNG em base64) e/ou cores de um clube."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        return {"erro": "corpo inválido"}
+    chave = (corpo.get("chave") or "").strip().lower()
+    if not chave:
+        return {"erro": "clube não informado"}
+
+    cores = corpo.get("cores")
+    if cores is not None:
+        cores = str(cores).strip()[:16] or None
+
+    escudo = None
+    b64 = corpo.get("escudo_base64") or ""
+    if b64:
+        try:
+            if "," in b64:
+                b64 = b64.split(",", 1)[1]      # tira o prefixo data:image/...
+            bruto = base64.b64decode(b64)
+            # A tela já entrega em 512px PNG, redimensionado no navegador. Fazer
+            # isso no servidor exigiria Pillow, que o projeto não tem — e eu quase
+            # subi um endpoint dependendo de biblioteca ausente.
+            if len(bruto) > 3 * 1024 * 1024:
+                return {"erro": "imagem acima de 3 MB mesmo depois do redimensionamento"}
+            if not bruto.startswith(b"\x89PNG\r\n\x1a\n"):
+                return {"erro": "a imagem precisa ser PNG"}
+            escudo = bruto
+        except Exception as e:
+            return {"erro": f"não consegui ler a imagem: {type(e).__name__}"}
+
+    if escudo is None and cores is None:
+        return {"erro": "nada para salvar"}
+    ok = salvar_clube_extra(chave, corpo.get("nome"), escudo, cores)
+    return {"ok": ok, "chave": chave,
+            "tem_escudo": escudo is not None, "cores": cores}
+
+
 @app.get("/api/posts/imagem")
 async def api_posts_imagem(p: str):
     """Mostra na tela um escudo que já está no projeto."""
-    base = os.path.abspath(os.path.join(os.path.dirname(__file__), "public", "escudos"))
-    caminho = os.path.abspath(p)
-    # Só serve de dentro da pasta de escudos: caminho vindo da URL não pode
-    # virar leitura de arquivo arbitrário do servidor.
-    if not caminho.startswith(base + os.sep) or not os.path.exists(caminho):
+    dados = _bytes_da_imagem(p)
+    if not dados:
         return Response(status_code=404)
-    with open(caminho, "rb") as f:
-        return Response(content=f.read(), media_type="image/png",
-                        headers={"Cache-Control": "public, max-age=86400"})
+    # Cache curto para o que veio do banco: você acabou de subir e quer ver.
+    idade = 60 if p.startswith("db:") else 86400
+    return Response(content=dados, media_type="image/png",
+                    headers={"Cache-Control": f"public, max-age={idade}"})
 
 
 # ── Fila de posts das redes ──────────────────────────────────────────────────
@@ -5875,7 +6035,18 @@ async def _marcas_do_jogo(liga_id: int, casa: dict, fora: dict) -> tuple[str, st
     nada quando o adversário é de outro país."""
     import posts_gerador as pg
     if liga_id not in pg.COMPETICOES_INTERNACIONAIS:
-        return TEAM_CORES.get(casa.get("name") or "", ""), TEAM_CORES.get(fora.get("name") or "", "")
+        saida = []
+        for t in (casa, fora):
+            nome = t.get("name") or ""
+            cor = TEAM_CORES.get(nome, "")
+            if not cor and nome:
+                # Sem cor conhecida, tenta o que você cadastrou à mão.
+                chave = pg._chave_clube(nome)
+                cor = obter_cores_extra(chave) or ""
+                if not cor:
+                    registrar_clube_faltando(chave, nome)
+            saida.append(cor)
+        return saida[0], saida[1]
     mapa = await _af_mapa_paises()
     marcas = []
     for t in (casa, fora):
@@ -5945,7 +6116,16 @@ async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
                 cam = pg.escudo_de(n)
                 if cam:
                     imagens.append(cam)
-                else:
+                    continue
+                chave = pg._chave_clube(n)
+                # Guarda a referência do banco mesmo que o escudo ainda não
+                # exista. Assim, se você subir a imagem depois que o post já
+                # entrou na fila, ela entra no post do mesmo jeito — a
+                # resolução só acontece na hora de publicar. Gravar o caminho
+                # resolvido aqui congelaria a ausência.
+                imagens.append(f"db:{chave}")
+                if not obter_escudo_extra(chave):
+                    registrar_clube_faltando(chave, n)
                     sem_escudo.append(n)
             fid = (f.get("fixture") or {}).get("id")
             r = enfileirar_post("bola_rolando", pg.chave_do_jogo(fid), texto, imagens, quando)
@@ -5986,7 +6166,8 @@ async def publicar_aprovados() -> dict:
         if not reservar_post_para_publicar(p["id"], de="aprovado"):
             continue
         try:
-            r = await x_client.publicar(p["texto"], p.get("imagens") or [],
+            fotos = [b for b in (_bytes_da_imagem(i) for i in (p.get("imagens") or [])) if b]
+            r = await x_client.publicar(p["texto"], fotos,
                                         publicados_hoje=contar_publicados_hoje())
             marcar_post(p["id"], "publicado", post_id=r.get("id"))
             publicados += 1
@@ -5994,6 +6175,23 @@ async def publicar_aprovados() -> dict:
             marcar_post(p["id"], "aprovado", erro=str(e)[:400])
             falhas += 1
     return {"publicados": publicados, "falhas": falhas}
+
+
+def _bytes_da_imagem(ref: str) -> bytes | None:
+    """Converte a referência guardada na fila em bytes da imagem.
+
+    Duas origens: arquivo do projeto (escudos que vieram no pacote) e banco
+    (os que você subiu). Resolver só na hora de publicar mantém a fila leve."""
+    if not ref:
+        return None
+    if ref.startswith("db:"):
+        return obter_escudo_extra(ref[3:])
+    base = os.path.abspath(os.path.join(os.path.dirname(__file__), "public", "escudos"))
+    caminho = os.path.abspath(ref)
+    if caminho.startswith(base + os.sep) and os.path.exists(caminho):
+        with open(caminho, "rb") as f:
+            return f.read()
+    return None
 
 
 @app.get("/api/posts/fila")
@@ -6091,7 +6289,8 @@ async def api_posts_publicar(post_id: int):
     if not reservar_post_para_publicar(post_id):
         return {"erro": "outro envio já está em andamento para este post"}
     try:
-        r = await x_client.publicar(item["texto"], item.get("imagens") or [],
+        fotos = [b for b in (_bytes_da_imagem(i) for i in (item.get("imagens") or [])) if b]
+        r = await x_client.publicar(item["texto"], fotos,
                                     publicados_hoje=contar_publicados_hoje())
     except Exception as e:
         marcar_post(post_id, "pendente", erro=str(e)[:400])

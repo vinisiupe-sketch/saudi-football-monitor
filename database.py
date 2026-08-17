@@ -121,6 +121,20 @@ def init_db():
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_post_fila_status ON post_fila(status, agendado_para)")
+        # Escudo e cores de clubes que não vieram no pacote inicial — típico das
+        # competições asiáticas. Fica no BANCO, e não em arquivo: o disco do
+        # Railway é efêmero e a imagem sumiria no deploy seguinte, sem aviso.
+        # A linha nasce quando o gerador encontra um clube desconhecido, então a
+        # própria tabela é a lista do que falta preencher.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS clubes_extra (
+                chave         TEXT PRIMARY KEY,
+                nome          TEXT NOT NULL,
+                escudo        BYTEA,
+                cores         TEXT,
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
         # Estatísticas que a API-Football NÃO publica por jogador em certas competições
         # (ex: Super Cup em todas as edições; King's Cup a partir de 2025/26), mas que
         # dá pra apurar partida a partida via escalações + eventos. Guardamos o resultado
@@ -1319,3 +1333,72 @@ def contar_publicados_hoje() -> int:
             return int(c.fetchone()[0])
     except Exception:
         return 0
+
+
+# ─── Clubes sem escudo/cores no pacote inicial ────────────────────────────────
+
+def registrar_clube_faltando(chave: str, nome: str) -> None:
+    """Anota que este clube apareceu e não temos escudo/cores dele."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""INSERT INTO clubes_extra (chave, nome) VALUES (%s, %s)
+                         ON CONFLICT (chave) DO NOTHING""", [chave, nome])
+    except Exception:
+        pass
+
+
+def salvar_clube_extra(chave: str, nome: str | None = None,
+                       escudo: bytes | None = None, cores: str | None = None) -> bool:
+    """Grava escudo e/ou cores. Campo não informado permanece como está."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO clubes_extra (chave, nome, escudo, cores)
+                VALUES (%s, COALESCE(%s, %s), %s, %s)
+                ON CONFLICT (chave) DO UPDATE SET
+                    nome   = COALESCE(EXCLUDED.nome, clubes_extra.nome),
+                    escudo = COALESCE(EXCLUDED.escudo, clubes_extra.escudo),
+                    cores  = COALESCE(EXCLUDED.cores,  clubes_extra.cores),
+                    atualizado_em = NOW()
+            """, [chave, nome, chave,
+                  psycopg2.Binary(escudo) if escudo else None, cores])
+            return True
+    except Exception:
+        return False
+
+
+def obter_escudo_extra(chave: str) -> bytes | None:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT escudo FROM clubes_extra WHERE chave = %s", [chave])
+            linha = c.fetchone()
+            return bytes(linha[0]) if linha and linha[0] else None
+    except Exception:
+        return None
+
+
+def obter_cores_extra(chave: str) -> str | None:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT cores FROM clubes_extra WHERE chave = %s", [chave])
+            linha = c.fetchone()
+            return linha[0] if linha and linha[0] else None
+    except Exception:
+        return None
+
+
+def listar_clubes_extra() -> list[dict]:
+    """Todos os clubes cadastrados à mão, com o que já foi preenchido."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT chave, nome, (escudo IS NOT NULL), cores
+                           FROM clubes_extra ORDER BY (escudo IS NOT NULL), nome""")
+            return [{"chave": l[0], "nome": l[1], "tem_escudo": bool(l[2]), "cores": l[3]}
+                    for l in c.fetchall()]
+    except Exception:
+        return []
