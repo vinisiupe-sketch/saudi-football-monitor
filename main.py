@@ -23,7 +23,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, sincronizar_linha_versus
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -5065,15 +5065,6 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .pos-M{background:#22c55e22;color:#4ade80}
 .pos-A{background:#ef444422;color:#f87171}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
-.clube{display:flex;align-items:center;gap:12px;background:var(--surface);
-  border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
-.quadro{width:52px;height:52px;border-radius:10px;border:1px dashed var(--border);
-  background:var(--surface2);display:flex;align-items:center;justify-content:center;
-  cursor:pointer;font-size:1.4rem;color:var(--text2);flex-shrink:0;overflow:hidden}
-.quadro img{width:100%;height:100%;object-fit:contain}
-.quadro:hover{border-color:var(--accent);color:var(--accent)}
-.cores-inp{width:90px;text-align:center;font-size:1rem;padding:6px;border-radius:8px;
-  border:1px solid var(--border);background:var(--surface2);color:var(--text)}
 .aviso{font-size:.72rem;color:#f59e0b;margin:8px 0 0}
 </style>
 </head>
@@ -5673,15 +5664,6 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
 .aviso{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24;
   border-radius:10px;padding:10px;font-size:.8rem;margin-bottom:14px}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
-.clube{display:flex;align-items:center;gap:12px;background:var(--surface);
-  border:1px solid var(--border);border-radius:12px;padding:10px;margin-bottom:8px;flex-wrap:wrap}
-.quadro{width:52px;height:52px;border-radius:10px;border:1px dashed var(--border);
-  background:var(--surface2);display:flex;align-items:center;justify-content:center;
-  cursor:pointer;font-size:1.4rem;color:var(--text2);flex-shrink:0;overflow:hidden}
-.quadro img{width:100%;height:100%;object-fit:contain}
-.quadro:hover{border-color:var(--accent);color:var(--accent)}
-.cores-inp{width:90px;text-align:center;font-size:1rem;padding:6px;border-radius:8px;
-  border:1px solid var(--border);background:var(--surface2);color:var(--text)}
 </style>
 </head>
 <body>
@@ -5708,11 +5690,6 @@ __HDR__
   <div id="dia"></div>
 
   <div id="lista"><div class="estado">Carregando…</div></div>
-
-  <h2 style="font-size:1.05rem;margin:26px 0 6px">Clubes sem escudo ou cores</h2>
-  <p class="sub">Aparecem aqui quando entram num post e não estão no pacote inicial —
-     comum nas competições asiáticas. O que você subir fica no banco, não some no deploy.</p>
-  <div id="clubes"></div>
 </div>
 
 <script>
@@ -5976,50 +5953,6 @@ function mostrarDia(){
 }
 
 
-async function carregarClubes(){
-  const alvo = document.getElementById('clubes');
-  try{
-    const d = await (await fetch('/api/clubes/extra?_=' + Date.now())).json();
-    if(!(d.clubes||[]).length){ alvo.innerHTML = '<div class="estado">Nenhum clube pendente.</div>'; return; }
-    alvo.innerHTML = '';
-    d.clubes.forEach(function(c){
-      const linha = document.createElement('div');
-      linha.className = 'clube';
-
-      const quadro = document.createElement('div');
-      quadro.className = 'quadro';
-      quadro.title = 'Clique para enviar o escudo';
-      if(c.tem_escudo){
-        const img = document.createElement('img');
-        img.src = '/api/posts/imagem?p=' + encodeURIComponent('db:' + c.chave) + '&v=' + Date.now();
-        quadro.appendChild(img);
-      } else { quadro.textContent = '+'; }
-      quadro.addEventListener('click', function(){ escolherImagem(c.chave); });
-
-      const meio = document.createElement('div');
-      meio.style.cssText = 'flex:1;min-width:140px';
-      const nome = document.createElement('strong');
-      nome.style.fontSize = '.85rem'; nome.textContent = c.nome || c.chave;
-      const nota = document.createElement('div');
-      nota.className = 'conta';
-      nota.textContent = c.tem_escudo ? 'escudo salvo' : 'sem escudo';
-      meio.appendChild(nome); meio.appendChild(nota);
-
-      const inp = document.createElement('input');
-      inp.className = 'cores-inp'; inp.maxLength = 8;
-      inp.value = c.cores || ''; inp.placeholder = 'cores';
-
-      const bt = document.createElement('button');
-      bt.className = 'ctrl'; bt.textContent = 'Salvar cores';
-      bt.addEventListener('click', function(){ salvarCores(c.chave, inp.value); });
-
-      linha.appendChild(quadro); linha.appendChild(meio);
-      linha.appendChild(inp); linha.appendChild(bt);
-      alvo.appendChild(linha);
-    });
-  }catch(e){ alvo.innerHTML = '<div class="estado">Erro ao carregar clubes.</div>'; }
-}
-
 function escolherImagem(chave){
   const inp = document.createElement('input');
   inp.type = 'file'; inp.accept = 'image/*';
@@ -6050,23 +5983,12 @@ function enviarImagem(chave, arquivo){
         if(d.erro){ alert(d.erro); return; }
       }catch(e){ alert('Falha ao enviar.'); return; }
       JANELA = Date.now();
-      carregarClubes();
       carregar();               // o quadrado vazio no post vira o escudo
     };
     img.onerror = function(){ alert('Nao consegui ler essa imagem.'); };
     img.src = leitor.result;
   };
   leitor.readAsDataURL(arquivo);
-}
-
-async function salvarCores(chave, cores){
-  try{
-    const d = await (await fetch('/api/clubes/extra', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({chave: chave, cores: (cores||'').trim()})})).json();
-    if(d.erro){ alert(d.erro); return; }
-  }catch(e){ alert('Falha ao salvar.'); return; }
-  carregarClubes();
 }
 
 // Clique no quadrado vazio dentro do post: a lista é redesenhada inteira a
@@ -6079,7 +6001,6 @@ document.getElementById('lista').addEventListener('click', function(ev){
 // A agenda vem primeiro: é ela que decide o dia, e a fila é filtrada por ele.
 // Invertido, o primeiro carregamento mostraria todos os dias por um instante.
 carregarAgenda().then(carregar);
-carregarClubes();
 </script>
 </body>
 </html>
@@ -6096,15 +6017,9 @@ async def posts_page():
     )
 
 
-@app.get("/api/clubes/extra")
-async def api_clubes_extra():
-    """Clubes que apareceram num post e não temos escudo ou cores."""
-    return {"clubes": listar_clubes_extra()}
-
-
 @app.post("/api/clubes/extra")
 async def api_clubes_extra_salvar(request: Request):
-    """Grava escudo (PNG em base64) e/ou cores de um clube."""
+    """Grava o escudo (PNG em base64) de um clube que não veio no pacote."""
     try:
         corpo = await request.json()
     except Exception:
@@ -6112,10 +6027,6 @@ async def api_clubes_extra_salvar(request: Request):
     chave = (corpo.get("chave") or "").strip().lower()
     if not chave:
         return {"erro": "clube não informado"}
-
-    cores = corpo.get("cores")
-    if cores is not None:
-        cores = str(cores).strip()[:16] or None
 
     escudo = None
     b64 = corpo.get("escudo_base64") or ""
@@ -6135,11 +6046,10 @@ async def api_clubes_extra_salvar(request: Request):
         except Exception as e:
             return {"erro": f"não consegui ler a imagem: {type(e).__name__}"}
 
-    if escudo is None and cores is None:
-        return {"erro": "nada para salvar"}
-    ok = salvar_clube_extra(chave, corpo.get("nome"), escudo, cores)
-    return {"ok": ok, "chave": chave,
-            "tem_escudo": escudo is not None, "cores": cores}
+    if escudo is None:
+        return {"erro": "nenhuma imagem enviada"}
+    return {"ok": salvar_clube_extra(chave, corpo.get("nome"), escudo),
+            "chave": chave}
 
 
 @app.get("/api/posts/imagem")
@@ -6214,14 +6124,11 @@ async def _marcas_do_jogo(liga_id: int, casa: dict, fora: dict) -> tuple[str, st
         saida = []
         for t in (casa, fora):
             nome = t.get("name") or ""
-            cor = TEAM_CORES.get(nome, "")
-            if not cor and nome:
-                # Sem cor conhecida, tenta o que você cadastrou à mão.
-                chave = pg._chave_clube(nome)
-                cor = obter_cores_extra(chave) or ""
-                if not cor:
-                    registrar_clube_faltando(chave, nome)
-            saida.append(cor)
+            # Sem cor conhecida o post sai sem emoji nessa posição, e você
+            # completa à mão. O cadastro de cores foi tirado a pedido: a tela
+            # dele existia só para isso, e editar o texto do post é mais rápido
+            # do que manter um cadastro paralelo.
+            saida.append(TEAM_CORES.get(nome, ""))
         return saida[0], saida[1]
     mapa = await _af_mapa_paises()
     marcas = []
@@ -6333,7 +6240,6 @@ async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
                 # resolvido aqui congelaria a ausência.
                 imagens.append(f"db:{chave}")
                 if not obter_escudo_extra(chave):
-                    registrar_clube_faltando(chave, n)
                     sem_escudo.append(n)
             fid = (f.get("fixture") or {}).get("id")
             r = enfileirar_post("bola_rolando", pg.chave_do_jogo(fid), texto, imagens, quando)
@@ -6342,16 +6248,8 @@ async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
                 por_competicao[nome_comp] = por_competicao.get(nome_comp, 0) + 1
             elif r == "ja_existia":
                 repetidos += 1
-
-            if r != "novo":
-                mudou = (r == "escudos_atualizados")
-                # Post que já estava lá: repõe a linha dos times para pegar
-                # cor de clube cadastrada depois que ele entrou na fila.
-                versus = next((l for l in texto.split("\n") if l.startswith("🆚")), None)
-                if versus and sincronizar_linha_versus(pg.chave_do_jogo(fid), versus):
-                    mudou = True
-                if mudou:
-                    consertados += 1      # um post conta uma vez, não duas
+            elif r == "escudos_atualizados":
+                consertados += 1
 
     avisos = []
     if sem_escudo:

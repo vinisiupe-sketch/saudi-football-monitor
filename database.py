@@ -1391,17 +1391,6 @@ def contar_publicados_hoje() -> int:
 
 # ─── Clubes sem escudo/cores no pacote inicial ────────────────────────────────
 
-def registrar_clube_faltando(chave: str, nome: str) -> None:
-    """Anota que este clube apareceu e não temos escudo/cores dele."""
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            c.execute("""INSERT INTO clubes_extra (chave, nome) VALUES (%s, %s)
-                         ON CONFLICT (chave) DO NOTHING""", [chave, nome])
-    except Exception:
-        pass
-
-
 def salvar_clube_extra(chave: str, nome: str | None = None,
                        escudo: bytes | None = None, cores: str | None = None) -> bool:
     """Grava escudo e/ou cores. Campo não informado permanece como está."""
@@ -1432,51 +1421,6 @@ def obter_escudo_extra(chave: str) -> bytes | None:
             return bytes(linha[0]) if linha and linha[0] else None
     except Exception:
         return None
-
-
-def obter_cores_extra(chave: str) -> str | None:
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            c.execute("SELECT cores FROM clubes_extra WHERE chave = %s", [chave])
-            linha = c.fetchone()
-            return linha[0] if linha and linha[0] else None
-    except Exception:
-        return None
-
-
-def sincronizar_linha_versus(chave_unica: str, nova: str) -> bool:
-    """Regrava só a linha dos times de um post ainda pendente.
-
-    Serve para quando você cadastra as cores de um clube depois que o post já
-    estava na fila: sem isso o post continuaria com o quadradinho vazio no
-    lugar do emoji, e você teria que corrigir à mão.
-
-    Troca apenas essa linha, pelo mesmo motivo do endpoint de transmissão —
-    reescrever o texto inteiro apagaria a transmissão que você marcou e
-    qualquer ajuste que tenha feito nas outras linhas. E só mexe em post
-    'pendente': aprovar significa que você leu e aceitou aquele texto.
-    """
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            c.execute("SELECT id, texto, status FROM post_fila WHERE chave_unica = %s",
-                      [chave_unica])
-            l = c.fetchone()
-            if not l or l[2] != "pendente":
-                return False
-            linhas = (l[1] or "").split("\n")
-            for i, linha in enumerate(linhas):
-                if linha.startswith("🆚"):
-                    if linha == nova:
-                        return False
-                    linhas[i] = nova
-                    c.execute("UPDATE post_fila SET texto = %s WHERE id = %s",
-                              ["\n".join(linhas), l[0]])
-                    return True
-            return False
-    except Exception:
-        return False
 
 
 def tem_escudo_extra(chave: str) -> bool:
@@ -1510,14 +1454,4 @@ def status_das_chaves(chaves: list[str]) -> dict[str, str]:
         return {}
 
 
-def listar_clubes_extra() -> list[dict]:
-    """Todos os clubes cadastrados à mão, com o que já foi preenchido."""
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            c.execute("""SELECT chave, nome, (escudo IS NOT NULL), cores
-                           FROM clubes_extra ORDER BY (escudo IS NOT NULL), nome""")
-            return [{"chave": l[0], "nome": l[1], "tem_escudo": bool(l[2]), "cores": l[3]}
-                    for l in c.fetchall()]
-    except Exception:
-        return []
+
