@@ -140,6 +140,7 @@ _ICO_NUMEROS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_POSTS   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>'
 _ICO_ELENCOS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+_ICO_APITO   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
 _ICO_MAIS    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
@@ -188,6 +189,10 @@ _NAV_PRINCIPAIS = [
     ("/numeros", _ICO_NUMEROS, "Números", "",     "#0ea5e9"),
     ("/elencos", _ICO_ELENCOS, "Elencos", "",     "#14b8a6"),
     ("/posts",   _ICO_POSTS,   "Posts",   "",     "#1d9bf0"),
+    # Entrou por último para não bagunçar a ordem que você pediu. Fica na barra,
+    # e não no menu, porque é a única tela com pressa: o texto serve nos minutos
+    # seguintes ao apito.
+    ("/fim-de-jogo", _ICO_APITO, "Fim de jogo", "", "#22c55e"),
 ]
 _NAV_EXTRAS = [
     ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#6366f1"),
@@ -1990,19 +1995,6 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 .result-head {{ display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }}
 .result-title {{ font-size: .85rem; font-weight: 700; color: var(--c-text); }}
 .copy-btn {{
-    .fj-topo {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }}
-    .fj-info {{ font-size:0.72rem; color:var(--c-muted-4); }}
-    .fj-refresh {{ background:transparent; border:1.5px solid var(--c-border-2); border-radius:99px; padding:5px 14px; font-size:0.65rem; font-weight:700; color:var(--c-muted-4); cursor:pointer; }}
-    .fj-refresh:hover {{ border-color:var(--c-text); color:var(--c-text); }}
-    .fj-status {{ font-size:0.66rem; color:var(--c-muted-4); }}
-    .fj-card {{ margin-bottom:12px; }}
-    .fj-cab {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }}
-    .fj-conf {{ font-weight:800; font-size:0.95rem; }}
-    .fj-selo {{ font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; border:1.5px solid var(--c-border-2); border-radius:99px; padding:3px 9px; color:var(--c-muted-4); }}
-    .fj-selo.fj-vivo {{ border-color:#22c55e; color:#22c55e; }}
-    .fj-selo.fj-fim {{ border-color:var(--c-text); color:var(--c-text); }}
-    .fj-texto {{ white-space:pre-wrap; font-family:inherit; font-size:0.9rem; line-height:1.6; margin:0; padding:12px 14px; border-radius:10px; background:var(--c-bg-soft); }}
-    .fj-aguardando {{ font-size:0.75rem; color:var(--c-muted-4); padding:6px 0; }}
     .nome-completo {{ color:var(--c-muted-4); font-weight:400; }}
   display: flex; align-items: center; gap: 5px;
   background: var(--c-text); color: var(--c-bg); border: none; border-radius: 8px;
@@ -2093,16 +2085,6 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
     <button class="tab-btn active" onclick="showTab('rankings',this)">Rankings</button>
     <button class="tab-btn" onclick="showTab('classificacao',this)">Classificação</button>
     <button class="tab-btn" onclick="showTab('jogador',this)">Jogador</button>
-    <button class="tab-btn" onclick="showTab('fimdejogo',this); carregarJogosDoDia()">⏱️ Fim de Jogo</button>
-  </div>
-
-  <div id="tab-fimdejogo" class="tab-panel">
-    <div class="fj-topo">
-      <span class="fj-info">Jogos de hoje e ontem. Quando a partida encerra, o texto aparece pronto — é só copiar.</span>
-      <button class="fj-refresh" onclick="carregarJogosDoDia()">Atualizar</button>
-      <span id="fjStatus" class="fj-status"></span>
-    </div>
-    <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
   </div>
 
   <div id="tab-rankings" class="tab-panel active">
@@ -2297,64 +2279,6 @@ function showTab(name, btn) {{
   document.getElementById('tab-' + name).classList.add('active');
   btn.classList.add('active');
 }}
-// ── FIM DE JOGO ───────────────────────────────────────────────────────────
-// Objetivo é velocidade: abrir a guia e copiar. A lista se atualiza sozinha, e o
-// texto de cada jogo encerrado é buscado em paralelo, já pronto no card.
-let _fjTimer = null;
-
-async function carregarJogosDoDia() {{
-  const lista = document.getElementById('fjLista');
-  const st = document.getElementById('fjStatus');
-  st.textContent = 'atualizando…';
-  try {{
-    const d = await fetchJSON('/api/numeros/jogos-do-dia?dias=2&_=' + Date.now());
-    if (!d.jogos.length) {{
-      lista.innerHTML = '<div class="result-card"><div class="loading-state">Nenhum jogo hoje nem ontem em nenhuma das competições.</div></div>';
-      st.textContent = '';
-      return;
-    }}
-    lista.innerHTML = d.jogos.map(j => cardDoJogo(j)).join('');
-    // Busca o texto dos encerrados em paralelo — quando chega, preenche o card.
-    d.jogos.filter(j => j.encerrado).forEach(async j => {{
-      try {{
-        const t = await fetchJSON('/api/numeros/fim-de-jogo?fixture=' + j.fixture);
-        const box = document.getElementById('fj-txt-' + j.fixture);
-        if (box && t.texto) {{
-          box.textContent = t.texto + (t.aviso ? '\\n\\n⚠️ ' + t.aviso : '');
-          const b = document.getElementById('fj-btn-' + j.fixture);
-          // Texto incompleto não ganha botão: copiar agora geraria post errado.
-          // A lista se re-atualiza sozinha em 60s e tenta de novo.
-          if (b && t.completo) {{ b.style.display = ''; b.onclick = () => copyBlock(b, t.texto); }}
-        }}
-      }} catch(e) {{}}
-    }});
-    st.textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR').slice(0,5);
-  }} catch(e) {{
-    lista.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
-    st.textContent = '';
-  }}
-  clearTimeout(_fjTimer);
-  _fjTimer = setTimeout(carregarJogosDoDia, 60000);
-}}
-
-function cardDoJogo(j) {{
-  const placar = (j.gols_casa === null || j.gols_casa === undefined) ? 'x' : j.gols_casa + 'x' + j.gols_fora;
-  let selo;
-  if (j.encerrado) selo = '<span class="fj-selo fj-fim">encerrado</span>';
-  else if (j.minuto !== null && j.minuto !== undefined) selo = '<span class="fj-selo fj-vivo">' + j.minuto + "'</span>";
-  else selo = '<span class="fj-selo">' + (j.data || '').slice(11) + '</span>';
-  return '<div class="result-card fj-card">' +
-    '<div class="fj-cab">' + selo +
-      '<span class="fj-conf">' + j.cor_casa + ' ' + j.casa + ' ' + placar + ' ' + j.fora + ' ' + j.cor_fora + '</span>' +
-      (j.competicao ? '<span class="fj-selo">' + j.competicao + '</span>' : '') +
-      '<button class="copy-btn" id="fj-btn-' + j.fixture + '" style="display:none">📋 Copiar</button>' +
-    '</div>' +
-    (j.encerrado
-      ? '<pre class="fj-texto" id="fj-txt-' + j.fixture + '">gerando texto…</pre>'
-      : '<div class="fj-aguardando">Em andamento — o texto aparece assim que o jogo acabar.</div>') +
-  '</div>';
-}}
-
 function showSubtab(group, name, btn) {{
   const prefix = group === 'rk' ? 'rk-' : 'jg-';
   const parent = btn.closest(group === 'rk' ? '#tab-rankings' : '#tab-jogador');
@@ -5060,6 +4984,154 @@ async def api_jogos_do_dia(dias: int = 1):
     jogos.sort(key=lambda x: x["data"], reverse=True)
     return {"jogos": jogos}
 
+
+_FIMJOGO_CSS = '''    .fj-topo { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+    .fj-info { font-size:0.72rem; color:var(--c-muted-4); }
+    .fj-refresh { background:transparent; border:1.5px solid var(--c-border-2); border-radius:99px; padding:5px 14px; font-size:0.65rem; font-weight:700; color:var(--c-muted-4); cursor:pointer; }
+    .fj-refresh:hover { border-color:var(--c-text); color:var(--c-text); }
+    .fj-status { font-size:0.66rem; color:var(--c-muted-4); }
+    .fj-card { margin-bottom:12px; }
+    .fj-cab { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+    .fj-conf { font-weight:800; font-size:0.95rem; }
+    .fj-selo { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; border:1.5px solid var(--c-border-2); border-radius:99px; padding:3px 9px; color:var(--c-muted-4); }
+    .fj-selo.fj-vivo { border-color:#22c55e; color:#22c55e; }
+    .fj-selo.fj-fim { border-color:var(--c-text); color:var(--c-text); }
+    .fj-texto { white-space:pre-wrap; font-family:inherit; font-size:0.9rem; line-height:1.6; margin:0; padding:12px 14px; border-radius:10px; background:var(--c-bg-soft); }
+    .fj-aguardando { font-size:0.75rem; color:var(--c-muted-4); padding:6px 0; }'''
+
+_FIMJOGO_JS = '''// ── FIM DE JOGO ───────────────────────────────────────────────────────────
+// Objetivo é velocidade: abrir a guia e copiar. A lista se atualiza sozinha, e o
+// texto de cada jogo encerrado é buscado em paralelo, já pronto no card.
+let _fjTimer = null;
+
+async function carregarJogosDoDia() {
+  const lista = document.getElementById('fjLista');
+  const st = document.getElementById('fjStatus');
+  st.textContent = 'atualizando…';
+  try {
+    const d = await fetchJSON('/api/numeros/jogos-do-dia?dias=2&_=' + Date.now());
+    if (!d.jogos.length) {
+      lista.innerHTML = '<div class="result-card"><div class="loading-state">Nenhum jogo hoje nem ontem em nenhuma das competições.</div></div>';
+      st.textContent = '';
+      return;
+    }
+    lista.innerHTML = d.jogos.map(j => cardDoJogo(j)).join('');
+    // Busca o texto dos encerrados em paralelo — quando chega, preenche o card.
+    d.jogos.filter(j => j.encerrado).forEach(async j => {
+      try {
+        const t = await fetchJSON('/api/numeros/fim-de-jogo?fixture=' + j.fixture);
+        const box = document.getElementById('fj-txt-' + j.fixture);
+        if (box && t.texto) {
+          box.textContent = t.texto + (t.aviso ? '\\n\\n⚠️ ' + t.aviso : '');
+          const b = document.getElementById('fj-btn-' + j.fixture);
+          // Texto incompleto não ganha botão: copiar agora geraria post errado.
+          // A lista se re-atualiza sozinha em 60s e tenta de novo.
+          if (b && t.completo) { b.style.display = ''; b.onclick = () => copyBlock(b, t.texto); }
+        }
+      } catch(e) {}
+    });
+    st.textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR').slice(0,5);
+  } catch(e) {
+    lista.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
+    st.textContent = '';
+  }
+  clearTimeout(_fjTimer);
+  _fjTimer = setTimeout(carregarJogosDoDia, 60000);
+}
+
+function cardDoJogo(j) {
+  const placar = (j.gols_casa === null || j.gols_casa === undefined) ? 'x' : j.gols_casa + 'x' + j.gols_fora;
+  let selo;
+  if (j.encerrado) selo = '<span class="fj-selo fj-fim">encerrado</span>';
+  else if (j.minuto !== null && j.minuto !== undefined) selo = '<span class="fj-selo fj-vivo">' + j.minuto + "'</span>";
+  else selo = '<span class="fj-selo">' + (j.data || '').slice(11) + '</span>';
+  return '<div class="result-card fj-card">' +
+    '<div class="fj-cab">' + selo +
+      '<span class="fj-conf">' + j.cor_casa + ' ' + j.casa + ' ' + placar + ' ' + j.fora + ' ' + j.cor_fora + '</span>' +
+      (j.competicao ? '<span class="fj-selo">' + j.competicao + '</span>' : '') +
+      '<button class="copy-btn" id="fj-btn-' + j.fixture + '" style="display:none">📋 Copiar</button>' +
+    '</div>' +
+    (j.encerrado
+      ? '<pre class="fj-texto" id="fj-txt-' + j.fixture + '">gerando texto…</pre>'
+      : '<div class="fj-aguardando">Em andamento — o texto aparece assim que o jogo acabar.</div>') +
+  '</div>';
+}'''
+
+
+_FIMJOGO_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Fim de Jogo · IARABÃO</title>
+__THEME__
+<style>
+__HEADER_CSS__
+*{box-sizing:border-box}
+body{margin:0;background:var(--c-bg);color:var(--c-text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.wrap{max-width:820px;margin:0 auto;padding:18px 16px 60px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--c-muted-3);font-size:.8rem;margin:0 0 16px}
+.result-card{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:12px;padding:14px 16px}
+.loading-state,.error-state{font-size:.8rem;color:var(--c-muted-3);text-align:center;padding:18px 0}
+.error-state{color:#fb7185}
+.copy-btn{margin-left:auto;background:transparent;border:1.5px solid var(--c-border-2);
+  border-radius:99px;padding:5px 14px;font-size:.65rem;font-weight:700;
+  color:var(--c-muted-4);cursor:pointer}
+.copy-btn:hover{border-color:var(--c-text);color:var(--c-text)}
+.copy-btn.copied{border-color:#22c55e;color:#22c55e}
+__FJ_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Fim de Jogo</h1>
+  <p class="sub">Jogos de hoje e ontem em todas as competições que viram post.
+     Quando a partida encerra, o texto aparece pronto — é só copiar.</p>
+  <div class="fj-topo">
+    <button class="fj-refresh" onclick="carregarJogosDoDia()">Atualizar</button>
+    <span id="fjStatus" class="fj-status"></span>
+  </div>
+  <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
+</div>
+<script>
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  const d = await r.json();
+  if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
+  return d;
+}
+
+function copyBlock(btn, text) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = '✅ Copiado!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1800);
+  });
+}
+
+__FJ_JS__
+
+carregarJogosDoDia();
+</script>
+</body>
+</html>"""
+
+
+@app.get("/fim-de-jogo", response_class=HTMLResponse)
+async def fim_de_jogo_page():
+    return HTMLResponse(
+        _FIMJOGO_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _THEME_INIT_SCRIPT)
+        .replace("__FJ_CSS__", _FIMJOGO_CSS)
+        .replace("__FJ_JS__", _FIMJOGO_JS)
+        .replace("__HDR__", _header("/fim-de-jogo"))
+    )
 
 _ELENCOS_HTML = """<!DOCTYPE html>
 <html lang="pt">
