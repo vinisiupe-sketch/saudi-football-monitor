@@ -1228,22 +1228,47 @@ def enfileirar_post(tipo: str, chave_unica: str, texto: str,
                     agendado_para=None) -> str:
     """Coloca um post na fila. Devolve 'novo', 'ja_existia' ou 'erro: ...'.
 
-    Idempotente por chave_unica: chamar de novo com a mesma chave não duplica
-    nem sobrescreve. É isso que permite o gerador rodar a cada poucos minutos
-    sem medo — ele simplesmente reafirma o que já está lá.
+    Idempotente por chave_unica: chamar de novo com a mesma chave não duplica.
+    É isso que permite o gerador rodar a cada poucos minutos sem medo.
+
+    A única coisa que um reenvio atualiza é a lista de imagens, e só enquanto o
+    post ainda está pendente ou aprovado. O texto nunca — ele pode ter sido
+    editado por você, e sobrescrever apagaria a transmissão que você marcou.
+    A exceção das imagens existe porque elas são dado derivado: posts montados
+    antes de o cadastro de escudos existir ficaram com a lista incompleta, sem
+    sequer a referência do escudo que faltava, e sem isso a tela não tem como
+    saber que há um escudo a subir. Remontar o dia conserta.
+
+    Devolve 'novo', 'escudos_atualizados' ou 'ja_existia'.
     """
     import json as _json
     try:
         with get_conn() as conn:
             c = conn.cursor()
-            c.execute("""
-                INSERT INTO post_fila (tipo, chave_unica, texto, imagens, agendado_para)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (chave_unica) DO NOTHING
-                RETURNING id
-            """, [tipo, chave_unica, texto,
-                  _json.dumps(imagens or [], ensure_ascii=False), agendado_para])
-            return "novo" if c.fetchone() else "ja_existia"
+            imgs = _json.dumps(imagens or [], ensure_ascii=False)
+            c.execute("SELECT status FROM post_fila WHERE chave_unica = %s", [chave_unica])
+            atual = c.fetchone()
+
+            if atual is None:
+                # DO NOTHING continua aqui por causa da corrida: se outro
+                # processo inserir entre o SELECT acima e este INSERT, o certo
+                # é não fazer nada, não estourar.
+                c.execute("""
+                    INSERT INTO post_fila (tipo, chave_unica, texto, imagens, agendado_para)
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (chave_unica) DO NOTHING
+                    RETURNING id
+                """, [tipo, chave_unica, texto, imgs, agendado_para])
+                return "novo" if c.fetchone() else "ja_existia"
+
+            if atual[0] in ("pendente", "aprovado"):
+                c.execute("""UPDATE post_fila SET imagens = %s
+                              WHERE chave_unica = %s
+                                AND imagens IS DISTINCT FROM %s""",
+                          [imgs, chave_unica, imgs])
+                if c.rowcount:
+                    return "escudos_atualizados"
+            return "ja_existia"
     except Exception as e:
         return f"erro: {type(e).__name__}: {e}"
 
@@ -1418,6 +1443,40 @@ def obter_cores_extra(chave: str) -> str | None:
             return linha[0] if linha and linha[0] else None
     except Exception:
         return None
+
+
+def sincronizar_linha_versus(chave_unica: str, nova: str) -> bool:
+    """Regrava só a linha dos times de um post ainda pendente.
+
+    Serve para quando você cadastra as cores de um clube depois que o post já
+    estava na fila: sem isso o post continuaria com o quadradinho vazio no
+    lugar do emoji, e você teria que corrigir à mão.
+
+    Troca apenas essa linha, pelo mesmo motivo do endpoint de transmissão —
+    reescrever o texto inteiro apagaria a transmissão que você marcou e
+    qualquer ajuste que tenha feito nas outras linhas. E só mexe em post
+    'pendente': aprovar significa que você leu e aceitou aquele texto.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT id, texto, status FROM post_fila WHERE chave_unica = %s",
+                      [chave_unica])
+            l = c.fetchone()
+            if not l or l[2] != "pendente":
+                return False
+            linhas = (l[1] or "").split("\n")
+            for i, linha in enumerate(linhas):
+                if linha.startswith("🆚"):
+                    if linha == nova:
+                        return False
+                    linhas[i] = nova
+                    c.execute("UPDATE post_fila SET texto = %s WHERE id = %s",
+                              ["\n".join(linhas), l[0]])
+                    return True
+            return False
+    except Exception:
+        return False
 
 
 def tem_escudo_extra(chave: str) -> bool:

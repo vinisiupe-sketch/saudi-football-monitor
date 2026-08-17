@@ -23,7 +23,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, sincronizar_linha_versus
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -5736,12 +5736,15 @@ async function carregar(){
   const filtro = document.getElementById('filtro').value;
   const lista = document.getElementById('lista');
   try{
-    const d = await (await fetch('/api/posts/fila?status=' + filtro + '&_=' + Date.now())).json();
+    const d = await (await fetch('/api/posts/fila?status=' + filtro +
+      (DIA_SEL ? '&dia=' + DIA_SEL : '') + '&_=' + Date.now())).json();
     document.getElementById('statusX').innerHTML = d.x_configurado ? '' :
       '<div class="aviso">As credenciais do X ainda não estão no Railway (faltando: ' +
       esc((d.x_faltando||[]).join(', ')) + '). A fila funciona, mas publicar vai falhar.</div>';
     document.getElementById('contador').textContent =
-      d.posts.length + ' post(s) · ' + d.publicados_24h + ' publicados em 24h (teto ' + d.limite_diario + ')';
+      d.posts.length + ' post(s)' +
+      (DIA_SEL ? ' em ' + diaCurto(DIA_SEL) + ' (clique no dia de novo para ver todos)' : ' de todos os dias') +
+      ' · ' + d.publicados_24h + ' publicados em 24h (teto ' + d.limite_diario + ')';
     if(!d.posts.length){ lista.innerHTML = '<div class="estado">Nada aqui.</div>'; return; }
     CANAIS = d.canais || [];
     lista.innerHTML = d.posts.map(cartao).join('');
@@ -5855,7 +5858,7 @@ function linhaEscudos(p){
 }
 
 // ── Agenda dos 7 dias ──────────────────────────────────────────────────────
-let AGENDA = [], DIA_SEL = null;
+let AGENDA = [], DIA_SEL = null, PRIMEIRA = true;
 const SEMANA = ['dom','seg','ter','qua','qui','sex','sáb'];
 
 async function carregarAgenda(){
@@ -5867,7 +5870,7 @@ async function carregarAgenda(){
     alvo.innerHTML = '<div class="conta">Não consegui carregar a semana.</div>';
     return;
   }
-  if(DIA_SEL === null && AGENDA.length) DIA_SEL = AGENDA[0].data;
+  if(PRIMEIRA && AGENDA.length){ DIA_SEL = AGENDA[0].data; PRIMEIRA = false; }
   alvo.innerHTML = '';
   AGENDA.forEach(function(dia, i){
     // A data vem como AAAA-MM-DD; monto com Date(ano, mes, dia) para o
@@ -5881,10 +5884,21 @@ async function carregarAgenda(){
     bt.innerHTML = '<div class="dia-sem">' + SEMANA[dt.getDay()] + '</div>' +
                    '<div class="dia-num">' + pt[2] + '</div>' +
                    '<div class="dia-qtd">' + (n ? n + (n>1?' jogos':' jogo') : '—') + '</div>';
-    bt.addEventListener('click', function(){ DIA_SEL = dia.data; carregarAgenda(); });
+    bt.addEventListener('click', function(){
+      // Clicar no dia já escolhido solta o filtro. Sem essa saída, post de
+      // ontem ou de daqui a duas semanas ficaria invisível na tela.
+      DIA_SEL = (DIA_SEL === dia.data) ? null : dia.data;
+      carregarAgenda();
+      carregar();               // a fila embaixo acompanha o dia escolhido
+    });
     alvo.appendChild(bt);
   });
   mostrarDia();
+}
+
+function diaCurto(iso){
+  const p = iso.split('-');
+  return p[2] + '/' + p[1];
 }
 
 function mostrarDia(){
@@ -5913,11 +5927,16 @@ function mostrarDia(){
     cx.appendChild(l);
   });
   alvo.appendChild(cx);
-  if(dia.a_montar > 0){
+  const porVir = dia.jogos.filter(function(j){ return !j.passou; }).length;
+  if(porVir > 0){
     const bt = document.createElement('button');
     bt.className = 'ctrl';
     bt.style.marginBottom = '16px';
-    bt.textContent = '📝 Montar fila deste dia (' + dia.a_montar + ')';
+    // Continua aparecendo com tudo já na fila: remontar não duplica e é o que
+    // repõe o escudo em post montado antes de o cadastro existir.
+    bt.textContent = dia.a_montar > 0
+      ? '📝 Montar fila deste dia (' + dia.a_montar + ')'
+      : '↻ Remontar (confere escudos)';
     bt.addEventListener('click', function(){ gerar(dia.data, bt); });
     alvo.appendChild(bt);
   }
@@ -5930,7 +5949,8 @@ async function gerar(data, bt){
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({data: data || null})})).json();
     if(d.erro) alert(d.erro);
-    else alert('Fila de ' + d.data + ': ' + d.novos + ' novo(s), ' + d.ja_estavam + ' já estavam.' +
+    else alert('Fila de ' + d.data + ': ' + d.novos + ' novo(s), ' + d.ja_estavam + ' já estavam' +
+               (d.consertados ? ', ' + d.consertados + ' com escudos atualizados' : '') + '.' +
                ((d.avisos||[]).length ? '\\n\\n' + d.avisos.join('\\n') : ''));
   }catch(e){ alert('Falha ao montar a fila.'); }
   carregarAgenda();
@@ -6037,8 +6057,9 @@ document.getElementById('lista').addEventListener('click', function(ev){
   if(q && q.dataset.chave) escolherImagem(q.dataset.chave);
 });
 
-carregar();
-carregarAgenda();
+// A agenda vem primeiro: é ela que decide o dia, e a fila é filtrada por ele.
+// Invertido, o primeiro carregamento mostraria todos os dias por um instante.
+carregarAgenda().then(carregar);
 carregarClubes();
 </script>
 </body>
@@ -6215,7 +6236,7 @@ async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
     inicio = _af_temporada_corrente()
     alvo = data_iso or (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
 
-    novos = repetidos = 0
+    novos = repetidos = consertados = 0
     sem_escudo: list[str] = []
     por_competicao: dict[str, int] = {}
     erros: list[str] = []
@@ -6271,11 +6292,22 @@ async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
             elif r == "ja_existia":
                 repetidos += 1
 
+            if r != "novo":
+                mudou = (r == "escudos_atualizados")
+                # Post que já estava lá: repõe a linha dos times para pegar
+                # cor de clube cadastrada depois que ele entrou na fila.
+                versus = next((l for l in texto.split("\n") if l.startswith("🆚")), None)
+                if versus and sincronizar_linha_versus(pg.chave_do_jogo(fid), versus):
+                    mudou = True
+                if mudou:
+                    consertados += 1      # um post conta uma vez, não duas
+
     avisos = []
     if sem_escudo:
         avisos.append("sem escudo no projeto: " + ", ".join(sorted(set(sem_escudo))))
     avisos.extend(erros)
     return {"data": alvo, "novos": novos, "ja_estavam": repetidos,
+            "consertados": consertados,
             "por_competicao": por_competicao, "avisos": avisos}
 
 
@@ -6331,13 +6363,26 @@ def _bytes_da_imagem(ref: str) -> bytes | None:
 
 
 @app.get("/api/posts/fila")
-async def api_posts_fila(status: str = ""):
+async def api_posts_fila(status: str = "", dia: str = ""):
     # Varre a fila antes de mostrar: post de jogo que já começou some daqui
     # sozinho, em vez de ficar competindo com os de hoje na sua tela.
     expirar_posts_vencidos()
     ok_x, faltando = x_client.configurado()
     import posts_gerador as pg
-    posts = listar_posts(status or None)
+    # Com um dia escolhido no calendário, a lista embaixo mostra só aquele dia.
+    # O limite sobe junto: filtrar em Python uma página de 60 esconderia posts
+    # de um dia cheio só porque outros dias ocuparam a página.
+    posts = listar_posts(status or None, limite=300 if dia else 60)
+    if dia:
+        def _no_dia(p):
+            q = p.get("agendado_para")
+            if not q:
+                return False
+            try:
+                return datetime.fromisoformat(q).astimezone(BRT).date().isoformat() == dia
+            except ValueError:
+                return False
+        posts = [p for p in posts if _no_dia(p)]
     # Diz para a tela, escudo a escudo, se a imagem existe. Sem isso ela só
     # descobre pelo <img> quebrado — foi exatamente o que apareceu no Jabalain.
     cache: dict[str, bool] = {}
