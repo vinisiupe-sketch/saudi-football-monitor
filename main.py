@@ -5687,8 +5687,9 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
 __HDR__
 <div class="wrap">
   <h1>Posts</h1>
-  <p class="sub">O post entra na fila na véspera. Você marca a transmissão e aprova —
-     aí ele sai sozinho no horário do apito. Sem aprovação, nada é publicado.</p>
+  <p class="sub">Clique num dia para montar a fila dele e ver só os posts daquele dia.
+     Clicar de novo não duplica: confere escudos e cores. Você marca a transmissão e aprova —
+     aí o post sai sozinho no horário do apito. Sem aprovação, nada é publicado.</p>
   <div id="statusX"></div>
   <div class="barra">
     <button class="ctrl" onclick="carregar()">↻ Atualizar</button>
@@ -5702,6 +5703,7 @@ __HDR__
     <span id="contador" class="conta"></span>
   </div>
   <div id="agenda" class="agenda"><div class="conta">Carregando a semana…</div></div>
+  <div id="nota-dia" class="conta" style="margin:-4px 2px 10px"></div>
   <div id="dia"></div>
 
   <div id="lista"><div class="estado">Carregando…</div></div>
@@ -5743,7 +5745,7 @@ async function carregar(){
       esc((d.x_faltando||[]).join(', ')) + '). A fila funciona, mas publicar vai falhar.</div>';
     document.getElementById('contador').textContent =
       d.posts.length + ' post(s)' +
-      (DIA_SEL ? ' em ' + diaCurto(DIA_SEL) + ' (clique no dia de novo para ver todos)' : ' de todos os dias') +
+      (DIA_SEL ? ' em ' + diaCurto(DIA_SEL) : ' de todos os dias') +
       ' · ' + d.publicados_24h + ' publicados em 24h (teto ' + d.limite_diario + ')';
     if(!d.posts.length){ lista.innerHTML = '<div class="estado">Nada aqui.</div>'; return; }
     CANAIS = d.canais || [];
@@ -5862,15 +5864,22 @@ let AGENDA = [], DIA_SEL = null, PRIMEIRA = true;
 const SEMANA = ['dom','seg','ter','qua','qui','sex','sáb'];
 
 async function carregarAgenda(){
-  const alvo = document.getElementById('agenda');
   try{
     const d = await (await fetch('/api/posts/agenda?_=' + Date.now())).json();
     AGENDA = d.dias || [];
   }catch(e){
-    alvo.innerHTML = '<div class="conta">Não consegui carregar a semana.</div>';
+    document.getElementById('agenda').innerHTML =
+      '<div class="conta">Não consegui carregar a semana.</div>';
     return;
   }
   if(PRIMEIRA && AGENDA.length){ DIA_SEL = AGENDA[0].data; PRIMEIRA = false; }
+  pintarAgenda();
+}
+
+// Só desenha, sem ir à rede: trocar de dia selecionado não muda os jogos da
+// semana, e buscar de novo só para repintar um contorno seria desperdício.
+function pintarAgenda(){
+  const alvo = document.getElementById('agenda');
   alvo.innerHTML = '';
   AGENDA.forEach(function(dia, i){
     // A data vem como AAAA-MM-DD; monto com Date(ano, mes, dia) para o
@@ -5884,16 +5893,52 @@ async function carregarAgenda(){
     bt.innerHTML = '<div class="dia-sem">' + SEMANA[dt.getDay()] + '</div>' +
                    '<div class="dia-num">' + pt[2] + '</div>' +
                    '<div class="dia-qtd">' + (n ? n + (n>1?' jogos':' jogo') : '—') + '</div>';
-    bt.addEventListener('click', function(){
-      // Clicar no dia já escolhido solta o filtro. Sem essa saída, post de
-      // ontem ou de daqui a duas semanas ficaria invisível na tela.
-      DIA_SEL = (DIA_SEL === dia.data) ? null : dia.data;
-      carregarAgenda();
-      carregar();               // a fila embaixo acompanha o dia escolhido
-    });
+    // Clicar no dia JÁ monta a fila dele. Não separo em dois botões porque a
+    // montagem é idempotente: clicar de novo não duplica, só repõe escudo e
+    // cor de post que já estava lá.
+    bt.addEventListener('click', function(){ escolherDia(dia.data); });
     alvo.appendChild(bt);
   });
+  // Chip de escape: sem ele, com o clique no dia virando montagem, não haveria
+  // como voltar a ver a fila inteira — post de ontem ou de daqui a duas
+  // semanas ficaria invisível.
+  const todos = document.createElement('div');
+  todos.className = 'dia-bt' + (DIA_SEL === null ? ' sel' : '');
+  todos.innerHTML = '<div class="dia-sem">ver</div>' +
+                    '<div class="dia-num" style="font-size:.95rem;padding:.2em 0">todos</div>' +
+                    '<div class="dia-qtd">sem montar</div>';
+  todos.addEventListener('click', function(){
+    DIA_SEL = null;
+    document.getElementById('nota-dia').textContent = '';
+    pintarAgenda();
+    carregar();
+  });
+  alvo.appendChild(todos);
+
   mostrarDia();
+}
+
+// Escolher um dia = filtrar a fila por ele E montar o que falta. O aviso fica
+// numa linha discreta em vez de alert, porque agora isso roda a cada clique.
+async function escolherDia(data){
+  DIA_SEL = data;
+  pintarAgenda();
+  carregar();
+  const nota = document.getElementById('nota-dia');
+  nota.textContent = 'Montando a fila…';
+  try{
+    const d = await (await fetch('/api/posts/gerar', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({data: data})})).json();
+    nota.textContent = d.erro ? ('Erro: ' + d.erro)
+      : (d.novos + ' montado(s), ' + d.ja_estavam + ' já estavam' +
+         (d.consertados ? ', ' + d.consertados + ' corrigido(s)' : '') + '.' +
+         ((d.avisos||[]).length ? ' ⚠️ ' + d.avisos.join(' · ') : ''));
+  }catch(e){
+    nota.textContent = 'Não consegui montar a fila deste dia.';
+  }
+  await carregarAgenda();
+  carregar();
 }
 
 function diaCurto(iso){
@@ -5927,35 +5972,8 @@ function mostrarDia(){
     cx.appendChild(l);
   });
   alvo.appendChild(cx);
-  const porVir = dia.jogos.filter(function(j){ return !j.passou; }).length;
-  if(porVir > 0){
-    const bt = document.createElement('button');
-    bt.className = 'ctrl';
-    bt.style.marginBottom = '16px';
-    // Continua aparecendo com tudo já na fila: remontar não duplica e é o que
-    // repõe o escudo em post montado antes de o cadastro existir.
-    bt.textContent = dia.a_montar > 0
-      ? '📝 Montar fila deste dia (' + dia.a_montar + ')'
-      : '↻ Remontar (confere escudos)';
-    bt.addEventListener('click', function(){ gerar(dia.data, bt); });
-    alvo.appendChild(bt);
-  }
 }
 
-async function gerar(data, bt){
-  if(bt){ bt.disabled = true; bt.textContent = 'Montando…'; }
-  try{
-    const d = await (await fetch('/api/posts/gerar', {method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({data: data || null})})).json();
-    if(d.erro) alert(d.erro);
-    else alert('Fila de ' + d.data + ': ' + d.novos + ' novo(s), ' + d.ja_estavam + ' já estavam' +
-               (d.consertados ? ', ' + d.consertados + ' com escudos atualizados' : '') + '.' +
-               ((d.avisos||[]).length ? '\\n\\n' + d.avisos.join('\\n') : ''));
-  }catch(e){ alert('Falha ao montar a fila.'); }
-  carregarAgenda();
-  carregar();
-}
 
 async function carregarClubes(){
   const alvo = document.getElementById('clubes');
