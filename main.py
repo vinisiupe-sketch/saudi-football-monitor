@@ -5657,9 +5657,21 @@ __HDR__
 <script>
 let CANAIS = [];
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// Tudo na tela em horário de Brasília. O banco guarda em UTC, que é o certo
+// para não depender do fuso do servidor, mas quem lê é você.
 function hora(iso){
   if(!iso) return 'sem horário';
-  return iso.replace('T',' ').slice(0,16);
+  try{
+    return new Date(iso).toLocaleString('pt-BR', {timeZone:'America/Sao_Paulo',
+      day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'}) + ' (BRT)';
+  }catch(e){ return iso.replace('T',' ').slice(0,16); }
+}
+function horaCurta(iso){
+  if(!iso) return '';
+  try{
+    return new Date(iso).toLocaleTimeString('pt-BR', {timeZone:'America/Sao_Paulo',
+      hour:'2-digit', minute:'2-digit'});
+  }catch(e){ return ''; }
 }
 
 async function carregar(){
@@ -5706,7 +5718,7 @@ function cartao(p){
         '<button class="ctrl" onclick="cancelar(' + p.id + ')">Cancelar</button>' +
       '</div>' : '') +
     (p.status === 'aprovado' ? '<div class="acoes">' +
-        '<span class="conta">Sai sozinho às ' + hora(p.agendado_para).slice(11) + ' (UTC).</span>' +
+        '<span class="conta">Sai sozinho às ' + horaCurta(p.agendado_para) + ' de Brasília.</span>' +
         '<button class="ctrl" onclick="desaprovar(' + p.id + ')">Voltar para pendente</button>' +
       '</div>' : '') +
   '</div>';
@@ -5808,6 +5820,71 @@ async def api_posts_imagem(p: str):
 
 # ── Fila de posts das redes ──────────────────────────────────────────────────
 
+_PAISES_AF: tuple[float, dict] | None = None
+_PAIS_DO_TIME: dict[int, str] = {}
+
+
+async def _af_mapa_paises() -> dict:
+    """{nome do país: código ISO}, vindo do endpoint /countries da própria API."""
+    global _PAISES_AF
+    if _PAISES_AF and (time.time() - _PAISES_AF[0]) < 86400:
+        return _PAISES_AF[1]
+    data, err = await _af_get("countries", {}, ttl=86400)
+    if err or not data:
+        return _PAISES_AF[1] if _PAISES_AF else {}
+    mapa = {}
+    for c in data.get("response", []):
+        nome, code = c.get("name"), c.get("code")
+        if nome and code:
+            mapa[nome.lower()] = code
+            mapa[nome.replace("-", " ").lower()] = code
+    if mapa:
+        _PAISES_AF = (time.time(), mapa)
+    return mapa
+
+
+def _bandeira_iso(code: str | None) -> str | None:
+    c = (code or "").strip()
+    if len(c) == 2 and c.isalpha():
+        return "".join(chr(0x1F1E6 + ord(x) - ord("A")) for x in c.upper())
+    if "-" in c:
+        corpo = c.lower().replace("-", "")
+        if corpo.isalnum():
+            return "\U0001F3F4" + "".join(chr(0xE0000 + ord(x)) for x in corpo) + "\U000E007F"
+    return None
+
+
+async def _pais_do_time(team_id: int) -> str | None:
+    """País do clube. Vem de /teams porque a resposta de fixtures não traz."""
+    if team_id in _PAIS_DO_TIME:
+        return _PAIS_DO_TIME[team_id]
+    data, err = await _af_get("teams", {"id": team_id}, ttl=86400)
+    if err or not data:
+        return None
+    resp = data.get("response") or []
+    pais = ((resp[0].get("team") if resp else None) or {}).get("country")
+    if pais:
+        _PAIS_DO_TIME[team_id] = pais
+    return pais
+
+
+async def _marcas_do_jogo(liga_id: int, casa: dict, fora: dict) -> tuple[str, str]:
+    """Cor do clube em competição nacional; bandeira do país nas internacionais.
+
+    Na AFC o post fica '🇸🇦 Nassr vs Vissel Kobe 🇯🇵' — a cor do clube não diz
+    nada quando o adversário é de outro país."""
+    import posts_gerador as pg
+    if liga_id not in pg.COMPETICOES_INTERNACIONAIS:
+        return TEAM_CORES.get(casa.get("name") or "", ""), TEAM_CORES.get(fora.get("name") or "", "")
+    mapa = await _af_mapa_paises()
+    marcas = []
+    for t in (casa, fora):
+        pais = await _pais_do_time(t.get("id")) if t.get("id") else None
+        code = mapa.get((pais or "").lower()) if pais else None
+        marcas.append(_bandeira_iso(code) or "")
+    return marcas[0], marcas[1]
+
+
 async def _season_da_liga(league_id: int, ano_inicio: int) -> int:
     """Rótulo que a API usa para a temporada que COMEÇA em ano_inicio.
 
@@ -5849,9 +5926,19 @@ async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
             nome_casa, nome_fora = casa.get("name") or "", fora.get("name") or ""
             if not nome_casa or not nome_fora:
                 continue
+            quando = (f.get("fixture") or {}).get("date")
+            # Jogo que já começou não vira BOLA ROLANDO. Sem esta guarda, pedir
+            # uma data passada enfileira posts que nunca deveriam sair.
+            if quando:
+                try:
+                    if datetime.fromisoformat(quando) <= datetime.now(timezone.utc):
+                        continue
+                except ValueError:
+                    pass
+            cor_casa, cor_fora = await _marcas_do_jogo(liga_id, casa, fora)
             texto = pg.montar_bola_rolando(
                 _time_curto(nome_casa), _time_curto(nome_fora),
-                TEAM_CORES.get(nome_casa, ""), TEAM_CORES.get(nome_fora, ""),
+                cor_casa, cor_fora,
                 (f.get("league") or {}).get("round"), competicao=nome_comp)
             imagens = []
             for n in (nome_casa, nome_fora):
@@ -5861,8 +5948,7 @@ async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
                 else:
                     sem_escudo.append(n)
             fid = (f.get("fixture") or {}).get("id")
-            r = enfileirar_post("bola_rolando", pg.chave_do_jogo(fid), texto, imagens,
-                                (f.get("fixture") or {}).get("date"))
+            r = enfileirar_post("bola_rolando", pg.chave_do_jogo(fid), texto, imagens, quando)
             if r == "novo":
                 novos += 1
                 por_competicao[nome_comp] = por_competicao.get(nome_comp, 0) + 1

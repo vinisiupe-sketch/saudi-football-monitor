@@ -24,7 +24,14 @@ ESCUDO_POR_CLUBE = {
     "raed": "raed", "tai": "tai", "wehda": "wehda", "orobah": "orobah",
     "batin": "batin", "jabalin": "jabalin", "adalah": "adalah", "anwar": "anwar",
     "ula": "ula", "zulfi": "zulfi", "jeddah": "jeddah", "bukayriyah": "bukayriyah",
+    # A API-Football grafa diferente do nome dos arquivos. Sem estes apelidos o
+    # escudo some sem aviso — foi o que aconteceu com o Jabalain.
+    "jabalain": "jabalin", "bukiryah": "bukayriyah", "taee": "tai",
+    "khaleej": "khaleej", "kholoos": "kholood", "najm": "najmah",
 }
+
+# Competições fora do país: nelas o post usa bandeira em vez de cor de clube.
+COMPETICOES_INTERNACIONAIS = {17, 18, 1168}
 
 
 def _sem_acento(t: str) -> str:
