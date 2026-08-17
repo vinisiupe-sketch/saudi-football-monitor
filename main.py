@@ -140,6 +140,7 @@ _ICO_NUMEROS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_POSTS   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>'
 _ICO_ELENCOS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+_ICO_MAIS    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
 _THEME_VARS_CSS = (
@@ -166,32 +167,94 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "    .token-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c-muted-2); margin-right: 8px; flex-shrink: 0; cursor: default; }\n"
     "    .token-dot.ok { background: #22c55e; }\n"
     "    .token-dot.broken { background: #ef4444; }\n"
+    "    .nav-mais { position: relative; flex-shrink: 0; }\n"
+    "    .nav-menu { display: none; position: absolute; top: calc(100% + 6px); right: 0; min-width: 172px; background: var(--c-bg-card); border: 1px solid var(--c-border-2); border-radius: 10px; padding: 5px; z-index: 200; box-shadow: 0 10px 28px rgba(0,0,0,.32); }\n"
+    "    .nav-menu.aberto { display: block; }\n"
+    "    .nav-menu a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; color: var(--c-muted-4); text-decoration: none; font-size: 0.82rem; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; white-space: nowrap; }\n"
+    "    .nav-menu a:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
+    "    .nav-menu a[aria-current] { font-weight: 700; }\n"
+    "    .nav-menu svg { flex-shrink: 0; }\n"
+    "    @media (max-width: 420px) { header { padding: 10px 10px; gap: 2px; } .brand { font-size: 1.6rem; } .nav-icon { width: 30px; height: 30px; } }\n"
 )
 
 _THEME_INIT_SCRIPT = '<script>document.documentElement.setAttribute("data-theme","dark");</script>'
 
+# As seis do dia a dia ficam na barra; o resto vai para o menu de reticências.
+# Eram dez ícones lado a lado, o que estourava a largura no celular.
+_NAV_PRINCIPAIS = [
+    ("/",        _ICO_HOME,    "Home",    "home", "#16a34a"),
+    ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#ef4444"),
+    ("/janela",  _ICO_JANELA,  "Janela",  "",     "#3b82f6"),
+    ("/numeros", _ICO_NUMEROS, "Números", "",     "#0ea5e9"),
+    ("/elencos", _ICO_ELENCOS, "Elencos", "",     "#14b8a6"),
+    ("/posts",   _ICO_POSTS,   "Posts",   "",     "#1d9bf0"),
+]
+_NAV_EXTRAS = [
+    ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#6366f1"),
+    ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "", "#f97316"),
+    ("/analise",     _ICO_ANALISE, "Análise",     "", "#d97706"),
+    # Fontes não foi citada na lista, mas também não estava entre as seis do
+    # dia a dia. Deixo aqui em vez de sumir com ela sem avisar.
+    ("/fontes",      _ICO_SOURCES, "Fontes",      "", "#a855f7"),
+]
+
+
 def _header(active: str) -> str:
-    pages = [
-        ("/",            _ICO_HOME,    "Home",        "home", "#16a34a"),
-        ("/descartadas", _ICO_ARCHIVE, "Descartadas", "",     "#6366f1"),
-        ("/lesoes",      _ICO_INJURY,  "Lesões",      "",     "#ef4444"),
-        ("/janela",      _ICO_JANELA,  "Janela",      "",     "#3b82f6"),
-        ("/fontes",      _ICO_SOURCES, "Fontes",      "",     "#a855f7"),
-        ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "",     "#f97316"),
-        ("/analise",     _ICO_ANALISE, "Análise",     "",     "#d97706"),
-        ("/numeros",     _ICO_NUMEROS, "Números",     "",     "#0ea5e9"),
-        ("/elencos",     _ICO_ELENCOS, "Elencos",     "",     "#14b8a6"),
-        ("/posts",       _ICO_POSTS,   "Posts",       "",     "#1d9bf0"),
-    ]
     items = ""
-    for href, ico, label, badge_tab, color in pages:
+    for href, ico, label, badge_tab, color in _NAV_PRINCIPAIS:
         cls = "nav-icon"
         style = ""
         if href == active:
             cls += " active"
-            style = f'style="color:{color};background:color-mix(in srgb,{color} 14%,transparent)"' 
+            style = f'style="color:{color};background:color-mix(in srgb,{color} 14%,transparent)"'
         badge = f'<span class="nav-badge" data-tab="{badge_tab}" style="display:none"></span>' if badge_tab else ""
         items += f'<a class="{cls}" {style} href="{href}" title="{label}">{ico}{badge}</a>'
+
+    # O botão herda a cor da página aberta quando ela está escondida no menu —
+    # senão não haveria pista nenhuma de onde você está.
+    aberto_no_menu = next((p for p in _NAV_EXTRAS if p[0] == active), None)
+    cls_mais = "nav-icon" + (" active" if aberto_no_menu else "")
+    estilo_mais = ""
+    if aberto_no_menu:
+        c = aberto_no_menu[4]
+        estilo_mais = f'style="color:{c};background:color-mix(in srgb,{c} 14%,transparent)"'
+    opcoes = ""
+    for href, ico, label, _b, color in _NAV_EXTRAS:
+        marca = ' aria-current="page"' if href == active else ""
+        cor = f'style="color:{color}"' if href == active else ""
+        opcoes += f'<a href="{href}"{marca} {cor}>{ico}<span>{label}</span></a>'
+    items += (
+        '<div class="nav-mais">'
+        f'<button type="button" class="{cls_mais}" {estilo_mais} id="btnMais" '
+        'aria-haspopup="true" aria-expanded="false" title="Mais">' + _ICO_MAIS + '</button>'
+        f'<div class="nav-menu" id="navMenu">{opcoes}</div>'
+        '</div>'
+    )
+    menu_script = """<script>
+(function(){
+  var bt = document.getElementById('btnMais');
+  var menu = document.getElementById('navMenu');
+  if(!bt || !menu) return;
+  function fechar(){
+    menu.classList.remove('aberto');
+    bt.setAttribute('aria-expanded','false');
+  }
+  bt.addEventListener('click', function(ev){
+    ev.stopPropagation();          // senão o clique de fora fecha na mesma hora
+    var vai = !menu.classList.contains('aberto');
+    menu.classList.toggle('aberto', vai);
+    bt.setAttribute('aria-expanded', vai ? 'true' : 'false');
+  });
+  // Clicar fora e Esc fecham. Sem isso, no celular o menu ficaria preso aberto
+  // por cima do conteúdo, já que não há hover para revelar que ele está ali.
+  document.addEventListener('click', function(ev){
+    if(!menu.contains(ev.target)) fechar();
+  });
+  document.addEventListener('keydown', function(ev){
+    if(ev.key === 'Escape') fechar();
+  });
+})();
+</script>"""
     badge_script = """<script>
 (function(){
   async function loadBadges(){
@@ -240,7 +303,8 @@ def _header(active: str) -> str:
   document.addEventListener('DOMContentLoaded', loadTokenStatus);
 })();
 </script>"""
-    return f'<header>{token_dot}<a class="brand" href="/">IARABÃO</a>{items}</header>{badge_script}{theme_script}{token_script}'
+    return (f'<header>{token_dot}<a class="brand" href="/">IARABÃO</a>{items}</header>'
+            f'{menu_script}{badge_script}{theme_script}{token_script}')
 
 
 
