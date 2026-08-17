@@ -124,7 +124,56 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
 
+
+@app.get("/manifest.webmanifest")
+async def manifest():
+    """Diz ao celular o nome, o ícone e como abrir. É o que separa um atalho
+    comum de um app de tela de início."""
+    return JSONResponse({
+        "name": "IARABÃO",
+        "short_name": "IARABÃO",
+        "description": "Notícias, números e posts do futebol saudita.",
+        "start_url": "/",
+        "scope": "/",
+        # standalone: abre sem a barra do Safari, como app.
+        "display": "standalone",
+        "orientation": "portrait",
+        "background_color": "#16161a",
+        "theme_color": "#16161a",
+        "lang": "pt-BR",
+        "icons": [
+            {"src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png"},
+            {"src": "/pwa/icon-maskable-512.png", "sizes": "512x512",
+             "type": "image/png", "purpose": "maskable"},
+        ],
+        # Atalhos no toque longo do ícone. O primeiro é o que tem pressa.
+        "shortcuts": [
+            {"name": "Fim de jogo", "url": "/fim-de-jogo"},
+            {"name": "Posts", "url": "/posts"},
+            {"name": "Números", "url": "/numeros"},
+        ],
+    }, media_type="application/manifest+json")
+
+
+# Service worker deliberadamente sem cache de página. Um app de placar ao vivo
+# que serve HTML guardado mostraria jogo antigo como se fosse de agora — o pior
+# defeito possível aqui. Ele existe só para o navegador considerar o site
+# instalável, e é onde o push entraria se um dia quisermos alerta de fim de jogo.
+_SW_JS = """self.addEventListener('install', function(){ self.skipWaiting(); });
+self.addEventListener('activate', function(e){ e.waitUntil(self.clients.claim()); });
+"""
+
+
+@app.get("/sw.js")
+async def service_worker():
+    # Precisa sair da raiz para valer no site inteiro, e sem cache para que uma
+    # correção aqui não fique presa no aparelho.
+    return Response(content=_SW_JS, media_type="application/javascript",
+                    headers={"Cache-Control": "no-cache"})
+
 # Servir fontes e máscaras para o gerador de posts
+app.mount("/pwa", StaticFiles(directory="public/pwa"), name="pwa")
 app.mount("/fonts", StaticFiles(directory="public/fonts"), name="fonts")
 app.mount("/masks", StaticFiles(directory="public/masks"), name="masks")
 
@@ -178,7 +227,31 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "    @media (max-width: 420px) { header { padding: 10px 10px; gap: 2px; } .brand { font-size: 1.6rem; } .nav-icon { width: 30px; height: 30px; } }\n"
 )
 
+# Tags que transformam o site em app de tela de início no iPhone. Vão no <head>
+# de todas as páginas: o iOS lê essas tags da página que estiver aberta na hora
+# do "Adicionar à Tela de Início", então deixar de fora uma única página faria
+# a instalação sair sem ícone dependendo de onde você estivesse.
+_PWA_HEAD = (
+    '<link rel="manifest" href="/manifest.webmanifest">'
+    '<link rel="apple-touch-icon" href="/pwa/apple-touch-icon.png">'
+    '<meta name="apple-mobile-web-app-capable" content="yes">'
+    '<meta name="mobile-web-app-capable" content="yes">'
+    '<meta name="apple-mobile-web-app-title" content="IARABÃO">'
+    # black-translucent faria o conteúdo passar por baixo do relógio e da
+    # bateria; "black" mantém a barra de status legível sobre o fundo escuro.
+    '<meta name="apple-mobile-web-app-status-bar-style" content="black">'
+    '<meta name="theme-color" content="#16161a">'
+    '<script>if("serviceWorker" in navigator)'
+    'addEventListener("load",function(){navigator.serviceWorker.register("/sw.js")});</script>'
+)
+
 _THEME_INIT_SCRIPT = '<script>document.documentElement.setAttribute("data-theme","dark");</script>'
+
+# Tudo que TODA página precisa no <head>. Existe como uma coisa só porque as
+# 12 páginas já injetavam o tema num ponto fixo — pendurar o PWA aqui garante
+# que nenhuma fique de fora, e esquecer uma delas faria a instalação no iPhone
+# sair sem ícone dependendo de qual estivesse aberta.
+_HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD
 
 # As seis do dia a dia ficam na barra; o resto vai para o menu de reticências.
 # Eram dez ícones lado a lado, o que estourava a largura no celular.
@@ -407,7 +480,7 @@ async def dashboard():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IARABÃO</title>
-  {_THEME_INIT_SCRIPT}
+  {_HEAD_COMUM}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
@@ -1187,7 +1260,7 @@ async def selecao_page():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IARABÃO — Seleção Saudita</title>
-  {_THEME_INIT_SCRIPT}
+  {_HEAD_COMUM}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
@@ -1485,7 +1558,7 @@ async def descartadas():
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IARABÃO — Descartadas</title>
-  {_THEME_INIT_SCRIPT}
+  {_HEAD_COMUM}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
@@ -1946,7 +2019,7 @@ async def numeros_page():
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>IARABÃO — Números</title>
-{_THEME_INIT_SCRIPT}
+{_HEAD_COMUM}
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
@@ -2895,7 +2968,7 @@ async def fontes_page():
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>IARABÃO — Fontes</title>
-  {_THEME_INIT_SCRIPT}
+  {_HEAD_COMUM}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
@@ -3055,7 +3128,7 @@ async def lixeira_page():
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>IARABÃO — Lixeira</title>
-  {_THEME_INIT_SCRIPT}
+  {_HEAD_COMUM}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
@@ -3211,7 +3284,7 @@ async def analise_page():
 <head>
   <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
   <title>IARABÃO — Análise</title>
-  {_THEME_INIT_SCRIPT}
+  {_HEAD_COMUM}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
@@ -3646,7 +3719,7 @@ async def _page_lesoes_impl(request: Request):
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>IARABÃO — Lesões</title>
-  {_THEME_INIT_SCRIPT}
+  {_HEAD_COMUM}
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
   <style>
@@ -5211,7 +5284,7 @@ async def fim_de_jogo_page():
     return HTMLResponse(
         _FIMJOGO_HTML
         .replace("__HEADER_CSS__", _HEADER_CSS)
-        .replace("__THEME__", _THEME_INIT_SCRIPT)
+        .replace("__THEME__", _HEAD_COMUM)
         .replace("__FJ_CSS__", _FIMJOGO_CSS)
         .replace("__FJ_JS__", _FIMJOGO_JS)
         .replace("__HDR__", _header("/fim-de-jogo"))
@@ -5844,7 +5917,7 @@ async def elencos_page():
     return HTMLResponse(
         _ELENCOS_HTML
         .replace("__HEADER_CSS__", _HEADER_CSS)
-        .replace("__THEME__", _THEME_INIT_SCRIPT)
+        .replace("__THEME__", _HEAD_COMUM)
         .replace("__HDR__", _header("/elencos"))
         .replace("__FORMACOES__", json.dumps(
             {k: [{"x": x, "y": y, "g": g} for x, y, g in v]
@@ -6285,7 +6358,7 @@ async def posts_page():
     return HTMLResponse(
         _POSTS_HTML
         .replace("__HEADER_CSS__", _HEADER_CSS)
-        .replace("__THEME__", _THEME_INIT_SCRIPT)
+        .replace("__THEME__", _HEAD_COMUM)
         .replace("__HDR__", _header("/posts"))
     )
 
@@ -8040,7 +8113,7 @@ async def janela_page():
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Janela de Transferências · IARABÃO</title>
-{_THEME_INIT_SCRIPT}
+{_HEAD_COMUM}
 <style>
 {_HEADER_CSS}
 :root{{
