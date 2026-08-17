@@ -161,6 +161,14 @@ def create_scheduler() -> AsyncIOScheduler:
         id="fila_bola_rolando_diaria",
         replace_existing=True,
     )
+    # A cada minuto: publica o que VOCÊ aprovou e cujo horário de início chegou.
+    # É de minuto em minuto porque "bola rolando" com 10min de atraso não serve.
+    scheduler.add_job(
+        run_publicar_aprovados,
+        trigger=IntervalTrigger(minutes=1),
+        id="publicar_aprovados",
+        replace_existing=True,
+    )
     print(
         f"⏰ Scheduler iniciado: coleta a cada {COLLECT_INTERVAL}min "
         "+ varredura de competições às 05h30 + scrape janela às 07h"
@@ -195,4 +203,17 @@ async def run_fila_bola_rolando():
         return r
     except Exception as e:
         print(f"❌ Erro ao montar a fila de posts: {e}")
+        return {"erro": str(e)}
+
+
+async def run_publicar_aprovados():
+    """Dispara os posts aprovados no horário do apito. Só toca em 'aprovado'."""
+    try:
+        from main import publicar_aprovados
+        r = await publicar_aprovados()
+        if r.get("publicados") or r.get("falhas"):
+            print(f"📤 Posts: {r['publicados']} publicados, {r['falhas']} falharam")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao publicar aprovados: {e}")
         return {"erro": str(e)}

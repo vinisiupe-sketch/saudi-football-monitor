@@ -5609,6 +5609,11 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .s-publicado{background:#22c55e22;color:#4ade80}
 .s-cancelado{background:#6b728022;color:#9ca3af}
 .s-publicando{background:#3b82f622;color:#60a5fa}
+.s-aprovado{background:#1d9bf022;color:#60c8f0}
+.canais{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+.canal{font-size:.72rem;padding:5px 10px;border-radius:20px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text2);cursor:pointer;user-select:none}
+.canal.on{border-color:var(--accent);background:#1d9bf022;color:#8ed0f7;font-weight:700}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;
   padding:14px;margin-bottom:12px}
 .topo{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
@@ -5631,13 +5636,15 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
 __HDR__
 <div class="wrap">
   <h1>Posts</h1>
-  <p class="sub">Nada é publicado sozinho. O post entra na fila na véspera, você confere e publica.</p>
+  <p class="sub">O post entra na fila na véspera. Você marca a transmissão e aprova —
+     aí ele sai sozinho no horário do apito. Sem aprovação, nada é publicado.</p>
   <div id="statusX"></div>
   <div class="barra">
     <button class="ctrl" onclick="carregar()">↻ Atualizar</button>
     <button class="ctrl" onclick="gerar()">📝 Montar fila de amanhã</button>
     <select id="filtro" class="ctrl" onchange="carregar()">
       <option value="pendente">Pendentes</option>
+      <option value="aprovado">Aprovados (saem no apito)</option>
       <option value="">Todos</option>
       <option value="publicado">Publicados</option>
       <option value="cancelado">Cancelados</option>
@@ -5648,6 +5655,7 @@ __HDR__
 </div>
 
 <script>
+let CANAIS = [];
 function esc(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function hora(iso){
   if(!iso) return 'sem horário';
@@ -5665,6 +5673,7 @@ async function carregar(){
     document.getElementById('contador').textContent =
       d.posts.length + ' post(s) · ' + d.publicados_24h + ' publicados em 24h (teto ' + d.limite_diario + ')';
     if(!d.posts.length){ lista.innerHTML = '<div class="estado">Nada aqui.</div>'; return; }
+    CANAIS = d.canais || [];
     lista.innerHTML = d.posts.map(cartao).join('');
   }catch(e){
     lista.innerHTML = '<div class="estado">Erro: ' + esc(e.message) + '</div>';
@@ -5681,14 +5690,24 @@ function cartao(p){
     (pend ? '<textarea id="t' + p.id + '" oninput="contarTexto(' + p.id + ')">' + esc(p.texto) + '</textarea>'
           : '<div style="white-space:pre-wrap;font-size:.85rem;line-height:1.5">' + esc(p.texto) + '</div>') +
     (pend ? '<div class="conta" id="c' + p.id + '"></div>' : '') +
+    (pend ? '<div class="canais">' + CANAIS.map(function(c){
+        const on = p.texto.indexOf(c) > -1;
+        return '<span class="canal' + (on ? ' on' : '') + '" data-post="' + p.id +
+               '" data-canal="' + esc(c) + '" onclick="alternarCanal(this)">' + esc(c) + '</span>';
+      }).join('') + '</div>' : '') +
     ((p.imagens||[]).length ? '<div class="escudos">' + p.imagens.map(function(im){
         return '<img src="/api/posts/imagem?p=' + encodeURIComponent(im) + '" alt="">'; }).join('') + '</div>' : '') +
     (p.erro ? '<div class="erro">⚠️ ' + esc(p.erro) + '</div>' : '') +
     (pend ? '<div class="acoes">' +
         '<button class="ctrl" onclick="salvar(' + p.id + ')">Salvar texto</button>' +
         '<button class="ctrl" style="border-color:var(--accent);color:var(--accent)" ' +
-          'onclick="publicar(' + p.id + ')">Publicar no X</button>' +
+          'onclick="aprovar(' + p.id + ')">✅ Aprovar (sai no apito)</button>' +
+        '<button class="ctrl" onclick="publicar(' + p.id + ')">Publicar agora</button>' +
         '<button class="ctrl" onclick="cancelar(' + p.id + ')">Cancelar</button>' +
+      '</div>' : '') +
+    (p.status === 'aprovado' ? '<div class="acoes">' +
+        '<span class="conta">Sai sozinho às ' + hora(p.agendado_para).slice(11) + ' (UTC).</span>' +
+        '<button class="ctrl" onclick="desaprovar(' + p.id + ')">Voltar para pendente</button>' +
       '</div>' : '') +
   '</div>';
 }
@@ -5719,6 +5738,31 @@ async function publicar(id){
 async function cancelar(id){
   if(!confirm('Cancelar este post? Ele sai da fila e não será publicado.')) return;
   await fetch('/api/posts/' + id + '/cancelar', {method:'POST'});
+  carregar();
+}
+
+async function alternarCanal(el){
+  const id = el.dataset.post;
+  const marcados = [];
+  document.querySelectorAll('.canal[data-post="' + id + '"]').forEach(function(c){
+    if (c === el) c.classList.toggle('on');
+    if (c.classList.contains('on')) marcados.push(c.dataset.canal);
+  });
+  const d = await (await fetch('/api/posts/' + id + '/transmissao', {method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({canais: marcados})})).json();
+  if (d.erro) { alert(d.erro); return; }
+  const t = document.getElementById('t' + id);
+  if (t && d.texto) { t.value = d.texto; contarTexto(id); }
+}
+
+async function aprovar(id){
+  const d = await (await fetch('/api/posts/' + id + '/aprovar', {method:'POST'})).json();
+  if (d.erro) alert(d.erro);
+  carregar();
+}
+
+async function desaprovar(id){
+  await fetch('/api/posts/' + id + '/desaprovar', {method:'POST'});
   carregar();
 }
 
@@ -5764,56 +5808,114 @@ async def api_posts_imagem(p: str):
 
 # ── Fila de posts das redes ──────────────────────────────────────────────────
 
+async def _season_da_liga(league_id: int, ano_inicio: int) -> int:
+    """Rótulo que a API usa para a temporada que COMEÇA em ano_inicio.
+
+    A Liga chama 2026/27 de 2026; a Copa do Rei chama de 2027. Consultar com o
+    número errado devolve zero jogos em silêncio — foi o que aconteceu quando
+    procurei a Copa do Rei de amanhã com season=2026."""
+    mapa = await _af_league_start_years(league_id)
+    for rotulo, inicio in (mapa or {}).items():
+        if inicio == ano_inicio:
+            return rotulo
+    return ano_inicio
+
+
 async def gerar_bola_rolando(data_iso: str | None = None) -> dict:
-    """Enfileira um BOLA ROLANDO para cada jogo da data (padrão: amanhã).
+    """Enfileira um BOLA ROLANDO para cada jogo saudita da data (padrão: amanhã).
 
     Idempotente pela chave do jogo: pode rodar quantas vezes quiser que não
     duplica. É de propósito — assim um reinício do Railway não vira problema.
     """
     import posts_gerador as pg
-    season = _af_temporada_corrente()
+    inicio = _af_temporada_corrente()
     alvo = data_iso or (datetime.now(timezone.utc) + timedelta(days=1)).date().isoformat()
-    data, err = await _af_get("fixtures", {"league": AF_LEAGUE_SPL,
-                                           "season": season, "date": alvo}, ttl=1800)
-    if err or not data:
-        return {"erro": err or "sem resposta da API", "data": alvo}
 
     novos = repetidos = 0
     sem_escudo: list[str] = []
-    for f in data.get("response", []):
-        times = f.get("teams") or {}
-        casa, fora = times.get("home") or {}, times.get("away") or {}
-        nome_casa, nome_fora = casa.get("name") or "", fora.get("name") or ""
-        if not nome_casa or not nome_fora:
+    por_competicao: dict[str, int] = {}
+    erros: list[str] = []
+
+    for liga_id, nome_comp in pg.COMPETICOES.items():
+        season = await _season_da_liga(liga_id, inicio)
+        data, err = await _af_get("fixtures", {"league": liga_id, "season": season,
+                                               "date": alvo}, ttl=1800)
+        if err:
+            erros.append(f"{nome_comp}: {err}")
             continue
-        texto = pg.montar_bola_rolando(
-            _time_curto(nome_casa), _time_curto(nome_fora),
-            TEAM_CORES.get(nome_casa, ""), TEAM_CORES.get(nome_fora, ""),
-            (f.get("league") or {}).get("round"))
-        imagens = []
-        for n in (nome_casa, nome_fora):
-            cam = pg.escudo_de(n)
-            if cam:
-                imagens.append(cam)
-            else:
-                sem_escudo.append(n)
-        fid = (f.get("fixture") or {}).get("id")
-        quando = (f.get("fixture") or {}).get("date")
-        r = enfileirar_post("bola_rolando", pg.chave_do_jogo(fid), texto, imagens, quando)
-        if r == "novo":
-            novos += 1
-        elif r == "ja_existia":
-            repetidos += 1
+        for f in (data or {}).get("response", []):
+            times = f.get("teams") or {}
+            casa, fora = times.get("home") or {}, times.get("away") or {}
+            nome_casa, nome_fora = casa.get("name") or "", fora.get("name") or ""
+            if not nome_casa or not nome_fora:
+                continue
+            texto = pg.montar_bola_rolando(
+                _time_curto(nome_casa), _time_curto(nome_fora),
+                TEAM_CORES.get(nome_casa, ""), TEAM_CORES.get(nome_fora, ""),
+                (f.get("league") or {}).get("round"), competicao=nome_comp)
+            imagens = []
+            for n in (nome_casa, nome_fora):
+                cam = pg.escudo_de(n)
+                if cam:
+                    imagens.append(cam)
+                else:
+                    sem_escudo.append(n)
+            fid = (f.get("fixture") or {}).get("id")
+            r = enfileirar_post("bola_rolando", pg.chave_do_jogo(fid), texto, imagens,
+                                (f.get("fixture") or {}).get("date"))
+            if r == "novo":
+                novos += 1
+                por_competicao[nome_comp] = por_competicao.get(nome_comp, 0) + 1
+            elif r == "ja_existia":
+                repetidos += 1
+
     avisos = []
     if sem_escudo:
         avisos.append("sem escudo no projeto: " + ", ".join(sorted(set(sem_escudo))))
-    return {"data": alvo, "novos": novos, "ja_estavam": repetidos, "avisos": avisos}
+    avisos.extend(erros)
+    return {"data": alvo, "novos": novos, "ja_estavam": repetidos,
+            "por_competicao": por_competicao, "avisos": avisos}
+
+
+async def publicar_aprovados() -> dict:
+    """Publica os posts aprovados cujo horário de início já chegou.
+
+    Só toca em quem você aprovou. A janela de 25 minutos evita que uma queda do
+    Railway ressuscite um post de horas atrás, quando a bola já rolou faz tempo."""
+    agora = datetime.now(timezone.utc)
+    publicados = falhas = 0
+    for p in listar_posts("aprovado", limite=100):
+        quando = p.get("agendado_para")
+        if quando:
+            try:
+                dt = datetime.fromisoformat(quando)
+                if dt > agora:
+                    continue                      # ainda não é hora
+                if (agora - dt).total_seconds() > 25 * 60:
+                    marcar_post(p["id"], "pendente",
+                                erro="passou muito do horário; publique à mão se ainda fizer sentido")
+                    continue
+            except ValueError:
+                pass
+        if not reservar_post_para_publicar(p["id"], de="aprovado"):
+            continue
+        try:
+            r = await x_client.publicar(p["texto"], p.get("imagens") or [],
+                                        publicados_hoje=contar_publicados_hoje())
+            marcar_post(p["id"], "publicado", post_id=r.get("id"))
+            publicados += 1
+        except Exception as e:
+            marcar_post(p["id"], "aprovado", erro=str(e)[:400])
+            falhas += 1
+    return {"publicados": publicados, "falhas": falhas}
 
 
 @app.get("/api/posts/fila")
 async def api_posts_fila(status: str = ""):
     ok_x, faltando = x_client.configurado()
+    import posts_gerador as pg
     return {"posts": listar_posts(status or None),
+            "canais": pg.TRANSMISSOES,
             "x_configurado": ok_x, "x_faltando": faltando,
             "publicados_24h": contar_publicados_hoje(),
             "limite_diario": x_client.LIMITE_DIARIO}
@@ -5842,6 +5944,48 @@ async def api_posts_texto(post_id: int, request: Request):
     if x_client.texto_tem_link(texto):
         return {"erro": "o texto tem link, que custa 13x mais no X. Remova antes de salvar."}
     return {"ok": atualizar_texto_post(post_id, texto)}
+
+
+@app.post("/api/posts/{post_id}/transmissao")
+async def api_posts_transmissao(post_id: int, request: Request):
+    """Regrava só a linha de transmissão, preservando o resto do post."""
+    import posts_gerador as pg
+    try:
+        corpo = await request.json()
+    except Exception:
+        return {"erro": "corpo inválido"}
+    item = obter_post(post_id)
+    if not item or item["status"] != "pendente":
+        return {"erro": "só dá pra editar post pendente"}
+    linhas = item["texto"].split("\n")
+    nova = pg.linha_transmissao(corpo.get("canais") or [])
+    # A transmissão é sempre a última linha; trocar por posição evita mexer no
+    # que o usuário porventura editou à mão nas linhas de cima.
+    if linhas and (linhas[-1].startswith("🖥️") or linhas[-1].startswith("❌")):
+        linhas[-1] = nova
+    else:
+        linhas.append(nova)
+    texto = "\n".join(linhas)
+    return {"ok": atualizar_texto_post(post_id, texto), "texto": texto}
+
+
+@app.post("/api/posts/{post_id}/aprovar")
+async def api_posts_aprovar(post_id: int):
+    """Aprova para publicar sozinho no horário do apito."""
+    item = obter_post(post_id)
+    if not item or item["status"] != "pendente":
+        return {"erro": "só dá pra aprovar post pendente"}
+    if x_client.texto_tem_link(item["texto"]):
+        return {"erro": "o texto tem link, que custa 13x mais no X"}
+    return {"ok": marcar_post(post_id, "aprovado")}
+
+
+@app.post("/api/posts/{post_id}/desaprovar")
+async def api_posts_desaprovar(post_id: int):
+    item = obter_post(post_id)
+    if not item or item["status"] != "aprovado":
+        return {"erro": "este post não está aprovado"}
+    return {"ok": marcar_post(post_id, "pendente")}
 
 
 @app.post("/api/posts/{post_id}/cancelar")

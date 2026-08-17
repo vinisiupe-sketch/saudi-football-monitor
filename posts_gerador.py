@@ -50,10 +50,31 @@ def escudo_de(nome_clube: str) -> str | None:
     return caminho if os.path.exists(caminho) else None
 
 
+# Fases de mata-mata em inglês, como a API-Football escreve. Traduzir aqui
+# evita "Round of 32" aparecendo cru num post em português.
+# ORDEM IMPORTA: do mais específico para o mais genérico. "final" precisa vir
+# por último, senão "Quarter-finals" e "Semi-finals" casam com ele e viram "Final".
+FASES = [
+    ("round of 64", "32 avos de Final"), ("round of 32", "16 avos de Final"),
+    ("round of 16", "Oitavas de Final"), ("8th finals", "Oitavas de Final"),
+    ("quarter", "Quartas de Final"), ("semi", "Semifinal"),
+    ("3rd place", "Disputa de 3º Lugar"), ("play-off", "Playoff"),
+    ("playoff", "Playoff"), ("group stage", "Fase de Grupos"),
+    ("group", "Fase de Grupos"), ("final", "Final"),
+]
+
+
 def _ordinal_rodada(rodada: str | None) -> str:
-    """'Regular Season - 1' -> '1ª Rodada'."""
-    m = re.search(r"(\d+)", rodada or "")
-    return f"{m.group(1)}ª Rodada" if m else "Rodada"
+    """'Regular Season - 1' -> '1ª Rodada'; 'Round of 32' -> '16 avos de Final'."""
+    r = (rodada or "").strip()
+    baixo = r.lower()
+    for chave, traducao in FASES:
+        if chave in baixo:
+            # Grupo com letra ("Group Stage - A") preserva a letra.
+            g = re.search(r"group[^a-z]*(?:stage)?[^a-z]*([a-h])\b", baixo)
+            return f"{traducao} {g.group(1).upper()}" if g else traducao
+    m = re.search(r"(\d+)", r)
+    return f"{m.group(1)}ª Rodada" if m else (r or "Rodada")
 
 
 def montar_bola_rolando(casa: str, fora: str, cor_casa: str, cor_fora: str,
@@ -66,11 +87,39 @@ def montar_bola_rolando(casa: str, fora: str, cor_casa: str, cor_fora: str,
         f"🆚 {cor_casa} {casa} vs {fora} {cor_fora}".replace("  ", " ").strip(),
         f"🏆 {_ordinal_rodada(rodada)} | {competicao}",
     ]
-    t = (transmissao or "").strip()
     # Sem transmissão definida, o post sai dizendo isso — que é a informação
     # verdadeira até alguém preencher. Nunca chutar canal.
-    linhas.append(f"🖥️ {t}" if t and t.lower() != "sem transmissão" else "❌ Sem transmissão")
+    if isinstance(transmissao, list):
+        linhas.append(linha_transmissao(transmissao))
+    else:
+        t = (transmissao or "").strip()
+        linhas.append(f"🖥️ {t}" if t and t.lower() != "sem transmissão" else "❌ Sem transmissão")
     return "\n".join(linhas)
+
+
+# Como cada competição aparece no post.
+COMPETICOES = {
+    307: "Liga Saudita",
+    504: "Copa do Rei",
+    826: "Supercopa Saudita",
+    308: "Divisão 1 Saudita",
+    17:  "AFC Champions League Elite",
+    18:  "AFC Champions League Two",
+}
+
+# Opções de transmissão que o canal usa. A ordem aqui é a ordem no post.
+TRANSMISSOES = ["Canal GOAT 🐐", "Band", "BandSports", "XSports",
+                "Sportv", "Sportv 2", "Sportv 3", "Sportv 4"]
+
+
+def linha_transmissao(canais: list[str] | None) -> str:
+    """'A, B e C' — como o canal escreve. Lista vazia vira 'Sem transmissão'."""
+    limpos = [c for c in (canais or []) if c and c in TRANSMISSOES]
+    if not limpos:
+        return "❌ Sem transmissão"
+    if len(limpos) == 1:
+        return f"🖥️ {limpos[0]}"
+    return "🖥️ " + ", ".join(limpos[:-1]) + " e " + limpos[-1]
 
 
 def chave_do_jogo(fixture_id) -> str:

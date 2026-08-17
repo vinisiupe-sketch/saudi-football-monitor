@@ -1294,7 +1294,7 @@ def marcar_post(post_fila_id: int, status: str, post_id: str | None = None,
         return False
 
 
-def reservar_post_para_publicar(post_fila_id: int) -> bool:
+def reservar_post_para_publicar(post_fila_id: int, de: str = "pendente") -> bool:
     """Marca como 'publicando' só se ainda estiver 'pendente'.
 
     A condição no próprio UPDATE é o que evita publicação dupla: se dois cliques
@@ -1304,7 +1304,7 @@ def reservar_post_para_publicar(post_fila_id: int) -> bool:
         with get_conn() as conn:
             c = conn.cursor()
             c.execute("""UPDATE post_fila SET status = 'publicando'
-                          WHERE id = %s AND status = 'pendente'""", [post_fila_id])
+                          WHERE id = %s AND status = %s""", [post_fila_id, de])
             return c.rowcount == 1
     except Exception:
         return False
