@@ -98,6 +98,29 @@ def init_db():
                 value TEXT NOT NULL
             )
         """)
+        # Fila de posts das redes. Genérica de propósito: o tipo diz quem gerou
+        # (bola_rolando, fim_de_jogo, janela...), então um formato novo é só um
+        # gerador novo, não outra integração.
+        #
+        # chave_unica é o que impede republicação: um reinício do Railway no meio
+        # de uma rodada repetiria os nove jogos sem ela. O UNIQUE está no banco, e
+        # não só no código, porque duas instâncias podem tentar ao mesmo tempo.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS post_fila (
+                id            SERIAL PRIMARY KEY,
+                tipo          TEXT NOT NULL,
+                chave_unica   TEXT NOT NULL UNIQUE,
+                texto         TEXT NOT NULL,
+                imagens       TEXT,
+                agendado_para TIMESTAMPTZ,
+                status        TEXT NOT NULL DEFAULT 'pendente',
+                publicado_em  TIMESTAMPTZ,
+                post_id       TEXT,
+                erro          TEXT,
+                criado_em     TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_post_fila_status ON post_fila(status, agendado_para)")
         # Estatísticas que a API-Football NÃO publica por jogador em certas competições
         # (ex: Super Cup em todas as edições; King's Cup a partir de 2025/26), mas que
         # dá pra apurar partida a partida via escalações + eventos. Guardamos o resultado
@@ -1182,3 +1205,117 @@ def filtrar_artigos_ja_salvos(articles: list[dict]) -> tuple[list, int]:
         if a.get("id") not in existentes_id and (a.get("url") or "") not in existentes_url
     ]
     return novos, len(articles) - len(novos)
+
+
+# ─── Fila de posts das redes ──────────────────────────────────────────────────
+
+def enfileirar_post(tipo: str, chave_unica: str, texto: str,
+                    imagens: list[str] | None = None,
+                    agendado_para=None) -> str:
+    """Coloca um post na fila. Devolve 'novo', 'ja_existia' ou 'erro: ...'.
+
+    Idempotente por chave_unica: chamar de novo com a mesma chave não duplica
+    nem sobrescreve. É isso que permite o gerador rodar a cada poucos minutos
+    sem medo — ele simplesmente reafirma o que já está lá.
+    """
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                INSERT INTO post_fila (tipo, chave_unica, texto, imagens, agendado_para)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (chave_unica) DO NOTHING
+                RETURNING id
+            """, [tipo, chave_unica, texto,
+                  _json.dumps(imagens or [], ensure_ascii=False), agendado_para])
+            return "novo" if c.fetchone() else "ja_existia"
+    except Exception as e:
+        return f"erro: {type(e).__name__}: {e}"
+
+
+def listar_posts(status: str | None = None, limite: int = 60) -> list[dict]:
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if status:
+                c.execute("""SELECT * FROM post_fila WHERE status = %s
+                             ORDER BY agendado_para NULLS LAST, id LIMIT %s""", [status, limite])
+            else:
+                c.execute("""SELECT * FROM post_fila
+                             ORDER BY agendado_para DESC NULLS LAST, id DESC LIMIT %s""", [limite])
+            linhas = [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+    for l in linhas:
+        try:
+            l["imagens"] = _json.loads(l.get("imagens") or "[]")
+        except Exception:
+            l["imagens"] = []
+        for campo in ("agendado_para", "publicado_em", "criado_em"):
+            if l.get(campo):
+                l[campo] = l[campo].isoformat()
+    return linhas
+
+
+def obter_post(post_fila_id: int) -> dict | None:
+    itens = [p for p in listar_posts(limite=500) if p["id"] == post_fila_id]
+    return itens[0] if itens else None
+
+
+def atualizar_texto_post(post_fila_id: int, texto: str) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            # Só mexe no que ainda não foi publicado: post no ar não se reescreve.
+            c.execute("UPDATE post_fila SET texto = %s WHERE id = %s AND status = 'pendente'",
+                      [texto, post_fila_id])
+            return c.rowcount > 0
+    except Exception:
+        return False
+
+
+def marcar_post(post_fila_id: int, status: str, post_id: str | None = None,
+                erro: str | None = None) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE post_fila
+                   SET status = %s,
+                       post_id = COALESCE(%s, post_id),
+                       erro = %s,
+                       publicado_em = CASE WHEN %s = 'publicado' THEN NOW() ELSE publicado_em END
+                 WHERE id = %s
+            """, [status, post_id, erro, status, post_fila_id])
+            return c.rowcount > 0
+    except Exception:
+        return False
+
+
+def reservar_post_para_publicar(post_fila_id: int) -> bool:
+    """Marca como 'publicando' só se ainda estiver 'pendente'.
+
+    A condição no próprio UPDATE é o que evita publicação dupla: se dois cliques
+    (ou duas instâncias) chegarem juntos, só um encontra o registro pendente.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""UPDATE post_fila SET status = 'publicando'
+                          WHERE id = %s AND status = 'pendente'""", [post_fila_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def contar_publicados_hoje() -> int:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT COUNT(*) FROM post_fila
+                          WHERE status = 'publicado' AND publicado_em >= NOW() - INTERVAL '24 hours'""")
+            return int(c.fetchone()[0])
+    except Exception:
+        return 0
