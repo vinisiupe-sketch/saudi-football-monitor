@@ -3,6 +3,15 @@ Saudi Football Monitor — FastAPI app principal.
 """
 import os
 import base64
+from zoneinfo import ZoneInfo
+
+# Agrupar a agenda por dia exige um fuso do lado do servidor: o seu "sábado"
+# começa à meia-noite de Brasília, não à meia-noite UTC.
+# Testei os horários reais: jogo saudita à noite e jogo asiático de manhã caem
+# no mesmo dia nos dois fusos, então na maior parte do tempo isso não muda
+# nada. A diferença aparece na faixa 00h–03h UTC, que em Brasília ainda é o dia
+# anterior — é lá que agrupar por UTC jogaria o jogo para o dia errado.
+BRT = ZoneInfo("America/Sao_Paulo")
 import re
 import asyncio
 import json
@@ -14,7 +23,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra, expirar_posts_vencidos
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -6201,11 +6210,90 @@ async def api_posts_fila(status: str = ""):
     expirar_posts_vencidos()
     ok_x, faltando = x_client.configurado()
     import posts_gerador as pg
-    return {"posts": listar_posts(status or None),
+    posts = listar_posts(status or None)
+    # Diz para a tela, escudo a escudo, se a imagem existe. Sem isso ela só
+    # descobre pelo <img> quebrado — foi exatamente o que apareceu no Jabalain.
+    cache: dict[str, bool] = {}
+    for p in posts:
+        detalhe = []
+        for ref in (p.get("imagens") or []):
+            if ref.startswith("db:"):
+                chave = ref[3:]
+                if chave not in cache:
+                    cache[chave] = tem_escudo_extra(chave)
+                detalhe.append({"ref": ref, "chave": chave, "tem": cache[chave]})
+            else:
+                detalhe.append({"ref": ref, "chave": None, "tem": True})
+        p["escudos"] = detalhe
+    return {"posts": posts,
             "canais": pg.TRANSMISSOES,
             "x_configurado": ok_x, "x_faltando": faltando,
             "publicados_24h": contar_publicados_hoje(),
             "limite_diario": x_client.LIMITE_DIARIO}
+
+
+@app.get("/api/posts/agenda")
+async def api_posts_agenda():
+    """Os jogos de hoje e dos 6 dias seguintes, agrupados por data de Brasília.
+
+    Puxa a tabela inteira de cada competição em vez de perguntar dia a dia:
+    seriam 7 datas x 6 competições = 42 chamadas por abertura de tela, contra
+    6 bem cacheadas. Também não depende de nenhum parâmetro de intervalo de
+    data da API-Football, que eu não teria como confirmar daqui."""
+    import posts_gerador as pg
+    inicio = _af_temporada_corrente()
+    hoje = datetime.now(BRT).date()
+    dias = [(hoje + timedelta(days=i)).isoformat() for i in range(7)]
+    por_dia: dict[str, list] = {d: [] for d in dias}
+    erros: list[str] = []
+
+    for liga_id, nome_comp in pg.COMPETICOES.items():
+        season = await _season_da_liga(liga_id, inicio)
+        data, err = await _af_get("fixtures", {"league": liga_id, "season": season},
+                                  ttl=6 * 3600)
+        if err:
+            erros.append(f"{nome_comp}: {err}")
+            continue
+        for f in (data or {}).get("response", []):
+            quando = (f.get("fixture") or {}).get("date")
+            if not quando:
+                continue
+            try:
+                dt = datetime.fromisoformat(quando).astimezone(BRT)
+            except ValueError:
+                continue
+            dia = dt.date().isoformat()
+            if dia not in por_dia:
+                continue
+            times = f.get("teams") or {}
+            casa = (times.get("home") or {}).get("name") or ""
+            fora = (times.get("away") or {}).get("name") or ""
+            if not casa or not fora:
+                continue
+            fid = (f.get("fixture") or {}).get("id")
+            por_dia[dia].append({
+                "hora": dt.strftime("%H:%M"), "quando": quando,
+                "casa": _time_curto(casa), "fora": _time_curto(fora),
+                "competicao": nome_comp, "chave": pg.chave_do_jogo(fid),
+            })
+
+    estados = status_das_chaves([j["chave"] for lista in por_dia.values() for j in lista])
+    agora = datetime.now(timezone.utc)
+    saida = []
+    for d in dias:
+        jogos = sorted(por_dia[d], key=lambda j: j["hora"])
+        for j in jogos:
+            j["status"] = estados.get(j["chave"])
+            try:
+                j["passou"] = datetime.fromisoformat(j["quando"]) <= agora
+            except ValueError:
+                j["passou"] = False
+        saida.append({
+            "data": d, "jogos": jogos,
+            "na_fila": sum(1 for j in jogos if j["status"] in ("pendente", "aprovado")),
+            "a_montar": sum(1 for j in jogos if not j["status"] and not j["passou"]),
+        })
+    return {"dias": saida, "avisos": erros}
 
 
 @app.post("/api/posts/gerar")

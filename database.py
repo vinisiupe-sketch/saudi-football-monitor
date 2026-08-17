@@ -1420,6 +1420,37 @@ def obter_cores_extra(chave: str) -> str | None:
         return None
 
 
+def tem_escudo_extra(chave: str) -> bool:
+    """Só diz SE existe escudo, sem trazer os bytes.
+
+    A tela pergunta isso para cada clube de cada post; usar obter_escudo_extra
+    aqui arrastaria centenas de KB de imagem por carregamento só para decidir
+    se desenha um quadrado vazio."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT escudo IS NOT NULL FROM clubes_extra WHERE chave = %s", [chave])
+            l = c.fetchone()
+            return bool(l and l[0])
+    except Exception:
+        return False
+
+
+def status_das_chaves(chaves: list[str]) -> dict[str, str]:
+    """Status atual de cada chave_unica pedida. Serve para a agenda saber
+    quais jogos da semana já estão na fila sem baixar a fila inteira."""
+    if not chaves:
+        return {}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT chave_unica, status FROM post_fila WHERE chave_unica = ANY(%s)",
+                      [list(chaves)])
+            return {l[0]: l[1] for l in c.fetchall()}
+    except Exception:
+        return {}
+
+
 def listar_clubes_extra() -> list[dict]:
     """Todos os clubes cadastrados à mão, com o que já foi preenchido."""
     try:
