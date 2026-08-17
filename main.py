@@ -5836,16 +5836,30 @@ function contarTexto(id){
   c.style.color = (t.length > 280 || link) ? '#f87171' : '';
 }
 
+// Manda para o servidor o que está na caixa de texto AGORA.
+// Aprovar e publicar chamam isto antes de agir: sem essa etapa, editar o texto
+// e clicar direto em Aprovar perdia a edição em silêncio, e o Publicar agora
+// chegava a mostrar o texto editado na confirmação e publicar o antigo.
+async function salvarCaixa(id){
+  const t = document.getElementById('t' + id);
+  if(!t) return true;                       // post não editável, nada a salvar
+  try{
+    const d = await (await fetch('/api/posts/' + id + '/texto', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({texto: t.value})})).json();
+    if(d.erro){ alert(d.erro); return false; }
+  }catch(e){ alert('Não consegui salvar o texto.'); return false; }
+  return true;
+}
+
 async function salvar(id){
-  const texto = document.getElementById('t' + id).value;
-  const d = await (await fetch('/api/posts/' + id + '/texto', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify({texto:texto})})).json();
-  if(d.erro) alert(d.erro); else carregar();
+  if(await salvarCaixa(id)) carregar();
 }
 
 async function publicar(id){
   const t = document.getElementById('t' + id);
   if(t && !confirm('Publicar este post agora na conta do X?\\n\\n' + t.value)) return;
+  if(!await salvarCaixa(id)) return;        // publica o que você acabou de ver
   const d = await (await fetch('/api/posts/' + id + '/publicar', {method:'POST'})).json();
   if(d.erro) alert('Não publicou: ' + d.erro);
   carregar();
@@ -5872,6 +5886,7 @@ async function alternarCanal(el){
 }
 
 async function aprovar(id){
+  if(!await salvarCaixa(id)) return;
   const d = await (await fetch('/api/posts/' + id + '/aprovar', {method:'POST'})).json();
   if (d.erro) alert(d.erro);
   carregar();

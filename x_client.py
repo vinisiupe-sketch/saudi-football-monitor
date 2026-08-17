@@ -20,7 +20,9 @@ from urllib.parse import quote, urlencode
 import httpx
 
 API_POST = "https://api.x.com/2/tweets"
-API_MEDIA = "https://upload.twitter.com/1.1/media/upload.json"
+# Endpoint atual, conferido em docs.x.com/x-api/media/upload-media: o antigo
+# upload.twitter.com/1.1/media/upload.json foi substituído por este.
+API_MEDIA = "https://api.x.com/2/media/upload"
 
 LIMITE_DIARIO = 40          # teto de segurança; uma rodada tem 9 jogos
 CUSTO_POST = 0.015
@@ -82,21 +84,36 @@ def texto_tem_link(texto: str) -> bool:
 
 
 async def subir_imagem(imagem) -> str:
-    """Sobe uma imagem e devolve o media_id. Aceita bytes ou caminho de arquivo."""
+    """Sobe uma imagem e devolve o media_id. Aceita bytes ou caminho de arquivo.
+
+    A versão anterior mandava o corpo como application/x-www-form-urlencoded e
+    deixava media_data de fora da assinatura. Isso dava HTTP 401 code 32
+    ("Could not authenticate you"): a RFC 5849 manda incluir os campos do corpo
+    na assinatura justamente quando ele é urlencoded. Em multipart o corpo fica
+    de fora, que é o caso aqui — por isso a assinatura não leva campo nenhum.
+    """
     cred = credenciais()
     if isinstance(imagem, (bytes, bytearray)):
         dados = bytes(imagem)
     else:
         with open(imagem, "rb") as f:
             dados = f.read()
-    b64 = base64.b64encode(dados).decode()
-    campos = {"media_data": b64}
-    cabecalho = _cabecalho("POST", API_MEDIA, cred)   # media_data não entra na assinatura
+    cabecalho = _cabecalho("POST", API_MEDIA, cred)
     async with httpx.AsyncClient(timeout=60.0) as c:
-        r = await c.post(API_MEDIA, data=campos, headers={"Authorization": cabecalho})
+        r = await c.post(
+            API_MEDIA,
+            files={"media": ("escudo.png", dados, "image/png")},
+            data={"media_category": "tweet_image"},   # obrigatório na v2
+            headers={"Authorization": cabecalho},
+        )
     if r.status_code >= 300:
         raise XErro(f"upload da imagem falhou: HTTP {r.status_code} {r.text[:200]}")
-    return str(r.json().get("media_id_string") or "")
+    corpo = r.json() or {}
+    # A v2 devolve {"data": {"id": ...}}; media_id_string era da v1.1.
+    mid = (corpo.get("data") or {}).get("id") or corpo.get("media_id_string")
+    if not mid:
+        raise XErro(f"upload sem media_id na resposta: {r.text[:200]}")
+    return str(mid)
 
 
 async def publicar(texto: str, imagens: list | None = None,
