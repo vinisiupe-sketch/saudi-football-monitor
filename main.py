@@ -2309,7 +2309,7 @@ async function carregarJogosDoDia() {{
   try {{
     const d = await fetchJSON('/api/numeros/jogos-do-dia?dias=2&_=' + Date.now());
     if (!d.jogos.length) {{
-      lista.innerHTML = '<div class="result-card"><div class="loading-state">Nenhum jogo hoje nem ontem.</div></div>';
+      lista.innerHTML = '<div class="result-card"><div class="loading-state">Nenhum jogo hoje nem ontem em nenhuma das competições.</div></div>';
       st.textContent = '';
       return;
     }}
@@ -2346,6 +2346,7 @@ function cardDoJogo(j) {{
   return '<div class="result-card fj-card">' +
     '<div class="fj-cab">' + selo +
       '<span class="fj-conf">' + j.cor_casa + ' ' + j.casa + ' ' + placar + ' ' + j.fora + ' ' + j.cor_fora + '</span>' +
+      (j.competicao ? '<span class="fj-selo">' + j.competicao + '</span>' : '') +
       '<button class="copy-btn" id="fj-btn-' + j.fixture + '" style="display:none">📋 Copiar</button>' +
     '</div>' +
     (j.encerrado
@@ -4933,8 +4934,11 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
     completo = (len(l_casa) == gc and len(l_fora) == gf)
 
     nome_casa, nome_fora = _time_curto(casa.get("name")), _time_curto(fora.get("name"))
-    cor_casa = TEAM_CORES.get(casa.get("name"), "")
-    cor_fora = TEAM_CORES.get(fora.get("name"), "")
+    # Mesma regra do BOLA ROLANDO: cores nas competições sauditas, bandeiras nas
+    # internacionais. Antes lia TEAM_CORES direto, então um adversário asiático
+    # saía sem marca nenhuma ao lado do nome.
+    liga_id = (f.get("league") or {}).get("id")
+    cor_casa, cor_fora = await _marcas_do_jogo(liga_id, casa, fora)
     htc, htf = ht.get("home") or 0, ht.get("away") or 0
 
     dados = {
@@ -4988,37 +4992,71 @@ async def api_fim_de_jogo(fixture: int):
     return await _montar_fim_de_jogo(fixture)
 
 
+async def _ligas_jogando_em(datas: set[str]) -> dict[int, str]:
+    """Quais competições têm jogo nestas datas, pela tabela cheia da temporada.
+
+    Existe para não consultar as cinco competições ao vivo a cada atualização
+    de tela. A tabela da temporada fica 6h em cache e já diz quem joga hoje;
+    só essas recebem a consulta ao vivo, que tem cache de 30s. Num dia comum
+    isso é 1 ou 2 chamadas por atualização em vez de 5 por dia pedido.
+    """
+    import posts_gerador as pg
+    inicio = _af_temporada_corrente()
+    saida: dict[int, str] = {}
+    for liga_id, nome in pg.COMPETICOES.items():
+        season = await _season_da_liga(liga_id, inicio)
+        data, err = await _af_get("fixtures", {"league": liga_id, "season": season},
+                                  ttl=6 * 3600)
+        if err:
+            # Sem a tabela, consulta assim mesmo: é melhor gastar uma chamada
+            # do que sumir com um jogo encerrado bem na hora de postar.
+            saida[liga_id] = nome
+            continue
+        for f in (data or {}).get("response", []):
+            if ((f.get("fixture") or {}).get("date") or "")[:10] in datas:
+                saida[liga_id] = nome
+                break
+    return saida
+
+
 @app.get("/api/numeros/jogos-do-dia")
 async def api_jogos_do_dia(dias: int = 1):
-    """Jogos da SPL de hoje (e dos últimos dias), com status ao vivo.
+    """Jogos de hoje (e dos últimos dias) em TODAS as competições que viram post.
 
-    Serve pra tela de fim de jogo: assim que uma partida encerra, ela aparece aqui
-    com o texto pronto — sem precisar procurar rodada nem partida."""
+    Antes só olhava a Liga Saudita, então um jogo de Copa do Rei ou da AFC
+    simplesmente não aparecia aqui — mesmo o texto de fim de jogo funcionando
+    para qualquer partida, porque ele busca pelo id e não pela liga.
+    """
     hoje = datetime.now(timezone.utc).date()
+    datas = {(hoje - timedelta(days=d)).isoformat() for d in range(dias)}
+    ligas = await _ligas_jogando_em(datas)
+
     jogos = []
-    for delta in range(dias):
-        d = (hoje - timedelta(days=delta)).isoformat()
-        data, err = await _af_get("fixtures", {"league": AF_LEAGUE_SPL,
-                                              "season": _af_temporada_corrente(), "date": d},
-                                  ttl=_AF_TTL_AO_VIVO)
-        if err or not data:
-            continue
-        for f in data.get("response", []):
-            fx = f.get("fixture") or {}
-            st = (fx.get("status") or {})
-            t = f.get("teams") or {}
-            g = f.get("goals") or {}
-            jogos.append({
-                "fixture": fx.get("id"),
-                "data": (fx.get("date") or "")[:16].replace("T", " "),
-                "status": st.get("short"), "minuto": st.get("elapsed"),
-                "encerrado": st.get("short") in ("FT", "AET", "PEN"),
-                "casa": _time_curto((t.get("home") or {}).get("name")),
-                "fora": _time_curto((t.get("away") or {}).get("name")),
-                "cor_casa": TEAM_CORES.get((t.get("home") or {}).get("name"), ""),
-                "cor_fora": TEAM_CORES.get((t.get("away") or {}).get("name"), ""),
-                "gols_casa": g.get("home"), "gols_fora": g.get("away"),
-            })
+    for liga_id, nome_comp in ligas.items():
+        season = await _season_da_liga(liga_id, _af_temporada_corrente())
+        for d in sorted(datas, reverse=True):
+            data, err = await _af_get("fixtures", {"league": liga_id, "season": season,
+                                                   "date": d}, ttl=_AF_TTL_AO_VIVO)
+            if err or not data:
+                continue
+            for f in data.get("response", []):
+                fx = f.get("fixture") or {}
+                st = (fx.get("status") or {})
+                t = f.get("teams") or {}
+                g = f.get("goals") or {}
+                cor_casa, cor_fora = await _marcas_do_jogo(
+                    liga_id, t.get("home") or {}, t.get("away") or {})
+                jogos.append({
+                    "fixture": fx.get("id"),
+                    "data": (fx.get("date") or "")[:16].replace("T", " "),
+                    "status": st.get("short"), "minuto": st.get("elapsed"),
+                    "encerrado": st.get("short") in ("FT", "AET", "PEN"),
+                    "competicao": nome_comp,
+                    "casa": _time_curto((t.get("home") or {}).get("name")),
+                    "fora": _time_curto((t.get("away") or {}).get("name")),
+                    "cor_casa": cor_casa, "cor_fora": cor_fora,
+                    "gols_casa": g.get("home"), "gols_fora": g.get("away"),
+                })
     jogos.sort(key=lambda x: x["data"], reverse=True)
     return {"jogos": jogos}
 
