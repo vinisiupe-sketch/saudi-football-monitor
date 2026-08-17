@@ -5640,7 +5640,30 @@ h1{font-size:1.5rem;margin:0 0 4px}
 textarea{width:100%;background:var(--surface2);color:var(--text);border:1px solid var(--border);
   border-radius:10px;padding:10px;font-family:inherit;font-size:.85rem;line-height:1.5;
   min-height:120px;resize:vertical}
-.escudos{display:flex;gap:8px;margin:10px 0}
+.agenda{display:flex;gap:8px;overflow-x:auto;padding:4px 2px 12px;-webkit-overflow-scrolling:touch}
+.dia-bt{min-width:74px;flex-shrink:0;background:var(--surface);border:1px solid var(--border);
+  border-radius:12px;padding:8px 6px;text-align:center;cursor:pointer;transition:.15s}
+.dia-bt:hover{border-color:var(--accent)}
+.dia-bt.sel{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.dia-sem{font-size:.6rem;text-transform:uppercase;letter-spacing:.07em;color:var(--text2)}
+.dia-num{font-size:1.3rem;font-weight:700;line-height:1.2}
+.dia-qtd{font-size:.6rem;color:var(--text2);margin-top:2px;min-height:.9em}
+.dia-bt.vazio{opacity:.42}
+.dia-bt.hoje .dia-num{color:var(--accent)}
+.jogos{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:4px 12px;margin-bottom:16px}
+.jogo{display:flex;align-items:center;gap:10px;padding:8px 0;font-size:.82rem;
+  border-bottom:1px solid var(--border);flex-wrap:wrap}
+.jogo:last-child{border-bottom:none}
+.jogo-hora{font-variant-numeric:tabular-nums;color:var(--text2);min-width:44px}
+.jogo-nome{flex:1;min-width:150px}
+.tag{font-size:.6rem;padding:2px 8px;border-radius:20px;border:1px solid var(--border);color:var(--text2)}
+.tag.ok{border-color:var(--accent);color:var(--accent)}
+.escudos{display:flex;gap:8px;margin:10px 0;flex-wrap:wrap}
+.escudo-vazio{width:44px;height:44px;border-radius:8px;border:1px dashed var(--border);
+  background:var(--surface2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:var(--text2);font-size:1.35rem;line-height:1}
+.escudo-vazio:hover{border-color:var(--accent);color:var(--accent)}
 .escudos img{width:44px;height:44px;object-fit:contain;background:var(--surface2);
   border-radius:8px;padding:3px}
 .acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
@@ -5669,7 +5692,6 @@ __HDR__
   <div id="statusX"></div>
   <div class="barra">
     <button class="ctrl" onclick="carregar()">↻ Atualizar</button>
-    <button class="ctrl" onclick="gerar()">📝 Montar fila de amanhã</button>
     <select id="filtro" class="ctrl" onchange="carregar()">
       <option value="pendente">Pendentes</option>
       <option value="aprovado">Aprovados (saem no apito)</option>
@@ -5679,6 +5701,9 @@ __HDR__
     </select>
     <span id="contador" class="conta"></span>
   </div>
+  <div id="agenda" class="agenda"><div class="conta">Carregando a semana…</div></div>
+  <div id="dia"></div>
+
   <div id="lista"><div class="estado">Carregando…</div></div>
 
   <h2 style="font-size:1.05rem;margin:26px 0 6px">Clubes sem escudo ou cores</h2>
@@ -5740,8 +5765,7 @@ function cartao(p){
         return '<span class="canal' + (on ? ' on' : '') + '" data-post="' + p.id +
                '" data-canal="' + esc(c) + '" onclick="alternarCanal(this)">' + esc(c) + '</span>';
       }).join('') + '</div>' : '') +
-    ((p.imagens||[]).length ? '<div class="escudos">' + p.imagens.map(function(im){
-        return '<img src="/api/posts/imagem?p=' + encodeURIComponent(im) + '" alt="">'; }).join('') + '</div>' : '') +
+    linhaEscudos(p) +
     (p.erro ? '<div class="erro">⚠️ ' + esc(p.erro) + '</div>' : '') +
     (pend ? '<div class="acoes">' +
         '<button class="ctrl" onclick="salvar(' + p.id + ')">Salvar texto</button>' +
@@ -5811,12 +5835,105 @@ async function desaprovar(id){
   carregar();
 }
 
-async function gerar(){
-  const d = await (await fetch('/api/posts/gerar', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body:'{}'})).json();
-  if(d.erro) alert(d.erro);
-  else alert('Fila de ' + d.data + ': ' + d.novos + ' novo(s), ' + d.ja_estavam + ' já estavam.' +
-             ((d.avisos||[]).length ? '\\n\\n' + d.avisos.join('\\n') : ''));
+// Muda a cada upload para furar o cache do navegador. Sem isso, o escudo que
+// você acabou de subir continuaria mostrando a versão 404 guardada.
+let JANELA = Date.now();
+
+// ── Escudos do post ────────────────────────────────────────────────────────
+// O que falta vira quadrado clicável aqui mesmo, no post, em vez de imagem
+// quebrada. O servidor manda p.escudos com um "tem" por escudo justamente
+// para a tela não precisar adivinhar pelo erro de carregamento.
+function linhaEscudos(p){
+  const lista = p.escudos || (p.imagens||[]).map(function(i){ return {ref:i, tem:true}; });
+  if(!lista.length) return '';
+  return '<div class="escudos">' + lista.map(function(e){
+    if(e.tem) return '<img src="/api/posts/imagem?p=' + encodeURIComponent(e.ref) +
+                     '&v=' + JANELA + '" alt="">';
+    return '<div class="escudo-vazio" data-chave="' + esc(e.chave||'') +
+           '" title="Sem escudo — clique para enviar">+</div>';
+  }).join('') + '</div>';
+}
+
+// ── Agenda dos 7 dias ──────────────────────────────────────────────────────
+let AGENDA = [], DIA_SEL = null;
+const SEMANA = ['dom','seg','ter','qua','qui','sex','sáb'];
+
+async function carregarAgenda(){
+  const alvo = document.getElementById('agenda');
+  try{
+    const d = await (await fetch('/api/posts/agenda?_=' + Date.now())).json();
+    AGENDA = d.dias || [];
+  }catch(e){
+    alvo.innerHTML = '<div class="conta">Não consegui carregar a semana.</div>';
+    return;
+  }
+  if(DIA_SEL === null && AGENDA.length) DIA_SEL = AGENDA[0].data;
+  alvo.innerHTML = '';
+  AGENDA.forEach(function(dia, i){
+    // A data vem como AAAA-MM-DD; monto com Date(ano, mes, dia) para o
+    // navegador não interpretar como UTC e mostrar o dia anterior.
+    const pt = dia.data.split('-').map(Number);
+    const dt = new Date(pt[0], pt[1]-1, pt[2]);
+    const n = dia.jogos.length;
+    const bt = document.createElement('div');
+    bt.className = 'dia-bt' + (n ? '' : ' vazio') + (i === 0 ? ' hoje' : '') +
+                   (dia.data === DIA_SEL ? ' sel' : '');
+    bt.innerHTML = '<div class="dia-sem">' + SEMANA[dt.getDay()] + '</div>' +
+                   '<div class="dia-num">' + pt[2] + '</div>' +
+                   '<div class="dia-qtd">' + (n ? n + (n>1?' jogos':' jogo') : '—') + '</div>';
+    bt.addEventListener('click', function(){ DIA_SEL = dia.data; carregarAgenda(); });
+    alvo.appendChild(bt);
+  });
+  mostrarDia();
+}
+
+function mostrarDia(){
+  const alvo = document.getElementById('dia');
+  const dia = AGENDA.find(function(x){ return x.data === DIA_SEL; });
+  alvo.innerHTML = '';
+  if(!dia) return;
+  const cx = document.createElement('div');
+  cx.className = 'jogos';
+  if(!dia.jogos.length){
+    cx.innerHTML = '<div class="jogo"><span class="conta">Nenhum jogo neste dia.</span></div>';
+    alvo.appendChild(cx); return;
+  }
+  dia.jogos.forEach(function(j){
+    const l = document.createElement('div');
+    l.className = 'jogo';
+    let tag = '<span class="tag">a montar</span>';
+    if(j.status === 'publicado')      tag = '<span class="tag ok">publicado</span>';
+    else if(j.status === 'aprovado')  tag = '<span class="tag ok">aprovado</span>';
+    else if(j.status === 'pendente')  tag = '<span class="tag ok">na fila</span>';
+    else if(j.status === 'cancelado') tag = '<span class="tag">cancelado</span>';
+    else if(j.passou)                 tag = '<span class="tag">já começou</span>';
+    l.innerHTML = '<span class="jogo-hora">' + esc(j.hora) + '</span>' +
+                  '<span class="jogo-nome">' + esc(j.casa) + ' vs ' + esc(j.fora) + '</span>' +
+                  '<span class="tag">' + esc(j.competicao) + '</span>' + tag;
+    cx.appendChild(l);
+  });
+  alvo.appendChild(cx);
+  if(dia.a_montar > 0){
+    const bt = document.createElement('button');
+    bt.className = 'ctrl';
+    bt.style.marginBottom = '16px';
+    bt.textContent = '📝 Montar fila deste dia (' + dia.a_montar + ')';
+    bt.addEventListener('click', function(){ gerar(dia.data, bt); });
+    alvo.appendChild(bt);
+  }
+}
+
+async function gerar(data, bt){
+  if(bt){ bt.disabled = true; bt.textContent = 'Montando…'; }
+  try{
+    const d = await (await fetch('/api/posts/gerar', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({data: data || null})})).json();
+    if(d.erro) alert(d.erro);
+    else alert('Fila de ' + d.data + ': ' + d.novos + ' novo(s), ' + d.ja_estavam + ' já estavam.' +
+               ((d.avisos||[]).length ? '\\n\\n' + d.avisos.join('\\n') : ''));
+  }catch(e){ alert('Falha ao montar a fila.'); }
+  carregarAgenda();
   carregar();
 }
 
@@ -5893,7 +6010,9 @@ function enviarImagem(chave, arquivo){
           body: JSON.stringify({chave: chave, escudo_base64: cv.toDataURL('image/png')})})).json();
         if(d.erro){ alert(d.erro); return; }
       }catch(e){ alert('Falha ao enviar.'); return; }
+      JANELA = Date.now();
       carregarClubes();
+      carregar();               // o quadrado vazio no post vira o escudo
     };
     img.onerror = function(){ alert('Nao consegui ler essa imagem.'); };
     img.src = leitor.result;
@@ -5911,7 +6030,15 @@ async function salvarCores(chave, cores){
   carregarClubes();
 }
 
+// Clique no quadrado vazio dentro do post: a lista é redesenhada inteira a
+// cada carregamento, então escuto no contêiner em vez de em cada quadrado.
+document.getElementById('lista').addEventListener('click', function(ev){
+  const q = ev.target.closest('.escudo-vazio');
+  if(q && q.dataset.chave) escolherImagem(q.dataset.chave);
+});
+
 carregar();
+carregarAgenda();
 carregarClubes();
 </script>
 </body>

@@ -161,11 +161,14 @@ def create_scheduler() -> AsyncIOScheduler:
         id="fila_bola_rolando_diaria",
         replace_existing=True,
     )
-    # A cada minuto: publica o que VOCÊ aprovou e cujo horário de início chegou.
-    # É de minuto em minuto porque "bola rolando" com 10min de atraso não serve.
+    # A cada 30s: publica o que VOCÊ aprovou e cujo horário de início chegou.
+    # O X não tem endpoint de agendamento fora da Ads API (que exige conta de
+    # anunciante), então o disparo é nosso mesmo. Com 60s o atraso podia chegar
+    # a um minuto; com 30s o pior caso cai pela metade, e o custo é só uma
+    # consulta a mais por minuto no banco — nenhuma chamada à API do X.
     scheduler.add_job(
         run_publicar_aprovados,
-        trigger=IntervalTrigger(minutes=1),
+        trigger=IntervalTrigger(seconds=30),
         id="publicar_aprovados",
         replace_existing=True,
     )
