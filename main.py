@@ -5067,6 +5067,7 @@ __HDR__
     <select id="formacao" class="ctrl" onchange="trocarFormacao()"></select>
     <button class="ctrl" onclick="voltarEscalacao()">⚽ Última escalação</button>
     <button class="ctrl" id="btnSalvar" onclick="salvarEscalacao()">💾 Salvar escalação</button>
+    <button class="ctrl" id="btnDescartar" onclick="descartarSalva()" style="display:none">🗑️ Descartar salva</button>
     <button class="ctrl" onclick="limparCampo()">Limpar campo</button>
     <label class="chk"><input type="checkbox" id="soEstrangeiros" onchange="renderTabela()"> Só estrangeiros</label>
     <span id="contador" class="sub" style="margin:0"></span>
@@ -5179,6 +5180,7 @@ async function selecionarTime(id, el){
     ESCALACAO = (esc && !esc.erro) ? esc : null;
     SALVA = (sv && sv.salva && (sv.salva.slots || []).length) ? sv.salva : null;
 
+    mostrarBotaoDescartar();
     if (SALVA) aplicarSalva();
     else if (ESCALACAO) aplicarEscalacao();
     else {
@@ -5292,6 +5294,28 @@ function aplicarSalva(){
   renderCampo(); renderTabela();
 }
 
+function mostrarBotaoDescartar(){
+  document.getElementById('btnDescartar').style.display = SALVA ? '' : 'none';
+}
+
+async function descartarSalva(){
+  if (!TIME_ATUAL || !SALVA) return;
+  try {
+    const r = await fetch('/api/elencos/escalacao-salva', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({team: TIME_ATUAL, limpar: true})
+    });
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    SALVA = null;
+    mostrarBotaoDescartar();
+    if (ESCALACAO) { aplicarEscalacao(); renderTabela(); }
+    else { document.getElementById('infoJogo').textContent = 'Escalação salva descartada.'; }
+  } catch(e) {
+    alert('Não consegui descartar: ' + e.message);
+  }
+}
+
 async function salvarEscalacao(){
   if (!TIME_ATUAL) return;
   const btn = document.getElementById('btnSalvar');
@@ -5307,6 +5331,7 @@ async function salvarEscalacao(){
     if (d.erro) throw new Error(d.erro);
     SALVA = {formacao: FORM, slots: SLOTS.map(function(s){ return {id:s.id,x:s.x,y:s.y,g:s.g}; }),
              salvo_em: d.salvo_em};
+    mostrarBotaoDescartar();
     document.getElementById('infoJogo').textContent =
       'Sua escalação salva em ' + (d.salvo_em || '').replace('T', ' ').slice(0, 16) +
       ' · use “Última escalação” e salve de novo para voltar à do jogo.';
@@ -5662,6 +5687,15 @@ async def api_elencos_salvar_escalacao(request: Request):
         team = 0
     if not team:
         return {"erro": "clube não informado"}
+
+    # Descartar precisa existir: sem isso, uma escalação salva por engano fica
+    # para sempre à frente da do jogo, e não há caminho de volta pela tela.
+    if corpo.get("limpar"):
+        try:
+            set_state(f"{_ELENCO_SALVA_CHAVE}{team}", "")
+        except Exception as e:
+            return {"erro": f"não consegui descartar: {type(e).__name__}: {e}"}
+        return {"ok": True, "limpou": True}
 
     # Sanear antes de gravar: coordenada fora do campo ou id estranho viraria
     # posição impossível na próxima abertura, e o defeito ficaria persistido.
