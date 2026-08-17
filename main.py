@@ -112,6 +112,7 @@ async def lifespan(app: FastAPI):
     global scheduler
     init_db()
     cleanup_old_trash()
+    _limpar_posts_de_competicao_removida()
     scheduler = create_scheduler()
     scheduler.start()
     # Roda pipeline na inicialização
@@ -6242,6 +6243,38 @@ async def _season_da_liga(league_id: int, ano_inicio: int) -> int:
         if inicio == ano_inicio:
             return rotulo
     return ano_inicio
+
+
+def _limpar_posts_de_competicao_removida() -> int:
+    """Cancela post ainda parado na fila de competição que saiu da lista.
+
+    Tirar uma competição de posts_gerador.COMPETICOES impede novos posts, mas
+    não apaga os que já estavam enfileirados — eles continuariam aparecendo
+    para aprovação e poderiam até ser publicados. Roda na subida do app porque
+    é exatamente aí que a lista pode ter mudado (um deploy).
+
+    Só mexe em pendente e aprovado. Publicado e cancelado ficam como estão:
+    neles o status já é o registro do que aconteceu.
+    """
+    import posts_gerador as pg
+    validas = set(pg.COMPETICOES.values())
+    n = 0
+    for p in listar_posts(limite=300):
+        if p.get("status") not in ("pendente", "aprovado"):
+            continue
+        # A competição vive na linha do troféu, no formato "🏆 rodada | nome".
+        linha = next((l for l in (p.get("texto") or "").split("\n")
+                      if l.startswith("🏆")), "")
+        if "|" not in linha:
+            continue
+        comp = linha.split("|", 1)[1].strip()
+        if comp and comp not in validas:
+            marcar_post(p["id"], "cancelado",
+                        erro=f"{comp} saiu da lista de competições que viram post")
+            n += 1
+    if n:
+        print(f"🧹 {n} post(s) cancelado(s): competição fora da lista")
+    return n
 
 
 async def gerar_bola_rolando(data_iso: str | None = None) -> dict:

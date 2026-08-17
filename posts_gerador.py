@@ -109,7 +109,9 @@ COMPETICOES = {
     307: "Liga Saudita",
     504: "Copa do Rei",
     826: "Supercopa Saudita",
-    308: "Divisão 1 Saudita",
+    # A Divisão 1 saiu daqui a pedido: o canal não cobre a segunda divisão.
+    # Basta tirar da lista — a agenda e o gerador leem só o que está aqui, e
+    # o que já tiver entrado na fila é cancelado na subida (ver main.py).
     17:  "AFC Champions League Elite",
     18:  "AFC Champions League Two",
 }
