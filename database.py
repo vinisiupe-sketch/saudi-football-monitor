@@ -1308,6 +1308,35 @@ def marcar_post(post_fila_id: int, status: str, post_id: str | None = None,
         return False
 
 
+def expirar_posts_vencidos(minutos: int = 30) -> int:
+    """Descarta post cuja partida já começou e que continua parado na fila.
+
+    Existe porque um BOLA ROLANDO de ontem não serve para nada e, pior, fica
+    disputando atenção com os de hoje na tela de aprovação. Só toca em
+    'pendente' e 'aprovado' — publicado, cancelado e falho ficam como estão,
+    porque neles o status já é o registro do que aconteceu.
+
+    A margem de 30 minutos vem depois da regra do publicador, não em cima
+    dela: até 25 min de atraso ele ainda publica; passando disso ele devolve
+    o post para 'pendente'; só a partir dos 30 é que esta varredura desiste.
+    Com 20 min as duas regras se contradiziam entre o minuto 20 e o 25 — uma
+    cancelando o que a outra ainda tentava publicar."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""
+                UPDATE post_fila
+                   SET status = 'cancelado',
+                       erro = 'a partida começou antes de o post sair'
+                 WHERE status IN ('pendente', 'aprovado')
+                   AND agendado_para IS NOT NULL
+                   AND agendado_para < NOW() - (%s * INTERVAL '1 minute')
+            """, [minutos])
+            return c.rowcount
+    except Exception:
+        return 0
+
+
 def reservar_post_para_publicar(post_fila_id: int, de: str = "pendente") -> bool:
     """Marca como 'publicando' só se ainda estiver 'pendente'.
 

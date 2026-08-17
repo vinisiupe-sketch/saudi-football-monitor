@@ -14,7 +14,7 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, registrar_clube_faltando, salvar_clube_extra, obter_escudo_extra, obter_cores_extra, listar_clubes_extra, expirar_posts_vencidos
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 from sources import SOURCE_MOON
@@ -6196,6 +6196,9 @@ def _bytes_da_imagem(ref: str) -> bytes | None:
 
 @app.get("/api/posts/fila")
 async def api_posts_fila(status: str = ""):
+    # Varre a fila antes de mostrar: post de jogo que já começou some daqui
+    # sozinho, em vez de ficar competindo com os de hoje na sua tela.
+    expirar_posts_vencidos()
     ok_x, faltando = x_client.configurado()
     import posts_gerador as pg
     return {"posts": listar_posts(status or None),
