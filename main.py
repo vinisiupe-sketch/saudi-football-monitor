@@ -4999,51 +4999,135 @@ _FIMJOGO_CSS = '''    .fj-topo { display:flex; align-items:center; gap:10px; fle
     .fj-texto { white-space:pre-wrap; font-family:inherit; font-size:0.9rem; line-height:1.6; margin:0; padding:12px 14px; border-radius:10px; background:var(--c-bg-soft); }
     .fj-aguardando { font-size:0.75rem; color:var(--c-muted-4); padding:6px 0; }'''
 
-_FIMJOGO_JS = '''// ── FIM DE JOGO ───────────────────────────────────────────────────────────
-// Objetivo é velocidade: abrir a guia e copiar. A lista se atualiza sozinha, e o
-// texto de cada jogo encerrado é buscado em paralelo, já pronto no card.
+_FIMJOGO_JS = r'''// ── FIM DE JOGO ───────────────────────────────────────────────────────────
+// A tela se atualiza sozinha, mas NÃO em intervalo fixo. Antes eram 60s o dia
+// inteiro, inclusive de madrugada sem ninguém em campo, e o texto de um jogo
+// encerrado há horas era refeito a cada volta. Agora o ritmo segue o minuto da
+// partida (ver proximaChecagem) e texto já pronto não é buscado de novo.
 let _fjTimer = null;
+
+// Momentos em que vale olhar antes da reta final: meio e fim do 1º tempo,
+// meio do 2º. Do 85 em diante passa a ser de 20 em 20 segundos.
+const FJ_PARADAS = [23, 45, 68, 85];
+const FJ_TEMPO_REAL = 85;
+const FJ_INTERVALO_FINAL = 20;      // segundos, do minuto 85 até o apito
+// O maior salto entre paradas é 23min (do 45 ao 68), então o teto precisa ser
+// maior que isso ou ele atropela as paradas e vira checagem periódica.
+// Dormir até a próxima parada é seguro: o relógio da partida nunca anda mais
+// rápido que o relógio real, então esperar (alvo - minuto) minutos sempre
+// chega em cima ou antes do alvo — nunca depois. Acréscimo e intervalo só
+// fazem chegar mais cedo, e aí a conta é refeita.
+const FJ_TETO_EM_JOGO = 25 * 60;
+const FJ_TETO_PARADO = 15 * 60;     // nem mais que isso sem jogo nenhum
+
+// Texto já fechado não muda mais. Guardar aqui evita refazer a chamada a cada
+// atualização para partidas que acabaram horas atrás — era a maior parte do
+// desperdício, porque a lista traz também os jogos de ontem.
+const FJ_PRONTOS = {};
+
+function fjEmCampo(j) {
+  return !j.encerrado && j.minuto !== null && j.minuto !== undefined;
+}
+
+// Segundos até a próxima checagem, olhando o jogo mais urgente da tela.
+function proximaChecagem(jogos) {
+  const vivos = jogos.filter(fjEmCampo);
+  if (vivos.length) {
+    let menor = FJ_TETO_EM_JOGO;
+    vivos.forEach(function (j) {
+      let s;
+      if (j.minuto >= FJ_TEMPO_REAL) {
+        s = FJ_INTERVALO_FINAL;
+      } else {
+        const alvo = FJ_PARADAS.find(function (p) { return p > j.minuto; });
+        // Um minuto de jogo ≈ um minuto de relógio. Acréscimos e intervalo
+        // desviam disso, e é por isso que a conta é refeita a cada volta em
+        // vez de agendar tudo de uma vez no começo da partida.
+        s = Math.max(FJ_INTERVALO_FINAL, (alvo - j.minuto) * 60);
+      }
+      if (s < menor) menor = s;
+    });
+    return menor;
+  }
+  // Ninguém em campo: dorme até perto do próximo apito inicial.
+  const agora = Date.now();
+  const proximos = jogos
+    .filter(function (j) { return !j.encerrado && j.data; })
+    .map(function (j) { return Date.parse(j.data.replace(' ', 'T') + ':00Z'); })
+    .filter(function (t) { return !isNaN(t) && t > agora; });
+  if (!proximos.length) return FJ_TETO_PARADO;
+  const faltam = (Math.min.apply(null, proximos) - agora) / 1000 - 60;
+  return Math.min(Math.max(faltam, 60), FJ_TETO_PARADO);
+}
+
+function fjLegenda(seg, jogos) {
+  const hora = new Date().toLocaleTimeString('pt-BR').slice(0, 5);
+  const vivos = jogos.filter(fjEmCampo);
+  if (vivos.length && Math.min.apply(null, vivos.map(function (j) { return j.minuto; })) >= FJ_TEMPO_REAL) {
+    return hora + ' · reta final, olhando a cada ' + seg + 's';
+  }
+  const quando = seg < 90 ? seg + 's' : Math.round(seg / 60) + 'min';
+  return hora + ' · próxima checagem em ' + quando;
+}
+
+async function preencherTexto(j) {
+  const box = document.getElementById('fj-txt-' + j.fixture);
+  if (!box) return;
+  const b = document.getElementById('fj-btn-' + j.fixture);
+  const liberar = function (texto) {
+    if (b) { b.style.display = ''; b.onclick = function () { copyBlock(b, texto); }; }
+  };
+  if (FJ_PRONTOS[j.fixture]) {          // já fechado numa volta anterior
+    box.textContent = FJ_PRONTOS[j.fixture];
+    liberar(FJ_PRONTOS[j.fixture]);
+    return;
+  }
+  try {
+    const t = await fetchJSON('/api/numeros/fim-de-jogo?fixture=' + j.fixture);
+    if (!t.texto) return;
+    box.textContent = t.texto + (t.aviso ? '\n\n⚠️ ' + t.aviso : '');
+    // Texto incompleto não ganha botão: copiar agora geraria post errado.
+    if (t.completo) {
+      liberar(t.texto);
+      // Só guarda o de jogo encerrado; o parcial ainda vai mudar.
+      if (j.encerrado) FJ_PRONTOS[j.fixture] = t.texto;
+    }
+  } catch (e) {}
+}
 
 async function carregarJogosDoDia() {
   const lista = document.getElementById('fjLista');
   const st = document.getElementById('fjStatus');
   st.textContent = 'atualizando…';
+  let jogos = [];
   try {
     const d = await fetchJSON('/api/numeros/jogos-do-dia?dias=2&_=' + Date.now());
-    if (!d.jogos.length) {
+    jogos = d.jogos || [];
+    if (!jogos.length) {
       lista.innerHTML = '<div class="result-card"><div class="loading-state">Nenhum jogo hoje nem ontem em nenhuma das competições.</div></div>';
-      st.textContent = '';
-      return;
+    } else {
+      lista.innerHTML = jogos.map(cardDoJogo).join('');
+      // Encerrado e em andamento: você pediu o texto já formatado também
+      // durante a partida, para não ter que esperar o apito para ver o formato.
+      jogos.filter(function (j) { return j.encerrado || fjEmCampo(j); }).forEach(preencherTexto);
     }
-    lista.innerHTML = d.jogos.map(j => cardDoJogo(j)).join('');
-    // Busca o texto dos encerrados em paralelo — quando chega, preenche o card.
-    d.jogos.filter(j => j.encerrado).forEach(async j => {
-      try {
-        const t = await fetchJSON('/api/numeros/fim-de-jogo?fixture=' + j.fixture);
-        const box = document.getElementById('fj-txt-' + j.fixture);
-        if (box && t.texto) {
-          box.textContent = t.texto + (t.aviso ? '\\n\\n⚠️ ' + t.aviso : '');
-          const b = document.getElementById('fj-btn-' + j.fixture);
-          // Texto incompleto não ganha botão: copiar agora geraria post errado.
-          // A lista se re-atualiza sozinha em 60s e tenta de novo.
-          if (b && t.completo) { b.style.display = ''; b.onclick = () => copyBlock(b, t.texto); }
-        }
-      } catch(e) {}
-    });
-    st.textContent = 'atualizado ' + new Date().toLocaleTimeString('pt-BR').slice(0,5);
-  } catch(e) {
+    const seg = proximaChecagem(jogos);
+    st.textContent = jogos.length ? fjLegenda(seg, jogos) : '';
+    clearTimeout(_fjTimer);
+    _fjTimer = setTimeout(carregarJogosDoDia, seg * 1000);
+  } catch (e) {
     lista.innerHTML = '<div class="result-card"><div class="error-state">' + e.message + '</div></div>';
     st.textContent = '';
+    clearTimeout(_fjTimer);
+    _fjTimer = setTimeout(carregarJogosDoDia, 120000);   // erro: espera mais
   }
-  clearTimeout(_fjTimer);
-  _fjTimer = setTimeout(carregarJogosDoDia, 60000);
 }
 
 function cardDoJogo(j) {
   const placar = (j.gols_casa === null || j.gols_casa === undefined) ? 'x' : j.gols_casa + 'x' + j.gols_fora;
   let selo;
   if (j.encerrado) selo = '<span class="fj-selo fj-fim">encerrado</span>';
-  else if (j.minuto !== null && j.minuto !== undefined) selo = '<span class="fj-selo fj-vivo">' + j.minuto + "'</span>";
+  else if (fjEmCampo(j)) selo = '<span class="fj-selo fj-vivo">' + j.minuto + "'</span>";
   else selo = '<span class="fj-selo">' + (j.data || '').slice(11) + '</span>';
   return '<div class="result-card fj-card">' +
     '<div class="fj-cab">' + selo +
@@ -5051,9 +5135,9 @@ function cardDoJogo(j) {
       (j.competicao ? '<span class="fj-selo">' + j.competicao + '</span>' : '') +
       '<button class="copy-btn" id="fj-btn-' + j.fixture + '" style="display:none">📋 Copiar</button>' +
     '</div>' +
-    (j.encerrado
+    (j.encerrado || fjEmCampo(j)
       ? '<pre class="fj-texto" id="fj-txt-' + j.fixture + '">gerando texto…</pre>'
-      : '<div class="fj-aguardando">Em andamento — o texto aparece assim que o jogo acabar.</div>') +
+      : '<div class="fj-aguardando">Ainda não começou — o texto aparece quando a bola rolar.</div>') +
   '</div>';
 }'''
 
