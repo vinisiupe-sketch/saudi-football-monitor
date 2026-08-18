@@ -5202,8 +5202,19 @@ async function carregarGols() {
   if (!alvo) return;
   let d;
   try {
-    d = await fetchJSON('/api/gols/ao-vivo?horas=8&_=' + Date.now());
-  } catch (e) { return; }
+    const r = await fetch('/api/gols/ao-vivo?horas=8&_=' + Date.now());
+    const bruto = await r.text();
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 300));
+    d = JSON.parse(bruto);
+  } catch (e) {
+    // Antes isto era um "return" mudo, e o painel ficava vazio sem dizer nada.
+    // Um erro invisível é pior que um erro feio: eu passei duas rodadas
+    // chutando porque a tela não me contava que a chamada estava falhando.
+    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
+      + 'style="font-size:.76rem;color:#fb7185">Falha ao carregar o alerta de gol:\n'
+      + esc(e.message || String(e)) + '</pre></div>';
+    return;
+  }
   if (!d.sportmonks_configurada) {
     alvo.innerHTML = '<div class="result-card"><div class="loading-state">'
       + 'Falta a SPORTMONKS_TOKEN no Railway para a comparação funcionar.</div></div>';
@@ -5569,8 +5580,14 @@ async def api_gols_ao_vivo(horas: int = 6, coletar: int = 1):
         try:
             await coletar_gols_ao_vivo()
         except Exception as e:
-            _ULTIMA_COLETA["erros"] = [f"coleta na tela: {type(e).__name__}: {e}"]
-    linhas = gols_vistos(horas)
+            _ULTIMA_COLETA["erros"] = [f"coleta: {type(e).__name__}: {e}"]
+    try:
+        linhas = gols_vistos(horas)
+    except Exception as e:
+        return {"gols": [], "sportmonks_configurada": sm.configurado(),
+                "carimbos_no_banco": 0,
+                "diagnostico": {**_ULTIMA_COLETA,
+                                "erros": [f"leitura do banco: {type(e).__name__}: {e}"]}}
     # agrupa o MESMO gol das duas fontes para mostrar a diferença de tempo
     por_gol: dict[str, dict] = {}
     for l in linhas:
@@ -5596,8 +5613,11 @@ async def api_gols_ao_vivo(horas: int = 6, coletar: int = 1):
                          if k not in ("api_football", "sportmonks")},
                       "api_football": a, "sportmonks": s,
                       "diferenca_seg": dif})
-    saida.sort(key=lambda x: ((x.get("api_football") or x.get("sportmonks") or {})
-                              .get("visto_em") or ""), reverse=True)
+    try:
+        saida.sort(key=lambda x: ((x.get("api_football") or x.get("sportmonks") or {})
+                                  .get("visto_em") or ""), reverse=True)
+    except Exception:
+        pass
     return {"gols": saida, "sportmonks_configurada": sm.configurado(),
             "diagnostico": _ULTIMA_COLETA, "carimbos_no_banco": len(linhas)}
 
