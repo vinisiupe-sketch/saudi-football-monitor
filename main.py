@@ -5210,8 +5210,17 @@ async function carregarGols() {
     return;
   }
   if (!(d.gols || []).length) {
-    alvo.innerHTML = '<div class="result-card"><div class="loading-state">'
-      + 'Nenhum gol carimbado nas últimas horas.</div></div>';
+    // Não basta dizer "nenhum": preciso saber SE o coletor rodou e o que viu.
+    const g = d.diagnostico || {};
+    const q = g.quando ? new Date(g.quando)
+      .toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : 'nunca';
+    let txt = 'Nenhum gol carimbado. Última coleta às ' + q
+      + ' — Sportmonks: ' + (g.sm_jogos || 0) + ' jogo(s), ' + (g.sm_gols || 0) + ' gol(s)'
+      + ' · API-Football: ' + (g.af_jogos || 0) + ' jogo(s), ' + (g.af_gols || 0) + ' gol(s)'
+      + ' · no banco: ' + (d.carimbos_no_banco || 0);
+    if ((g.erros || []).length) txt += '\n⚠️ ' + g.erros.join(' | ');
+    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
+      + 'style="font-size:.76rem">' + esc(txt) + '</pre></div>';
     return;
   }
   alvo.innerHTML = '';
@@ -5419,17 +5428,32 @@ async def _fim_sportmonks(fixture_sm: int) -> dict:
     return sm.texto_fim_de_jogo(f, _cores_sm(f))
 
 
+# Guarda o resultado da última coleta. Sem isto, quando nada aparece na tela
+# eu não tenho como saber SE o coletor rodou, se achou jogo, ou se falhou —
+# foi exatamente o que aconteceu duas vezes seguidas.
+_ULTIMA_COLETA: dict = {"quando": None, "novos": 0, "sm_jogos": 0, "sm_gols": 0,
+                        "af_jogos": 0, "af_gols": 0, "erros": []}
+
+
 async def coletar_gols_ao_vivo() -> dict:
     """Carimba, para cada fonte, o instante em que ela publicou cada gol.
 
     Roda de minuto em minuto pelo agendador. É isto que permite dizer qual das
     duas chega antes — sem carimbo, a comparação seria impressão."""
     novos = []
+    diag = {"quando": datetime.now(timezone.utc).isoformat(), "novos": 0,
+            "sm_jogos": 0, "sm_gols": 0, "af_jogos": 0, "af_gols": 0, "erros": []}
 
     # ── Sportmonks ────────────────────────────────────────────────────────
-    if sm.configurado():
+    if not sm.configurado():
+        diag["erros"].append("SPORTMONKS_TOKEN ausente")
+    else:
         jogos, err = await sm.ao_vivo()
+        if err:
+            diag["erros"].append(f"sportmonks ao_vivo: {err[:120]}")
+        diag["sm_jogos"] = len(jogos)
         for f in jogos:
+            diag["sm_gols"] += len(sm.gols_da_partida(f))
             cores = _cores_sm(f)
             for ev in sm.gols_da_partida(f):
                 chave = f"{f.get('id')}|{sm.chave_do_gol(ev)}"
@@ -5452,14 +5476,19 @@ async def coletar_gols_ao_vivo() -> dict:
             continue
         for fx in data.get("response", []):
             st = ((fx.get("fixture") or {}).get("status") or {}).get("short")
-            if st not in ("1H", "2H", "HT", "ET", "P", "BT"):
+            # Inclui FT: o gol do fim do jogo tem que ser carimbado mesmo que a
+            # partida encerre entre uma passagem e outra do coletor.
+            if st not in ("1H", "2H", "HT", "ET", "P", "BT", "FT", "AET", "PEN"):
                 continue
+            diag["af_jogos"] += 1
             fid = (fx.get("fixture") or {}).get("id")
             ev, e2 = await _af_get("fixtures/events",
                                    {"fixture": fid, "type": "Goal"},
                                    ttl=_AF_TTL_AO_VIVO)
             if e2:
+                diag["erros"].append(f"af eventos {fid}: {str(e2)[:80]}")
                 continue
+            diag["af_gols"] += len((ev or {}).get("response", []))
             times = fx.get("teams") or {}
             casa, fora = times.get("home") or {}, times.get("away") or {}
             gc = gf = 0
@@ -5497,7 +5526,10 @@ async def coletar_gols_ao_vivo() -> dict:
                                  assistente=assist or None, placar=f"{gc}-{gf}",
                                  texto="\n".join(linhas), fixture_af=fid):
                     novos.append(("api_football", chave))
-    return {"novos": len(novos), "detalhe": novos}
+
+    diag["novos"] = len(novos)
+    _ULTIMA_COLETA.update(diag)
+    return {"novos": len(novos), "detalhe": novos, "diagnostico": diag}
 
 
 @app.get("/api/fim/comparar")
@@ -5527,8 +5559,17 @@ async def api_fim_comparar(fixture: int, fixture_sm: int = 0):
 
 
 @app.get("/api/gols/ao-vivo")
-async def api_gols_ao_vivo(horas: int = 6):
-    """Gols carimbados pelas duas fontes, com o horário da descoberta."""
+async def api_gols_ao_vivo(horas: int = 6, coletar: int = 1):
+    """Gols carimbados pelas duas fontes, com o horário da descoberta.
+
+    Coleta na hora por padrão. O agendador também coleta de 45 em 45s, mas
+    depender só dele significa que uma falha silenciosa dele deixa a tela vazia
+    sem explicação — e foi o que aconteceu."""
+    if coletar:
+        try:
+            await coletar_gols_ao_vivo()
+        except Exception as e:
+            _ULTIMA_COLETA["erros"] = [f"coleta na tela: {type(e).__name__}: {e}"]
     linhas = gols_vistos(horas)
     # agrupa o MESMO gol das duas fontes para mostrar a diferença de tempo
     por_gol: dict[str, dict] = {}
@@ -5557,7 +5598,8 @@ async def api_gols_ao_vivo(horas: int = 6):
                       "diferenca_seg": dif})
     saida.sort(key=lambda x: ((x.get("api_football") or x.get("sportmonks") or {})
                               .get("visto_em") or ""), reverse=True)
-    return {"gols": saida, "sportmonks_configurada": sm.configurado()}
+    return {"gols": saida, "sportmonks_configurada": sm.configurado(),
+            "diagnostico": _ULTIMA_COLETA, "carimbos_no_banco": len(linhas)}
 
 
 @app.get("/fim-de-jogo", response_class=HTMLResponse)

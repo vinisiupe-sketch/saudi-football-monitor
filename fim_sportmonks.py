@@ -272,12 +272,30 @@ async def partida(fixture_id: int, ttl: int = TTL_AO_VIVO):
 
 
 async def ao_vivo():
-    """Partidas rolando agora nas nossas competições."""
+    """Partidas rolando agora — e as que acabaram de encerrar.
+
+    O /livescores/inplay tira a partida da lista no apito final. Se eu olhasse
+    só ele, o último gol do jogo poderia nunca ser carimbado: basta a partida
+    encerrar entre duas passagens do coletor. Por isso somo os jogos de hoje.
+    """
+    vistos, saida = set(), []
     d, e = await _get("livescores/inplay", ttl=10, include=INCLUDE_PARTIDA)
-    if e:
-        return [], e
-    return [f for f in ((d or {}).get("data") or [])
-            if f.get("league_id") in LIGAS], None
+    for f in ((d or {}).get("data") or []):
+        if f.get("league_id") in LIGAS:
+            vistos.add(f.get("id"))
+            saida.append(f)
+
+    from datetime import datetime, timezone
+    hoje = datetime.now(timezone.utc).date().isoformat()
+    d2, e2 = await _get(f"fixtures/date/{hoje}", ttl=45,
+                        include=INCLUDE_PARTIDA, per_page="100")
+    for f in ((d2 or {}).get("data") or []):
+        if f.get("league_id") not in LIGAS or f.get("id") in vistos:
+            continue
+        # só o que já começou; jogo futuro não tem gol para carimbar
+        if f.get("events") or _placar_atual(f) != (0, 0):
+            saida.append(f)
+    return saida, (e or e2)
 
 
 async def do_dia(data_iso: str):
