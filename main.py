@@ -5300,7 +5300,15 @@ async function carregarJogosDoDia() {
       // durante a partida, para não ter que esperar o apito para ver o formato.
       jogos.filter(function (j) { return j.encerrado || fjEmCampo(j); }).forEach(preencherTexto);
     }
-    carregarGols();
+    // .catch explícito: sem ele, qualquer erro dentro de carregarGols vira
+    // promise rejeitada sem dono e some — foi assim que o esc() faltando
+    // ficou invisível.
+    carregarGols().catch(function (err) {
+      const g = document.getElementById('fjGols');
+      if (g) g.innerHTML = '<div class="result-card"><pre class="fj-texto" '
+        + 'style="font-size:.76rem;color:#fb7185">Erro no alerta de gol: '
+        + (err && err.message ? err.message : String(err)) + '</pre></div>';
+    });
     const seg = proximaChecagem(jogos);
     st.textContent = jogos.length ? fjLegenda(seg, jogos) : '';
     clearTimeout(_fjTimer);
@@ -5383,6 +5391,17 @@ async function fetchJSON(url) {
   const d = await r.json();
   if (!r.ok || d.error) throw new Error(d.error || ('HTTP ' + r.status));
   return d;
+}
+
+// Escapa texto que vai para innerHTML. Estava faltando NESTA página — eu a
+// copiei da guia Posts, que tem a sua. O alerta de gol chamava esc() cinco
+// vezes e estourava ReferenceError; como carregarGols é async e ninguém dá
+// await, a exceção virava promise rejeitada e morria calada. Resultado: painel
+// vazio, sem erro na tela, e eu perdendo três rodadas atrás disso.
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 function copyBlock(btn, text) {
