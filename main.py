@@ -23,9 +23,10 @@ from fastapi import FastAPI, BackgroundTasks, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
+import fim_sportmonks as sm
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -5150,22 +5151,117 @@ async function preencherTexto(j) {
   const liberar = function (texto) {
     if (b) { b.style.display = ''; b.onclick = function () { copyBlock(b, texto); }; }
   };
-  if (FJ_PRONTOS[j.fixture]) {          // já fechado numa volta anterior
-    box.textContent = FJ_PRONTOS[j.fixture];
-    liberar(FJ_PRONTOS[j.fixture]);
-    return;
-  }
+  // Enquanto durar a comparação, não uso o cache: quero ver as duas fontes
+  // do mesmo instante toda vez, senão a comparação fica velha de um lado.
   try {
-    const t = await fetchJSON('/api/numeros/fim-de-jogo?fixture=' + j.fixture);
-    if (!t.texto) return;
-    box.textContent = t.texto + (t.aviso ? '\n\n⚠️ ' + t.aviso : '');
-    // Texto incompleto não ganha botão: copiar agora geraria post errado.
-    if (t.completo) {
-      liberar(t.texto);
-      // Só guarda o de jogo encerrado; o parcial ainda vai mudar.
-      if (j.encerrado) FJ_PRONTOS[j.fixture] = t.texto;
+    // As duas fontes na mesma chamada, para a comparação ser do MESMO instante.
+    const d = await fetchJSON('/api/fim/comparar?fixture=' + j.fixture);
+    const af = d.api_football || {};
+    const sm = d.sportmonks || {};
+    box.innerHTML = '';
+    box.appendChild(caixaFonte('API-Football', af, '#0ea5e9'));
+    box.appendChild(caixaFonte('Sportmonks', sm, '#22c55e'));
+    box.className = 'duas';
+    // O botão de copiar segue a API-Football, que é a que está no ar hoje.
+    if (af.texto && af.completo) {
+      liberar(af.texto);
+      if (j.encerrado) FJ_PRONTOS[j.fixture] = af.texto;
     }
   } catch (e) {}
+}
+
+function caixaFonte(rotulo, r, cor) {
+  const d = document.createElement('div');
+  d.className = 'fonte';
+  const h = document.createElement('h4');
+  h.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'
+              + cor + ';display:inline-block"></span>' + rotulo;
+  d.appendChild(h);
+  const p = document.createElement('pre');
+  if (r.erro) {
+    p.textContent = '— ' + r.erro;
+    p.style.color = 'var(--c-muted-3)';
+  } else {
+    p.textContent = (r.texto || '—') + (r.aviso ? '\n\n⚠️ ' + r.aviso : '');
+  }
+  d.appendChild(p);
+  if (r.texto) {
+    const b = document.createElement('button');
+    b.className = 'copy-btn';
+    b.style.marginTop = '8px';
+    b.textContent = '📋 Copiar';
+    b.onclick = function () { copyBlock(b, r.texto); };
+    d.appendChild(b);
+  }
+  return d;
+}
+
+// ── Alerta de GOL, com o carimbo de cada fonte ────────────────────────────
+async function carregarGols() {
+  const alvo = document.getElementById('fjGols');
+  if (!alvo) return;
+  let d;
+  try {
+    d = await fetchJSON('/api/gols/ao-vivo?horas=8&_=' + Date.now());
+  } catch (e) { return; }
+  if (!d.sportmonks_configurada) {
+    alvo.innerHTML = '<div class="result-card"><div class="loading-state">'
+      + 'Falta a SPORTMONKS_TOKEN no Railway para a comparação funcionar.</div></div>';
+    return;
+  }
+  if (!(d.gols || []).length) {
+    alvo.innerHTML = '<div class="result-card"><div class="loading-state">'
+      + 'Nenhum gol carimbado nas últimas horas.</div></div>';
+    return;
+  }
+  alvo.innerHTML = '';
+  d.gols.forEach(function (g) {
+    const linha = document.createElement('div');
+    linha.className = 'gol-linha';
+    const cab = document.createElement('div');
+    cab.className = 'gol-cab';
+    let selo = '<span class="dif">só uma fonte</span>';
+    if (g.diferenca_seg !== null && g.diferenca_seg !== undefined) {
+      const s = g.diferenca_seg;
+      const quem = s < 0 ? 'sm' : (s > 0 ? 'af' : '');
+      const txt = s === 0 ? 'empate'
+                : (s < 0 ? 'Sportmonks ' + Math.abs(s) + 's antes'
+                         : 'API-Football ' + s + 's antes');
+      selo = '<span class="dif ' + quem + '">' + txt + '</span>';
+    }
+    cab.innerHTML = '<span class="gol-min">' + (g.minuto || '?') + "'</span>"
+      + '<span>' + esc(g.autor || '') + '</span>'
+      + (g.assistente ? '<span class="conta">🅰️ ' + esc(g.assistente) + '</span>' : '')
+      + '<span class="fj-selo">' + esc(g.placar || '') + '</span>' + selo;
+    linha.appendChild(cab);
+    const duas = document.createElement('div');
+    duas.className = 'duas';
+    [['API-Football', g.api_football, '#0ea5e9'],
+     ['Sportmonks', g.sportmonks, '#22c55e']].forEach(function (par) {
+      const c = document.createElement('div');
+      c.className = 'fonte';
+      const quando = par[1] ? new Date(par[1].visto_em)
+        .toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : '—';
+      c.innerHTML = '<h4><span style="width:8px;height:8px;border-radius:50%;background:'
+        + par[2] + ';display:inline-block"></span>' + par[0]
+        + '<span style="margin-left:auto;font-weight:400">' + quando + '</span></h4>';
+      const p = document.createElement('pre');
+      p.textContent = par[1] ? (par[1].texto || '') : 'não publicou este gol';
+      if (!par[1]) p.style.color = 'var(--c-muted-3)';
+      c.appendChild(p);
+      if (par[1] && par[1].texto) {
+        const b = document.createElement('button');
+        b.className = 'copy-btn';
+        b.style.marginTop = '8px';
+        b.textContent = '📋 Copiar';
+        b.onclick = function () { copyBlock(b, par[1].texto); };
+        c.appendChild(b);
+      }
+      duas.appendChild(c);
+    });
+    linha.appendChild(duas);
+    alvo.appendChild(linha);
+  });
 }
 
 async function carregarJogosDoDia() {
@@ -5184,6 +5280,7 @@ async function carregarJogosDoDia() {
       // durante a partida, para não ter que esperar o apito para ver o formato.
       jogos.filter(function (j) { return j.encerrado || fjEmCampo(j); }).forEach(preencherTexto);
     }
+    carregarGols();
     const seg = proximaChecagem(jogos);
     st.textContent = jogos.length ? fjLegenda(seg, jogos) : '';
     clearTimeout(_fjTimer);
@@ -5252,6 +5349,12 @@ __HDR__
     <button class="fj-refresh" onclick="carregarJogosDoDia()">Atualizar</button>
     <span id="fjStatus" class="fj-status"></span>
   </div>
+  <h2 style="font-size:1rem;margin:18px 0 4px">⚽ Alerta de GOL — quem publicou antes</h2>
+  <p class="sub" style="margin:0 0 10px">Cada gol carimbado com o instante em que cada
+     fonte o publicou. Diferença negativa = a Sportmonks chegou antes.</p>
+  <div id="fjGols"></div>
+
+  <h2 style="font-size:1rem;margin:22px 0 8px">Partidas</h2>
   <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
 </div>
 <script>
@@ -5277,6 +5380,184 @@ carregarJogosDoDia();
 </script>
 </body>
 </html>"""
+
+
+def _cores_sm(f: dict) -> dict:
+    """Mapa {id do time na Sportmonks: emoji} usando o TEAM_CORES que já existe.
+
+    Os nomes deles são um pouco diferentes ("Al Hilal" x "Al-Hilal Saudi FC"),
+    então caso por palavra significativa em vez de igualdade — foi o que fez o
+    casamento de clubes funcionar 18 de 18 na sondagem."""
+    fora_da_chave = {"al", "fc", "sc", "saudi", "jeddah", "saihat", "club"}
+    # Grafias que os dois catálogos escrevem diferente. Sem isto, Al Draih,
+    # Al-Qadsiah e Al Taawoun ficavam sem cor — testei e eram exatamente 3.
+    VARIANTES = {"draih": "diriyah", "diraiyah": "diriyah",
+                 "qadsiah": "qadisiyah", "qadisiya": "qadisiyah",
+                 "taawoun": "taawon", "tawoun": "taawon",
+                 "hazem": "hazm", "nasr": "nassr", "khalij": "khaleej"}
+
+    def tokens(nome):
+        limpo = re.sub(r"[^a-z ]", " ", (nome or "").lower().replace("-", " "))
+        return {VARIANTES.get(p, p) for p in limpo.split()
+                if p and p not in fora_da_chave}
+
+    tab = [(tokens(k), v) for k, v in TEAM_CORES.items()]
+    saida = {}
+    for p in (f.get("participants") or []):
+        alvo = tokens(p.get("name"))
+        for toks, cor in tab:
+            if alvo & toks:
+                saida[p.get("id")] = cor
+                break
+    return saida
+
+
+async def _fim_sportmonks(fixture_sm: int) -> dict:
+    f, err = await sm.partida(fixture_sm)
+    if err or not f:
+        return {"fonte": "sportmonks", "erro": err or "partida não encontrada"}
+    return sm.texto_fim_de_jogo(f, _cores_sm(f))
+
+
+async def coletar_gols_ao_vivo() -> dict:
+    """Carimba, para cada fonte, o instante em que ela publicou cada gol.
+
+    Roda de minuto em minuto pelo agendador. É isto que permite dizer qual das
+    duas chega antes — sem carimbo, a comparação seria impressão."""
+    novos = []
+
+    # ── Sportmonks ────────────────────────────────────────────────────────
+    if sm.configurado():
+        jogos, err = await sm.ao_vivo()
+        for f in jogos:
+            cores = _cores_sm(f)
+            for ev in sm.gols_da_partida(f):
+                chave = f"{f.get('id')}|{sm.chave_do_gol(ev)}"
+                if registrar_gol("sportmonks", chave,
+                                 minuto=ev.get("minute"),
+                                 autor=sm._autor(ev),
+                                 assistente=sm._assistente(ev) or None,
+                                 placar=ev.get("result"),
+                                 texto=sm.texto_do_gol(f, ev, cores),
+                                 fixture_sm=f.get("id")):
+                    novos.append(("sportmonks", chave))
+
+    # ── API-Football ──────────────────────────────────────────────────────
+    hoje = datetime.now(timezone.utc).date().isoformat()
+    for liga_id in (AF_LEAGUE_SPL, 504, 826, 17, 18):
+        season = await _season_da_liga(liga_id, _af_temporada_corrente())
+        data, err = await _af_get("fixtures", {"league": liga_id, "season": season,
+                                               "date": hoje}, ttl=_AF_TTL_AO_VIVO)
+        if err or not data:
+            continue
+        for fx in data.get("response", []):
+            st = ((fx.get("fixture") or {}).get("status") or {}).get("short")
+            if st not in ("1H", "2H", "HT", "ET", "P", "BT"):
+                continue
+            fid = (fx.get("fixture") or {}).get("id")
+            ev, e2 = await _af_get("fixtures/events",
+                                   {"fixture": fid, "type": "Goal"},
+                                   ttl=_AF_TTL_AO_VIVO)
+            if e2:
+                continue
+            times = fx.get("teams") or {}
+            casa, fora = times.get("home") or {}, times.get("away") or {}
+            gc = gf = 0
+            for g in (ev or {}).get("response", []):
+                if (g.get("detail") or "") == "Missed Penalty":
+                    continue
+                dono = (g.get("team") or {}).get("id")
+                marcou_casa = dono == casa.get("id")
+                if (g.get("detail") or "") == "Own Goal":
+                    marcou_casa = not marcou_casa
+                if marcou_casa:
+                    gc += 1
+                else:
+                    gf += 1
+                autor = _nome_artilheiro((g.get("player") or {}).get("name"))
+                minuto = (g.get("time") or {}).get("elapsed")
+                # MESMA chave da Sportmonks, para os dois lados casarem.
+                chave = f"{fid}|{minuto}|{autor}|{gc}-{gf}"
+                assist = _nome_artilheiro((g.get("assist") or {}).get("name") or "")
+                cor = (TEAM_CORES.get(casa.get("name"), "") if marcou_casa
+                       else TEAM_CORES.get(fora.get("name"), ""))
+                nc = (casa.get("name") or "").replace("-", " ").upper()
+                nf = (fora.get("name") or "").replace("-", " ").upper()
+                marca = ""
+                if (g.get("detail") or "") == "Penalty":
+                    marca = " (p)"
+                elif (g.get("detail") or "") == "Own Goal":
+                    marca = " (gc)"
+                linhas = [f"{cor} GOOOOOOOOOOOOOOOOOL".strip(), "",
+                          f"⏰ {minuto}' {nc} {gc} x {gf} {nf}",
+                          f"⚽ {autor}{marca}"]
+                if assist:
+                    linhas.append(f"🅰️ {assist}")
+                if registrar_gol("api_football", chave, minuto=minuto, autor=autor,
+                                 assistente=assist or None, placar=f"{gc}-{gf}",
+                                 texto="\n".join(linhas), fixture_af=fid):
+                    novos.append(("api_football", chave))
+    return {"novos": len(novos), "detalhe": novos}
+
+
+@app.get("/api/fim/comparar")
+async def api_fim_comparar(fixture: int, fixture_sm: int = 0):
+    """Mesmo jogo pelas duas fontes, lado a lado."""
+    af = await _montar_fim_de_jogo(fixture)
+    saida = {"api_football": af, "sportmonks": None}
+    if not sm.configurado():
+        saida["sportmonks"] = {"erro": "SPORTMONKS_TOKEN não configurada no Railway"}
+        return saida
+    alvo = fixture_sm
+    if not alvo:
+        # Sem o id do lado deles, acho o jogo do dia pelos nomes dos times.
+        jogos, err = await sm.do_dia(datetime.now(timezone.utc).date().isoformat())
+        alvos = {(af.get("casa") or "").lower(), (af.get("fora") or "").lower()}
+        for f in jogos:
+            nomes = {sm._nome_curto(p.get("name")).lower()
+                     for p in (f.get("participants") or [])}
+            if nomes & alvos:
+                alvo = f.get("id")
+                break
+    if not alvo:
+        saida["sportmonks"] = {"erro": "não achei esta partida no catálogo da Sportmonks"}
+        return saida
+    saida["sportmonks"] = await _fim_sportmonks(alvo)
+    return saida
+
+
+@app.get("/api/gols/ao-vivo")
+async def api_gols_ao_vivo(horas: int = 6):
+    """Gols carimbados pelas duas fontes, com o horário da descoberta."""
+    linhas = gols_vistos(horas)
+    # agrupa o MESMO gol das duas fontes para mostrar a diferença de tempo
+    por_gol: dict[str, dict] = {}
+    for l in linhas:
+        # a chave já começa com o fixture de cada fonte; caso pelo resto
+        resto = "|".join((l.get("chave_gol") or "").split("|")[1:])
+        d = por_gol.setdefault(resto, {"minuto": l.get("minuto"),
+                                       "autor": l.get("autor"),
+                                       "assistente": l.get("assistente"),
+                                       "placar": l.get("placar")})
+        d[l["fonte"]] = {"visto_em": l.get("visto_em"), "texto": l.get("texto")}
+    saida = []
+    for resto, d in por_gol.items():
+        a, s = d.get("api_football"), d.get("sportmonks")
+        dif = None
+        if a and s:
+            try:
+                ta = datetime.fromisoformat(a["visto_em"])
+                ts = datetime.fromisoformat(s["visto_em"])
+                dif = round((ts - ta).total_seconds())
+            except Exception:
+                pass
+        saida.append({**{k: v for k, v in d.items()
+                         if k not in ("api_football", "sportmonks")},
+                      "api_football": a, "sportmonks": s,
+                      "diferenca_seg": dif})
+    saida.sort(key=lambda x: ((x.get("api_football") or x.get("sportmonks") or {})
+                              .get("visto_em") or ""), reverse=True)
+    return {"gols": saida, "sportmonks_configurada": sm.configurado()}
 
 
 @app.get("/fim-de-jogo", response_class=HTMLResponse)
@@ -5987,6 +6268,22 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
   background:var(--surface2);display:flex;align-items:center;justify-content:center;
   cursor:pointer;color:var(--text2);font-size:1.35rem;line-height:1}
 .escudo-vazio:hover{border-color:var(--accent);color:var(--accent)}
+.duas{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:760px){.duas{grid-template-columns:1fr}}
+.fonte{border:1px solid var(--c-border);border-radius:10px;padding:10px 12px;
+  background:var(--c-bg-soft)}
+.fonte h4{margin:0 0 8px;font-size:.66rem;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--c-muted-3);display:flex;align-items:center;gap:8px}
+.fonte pre{white-space:pre-wrap;font-family:inherit;font-size:.86rem;
+  line-height:1.55;margin:0}
+.gol-linha{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:12px;padding:12px 14px;margin-bottom:10px}
+.gol-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.gol-min{font-weight:800;font-size:.95rem}
+.dif{font-size:.66rem;font-weight:800;border-radius:99px;padding:3px 10px;
+  border:1.5px solid var(--c-border-2);color:var(--c-muted-4)}
+.dif.af{border-color:#0ea5e9;color:#0ea5e9}
+.dif.sm{border-color:#22c55e;color:#22c55e}
 .escudos img{width:44px;height:44px;object-fit:contain;background:var(--surface2);
   border-radius:8px;padding:3px}
 .acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}

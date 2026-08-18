@@ -1423,6 +1423,73 @@ def obter_escudo_extra(chave: str) -> bytes | None:
         return None
 
 
+def _cria_gol_visto(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS gol_visto (
+            id           SERIAL PRIMARY KEY,
+            fixture_af   BIGINT,
+            fixture_sm   BIGINT,
+            fonte        TEXT NOT NULL,
+            chave_gol    TEXT NOT NULL,
+            minuto       INTEGER,
+            autor        TEXT,
+            assistente   TEXT,
+            placar       TEXT,
+            texto        TEXT,
+            visto_em     TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (fonte, chave_gol)
+        )
+    """)
+
+
+def registrar_gol(fonte: str, chave_gol: str, minuto=None, autor=None,
+                  assistente=None, placar=None, texto=None,
+                  fixture_af=None, fixture_sm=None) -> bool:
+    """Grava o PRIMEIRO instante em que uma fonte mostrou este gol.
+
+    O UNIQUE em (fonte, chave_gol) é o que faz a medição valer: a segunda vez
+    que a mesma fonte reportar o mesmo gol não sobrescreve o horário. Sem isso
+    eu estaria medindo a hora da última consulta, não a da descoberta.
+
+    Devolve True só quando é a primeira vez — ou seja, quando é notícia.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_gol_visto(c)
+            c.execute("""
+                INSERT INTO gol_visto (fonte, chave_gol, minuto, autor, assistente,
+                                       placar, texto, fixture_af, fixture_sm)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (fonte, chave_gol) DO NOTHING
+                RETURNING id
+            """, [fonte, chave_gol, minuto, autor, assistente, placar, texto,
+                  fixture_af, fixture_sm])
+            return c.fetchone() is not None
+    except Exception:
+        return False
+
+
+def gols_vistos(desde_horas: int = 6) -> list[dict]:
+    """Gols carimbados nas últimas horas, das duas fontes."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_gol_visto(c)
+            c.execute("""
+                SELECT * FROM gol_visto
+                 WHERE visto_em > NOW() - (%s * INTERVAL '1 hour')
+                 ORDER BY visto_em DESC
+            """, [desde_horas])
+            linhas = [dict(r) for r in c.fetchall()]
+        for l in linhas:
+            if l.get("visto_em"):
+                l["visto_em"] = l["visto_em"].isoformat()
+        return linhas
+    except Exception:
+        return []
+
+
 def tem_escudo_extra(chave: str) -> bool:
     """Só diz SE existe escudo, sem trazer os bytes.
 

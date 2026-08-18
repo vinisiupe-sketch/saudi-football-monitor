@@ -21,3 +21,16 @@ gitlog.txt
 do_push.py
 fix_git_lock.bat
 _tmp_*
+
+# Sondagem Sportmonks — o token NUNCA pode ir para o GitHub
+sportmonks_token.txt
+sondagem_sportmonks_RELATORIO.txt
+sondagem_sportmonks_BRUTO.json
+sondagem2_RELATORIO.txt
+sondagem2_BRUTO.json
+sondagem3_RELATORIO.txt
+sondagem3_BRUTO.json
+sondagem4_RELATORIO.txt
+sondagem4_BRUTO.json
+app_url.txt
+sondagem_livescore_RELATORIO.txt

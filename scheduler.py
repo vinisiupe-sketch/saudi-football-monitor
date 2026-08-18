@@ -166,6 +166,15 @@ def create_scheduler() -> AsyncIOScheduler:
     # anunciante), então o disparo é nosso mesmo. Com 60s o atraso podia chegar
     # a um minuto; com 30s o pior caso cai pela metade, e o custo é só uma
     # consulta a mais por minuto no banco — nenhuma chamada à API do X.
+    # Enquanto durar a comparação com a Sportmonks: carimba, de minuto em
+    # minuto, o instante em que cada fonte publica cada gol. É barato (só olha
+    # jogo ao vivo) e é o único jeito de saber qual chega antes.
+    scheduler.add_job(
+        run_coletar_gols,
+        trigger=IntervalTrigger(seconds=45),
+        id="coletar_gols_ao_vivo",
+        replace_existing=True,
+    )
     scheduler.add_job(
         run_publicar_aprovados,
         trigger=IntervalTrigger(seconds=30),
@@ -206,6 +215,19 @@ async def run_fila_bola_rolando():
         return r
     except Exception as e:
         print(f"❌ Erro ao montar a fila de posts: {e}")
+        return {"erro": str(e)}
+
+
+async def run_coletar_gols():
+    """Carimba os gols das duas fontes. Silencioso quando não há jogo."""
+    try:
+        from main import coletar_gols_ao_vivo
+        r = await coletar_gols_ao_vivo()
+        if r.get("novos"):
+            print(f"⚽ {r['novos']} gol(s) carimbado(s): {r.get('detalhe')}")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao carimbar gols: {e}")
         return {"erro": str(e)}
 
 
