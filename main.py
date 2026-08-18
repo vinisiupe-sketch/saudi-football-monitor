@@ -5196,6 +5196,27 @@ function caixaFonte(rotulo, r, cor) {
   return d;
 }
 
+// ── Sub-abas: Fim de jogo | Alertas de gol ────────────────────────────────
+// As duas coisas viviam empilhadas na mesma rolagem e viravam bagunça: o
+// alerta de gol no topo empurrava as partidas para baixo. Separadas, cada uma
+// ocupa a tela inteira. O contador na aba de alertas existe para você não ter
+// que trocar de aba só para descobrir se tem gol novo lá.
+function mostrarAba(qual) {
+  ['fim', 'gols'].forEach(function (k) {
+    const p = document.getElementById('painel-' + k);
+    const b = document.getElementById('aba-' + k);
+    if (p) p.style.display = (k === qual) ? '' : 'none';
+    if (b) b.classList.toggle('ativa', k === qual);
+  });
+}
+
+function marcarGols(n) {
+  const p = document.getElementById('abaGolsN');
+  if (!p) return;
+  p.textContent = n > 0 ? String(n) : '';
+  p.classList.toggle('tem', n > 0);
+}
+
 // ── Alerta de GOL, com o carimbo de cada fonte ────────────────────────────
 async function carregarGols() {
   const alvo = document.getElementById('fjGols');
@@ -5221,6 +5242,7 @@ async function carregarGols() {
     return;
   }
   if (!(d.gols || []).length) {
+    marcarGols(0);
     // Não basta dizer "nenhum": preciso saber SE o coletor rodou e o que viu.
     const g = d.diagnostico || {};
     const q = g.quando ? new Date(g.quando)
@@ -5234,6 +5256,7 @@ async function carregarGols() {
       + 'style="font-size:.76rem">' + esc(txt) + '</pre></div>';
     return;
   }
+  marcarGols(d.gols.length);
   alvo.innerHTML = '';
   d.gols.forEach(function (g) {
     const linha = document.createElement('div');
@@ -5377,13 +5400,21 @@ __HDR__
     <button class="fj-refresh" onclick="carregarJogosDoDia()">Atualizar</button>
     <span id="fjStatus" class="fj-status"></span>
   </div>
-  <h2 style="font-size:1rem;margin:18px 0 4px">⚽ Alerta de GOL — quem publicou antes</h2>
-  <p class="sub" style="margin:0 0 10px">Cada gol carimbado com o instante em que cada
-     fonte o publicou. Diferença negativa = a Sportmonks chegou antes.</p>
-  <div id="fjGols"></div>
+  <div class="abas">
+    <button class="aba ativa" id="aba-fim" onclick="mostrarAba('fim')">⏱️ Fim de jogo</button>
+    <button class="aba" id="aba-gols" onclick="mostrarAba('gols')">⚽ Alertas de gol<span
+      class="pilula" id="abaGolsN"></span></button>
+  </div>
 
-  <h2 style="font-size:1rem;margin:22px 0 8px">Partidas</h2>
-  <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
+  <div id="painel-fim">
+    <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
+  </div>
+
+  <div id="painel-gols" style="display:none">
+    <p class="sub" style="margin:0 0 12px">Cada gol carimbado com o instante em que cada
+       fonte o publicou. Diferença negativa = a Sportmonks chegou antes.</p>
+    <div id="fjGols"></div>
+  </div>
 </div>
 <script>
 async function fetchJSON(url) {
@@ -6349,6 +6380,16 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
   background:var(--surface2);display:flex;align-items:center;justify-content:center;
   cursor:pointer;color:var(--text2);font-size:1.35rem;line-height:1}
 .escudo-vazio:hover{border-color:var(--accent);color:var(--accent)}
+.abas{display:flex;gap:8px;margin:16px 0 14px;border-bottom:1px solid var(--c-border)}
+.aba{background:none;border:none;border-bottom:2px solid transparent;color:var(--c-muted-3);
+  font-size:.82rem;font-weight:700;padding:8px 14px 10px;cursor:pointer;
+  display:flex;align-items:center;gap:7px;margin-bottom:-1px;
+  font-family:inherit;transition:color .15s,border-color .15s}
+.aba:hover{color:var(--c-text)}
+.aba.ativa{color:var(--c-text);border-bottom-color:#22c55e}
+.pilula{background:#22c55e;color:#06210f;font-size:.6rem;font-weight:800;
+  border-radius:99px;padding:1px 7px;display:none}
+.pilula.tem{display:inline-block}
 .duas{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 @media (max-width:760px){.duas{grid-template-columns:1fr}}
 .fonte{border:1px solid var(--c-border);border-radius:10px;padding:10px 12px;
