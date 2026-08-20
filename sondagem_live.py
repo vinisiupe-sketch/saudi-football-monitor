@@ -173,7 +173,12 @@ if ao_vivo != "True":
 diz()
 
 cod, saida = rodar(YTDLP + ["--no-warnings", "-F", URL], 120)
-formatos = [l for l in saida.splitlines() if "m3u8" in l or "mp4" in l or "audio" in l.lower()]
+# Linha de formato comeca com o ID numerico. Filtrar por "m3u8" pegava junto
+# a linha de log "Downloading m3u8 information" e inflava a conta: o relatorio
+# disse "1 com os dois juntos" quando na verdade sao ZERO — que e justamente o
+# fato que quebrou a primeira tentativa. Numero errado num relatorio e pior que
+# numero nenhum.
+formatos = [l for l in saida.splitlines() if l.split() and l.split()[0].isdigit()]
 diz(f"    {len(formatos)} formato(s). Listo TODOS: na primeira tentativa eu só")
 diz("    mostrei os de vídeo e não percebi que eram todos 'video only'.")
 for l in formatos:
