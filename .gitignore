@@ -36,3 +36,9 @@ app_url.txt
 sondagem_livescore_RELATORIO.txt
 diag_gols_RELATORIO.txt
 af_key.txt
+
+# Sondagem da live — vídeo pesa e a URL do fluxo carrega token da sessão
+live_url.txt
+sondagem_live_RELATORIO.txt
+sondagem_live_gravacao.ts
+sondagem_live_clipe.mp4

@@ -20,7 +20,8 @@ from contextlib import asynccontextmanager
 from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, BackgroundTasks, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
 from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos
@@ -5591,6 +5592,32 @@ async def coletar_gols_ao_vivo() -> dict:
     diag["novos"] = len(novos)
     _ULTIMA_COLETA.update(diag)
     return {"novos": len(novos), "detalhe": novos, "diagnostico": diag}
+
+
+@app.get("/api/diag/geo-x", response_class=PlainTextResponse)
+async def api_diag_geo_x(executar: str = ""):
+    """Descobre o formato do geo_restrictions do X. Ver diag_geo_x.py.
+
+    Mora no servidor, e não numa sondagem local, porque as chaves do X vivem
+    aqui nas variáveis do Railway — assim ninguém precisa manusear credencial.
+
+    Exige ?executar=sim de propósito: a sondagem gasta créditos (uns US$ 0,04),
+    e uma rota que gasta dinheiro não pode disparar porque alguém abriu o link
+    sem querer ou porque um pré-carregador do navegador tocou nela.
+    """
+    if executar != "sim":
+        return ("Esta sondagem gasta uns US$ 0,04 em créditos do X.\n"
+                "Para rodar de verdade, acrescente  ?executar=sim  na URL.\n\n"
+                "Ela sobe um vídeo preto de 4 KB, testa formatos de\n"
+                "geo_restrictions e NÃO publica nada.")
+    try:
+        import diag_geo_x
+        return await diag_geo_x.sondar()
+    except Exception as e:
+        # Relatório de sondagem não pode virar 500 mudo: o erro É o resultado.
+        import traceback
+        return (f"A sondagem explodiu: {type(e).__name__}: {e}\n\n"
+                + traceback.format_exc()[:3000])
 
 
 @app.get("/api/fim/comparar")
