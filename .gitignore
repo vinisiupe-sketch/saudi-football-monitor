@@ -42,3 +42,6 @@ live_url.txt
 sondagem_live_RELATORIO.txt
 sondagem_live_gravacao.ts
 sondagem_live_clipe.mp4
+
+# Saida do verificador de ferramentas (local, muda a cada rodada)
+ferramentas_status.txt

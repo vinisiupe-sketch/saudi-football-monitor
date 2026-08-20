@@ -72,6 +72,29 @@ def achar(nome: str) -> str:
     return shutil.which(nome) or shutil.which(nome + ".exe") or ""
 
 
+def achar_ytdlp() -> list:
+    """Devolve o comando para chamar o yt-dlp, ou [] se não houver.
+
+    Não basta procurar o executável no PATH. O Python 3.14 instala os
+    programas dos pacotes num diretório que o Windows não põe no PATH por
+    padrão — foi exatamente o que aconteceu nesta máquina: o pacote estava
+    instalado e o 'yt-dlp' não era reconhecido. Chamar como MÓDULO
+    (py -3 -m yt_dlp) funciona sempre que o pacote existe, PATH ou não.
+    """
+    direto = achar("yt-dlp")
+    if direto:
+        return [direto]
+    for interp in ("py", "python", "python3"):
+        caminho = achar(interp)
+        if not caminho:
+            continue
+        base = [caminho, "-3"] if interp == "py" else [caminho]
+        cod, _ = rodar(base + ["-m", "yt_dlp", "--version"], 60)
+        if cod == 0:
+            return base + ["-m", "yt_dlp"]
+    return []
+
+
 diz("=" * 76)
 diz("SONDAGEM DA LIVE — " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
 diz("=" * 76)
@@ -80,11 +103,12 @@ diz()
 # ── 0. As ferramentas existem? ───────────────────────────────────────────
 diz("0) FERRAMENTAS")
 diz("-" * 76)
-YTDLP = achar("yt-dlp")
+YTDLP = achar_ytdlp()
 FFMPEG = achar("ffmpeg")
 FFPROBE = achar("ffprobe")
 
-for nome, caminho in (("yt-dlp", YTDLP), ("ffmpeg", FFMPEG), ("ffprobe", FFPROBE)):
+diz(f"    {'yt-dlp':8} {'ok  ' + ' '.join(YTDLP) if YTDLP else 'NÃO ENCONTRADO'}")
+for nome, caminho in (("ffmpeg", FFMPEG), ("ffprobe", FFPROBE)):
     diz(f"    {nome:8} {'ok  ' + caminho if caminho else 'NÃO ENCONTRADO'}")
 
 if not YTDLP or not FFMPEG or not FFPROBE:
@@ -92,6 +116,8 @@ if not YTDLP or not FFMPEG or not FFPROBE:
     diz("    Falta ferramenta. Como instalar no Windows:")
     if not YTDLP:
         diz("      yt-dlp :  py -3 -m pip install -U yt-dlp")
+        diz("                (se o pip disser que ja esta instalado, o problema")
+        diz("                 e outro e o relatorio acima ja teria achado)")
     if not FFMPEG or not FFPROBE:
         diz("      ffmpeg :  winget install Gyan.FFmpeg")
         diz("                (depois FECHE e reabra o terminal, para o PATH atualizar)")
@@ -102,7 +128,7 @@ if not YTDLP or not FFMPEG or not FFPROBE:
     input("\nEnter para fechar...")
     sys.exit(1)
 
-cod, saida = rodar([YTDLP, "--version"], 60)
+cod, saida = rodar(YTDLP + ["--version"], 60)
 diz(f"    versão do yt-dlp: {saida.strip()[:40]}")
 diz()
 
@@ -122,7 +148,7 @@ if not URL:
     input("\nEnter para fechar...")
     sys.exit(1)
 
-cod, saida = rodar([YTDLP, "--no-warnings", "--print",
+cod, saida = rodar(YTDLP + ["--no-warnings", "--print",
                     "%(is_live)s|%(live_status)s|%(title)s|%(duration)s", URL], 120)
 if cod != 0:
     diz(f"    yt-dlp não conseguiu nem ler o vídeo:")
@@ -146,7 +172,7 @@ if ao_vivo != "True":
     diz("    horas de transmissão — só vale com jogo rolando.")
 diz()
 
-cod, saida = rodar([YTDLP, "--no-warnings", "-F", URL], 120)
+cod, saida = rodar(YTDLP + ["--no-warnings", "-F", URL], 120)
 formatos = [l for l in saida.splitlines() if "m3u8" in l or "mp4" in l]
 diz(f"    {len(formatos)} formato(s) disponível(is). Os de até 720p:")
 for l in formatos:
@@ -166,7 +192,7 @@ for antigo in (BRUTO, CLIPE):
 # meio deixaria um arquivo sem finalizar, e eu não saberia se o defeito foi da
 # transmissão ou da minha própria interrupção.
 diz("    pedindo a URL do fluxo ao yt-dlp...")
-cod, saida = rodar([YTDLP, "--no-warnings", "-f", "best[height<=720]/best",
+cod, saida = rodar(YTDLP + ["--no-warnings", "-f", "best[height<=720]/best",
                     "-g", URL], 120)
 fluxo = ""
 for l in saida.splitlines():
