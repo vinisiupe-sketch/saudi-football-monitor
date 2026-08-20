@@ -173,11 +173,16 @@ if ao_vivo != "True":
 diz()
 
 cod, saida = rodar(YTDLP + ["--no-warnings", "-F", URL], 120)
-formatos = [l for l in saida.splitlines() if "m3u8" in l or "mp4" in l]
-diz(f"    {len(formatos)} formato(s) disponível(is). Os de até 720p:")
+formatos = [l for l in saida.splitlines() if "m3u8" in l or "mp4" in l or "audio" in l.lower()]
+diz(f"    {len(formatos)} formato(s). Listo TODOS: na primeira tentativa eu só")
+diz("    mostrei os de vídeo e não percebi que eram todos 'video only'.")
 for l in formatos:
-    if any(x in l for x in ("640x", "854x", "1280x", "426x")):
-        diz(f"      {l.strip()[:100]}")
+    diz(f"      {l.strip()[:104]}")
+so_video = [l for l in formatos if "video only" in l]
+tem_audio = [l for l in formatos if "audio only" in l]
+diz()
+diz(f"    {len(so_video)} só-vídeo, {len(tem_audio)} só-áudio, "
+    f"{len(formatos) - len(so_video) - len(tem_audio)} com os dois juntos")
 diz()
 
 # ── 2. Gravar ────────────────────────────────────────────────────────────
@@ -192,26 +197,38 @@ for antigo in (BRUTO, CLIPE):
 # meio deixaria um arquivo sem finalizar, e eu não saberia se o defeito foi da
 # transmissão ou da minha própria interrupção.
 diz("    pedindo a URL do fluxo ao yt-dlp...")
-cod, saida = rodar(YTDLP + ["--no-warnings", "-f", "best[height<=720]/best",
-                    "-g", URL], 120)
-fluxo = ""
-for l in saida.splitlines():
-    if l.startswith("http"):
-        fluxo = l.strip()
-        break
-if not fluxo:
+# "bv*+ba" = melhor vídeo MAIS melhor áudio, como fluxos separados. O seletor
+# anterior era "best[height<=720]", que pede um formato único contendo áudio e
+# vídeo — e nesta transmissão não existe nenhum assim, todos são "video only".
+# Daí o "Requested format is not available". As alternativas depois das barras
+# cobrem o caso de um canal que ofereça formato combinado.
+SELETOR = "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b"
+cod, saida = rodar(YTDLP + ["--no-warnings", "-f", SELETOR, "-g", URL], 120)
+fluxos = [l.strip() for l in saida.splitlines() if l.startswith("http")]
+if not fluxos:
     diz(f"    não veio URL de fluxo: {saida.strip()[:400]}")
     diz("    (sem isso não dá para gravar com o ffmpeg)")
     salvar()
     input("\nEnter para fechar...")
     sys.exit(1)
-diz(f"    fluxo obtido ({len(fluxo)} caracteres, não mostro por conter token)")
+# Com fluxos separados o yt-dlp devolve DUAS urls: vídeo primeiro, áudio depois.
+diz(f"    {len(fluxos)} fluxo(s) obtido(s) "
+    f"({'vídeo + áudio separados' if len(fluxos) > 1 else 'único, já combinado'})")
+diz("    (não mostro as URLs: elas carregam token da sessão)")
 
 t0 = time.time()
 diz(f"    gravando... (leva {SEGUNDOS_GRAVANDO}s, pode ir tomar um café)")
-cod, saida = rodar([FFMPEG, "-y", "-loglevel", "warning",
-                    "-i", fluxo, "-t", str(SEGUNDOS_GRAVANDO),
-                    "-c", "copy", BRUTO], SEGUNDOS_GRAVANDO + 180)
+cmd = [FFMPEG, "-y", "-loglevel", "warning"]
+for f in fluxos[:2]:
+    cmd += ["-i", f]
+cmd += ["-t", str(SEGUNDOS_GRAVANDO), "-c", "copy"]
+if len(fluxos) > 1:
+    # Duas entradas: pego o vídeo da primeira e o áudio da segunda. Sem o -map
+    # o ffmpeg escolheria sozinho e poderia gravar só a primeira entrada, que
+    # é a de vídeo — e o clipe sairia mudo.
+    cmd += ["-map", "0:v:0", "-map", "1:a:0"]
+cmd += [BRUTO]
+cod, saida = rodar(cmd, SEGUNDOS_GRAVANDO + 180)
 gasto = time.time() - t0
 diz(f"    ffmpeg terminou em {gasto:.0f}s com código {cod}")
 if saida.strip():
