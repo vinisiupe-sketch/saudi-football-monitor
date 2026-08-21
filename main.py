@@ -192,6 +192,11 @@ _ICO_NUMEROS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_POSTS   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>'
 _ICO_ELENCOS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+_ICO_CLIPE   = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 '
+                '1-2-2V8Z"/><path d="m3 8 2.5-4h13L21 8"/><path d="m8 4-2 4"/>'
+                '<path d="m13 4-2 4"/><path d="m18 4-2 4"/></svg>')
 _ICO_APITO   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
 _ICO_MAIS    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
@@ -227,7 +232,7 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "    .nav-menu a:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
     "    .nav-menu a[aria-current] { font-weight: 700; }\n"
     "    .nav-menu svg { flex-shrink: 0; }\n"
-    "    @media (max-width: 420px) { header { padding: 10px 10px; gap: 2px; } .brand { font-size: 1.6rem; } .nav-icon { width: 30px; height: 30px; } }\n"
+    "    @media (max-width: 560px) { header { padding: 10px 10px; gap: 2px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; } header::-webkit-scrollbar { display: none; } .brand { font-size: 1.6rem; margin-right: 8px; } .nav-icon { width: 30px; height: 30px; } }\n"
 )
 
 # Tags que transformam o site em app de tela de início no iPhone. Vão no <head>
@@ -269,6 +274,9 @@ _NAV_PRINCIPAIS = [
     # e não no menu, porque é a única tela com pressa: o texto serve nos minutos
     # seguintes ao apito.
     ("/fim-de-jogo", _ICO_APITO, "Fim de jogo", "", "#22c55e"),
+    # A tela mais urgente de todas: o gol acabou de sair e o clipe tem prazo.
+    # Fica na barra, e o contador aparece quando há clipe esperando você.
+    ("/clipes", _ICO_CLIPE, "Clipes", "clipes", "#16a34a"),
 ]
 _NAV_EXTRAS = [
     ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#6366f1"),
@@ -5204,7 +5212,7 @@ function caixaFonte(rotulo, r, cor) {
 // ocupa a tela inteira. O contador na aba de alertas existe para você não ter
 // que trocar de aba só para descobrir se tem gol novo lá.
 function mostrarAba(qual) {
-  ['fim', 'gols', 'clipes'].forEach(function (k) {
+  ['fim', 'gols'].forEach(function (k) {
     const p = document.getElementById('painel-' + k);
     const b = document.getElementById('aba-' + k);
     if (p) p.style.display = (k === qual) ? '' : 'none';
@@ -5363,252 +5371,7 @@ function cardDoJogo(j) {
       : '<div class="fj-aguardando">Ainda não começou — o texto aparece quando a bola rolar.</div>') +
   '</div>';
 }
-// ── CLIPES DE GOL ─────────────────────────────────────────────────────────
 
-let _clipesTimer = null;
-let _editando = null;      // id do clipe cuja caixa de texto está com o cursor
-
-async function pedirClipe() {
-  const b = document.getElementById('btGolAgora');
-  const aviso = document.getElementById('golAgoraAviso');
-  if (b.classList.contains('ocupado')) return;
-  b.classList.add('ocupado');
-  b.textContent = 'pedindo…';
-  try {
-    const r = await fetch('/api/clipe/pedir', {method: 'POST'});
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
-    const h = new Date().toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo'});
-    aviso.textContent = 'clipe pedido às ' + h + ' — o gravador está cortando';
-    mostrarAba('clipes');
-    carregarClipes();
-  } catch (e) {
-    aviso.textContent = 'não deu: ' + (e.message || e);
-  }
-  // A trava curta existe para o susto do gol não virar cinco clipes iguais.
-  setTimeout(function () {
-    b.classList.remove('ocupado');
-    b.textContent = '⚽ GOL AGORA';
-  }, 3000);
-}
-
-function estadoRotulo(e) {
-  return {pedido: 'na fila', cortando: 'cortando', pronto: 'pronto',
-          publicando: 'publicando', publicado: 'publicado',
-          erro: 'erro'}[e] || e;
-}
-
-async function carregarClipes() {
-  const alvo = document.getElementById('fjClipes');
-  if (!alvo) return;
-  let d;
-  try {
-    const r = await fetch('/api/clipes?horas=8&_=' + Date.now());
-    const bruto = await r.text();
-    if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 200));
-    d = JSON.parse(bruto);
-  } catch (e) {
-    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#fb7185">Falha ao carregar os clipes:\n'
-      + esc(e.message || String(e)) + '</pre></div>';
-    return;
-  }
-
-  const av = document.getElementById('golAgoraAviso');
-  if (av && !d.agente_configurado) {
-    av.textContent = '⚠️ falta a variável CLIPE_TOKEN no Railway — o gravador não consegue entregar';
-  }
-
-  const clipes = d.clipes || [];
-  const abertos = clipes.filter(function (c) {
-    return c.estado !== 'publicado';
-  }).length;
-  const p = document.getElementById('abaClipesN');
-  if (p) {
-    p.textContent = abertos > 0 ? String(abertos) : '';
-    p.classList.toggle('tem', abertos > 0);
-  }
-
-  if (!clipes.length) {
-    alvo.innerHTML = '<div class="result-card"><div class="loading-state">'
-      + 'Nenhum clipe ainda. Aperte GOL AGORA quando sair gol.</div></div>';
-    return;
-  }
-
-  // Redesenhar por innerHTML apagaria o que você está digitando e o ponto do
-  // vídeo. Por isso: só recrio o card que MUDOU de estado, e nunca o que está
-  // com o cursor dentro.
-  const vistos = {};
-  clipes.forEach(function (c) {
-    vistos[c.id] = true;
-    const idCard = 'clipe-' + c.id;
-    let card = document.getElementById(idCard);
-    const assinatura = c.estado + '|' + (c.tamanho || 0) + '|' + (c.post_id || '');
-    if (card && card.dataset.assinatura === assinatura) return;
-    if (card && _editando === c.id) return;
-    const novo = montarClipe(c, assinatura);
-    if (card) { card.replaceWith(novo); } else { alvo.prepend(novo); }
-  });
-  Array.prototype.slice.call(alvo.querySelectorAll('.clipe')).forEach(function (el) {
-    if (!vistos[el.dataset.id]) el.remove();
-  });
-  const vazio = alvo.querySelector('.result-card');
-  if (vazio) vazio.remove();
-}
-
-function montarClipe(c, assinatura) {
-  const d = document.createElement('div');
-  d.className = 'clipe';
-  d.id = 'clipe-' + c.id;
-  d.dataset.id = c.id;
-  d.dataset.assinatura = assinatura;
-
-  const hora = c.alvo_em ? new Date(c.alvo_em)
-    .toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : '';
-  const cab = document.createElement('div');
-  cab.className = 'clipe-cab';
-  cab.innerHTML = '<span class="clipe-hora">' + esc(hora) + '</span>'
-    + '<span class="clipe-estado e-' + esc(c.estado) + '">'
-    + esc(estadoRotulo(c.estado)) + '</span>'
-    + (c.tamanho ? '<span class="conta">' + (c.tamanho / 1024 / 1024).toFixed(1) + ' MB</span>' : '');
-  d.appendChild(cab);
-
-  if (c.estado === 'pedido' || c.estado === 'cortando') {
-    const s = document.createElement('div');
-    s.className = 'clipe-nota';
-    s.textContent = 'O gravador vai pegar este pedido em alguns segundos. '
-      + 'Se nada acontecer, confira se a janela do gravador está aberta no computador.';
-    d.appendChild(s);
-    return d;
-  }
-
-  if (c.estado === 'erro') {
-    const s = document.createElement('div');
-    s.className = 'clipe-nota';
-    s.style.color = '#fb7185';
-    s.textContent = c.erro || 'deu erro e ninguém explicou';
-    d.appendChild(s);
-    d.appendChild(acoesAjuste(c));
-    return d;
-  }
-
-  if (c.estado === 'publicado') {
-    const s = document.createElement('div');
-    s.className = 'clipe-nota';
-    s.innerHTML = 'Publicado. <b>Agora aplique a restrição para o Brasil no '
-      + 'Media Studio</b> — abra studio.x.com, ache este vídeo e marque '
-      + 'Content Restrictions → Include → Brasil.';
-    d.appendChild(s);
-    if (c.post_id) {
-      const a = document.createElement('a');
-      a.href = 'https://x.com/i/status/' + encodeURIComponent(c.post_id);
-      a.textContent = 'ver o post';
-      a.style.cssText = 'display:inline-block;margin-top:8px;font-size:.82rem';
-      d.appendChild(a);
-    }
-    return d;
-  }
-
-  // pronto ou publicando
-  const v = document.createElement('video');
-  v.controls = true;
-  v.preload = 'metadata';
-  v.playsInline = true;
-  v.src = '/api/clipe/' + c.id + '/video';
-  d.appendChild(v);
-
-  const t = document.createElement('textarea');
-  t.value = c.texto || '';
-  t.placeholder = c.texto ? '' : 'Sem alerta de gol ainda — escreva a legenda ou espere.';
-  t.onfocus = function () { _editando = c.id; };
-  t.onblur = function () {
-    _editando = null;
-    fetch('/api/clipe/' + c.id + '/texto', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({texto: t.value})
-    }).catch(function () {});
-  };
-  d.appendChild(t);
-
-  if (c.texto_sugerido) {
-    const n = document.createElement('div');
-    n.className = 'clipe-nota';
-    n.textContent = 'Legenda vinda do alerta de gol da API-Football. Edite à vontade.';
-    d.appendChild(n);
-  }
-
-  const acoes = acoesAjuste(c);
-  const pub = document.createElement('button');
-  pub.className = 'publicar';
-  pub.textContent = c.estado === 'publicando' ? 'publicando…' : '📤 Publicar';
-  pub.disabled = c.estado === 'publicando';
-  pub.onclick = function () { publicarClipe(c.id, t, pub); };
-  acoes.appendChild(pub);
-  d.appendChild(acoes);
-  return d;
-}
-
-function acoesAjuste(c) {
-  const a = document.createElement('div');
-  a.className = 'clipe-acoes';
-  [['◀ 5s antes', -5], ['5s depois ▶', 5]].forEach(function (par) {
-    const b = document.createElement('button');
-    b.textContent = par[0];
-    b.onclick = function () { ajustarClipe(c.id, par[1], b); };
-    a.appendChild(b);
-  });
-  return a;
-}
-
-async function ajustarClipe(id, delta, botao) {
-  botao.disabled = true;
-  try {
-    const r = await fetch('/api/clipe/' + id + '/ajustar?delta=' + delta, {method: 'POST'});
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
-    carregarClipes();
-  } catch (e) {
-    alert('não deu para ajustar: ' + (e.message || e));
-    botao.disabled = false;
-  }
-}
-
-async function publicarClipe(id, caixa, botao) {
-  const texto = (caixa.value || '').trim();
-  if (!texto) { alert('escreva a legenda antes'); return; }
-  if (!confirm('Publicar no X?\n\n' + texto)) return;
-  botao.disabled = true;
-  botao.textContent = 'publicando…';
-  try {
-    // Mando o texto da CAIXA, e não o salvo: uma edição sem sair do campo
-    // ainda não foi para o banco. Foi assim que a guia Posts publicou a
-    // versão velha uma vez.
-    const r = await fetch('/api/clipe/' + id + '/publicar', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({texto: texto})
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
-    carregarClipes();
-  } catch (e) {
-    alert('não publicou: ' + (e.message || e));
-    botao.disabled = false;
-    botao.textContent = '📤 Publicar';
-    carregarClipes();
-  }
-}
-
-function cicloClipes() {
-  carregarClipes().catch(function (err) {
-    const a = document.getElementById('fjClipes');
-    if (a) a.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#fb7185">Erro nos clipes: '
-      + (err && err.message ? err.message : String(err)) + '</pre></div>';
-  });
-  clearTimeout(_clipesTimer);
-  _clipesTimer = setTimeout(cicloClipes, 5000);
-}
-cicloClipes();
 '''
 
 
@@ -5649,20 +5412,10 @@ __HDR__
     <button class="fj-refresh" onclick="carregarJogosDoDia()">Atualizar</button>
     <span id="fjStatus" class="fj-status"></span>
   </div>
-  <!-- O botão fica FORA das abas de propósito: se ele morasse dentro de uma
-       delas, e você estivesse olhando outra na hora do gol, perderia o tempo
-       de trocar de aba. Aqui ele está sempre a um toque. -->
-  <div class="gol-agora-caixa">
-    <button class="gol-agora" id="btGolAgora" onclick="pedirClipe()">⚽ GOL AGORA</button>
-    <div class="gol-agora-aviso" id="golAgoraAviso">Grave a live no computador antes.</div>
-  </div>
-
   <div class="abas">
     <button class="aba ativa" id="aba-fim" onclick="mostrarAba('fim')">⏱️ Fim de jogo</button>
-    <button class="aba" id="aba-gols" onclick="mostrarAba('gols')">⚽ Alertas<span
+    <button class="aba" id="aba-gols" onclick="mostrarAba('gols')">⚽ Alertas de gol<span
       class="pilula" id="abaGolsN"></span></button>
-    <button class="aba" id="aba-clipes" onclick="mostrarAba('clipes')">🎬 Clipes<span
-      class="pilula" id="abaClipesN"></span></button>
   </div>
 
   <div id="painel-fim">
@@ -5675,11 +5428,6 @@ __HDR__
     <div id="fjGols"></div>
   </div>
 
-  <div id="painel-clipes" style="display:none">
-    <p class="sub" style="margin:0 0 12px">Assista antes de publicar. Se o corte pegou
-       torto, os botões movem a janela e o gravador refaz.</p>
-    <div id="fjClipes"><div class="result-card"><div class="loading-state">Carregando…</div></div></div>
-  </div>
 </div>
 <script>
 async function fetchJSON(url) {
@@ -6157,6 +5905,401 @@ async def api_gols_ao_vivo(horas: int = 6, coletar: int = 1):
         pass
     return {"gols": saida, "sportmonks_configurada": sm.configurado(),
             "diagnostico": _ULTIMA_COLETA, "carimbos_no_banco": len(linhas)}
+
+
+_CLIPES_CSS = """
+.wrap{max-width:720px;margin:0 auto;padding:0 16px 90px}
+.topo{padding:22px 0 4px}
+.topo h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.04em;
+  margin:0;line-height:1}
+.topo .sub{color:var(--c-muted-3);font-size:.86rem;margin:6px 0 0;line-height:1.5}
+
+/* O botão é o centro da tela. Grande porque você vai apertar com pressa, no
+   celular, olhando o jogo — e não mirando o dedo. */
+.botao-caixa{position:sticky;top:56px;z-index:5;background:var(--c-bg);
+  padding:16px 0 12px;margin-bottom:4px}
+.gol{width:100%;padding:26px 20px;border:none;border-radius:16px;cursor:pointer;
+  background:#16a34a;color:#fff;font-family:'Bebas Neue',sans-serif;
+  font-size:2.1rem;letter-spacing:.06em;line-height:1;
+  display:flex;align-items:center;justify-content:center;gap:14px;
+  box-shadow:0 6px 20px rgba(22,163,74,.32);
+  transition:transform .07s,background .18s,box-shadow .18s}
+.gol:hover{background:#15803d}
+.gol:active{transform:scale(.98)}
+.gol.carregando{background:#166534;box-shadow:none;cursor:default}
+.gol.pronto{background:#0f766e;box-shadow:none;cursor:default}
+.roda{width:24px;height:24px;border:3px solid rgba(255,255,255,.35);
+  border-top-color:#fff;border-radius:50%;animation:gira .7s linear infinite;
+  display:none;flex-shrink:0}
+.gol.carregando .roda{display:block}
+@keyframes gira{to{transform:rotate(360deg)}}
+
+.estado-linha{display:flex;align-items:center;gap:8px;justify-content:center;
+  margin-top:10px;font-size:.78rem;color:var(--c-muted-3);text-align:center}
+.ponto{width:8px;height:8px;border-radius:50%;background:var(--c-muted-3);flex-shrink:0}
+.ponto.ok{background:#22c55e}
+.ponto.alerta{background:#f59e0b}
+
+.vazio{text-align:center;padding:48px 20px;color:var(--c-muted-3)}
+.vazio .grande{font-size:2.4rem;opacity:.4;margin-bottom:10px}
+.vazio p{margin:0;font-size:.88rem;line-height:1.6}
+
+.clipe{border:1px solid var(--c-border);border-radius:14px;overflow:hidden;
+  margin-bottom:16px;background:var(--c-bg-card)}
+.clipe-topo{display:flex;align-items:center;gap:10px;padding:12px 14px;
+  border-bottom:1px solid var(--c-border)}
+.clipe-hora{font-weight:700;font-size:.92rem;letter-spacing:.02em}
+.selo{font-size:.62rem;font-weight:800;border-radius:99px;padding:3px 9px;
+  text-transform:uppercase;letter-spacing:.06em}
+.s-pedido,.s-cortando{background:#fef3c7;color:#854f0b}
+.s-pronto{background:#dcfce7;color:#14532d}
+.s-publicando{background:#dbeafe;color:#1e3a8a}
+.s-publicado{background:#e0e7ff;color:#312e81}
+.s-erro{background:#fee2e2;color:#7f1d1d}
+.tam{margin-left:auto;font-size:.72rem;color:var(--c-muted-3)}
+.clipe video{width:100%;display:block;background:#000;max-height:56vh}
+.clipe-corpo{padding:14px}
+.clipe textarea{width:100%;min-height:132px;padding:12px;
+  border:1px solid var(--c-border);border-radius:10px;background:var(--c-bg);
+  color:var(--c-text);font-family:inherit;font-size:.92rem;line-height:1.55;
+  resize:vertical;box-sizing:border-box}
+.clipe textarea:focus{outline:none;border-color:#16a34a}
+.conta-letras{font-size:.7rem;color:var(--c-muted-3);text-align:right;margin-top:5px}
+.conta-letras.demais{color:#ef4444;font-weight:700}
+.nota{font-size:.76rem;color:var(--c-muted-3);line-height:1.55;margin-top:8px}
+.nota.ruim{color:#fb7185}
+.acoes{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+.acoes button{padding:11px 14px;border-radius:10px;border:1px solid var(--c-border);
+  background:var(--c-bg);color:var(--c-text);font-family:inherit;font-weight:700;
+  font-size:.84rem;cursor:pointer;transition:border-color .15s,background .15s}
+.acoes button:hover:not(:disabled){border-color:var(--c-muted-3)}
+.acoes .publicar{background:#0ea5e9;border-color:#0ea5e9;color:#fff;margin-left:auto}
+.acoes .publicar:hover:not(:disabled){background:#0284c7}
+.acoes button:disabled{opacity:.4;cursor:default}
+.lembrete{margin-top:12px;padding:11px 13px;border-radius:10px;
+  background:var(--c-hover-tint);font-size:.8rem;line-height:1.55}
+.lembrete b{color:var(--c-text)}
+.lembrete a{color:#0ea5e9}
+"""
+
+
+_CLIPES_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Clipes — IARABÃO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__CLIPES_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <div class="topo">
+    <h1>Clipes de gol</h1>
+    <p class="sub">Saiu gol, aperta o botão. O clipe chega aqui com a legenda pronta.</p>
+  </div>
+
+  <div class="botao-caixa">
+    <button class="gol" id="btGol" onclick="pedirClipe()">
+      <span class="roda"></span><span id="btGolTexto">GOL AGORA</span>
+    </button>
+    <div class="estado-linha">
+      <span class="ponto" id="pontoEstado"></span>
+      <span id="textoEstado">verificando…</span>
+    </div>
+  </div>
+
+  <div id="lista"></div>
+</div>
+<script>
+__CLIPES_JS__
+</script>
+</body>
+</html>"""
+
+
+_CLIPES_JS = r'''
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+let _timer = null;
+let _editando = null;     // id do clipe cuja caixa está com o cursor
+let _pedindo = false;
+
+function hora(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo'});
+  } catch (e) { return ''; }
+}
+
+async function pedirClipe() {
+  const b = document.getElementById('btGol');
+  const t = document.getElementById('btGolTexto');
+  if (_pedindo) return;
+  _pedindo = true;
+  b.classList.add('carregando');
+  t.textContent = 'PEDINDO…';
+  try {
+    const r = await fetch('/api/clipe/pedir', {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+    b.classList.remove('carregando');
+    b.classList.add('pronto');
+    t.textContent = 'PEDIDO ÀS ' + hora(d.alvo_em);
+    carregar();
+  } catch (e) {
+    b.classList.remove('carregando');
+    t.textContent = 'NÃO DEU — TENTE DE NOVO';
+    dizEstado('alerta', e.message || String(e));
+  }
+  // A trava existe porque no susto do gol é fácil apertar cinco vezes, e cinco
+  // pedidos idênticos viram cinco clipes iguais na sua tela.
+  setTimeout(function () {
+    _pedindo = false;
+    b.classList.remove('carregando', 'pronto');
+    t.textContent = 'GOL AGORA';
+  }, 4000);
+}
+
+function dizEstado(tipo, texto) {
+  const p = document.getElementById('pontoEstado');
+  const t = document.getElementById('textoEstado');
+  if (!p || !t) return;
+  p.className = 'ponto' + (tipo ? ' ' + tipo : '');
+  t.textContent = texto;
+}
+
+function rotulo(e) {
+  return {pedido: 'na fila', cortando: 'cortando', pronto: 'pronto',
+          publicando: 'publicando', publicado: 'publicado',
+          erro: 'erro'}[e] || e;
+}
+
+async function carregar() {
+  const alvo = document.getElementById('lista');
+  if (!alvo) return;
+  let d;
+  try {
+    const r = await fetch('/api/clipes?horas=8&_=' + Date.now());
+    const bruto = await r.text();
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 200));
+    d = JSON.parse(bruto);
+  } catch (e) {
+    dizEstado('alerta', 'sem contato com o servidor');
+    return;
+  }
+
+  const clipes = d.clipes || [];
+  const esperando = clipes.filter(function (c) { return c.estado !== 'publicado'; }).length;
+  if (!d.agente_configurado) {
+    dizEstado('alerta', 'falta a variável CLIPE_TOKEN no Railway');
+  } else if (esperando) {
+    dizEstado('ok', esperando + (esperando > 1 ? ' clipes esperando você' : ' clipe esperando você'));
+  } else {
+    dizEstado('ok', 'pronto — deixe o gravador aberto no computador');
+  }
+
+  if (!clipes.length) {
+    if (!alvo.querySelector('.vazio')) {
+      alvo.innerHTML = '<div class="vazio"><div class="grande">🎬</div>'
+        + '<p>Nenhum clipe ainda.<br>Ligue o gravador no computador e aperte o botão quando sair gol.</p></div>';
+    }
+    return;
+  }
+  const v = alvo.querySelector('.vazio');
+  if (v) v.remove();
+
+  // Redesenhar tudo apagaria o que você digita e o ponto do vídeo. Só recrio o
+  // card que MUDOU, e nunca o que está com o cursor dentro.
+  const vistos = {};
+  clipes.forEach(function (c) {
+    vistos[c.id] = true;
+    const card = document.getElementById('clipe-' + c.id);
+    const assin = c.estado + '|' + (c.tamanho || 0) + '|' + (c.post_id || '');
+    if (card && card.dataset.assin === assin) return;
+    if (card && _editando === c.id) return;
+    const novo = montar(c, assin);
+    if (card) { card.replaceWith(novo); } else { alvo.prepend(novo); }
+  });
+  Array.prototype.slice.call(alvo.querySelectorAll('.clipe')).forEach(function (el) {
+    if (!vistos[el.dataset.id]) el.remove();
+  });
+}
+
+function montar(c, assin) {
+  const d = document.createElement('div');
+  d.className = 'clipe';
+  d.id = 'clipe-' + c.id;
+  d.dataset.id = c.id;
+  d.dataset.assin = assin;
+
+  const topo = document.createElement('div');
+  topo.className = 'clipe-topo';
+  topo.innerHTML = '<span class="clipe-hora">' + esc(hora(c.alvo_em)) + '</span>'
+    + '<span class="selo s-' + esc(c.estado) + '">' + esc(rotulo(c.estado)) + '</span>'
+    + (c.tamanho ? '<span class="tam">' + (c.tamanho / 1048576).toFixed(1) + ' MB</span>' : '');
+  d.appendChild(topo);
+
+  const corpo = document.createElement('div');
+  corpo.className = 'clipe-corpo';
+
+  if (c.estado === 'pedido' || c.estado === 'cortando') {
+    corpo.innerHTML = '<div class="nota">O gravador pega este pedido em alguns '
+      + 'segundos. Se ficar parado aqui, confira se a janela do gravador está '
+      + 'aberta no computador.</div>';
+    d.appendChild(corpo);
+    return d;
+  }
+
+  if (c.estado === 'erro') {
+    corpo.innerHTML = '<div class="nota ruim">' + esc(c.erro || 'deu erro e ninguém explicou') + '</div>';
+    corpo.appendChild(botoesAjuste(c));
+    d.appendChild(corpo);
+    return d;
+  }
+
+  if (c.estado === 'publicado') {
+    const l = document.createElement('div');
+    l.className = 'lembrete';
+    l.innerHTML = '<b>Falta o geoblock.</b> Abra o Media Studio, ache este vídeo '
+      + 'e marque Content Restrictions → Include → Brasil.'
+      + (c.post_id ? ' · <a href="https://x.com/i/status/'
+          + encodeURIComponent(c.post_id) + '">ver o post</a>' : '');
+    corpo.appendChild(l);
+    d.appendChild(corpo);
+    return d;
+  }
+
+  const v = document.createElement('video');
+  v.controls = true;
+  v.preload = 'metadata';
+  v.playsInline = true;
+  v.src = '/api/clipe/' + c.id + '/video';
+  d.appendChild(v);
+
+  const t = document.createElement('textarea');
+  t.value = c.texto || '';
+  t.placeholder = 'Sem alerta de gol ainda — escreva ou espere alguns segundos.';
+  const conta = document.createElement('div');
+  conta.className = 'conta-letras';
+  function atualizaConta() {
+    const n = (t.value || '').length;
+    conta.textContent = n + ' / 280';
+    conta.classList.toggle('demais', n > 280);
+  }
+  t.oninput = atualizaConta;
+  t.onfocus = function () { _editando = c.id; };
+  t.onblur = function () {
+    _editando = null;
+    fetch('/api/clipe/' + c.id + '/texto', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({texto: t.value})
+    }).catch(function () {});
+  };
+  corpo.appendChild(t);
+  corpo.appendChild(conta);
+  atualizaConta();
+
+  if (c.texto_sugerido) {
+    const n = document.createElement('div');
+    n.className = 'nota';
+    n.textContent = 'Legenda do alerta de gol da API-Football. Edite à vontade.';
+    corpo.appendChild(n);
+  }
+
+  const acoes = botoesAjuste(c);
+  const pub = document.createElement('button');
+  pub.className = 'publicar';
+  pub.textContent = c.estado === 'publicando' ? 'publicando…' : 'Publicar no X';
+  pub.disabled = c.estado === 'publicando';
+  pub.onclick = function () { publicar(c.id, t, pub); };
+  acoes.appendChild(pub);
+  corpo.appendChild(acoes);
+  d.appendChild(corpo);
+  return d;
+}
+
+function botoesAjuste(c) {
+  const a = document.createElement('div');
+  a.className = 'acoes';
+  [['◀ 5s antes', -5], ['5s depois ▶', 5]].forEach(function (par) {
+    const b = document.createElement('button');
+    b.textContent = par[0];
+    b.title = 'move a janela do corte e o gravador refaz';
+    b.onclick = function () { ajustar(c.id, par[1], b); };
+    a.appendChild(b);
+  });
+  return a;
+}
+
+async function ajustar(id, delta, botao) {
+  botao.disabled = true;
+  try {
+    const r = await fetch('/api/clipe/' + id + '/ajustar?delta=' + delta, {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+    carregar();
+  } catch (e) {
+    alert('não deu para ajustar: ' + (e.message || e));
+    botao.disabled = false;
+  }
+}
+
+async function publicar(id, caixa, botao) {
+  const texto = (caixa.value || '').trim();
+  if (!texto) { alert('escreva a legenda antes'); return; }
+  if (texto.length > 280) { alert('o texto tem ' + texto.length + ' caracteres; o limite do X é 280'); return; }
+  if (!confirm('Publicar no X?\n\n' + texto)) return;
+  botao.disabled = true;
+  botao.textContent = 'publicando…';
+  try {
+    // Mando o texto da CAIXA, não o salvo: uma edição sem sair do campo ainda
+    // não foi para o banco. Foi assim que a guia Posts publicou a versão velha.
+    const r = await fetch('/api/clipe/' + id + '/publicar', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({texto: texto})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+    carregar();
+  } catch (e) {
+    alert('não publicou: ' + (e.message || e));
+    botao.disabled = false;
+    botao.textContent = 'Publicar no X';
+    carregar();
+  }
+}
+
+function ciclo() {
+  carregar().catch(function (err) {
+    dizEstado('alerta', 'erro: ' + (err && err.message ? err.message : String(err)));
+  });
+  clearTimeout(_timer);
+  _timer = setTimeout(ciclo, 5000);
+}
+ciclo();
+'''
+
+
+@app.get("/clipes", response_class=HTMLResponse)
+async def clipes_page():
+    return HTMLResponse(
+        _CLIPES_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__CLIPES_CSS__", _CLIPES_CSS)
+        .replace("__CLIPES_JS__", _CLIPES_JS)
+        .replace("__HDR__", _header("/clipes"))
+    )
 
 
 @app.get("/fim-de-jogo", response_class=HTMLResponse)
@@ -6867,37 +7010,6 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
   background:var(--surface2);display:flex;align-items:center;justify-content:center;
   cursor:pointer;color:var(--text2);font-size:1.35rem;line-height:1}
 .escudo-vazio:hover{border-color:var(--accent);color:var(--accent)}
-.gol-agora-caixa{margin:14px 0 4px}
-.gol-agora{width:100%;padding:20px;border:none;border-radius:14px;cursor:pointer;
-  background:#16a34a;color:#fff;font-size:1.35rem;font-weight:800;letter-spacing:.5px;
-  font-family:inherit;transition:transform .06s,background .15s}
-.gol-agora:active{transform:scale(.985)}
-.gol-agora:hover{background:#15803d}
-.gol-agora.ocupado{background:var(--c-muted-3);cursor:default}
-.gol-agora-aviso{font-size:.74rem;color:var(--c-muted-3);text-align:center;margin-top:6px}
-.clipe{border:1px solid var(--c-border);border-radius:12px;padding:14px;margin-bottom:14px;
-  background:var(--c-card)}
-.clipe-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-.clipe-hora{font-weight:700;font-size:.9rem}
-.clipe-estado{font-size:.68rem;font-weight:800;border-radius:99px;padding:2px 9px;
-  text-transform:uppercase;letter-spacing:.4px}
-.e-pedido,.e-cortando{background:#fef3c7;color:#854f0b}
-.e-pronto{background:#dcfce7;color:#14532d}
-.e-publicando{background:#dbeafe;color:#1e3a8a}
-.e-publicado{background:#e0e7ff;color:#312e81}
-.e-erro{background:#fee2e2;color:#7f1d1d}
-.clipe video{width:100%;border-radius:10px;background:#000;max-height:60vh}
-.clipe textarea{width:100%;min-height:120px;margin-top:10px;padding:10px;
-  border:1px solid var(--c-border);border-radius:8px;background:var(--c-bg);
-  color:var(--c-text);font-family:inherit;font-size:.9rem;line-height:1.5;resize:vertical}
-.clipe-acoes{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-.clipe-acoes button{padding:11px 15px;border-radius:9px;border:1px solid var(--c-border);
-  background:var(--c-bg);color:var(--c-text);font-family:inherit;font-weight:700;
-  font-size:.85rem;cursor:pointer}
-.clipe-acoes button.publicar{background:#0ea5e9;border-color:#0ea5e9;color:#fff;
-  margin-left:auto}
-.clipe-acoes button:disabled{opacity:.45;cursor:default}
-.clipe-nota{font-size:.76rem;color:var(--c-muted-3);margin-top:8px;line-height:1.5}
 .abas{display:flex;gap:8px;margin:16px 0 14px;border-bottom:1px solid var(--c-border)}
 .aba{background:none;border:none;border-bottom:2px solid transparent;color:var(--c-muted-3);
   font-size:.82rem;font-weight:700;padding:8px 14px 10px;cursor:pointer;
