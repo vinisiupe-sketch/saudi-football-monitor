@@ -1,20 +1,18 @@
 """
-GRAVADOR — roda na sua máquina durante a partida.
+GRAVADOR — roda na sua máquina durante as partidas.
 
 O QUE ELE FAZ
-    Grava a transmissão num arquivo, fica perguntando ao app se você apertou
-    GOL AGORA, e quando você apertou ele recorta o trecho e devolve o mp4.
+    1. Olha o canal do parceiro e reporta ao app quais transmissões estão no ar.
+    2. Grava as que você escolheu na guia Clipes — até quatro ao mesmo tempo.
+    3. Quando você aperta GOL AGORA (ou CLIPAR), recorta o trecho e devolve.
 
-    Você não digita minutagem nenhuma. Ele sabe a que horas começou a gravar,
-    então converte hora-de-relógio em posição no arquivo sozinho.
+    Você não digita minutagem nem cola link. Ele sabe a que horas começou cada
+    gravação, então converte hora-de-relógio em posição no arquivo sozinho.
 
 COMO RODAR
     1. Dois cliques em  gravador.bat
-    2. Cole o link da transmissão na guia Clipes do app, pelo celular
-    3. Deixe a janela aberta até o fim do jogo
-
-    Ele fica esperando o link aparecer no app e começa a gravar sozinho.
-    Trocou o link no app? Ele encerra a gravação atual e começa a nova.
+    2. Na guia Clipes do app, pelo celular, escolha os jogos
+    3. Deixe a janela aberta até o fim
 
     Para parar: feche a janela, ou Ctrl+C.
 
@@ -23,14 +21,19 @@ O QUE PRECISA ESTAR PRONTO
     clipe_token.txt  — o mesmo valor da variável CLIPE_TOKEN lá no Railway
     yt-dlp e ffmpeg  — o checar_ferramentas.bat confirma
 
+POR QUE ELE, E NÃO O SERVIDOR, OLHA O CANAL
+    O Railway é IP de datacenter, e o YouTube barra esses com verificação de
+    bot. Sua máquina tem IP residencial e passa. Então quem descobre as
+    transmissões é ele, e o servidor só guarda o que ele contou.
+
 O QUE ELE NÃO FAZ
     Não publica nada. Ele só entrega o recorte para o app; quem publica é você,
     apertando Publicar na tela, depois de assistir.
 
 SOBRE QUEDAS
-    Se a transmissão cair no meio, ele começa um arquivo novo e continua. O
-    trecho perdido entre um arquivo e outro fica registrado: se você pedir um
-    corte que caia bem nesse buraco, ele avisa em vez de mandar vídeo errado.
+    Se uma transmissão cair, ele começa outro arquivo e continua. O trecho
+    perdido entre um arquivo e outro fica registrado: se você pedir um corte
+    que caia nesse buraco, ele avisa em vez de mandar vídeo errado.
 """
 import json
 import os
@@ -46,7 +49,8 @@ from datetime import datetime, timedelta, timezone
 PASTA = os.path.dirname(os.path.abspath(__file__))
 GRAVACOES = os.path.join(PASTA, "gravacoes")
 
-INTERVALO_CONSULTA = 4          # de quantos em quantos segundos pergunto ao app
+INTERVALO_CONSULTA = 4          # de quantos em quantos segundos falo com o app
+INTERVALO_CANAL = 90            # de quantos em quantos segundos olho o canal
 MARGEM_SEG = 2                  # folga antes de cortar, para o trecho existir
 ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 
@@ -55,12 +59,11 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # Buscar com -ss antes do -i é rápido, mas cai em qualquer lugar: se o ponto
 # não for um keyframe, o vídeo do clipe só começa no keyframe seguinte, e o
 # arquivo sai com áudio desde o segundo zero e imagem só alguns segundos
-# depois. O player mostra preto nesse intervalo. Foi o que aconteceu no seu
-# primeiro clipe: áudio em 0.000s, vídeo em 4.571s.
+# depois. O player mostra preto nesse intervalo. Foi o que aconteceu no
+# primeiro clipe de verdade: áudio em 0.000s, vídeo em 4.571s.
 #
 # Com dois estágios — busca grossa antes do -i, busca fina depois — o ffmpeg
 # decodifica desde um keyframe anterior e chega ao ponto exato com imagem.
-# Custa decodificar estes segundos, o que é rápido.
 DECODIFICA_ANTES = 30
 
 
@@ -116,14 +119,34 @@ class Gravacao:
         return (quando - self.inicio).total_seconds()
 
 
+class Jogo:
+    """Uma transmissão sendo gravada: seus pedaços e seu processo."""
+
+    def __init__(self, live_id: str, url: str, titulo: str = ""):
+        self.id, self.url, self.titulo = live_id, url, titulo
+        self.pedacos: list[Gravacao] = []
+
+    def gravando(self) -> bool:
+        return bool(self.pedacos) and self.pedacos[-1].vivo()
+
+    def desde(self) -> str:
+        return self.pedacos[0].inicio.isoformat() if self.pedacos else ""
+
+    def nome(self) -> str:
+        return self.titulo or self.id
+
+
 class Gravador:
     def __init__(self, app: str, token: str, ytdlp: list, ffmpeg: str):
         self.app, self.token = app, token
         self.ytdlp, self.ffmpeg = ytdlp, ffmpeg
-        self.pedacos: list[Gravacao] = []
-        # Vem do app, não da linha de comando: assim você cola o link no
-        # celular e nem precisa chegar perto do computador.
-        self.url_live = ""
+        self.jogos: dict[str, Jogo] = {}
+        self.canal = ""
+        self.olhei_o_canal = 0.0
+        # A última lista de transmissões do canal. Guardo porque é dela que
+        # sai o nome do jogo para o botão — sem isso, _nomear procurava numa
+        # lista que nunca era preenchida e o botão ficava com o id do vídeo.
+        self.ultimo_canal: list = []
 
     # ── conversa com o app ────────────────────────────────────────────────
     def _http(self, caminho: str, dados: bytes | None = None,
@@ -147,27 +170,65 @@ class Gravador:
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
 
+    # ── olhar o canal ─────────────────────────────────────────────────────
+    def transmissoes_do_canal(self) -> list:
+        """O que o canal está transmitindo agora.
+
+        Uso --flat-playlist para não abrir cada vídeo: a aba /streams do canal
+        traz o suficiente, e abrir um por um seria lento e chamaria atenção
+        do YouTube sem necessidade.
+        """
+        if not self.canal:
+            return []
+        alvo = self.canal.rstrip("/") + "/streams"
+        try:
+            r = subprocess.run(
+                self.ytdlp + ["--no-warnings", "--flat-playlist",
+                              "--playlist-end", "12",
+                              "--print", "%(id)s|%(title)s|%(live_status)s",
+                              alvo],
+                capture_output=True, text=True, timeout=120,
+                encoding="utf-8", errors="replace")
+        except Exception as e:
+            diz(f"    não consegui olhar o canal: {type(e).__name__}: {e}")
+            return []
+        itens = []
+        for linha in (r.stdout or "").splitlines():
+            partes = linha.split("|")
+            if len(partes) < 3 or not partes[0].strip():
+                continue
+            vid, titulo, estado = partes[0].strip(), partes[1].strip(), partes[2].strip()
+            # Só o que está no ar agora. Transmissão encerrada vira vídeo
+            # comum e não serve para clipar ao vivo.
+            if estado != "is_live":
+                continue
+            itens.append({"id": vid, "titulo": titulo, "estado": estado})
+        return itens
+
     # ── gravar ────────────────────────────────────────────────────────────
-    def _urls_do_fluxo(self) -> list:
+    def _urls_do_fluxo(self, url: str) -> list:
         """Vídeo e áudio vêm separados nesta transmissão; pego os dois."""
-        r = subprocess.run(
-            self.ytdlp + ["--no-warnings", "-f",
-                          "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
-                          "-g", self.url_live],
-            capture_output=True, text=True, timeout=120,
-            encoding="utf-8", errors="replace")
+        try:
+            r = subprocess.run(
+                self.ytdlp + ["--no-warnings", "-f",
+                              "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
+                              "-g", url],
+                capture_output=True, text=True, timeout=120,
+                encoding="utf-8", errors="replace")
+        except Exception:
+            return []
         return [l.strip() for l in (r.stdout or "").splitlines()
                 if l.startswith("http")]
 
-    def comecar_pedaco(self) -> bool:
-        fluxos = self._urls_do_fluxo()
+    def comecar_pedaco(self, jogo: Jogo) -> bool:
+        fluxos = self._urls_do_fluxo(jogo.url)
         if not fluxos:
-            diz("    não consegui a URL do fluxo. A transmissão ainda está no ar?")
+            diz(f"    [{jogo.nome()[:30]}] não consegui o fluxo. Ainda está no ar?")
             return False
         os.makedirs(GRAVACOES, exist_ok=True)
         agora = datetime.now(timezone.utc)
         caminho = os.path.join(
-            GRAVACOES, agora.strftime("gravacao_%Y%m%d_%H%M%S.ts"))
+            GRAVACOES, f"{jogo.id}_{agora.strftime('%Y%m%d_%H%M%S')}.ts")
         cmd = [self.ffmpeg, "-y", "-loglevel", "error"]
         for f in fluxos[:2]:
             cmd += ["-i", f]
@@ -180,86 +241,56 @@ class Gravador:
         cmd += [caminho]
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
-        self.pedacos.append(Gravacao(caminho, agora, proc))
-        diz(f"    gravando em {os.path.basename(caminho)}")
+        jogo.pedacos.append(Gravacao(caminho, agora, proc))
+        diz(f"    [{jogo.nome()[:30]}] gravando em {os.path.basename(caminho)}")
         return True
 
-    def cuidar_da_gravacao(self) -> None:
-        """Se o ffmpeg morreu, fecha o pedaço e começa outro."""
-        if not self.url_live:
-            return
-        if self.pedacos and self.pedacos[-1].vivo():
-            return
-        if self.pedacos:
-            ultimo = self.pedacos[-1]
-            if ultimo.fim is None:
-                ultimo.fim = datetime.now(timezone.utc)
+    def cuidar_das_gravacoes(self) -> None:
+        """Se o ffmpeg de algum jogo morreu, fecha o pedaço e começa outro."""
+        for jogo in self.jogos.values():
+            if jogo.gravando():
+                continue
+            if jogo.pedacos:
+                ultimo = jogo.pedacos[-1]
+                if ultimo.fim is None:
+                    ultimo.fim = datetime.now(timezone.utc)
+                    diz("")
+                    diz(f"    !! [{jogo.nome()[:30]}] a gravação caiu. "
+                        "Recomeçando em outro arquivo.")
+                    diz("    !! o trecho até religar está perdido.")
+            self.comecar_pedaco(jogo)
+
+    def parar_jogo(self, jogo: Jogo) -> None:
+        for p in jogo.pedacos:
+            if p.vivo():
+                try:
+                    p.processo.terminate()
+                    p.processo.wait(timeout=10)
+                except Exception:
+                    pass
+                p.fim = datetime.now(timezone.utc)
+
+    def sincronizar(self, lives: list) -> None:
+        """Alinha o que está gravando com o que você escolheu no app."""
+        escolhidos = {l.get("id"): l for l in lives if l.get("id")}
+        for live_id in list(self.jogos):
+            if live_id not in escolhidos:
+                jogo = self.jogos.pop(live_id)
                 diz("")
-                diz("    !! a gravação caiu. Recomeçando em outro arquivo.")
-                diz("    !! o trecho a partir de agora até religar está perdido.")
-        self.comecar_pedaco()
+                diz(f"    [{jogo.nome()[:30]}] saiu da lista no app. Encerrando.")
+                self.parar_jogo(jogo)
+        for live_id, l in escolhidos.items():
+            if live_id in self.jogos:
+                continue
+            jogo = Jogo(live_id, l.get("url") or "", l.get("titulo") or "")
+            self.jogos[live_id] = jogo
+            diz("")
+            diz(f"    [{jogo.nome()[:30]}] entrou na lista. Começando a gravar.")
+            self.comecar_pedaco(jogo)
 
     # ── cortar ────────────────────────────────────────────────────────────
-    def atender(self, clipe: dict) -> None:
-        cid = clipe.get("id")
-        antes = int(clipe.get("antes_seg") or 20)
-        depois = int(clipe.get("depois_seg") or 8)
-        try:
-            alvo = datetime.fromisoformat(clipe["alvo_em"])
-        except Exception:
-            self._falhou(cid, "não entendi o instante do clipe")
-            return
-        if alvo.tzinfo is None:
-            alvo = alvo.replace(tzinfo=timezone.utc)
-
-        inicio_janela = alvo - timedelta(seconds=antes)
-        fim_janela = alvo + timedelta(seconds=depois)
-
-        pedaco = next((p for p in self.pedacos if p.cobre(inicio_janela)), None)
-        if pedaco is None:
-            self._falhou(cid, "esse instante não está em nenhuma gravação — "
-                              "ou é anterior ao início, ou caiu num corte de sinal")
-            return
-        if not pedaco.cobre(fim_janela):
-            self._falhou(cid, "a janela do clipe atravessa uma queda de sinal")
-            return
-
-        # O fim da janela pode ainda não ter sido gravado: você aperta o botão
-        # no instante do gol, e os segundos seguintes ainda estão chegando.
-        espera = 0
-        while pedaco.vivo():
-            gravado = (datetime.now(timezone.utc) - pedaco.inicio).total_seconds()
-            if gravado >= pedaco.posicao(fim_janela) + MARGEM_SEG:
-                break
-            if espera >= ESPERA_MAX_SEG:
-                self._falhou(cid, "esperei e o fim da janela não foi gravado")
-                return
-            time.sleep(1)
-            espera += 1
-
-        inicio = max(0.0, pedaco.posicao(inicio_janela))
-        saida = os.path.join(GRAVACOES, f"clipe_{cid}.mp4")
-        diz(f"    clipe {cid}: cortando de {inicio:.0f}s "
-            f"({antes}s antes até {depois}s depois)")
-        r = self._cortar(pedaco.caminho, inicio, antes + depois, saida)
-        if r is not None:
-            self._falhou(cid, r)
-            return
-        dados = open(saida, "rb").read()
-        if len(dados) < 10000:
-            self._falhou(cid, f"o corte saiu com {len(dados)} bytes; "
-                              "provavelmente não havia vídeo naquele trecho")
-            return
-
-        _, err = self._http(f"/api/clipe/{cid}/entregar", dados, "video/mp4")
-        if err:
-            diz(f"    clipe {cid}: não consegui entregar — {err}")
-        else:
-            diz(f"    clipe {cid}: entregue ({len(dados)/1024/1024:.1f} MB). "
-                "Já está na sua tela.")
-
     def _inicio_do_video(self, caminho: str) -> float | None:
-        """Em que segundo do arquivo a imagem começa. Áudio começa em 0."""
+        """Em que segundo do arquivo a imagem começa. O áudio começa em 0."""
         try:
             r = subprocess.run(
                 [self.ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "error",
@@ -276,8 +307,8 @@ class Gravador:
             "-t", f"{dur:.2f}",
             # veryfast em vez do padrão: medi na gravação real e o corte caiu
             # de 34s para 14s, com semelhança de 0,992 contra o padrão — perda
-            # que ninguém vê num clipe de 28s a 5 Mbps. E 20 segundos a menos
-            # de espera importa: você está com o jogo rolando.
+            # que ninguém vê num clipe curto a 5 Mbps. E 20 segundos a menos de
+            # espera importa: você está com o jogo rolando.
             "-c:v", "libx264", "-preset", "veryfast",
             "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-b:v", "5M", "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
@@ -289,12 +320,11 @@ class Gravador:
     def _cortar(self, origem: str, inicio: float, dur: float, saida: str):
         """Corta e CONFERE. Devolve None se deu certo, ou o motivo da falha.
 
-        A conferência existe porque eu não consegui reproduzir a condição exata
-        que atrasou o vídeo no seu primeiro clipe — ela só acontecia enquanto o
-        arquivo ainda crescia. Em vez de confiar que a correção cobre um caso
-        que não reproduzi, eu meço o resultado: se a imagem não começar junto
-        com o som, refaço do jeito lento, que decodifica desde o começo e nunca
-        desalinha.
+        A conferência existe porque não reproduzi a condição exata que atrasou
+        o vídeo no primeiro clipe — ela só acontecia enquanto o arquivo ainda
+        crescia. Em vez de confiar que a correção cobre um caso que não
+        reproduzi, eu meço: se a imagem não começar junto com o som, refaço do
+        jeito lento, que decodifica desde o começo e nunca desalinha.
         """
         grosso = max(0.0, inicio - DECODIFICA_ANTES)
         fino = inicio - grosso
@@ -317,33 +347,115 @@ class Gravador:
                         "som; não mando um clipe que abre em preto")
         return None
 
+    def atender(self, clipe: dict) -> None:
+        cid = clipe.get("id")
+        antes = int(clipe.get("antes_seg") or 20)
+        depois = int(clipe.get("depois_seg") or 8)
+        live_id = clipe.get("live_id") or ""
+        try:
+            alvo = datetime.fromisoformat(clipe["alvo_em"])
+        except Exception:
+            self._falhou(cid, "não entendi o instante do clipe")
+            return
+        if alvo.tzinfo is None:
+            alvo = alvo.replace(tzinfo=timezone.utc)
+
+        jogo = self.jogos.get(live_id)
+        if jogo is None:
+            # Com vários jogos, cortar do arquivo errado seria pior que falhar:
+            # sairia um clipe de outra partida, com cara de certo.
+            self._falhou(cid, "não estou gravando esse jogo")
+            return
+
+        inicio_janela = alvo - timedelta(seconds=antes)
+        fim_janela = alvo + timedelta(seconds=depois)
+
+        pedaco = next((p for p in jogo.pedacos if p.cobre(inicio_janela)), None)
+        if pedaco is None:
+            self._falhou(cid, "esse instante não está em nenhuma gravação — "
+                              "ou é anterior ao início, ou caiu num corte de sinal")
+            return
+        if not pedaco.cobre(fim_janela):
+            self._falhou(cid, "a janela do clipe atravessa uma queda de sinal")
+            return
+
+        # O fim da janela pode ainda não ter sido gravado: você aperta o botão
+        # no instante do lance, e os segundos seguintes ainda estão chegando.
+        espera = 0
+        while pedaco.vivo():
+            gravado = (datetime.now(timezone.utc) - pedaco.inicio).total_seconds()
+            if gravado >= pedaco.posicao(fim_janela) + MARGEM_SEG:
+                break
+            if espera >= ESPERA_MAX_SEG:
+                self._falhou(cid, "esperei e o fim da janela não foi gravado")
+                return
+            time.sleep(1)
+            espera += 1
+
+        inicio = max(0.0, pedaco.posicao(inicio_janela))
+        saida = os.path.join(GRAVACOES, f"clipe_{cid}.mp4")
+        diz(f"    [{jogo.nome()[:24]}] clipe {cid}: cortando de {inicio:.0f}s "
+            f"({antes}s antes até {depois}s depois)")
+        erro = self._cortar(pedaco.caminho, inicio, antes + depois, saida)
+        if erro:
+            self._falhou(cid, erro)
+            return
+        dados = open(saida, "rb").read()
+        if len(dados) < 10000:
+            self._falhou(cid, f"o corte saiu com {len(dados)} bytes; "
+                              "provavelmente não havia vídeo naquele trecho")
+            return
+
+        _, err = self._http(f"/api/clipe/{cid}/entregar", dados, "video/mp4")
+        if err:
+            diz(f"    clipe {cid}: não consegui entregar — {err}")
+        else:
+            diz(f"    clipe {cid}: entregue ({len(dados)/1024/1024:.1f} MB). "
+                "Já está na sua tela.")
+
     def _falhou(self, cid, motivo: str) -> None:
         diz(f"    clipe {cid}: {motivo}")
         self._http(f"/api/clipe/{cid}/falhou",
                    json.dumps({"erro": motivo}).encode())
 
     # ── laço principal ────────────────────────────────────────────────────
-    def parar_gravacao(self) -> None:
-        for p in self.pedacos:
-            if p.vivo():
-                try:
-                    p.processo.terminate()
-                    p.processo.wait(timeout=10)
-                except Exception:
-                    pass
-                p.fim = datetime.now(timezone.utc)
+    def _relatar(self) -> tuple:
+        """Uma chamada só: conto o que sei, recebo o que preciso fazer."""
+        agora = time.time()
+        disponiveis = None
+        if agora - self.olhei_o_canal >= INTERVALO_CANAL:
+            disponiveis = self.transmissoes_do_canal()
+            self.ultimo_canal = disponiveis
+            self.olhei_o_canal = agora
+        corpo = {
+            "gravando": {j.id: j.desde() for j in self.jogos.values()
+                         if j.gravando()},
+            "titulos": [{"id": j.id, "titulo": j.titulo}
+                        for j in self.jogos.values() if j.titulo],
+        }
+        if disponiveis is not None:
+            corpo["disponiveis"] = disponiveis
+        return self._http("/api/clipe/pendentes",
+                          json.dumps(corpo, ensure_ascii=False).encode())
+
+    def _nomear(self, lives: list) -> None:
+        """Descobre o título de quem entrou sem um, para o botão dizer o jogo."""
+        for l in lives:
+            jogo = self.jogos.get(l.get("id"))
+            if jogo is None or jogo.titulo:
+                continue
+            achado = next((d for d in self.ultimo_canal
+                           if d.get("id") == jogo.id), None)
+            if achado and achado.get("titulo"):
+                jogo.titulo = achado["titulo"]
 
     def rodar(self) -> None:
-        diz("    Esperando o link da live. Cole na guia Clipes do app, no celular.")
+        diz("    Esperando você escolher os jogos na guia Clipes do app.")
         diz("    Deixe esta janela aberta. Ctrl+C para parar.")
         diz("")
         ultimo_aviso = 0.0
         while True:
-            inicio = self.pedacos[0].inicio.isoformat() if self.pedacos else ""
-            d, err = self._http(
-                "/api/clipe/pendentes?gravando="
-                + ("1" if self.pedacos and self.pedacos[-1].vivo() else "0")
-                + "&desde=" + urllib.parse.quote(inicio))
+            d, err = self._relatar()
             if err:
                 # Não desisto por causa de uma falha de rede: o jogo continua.
                 agora = time.time()
@@ -353,31 +465,22 @@ class Gravador:
                 time.sleep(INTERVALO_CONSULTA)
                 continue
 
-            nova = ((d or {}).get("live_url") or "").strip()
-            if nova != self.url_live:
-                if self.url_live:
-                    diz("")
-                    diz("    o link mudou no app. Encerrando esta gravação.")
-                    self.parar_gravacao()
-                self.url_live = nova
-                if nova:
-                    diz("")
-                    diz(f"    link recebido do app: {nova[:70]}")
-                    if self.comecar_pedaco():
-                        diz("    Pode apertar GOL AGORA no celular quando sair gol.")
-                        diz("")
-                else:
-                    diz("")
-                    diz("    link apagado no app. Parado, esperando outro.")
+            if not self.canal:
+                self.canal = (d or {}).get("canal") or ""
+                if self.canal:
+                    diz(f"    canal: {self.canal}")
 
-            if self.url_live:
-                self.cuidar_da_gravacao()
-                for clipe in (d or {}).get("clipes", []):
-                    self.atender(clipe)
+            lives = (d or {}).get("lives") or []
+            self.sincronizar(lives)
+            self._nomear(lives)
+            self.cuidar_das_gravacoes()
+            for clipe in (d or {}).get("clipes", []):
+                self.atender(clipe)
             time.sleep(INTERVALO_CONSULTA)
 
     def parar(self) -> None:
-        self.parar_gravacao()
+        for jogo in self.jogos.values():
+            self.parar_jogo(jogo)
 
 
 def main() -> int:
@@ -409,8 +512,6 @@ def main() -> int:
         return 1
     diz(f"    app    : {app}")
     diz(f"    token  : configurado ({len(token)} caracteres)")
-
-    diz(f"    link   : você cola na guia Clipes do app, pelo celular")
     diz()
 
     g = Gravador(app, token, ytdlp, ffmpeg)
@@ -421,7 +522,7 @@ def main() -> int:
         diz("    parando…")
     finally:
         g.parar()
-        diz("    gravação encerrada. Os arquivos ficam em gravacoes/ —")
+        diz("    gravações encerradas. Os arquivos ficam em gravacoes/ —")
         diz("    apague quando não precisar mais, eles são grandes.")
     return 0
 
