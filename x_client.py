@@ -10,7 +10,9 @@ e um laço com defeito poderia publicar sem parar.
 """
 import os
 import re
+import json
 import time
+import asyncio
 import hmac
 import base64
 import hashlib
@@ -25,6 +27,11 @@ API_POST = "https://api.x.com/2/tweets"
 API_MEDIA = "https://api.x.com/2/media/upload"
 
 LIMITE_DIARIO = 40          # teto de segurança; uma rodada tem 9 jogos
+
+# Limites do X para vídeo, conferidos na documentação deles.
+LIMITE_VIDEO_BYTES = 512 * 1024 * 1024
+PEDACO_BYTES = 4 * 1024 * 1024      # o teto por append é 5 MB; fico abaixo
+MAX_ESPERAS_VIDEO = 40              # ~5 min de processamento no pior caso
 CUSTO_POST = 0.015
 CUSTO_POST_COM_LINK = 0.200
 
@@ -116,8 +123,88 @@ async def subir_imagem(imagem) -> str:
     return str(mid)
 
 
+async def subir_video(dados: bytes, on_status=None) -> str:
+    """Sobe um vídeo em pedaços e devolve o media_id.
+
+    Três endpoints próprios, e NÃO o velho "command=INIT" em multipart — esse é
+    formato da v1.1. O guia de início rápido do X ainda mostra do jeito antigo;
+    seguir o guia rendeu HTTP 400 "Missing media field in JSON". Isto aqui é o
+    que a sondagem confirmou funcionando na conta real.
+
+    Sobre a assinatura OAuth: corpo JSON (initialize) e corpo multipart
+    (append) ficam FORA dela; só a query do STATUS entra. Errar isso dá 401.
+    """
+    ok, faltando = configurado()
+    if not ok:
+        raise XErro("credenciais do X ausentes: " + ", ".join(faltando))
+    if not dados:
+        raise XErro("vídeo vazio")
+    if len(dados) > LIMITE_VIDEO_BYTES:
+        raise XErro(f"vídeo tem {len(dados)/1024/1024:.1f} MB; o teto do X é 512 MB")
+    cred = credenciais()
+
+    def avisa(t: str) -> None:
+        if on_status:
+            on_status(t)
+
+    async with httpx.AsyncClient(timeout=180.0) as c:
+        url = f"{API_MEDIA}/initialize"
+        r = await c.post(url, headers={"Authorization": _cabecalho("POST", url, cred),
+                                       "Content-Type": "application/json"},
+                         json={"media_type": "video/mp4",
+                               "total_bytes": len(dados),
+                               "media_category": "tweet_video"})
+        if r.status_code >= 300:
+            raise XErro(f"initialize falhou: HTTP {r.status_code} {r.text[:200]}")
+        mid = str(((r.json() or {}).get("data") or {}).get("id") or "")
+        if not mid:
+            raise XErro(f"initialize sem media_id: {r.text[:200]}")
+
+        pedacos = [dados[i:i + PEDACO_BYTES]
+                   for i in range(0, len(dados), PEDACO_BYTES)]
+        if len(pedacos) > 1000:            # segment_index vai só até 999
+            raise XErro(f"vídeo exigiria {len(pedacos)} pedaços; o teto é 1000")
+        for i, pedaco in enumerate(pedacos):
+            url = f"{API_MEDIA}/{mid}/append"
+            r = await c.post(url, headers={"Authorization": _cabecalho("POST", url, cred)},
+                             files={"media": ("clipe.mp4", pedaco, "video/mp4"),
+                                    "segment_index": (None, str(i))})
+            if r.status_code >= 300:
+                raise XErro(f"append {i+1}/{len(pedacos)} falhou: "
+                            f"HTTP {r.status_code} {r.text[:200]}")
+            avisa(f"enviando… {i+1}/{len(pedacos)}")
+
+        url = f"{API_MEDIA}/{mid}/finalize"
+        r = await c.post(url, headers={"Authorization": _cabecalho("POST", url, cred)})
+        if r.status_code >= 300:
+            raise XErro(f"finalize falhou: HTTP {r.status_code} {r.text[:200]}")
+
+        # O X transcodifica antes de liberar. Postar com media_id ainda em
+        # processamento dá erro, então espero de verdade em vez de torcer.
+        info = ((r.json() or {}).get("data") or {}).get("processing_info") or {}
+        esperas = 0
+        while info.get("state") in ("pending", "in_progress"):
+            if esperas >= MAX_ESPERAS_VIDEO:
+                raise XErro(f"o X não terminou de processar o vídeo depois de "
+                            f"{esperas} checagens; estado: {info.get('state')}")
+            await asyncio.sleep(max(1, min(15, int(info.get("check_after_secs") or 1))))
+            esperas += 1
+            avisa(f"o X está processando… ({info.get('state')})")
+            q = {"command": "STATUS", "media_id": mid}
+            r = await c.get(API_MEDIA, params=q,
+                            headers={"Authorization": _cabecalho("GET", API_MEDIA, cred, q)})
+            if r.status_code >= 300:
+                raise XErro(f"status falhou: HTTP {r.status_code} {r.text[:200]}")
+            info = ((r.json() or {}).get("data") or {}).get("processing_info") or {}
+        if info.get("state") == "failed":
+            erro = (info.get("error") or {}).get("message") or json.dumps(info)[:200]
+            raise XErro(f"o X recusou o vídeo: {erro}")
+    return mid
+
+
 async def publicar(texto: str, imagens: list | None = None,
-                   permitir_link: bool = False, publicados_hoje: int = 0) -> dict:
+                   permitir_link: bool = False, publicados_hoje: int = 0,
+                   media_ids: list | None = None) -> dict:
     """Publica e devolve {id, custo}. Levanta XErro em qualquer recusa."""
     ok, faltando = configurado()
     if not ok:
@@ -132,14 +219,16 @@ async def publicar(texto: str, imagens: list | None = None,
     if publicados_hoje >= LIMITE_DIARIO:
         raise XErro(f"limite diário de {LIMITE_DIARIO} publicações atingido")
 
-    media_ids = []
+    # media_ids já prontos entram direto: é o caso do clipe de gol, cujo vídeo
+    # foi subido antes, num passo separado, porque leva tempo e tem progresso.
+    ids = [str(m) for m in (media_ids or []) if m]
     for img in (imagens or [])[:4]:          # o X aceita no máximo 4
         if isinstance(img, (bytes, bytearray)) or (isinstance(img, str) and os.path.exists(img)):
-            media_ids.append(await subir_imagem(img))
+            ids.append(await subir_imagem(img))
 
     corpo = {"text": texto}
-    if media_ids:
-        corpo["media"] = {"media_ids": media_ids}
+    if ids:
+        corpo["media"] = {"media_ids": ids[:4]}
     cred = credenciais()
     cabecalho = _cabecalho("POST", API_POST, cred)
     async with httpx.AsyncClient(timeout=30.0) as c:

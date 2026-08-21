@@ -1522,3 +1522,221 @@ def status_das_chaves(chaves: list[str]) -> dict[str, str]:
 
 
 
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CLIPES DE GOL
+#
+# O fluxo tem três máquinas: você aperta GOL AGORA no celular, o agente que
+# grava a live em casa consulta esta tabela e devolve o recorte, e o servidor
+# publica. Nenhuma delas fala com a outra diretamente — o banco é o encontro.
+#
+# alvo_em é hora de RELÓGIO, absoluta, e não posição no vídeo. É de propósito:
+# o agente sabe a que horas começou a gravar, então converte sozinho. Se eu
+# mandasse posição, teria que saber o instante em que a gravação começou, que
+# é justamente o que muda a cada partida.
+# ══════════════════════════════════════════════════════════════════════════
+
+ESTADOS_CLIPE = ("pedido", "cortando", "pronto", "publicando", "publicado", "erro")
+
+
+def _cria_clipe(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS clipe (
+            id            SERIAL PRIMARY KEY,
+            pedido_em     TIMESTAMPTZ DEFAULT NOW(),
+            alvo_em       TIMESTAMPTZ NOT NULL,
+            antes_seg     INTEGER NOT NULL DEFAULT 10,
+            depois_seg    INTEGER NOT NULL DEFAULT 5,
+            estado        TEXT NOT NULL DEFAULT 'pedido',
+            video         BYTEA,
+            tamanho       INTEGER,
+            texto         TEXT,
+            gol_id        INTEGER,
+            media_id      TEXT,
+            post_id       TEXT,
+            erro          TEXT,
+            atualizado_em TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+
+# Colunas de listagem. O BYTEA fica de fora de propósito: um clipe tem alguns
+# megabytes, e trazer isso numa lista de dez clipes seria carregar dezenas de
+# megabytes para desenhar uma tela que só precisa do tamanho.
+_COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, "
+               "texto, gol_id, media_id, post_id, erro, atualizado_em")
+
+
+def criar_pedido_clipe(alvo_em, antes_seg: int = 10, depois_seg: int = 5) -> int:
+    """Registra um pedido de corte. Devolve o id, ou 0 se falhou."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""INSERT INTO clipe (alvo_em, antes_seg, depois_seg)
+                         VALUES (%s,%s,%s) RETURNING id""",
+                      [alvo_em, max(0, int(antes_seg)), max(1, int(depois_seg))])
+            return int(c.fetchone()[0])
+    except Exception:
+        return 0
+
+
+def clipes_a_cortar() -> list[dict]:
+    """O que o agente gravador precisa fazer agora."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_clipe(c)
+            c.execute(f"""SELECT {_COLS_CLIPE} FROM clipe
+                           WHERE estado = 'pedido'
+                           ORDER BY id""")
+            return [_clipe_json(dict(r)) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
+def _clipe_json(d: dict) -> dict:
+    for campo in ("pedido_em", "alvo_em", "atualizado_em"):
+        if d.get(campo) is not None:
+            d[campo] = d[campo].isoformat()
+    return d
+
+
+def mudar_estado_clipe(clipe_id: int, de: str, para: str) -> bool:
+    """Troca de estado só se ele ainda estiver no esperado.
+
+    O 'de' na cláusula WHERE não é decoração: dois gravadores ligados, ou um
+    reenvio, poderiam pegar o mesmo pedido duas vezes. Assim só o primeiro
+    consegue, e o segundo recebe False e desiste.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe SET estado = %s, atualizado_em = NOW()
+                          WHERE id = %s AND estado = %s""", [para, clipe_id, de])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def entregar_clipe(clipe_id: int, video: bytes) -> bool:
+    """O agente devolve o mp4 recortado."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe
+                            SET video = %s, tamanho = %s, estado = 'pronto',
+                                erro = NULL, atualizado_em = NOW()
+                          WHERE id = %s AND estado IN ('pedido','cortando')""",
+                      [psycopg2.Binary(video), len(video), clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def ajustar_clipe(clipe_id: int, delta_seg: int) -> bool:
+    """Move a janela e devolve o clipe para a fila de corte.
+
+    Só mexe em clipe que ainda não foi publicado — reajustar algo que já está
+    no ar não teria efeito nenhum e só confundiria a tela.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe
+                            SET alvo_em = alvo_em + (%s * INTERVAL '1 second'),
+                                estado = 'pedido', video = NULL, tamanho = NULL,
+                                erro = NULL, atualizado_em = NOW()
+                          WHERE id = %s
+                            AND estado IN ('pronto','erro','cortando','pedido')""",
+                      [int(delta_seg), clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def texto_do_clipe(clipe_id: int, texto: str) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe SET texto = %s, atualizado_em = NOW()
+                          WHERE id = %s AND estado <> 'publicado'""",
+                      [texto, clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def clipe_publicado(clipe_id: int, media_id: str, post_id: str) -> bool:
+    """Marca como publicado e JOGA FORA o vídeo.
+
+    Guardar megabytes de um clipe que já está no ar não serve para nada e o
+    banco cresceria sem parar. O post_id fica, que é o que permite achar a
+    publicação depois para aplicar a restrição no Media Studio.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe
+                            SET estado = 'publicado', media_id = %s, post_id = %s,
+                                video = NULL, erro = NULL, atualizado_em = NOW()
+                          WHERE id = %s""", [media_id, post_id, clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def erro_no_clipe(clipe_id: int, mensagem: str) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe SET estado = 'erro', erro = %s,
+                                          atualizado_em = NOW()
+                          WHERE id = %s""", [str(mensagem)[:500], clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def clipes_recentes(horas: int = 8) -> list[dict]:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_clipe(c)
+            c.execute(f"""SELECT {_COLS_CLIPE} FROM clipe
+                           WHERE pedido_em > NOW() - (%s * INTERVAL '1 hour')
+                           ORDER BY id DESC""", [horas])
+            return [_clipe_json(dict(r)) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
+def video_do_clipe(clipe_id: int) -> bytes | None:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("SELECT video FROM clipe WHERE id = %s", [clipe_id])
+            linha = c.fetchone()
+            return bytes(linha[0]) if linha and linha[0] is not None else None
+    except Exception:
+        return None
+
+
+def um_clipe(clipe_id: int) -> dict | None:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_clipe(c)
+            c.execute(f"SELECT {_COLS_CLIPE} FROM clipe WHERE id = %s", [clipe_id])
+            linha = c.fetchone()
+            return _clipe_json(dict(linha)) if linha else None
+    except Exception:
+        return None
