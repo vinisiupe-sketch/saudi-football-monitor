@@ -5382,6 +5382,7 @@ _FIMJOGO_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Fim de Jogo · IARABÃO</title>
 __THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
 __HEADER_CSS__
 *{box-sizing:border-box}
@@ -5958,94 +5959,94 @@ async def api_gols_ao_vivo(horas: int = 6, coletar: int = 1):
 
 
 _CLIPES_CSS = """
-.wrap{max-width:720px;margin:0 auto;padding:0 16px 90px}
-.topo{padding:22px 0 4px}
-.topo h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.04em;
-  margin:0;line-height:1}
-.topo .sub{color:var(--c-muted-3);font-size:.86rem;margin:6px 0 0;line-height:1.5}
+body{margin:0;background:var(--c-bg);color:var(--c-text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.wrap{max-width:820px;margin:0 auto;padding:18px 16px 80px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--c-muted-3);font-size:.8rem;margin:0 0 16px}
 
-.live-caixa{border:1px solid var(--c-border);border-radius:12px;padding:13px 14px;
-  margin-top:18px;background:var(--c-bg-card)}
-.live-caixa label{display:block;font-size:.72rem;font-weight:800;letter-spacing:.06em;
+/* Painel de preparo: link da live + estado do gravador. Fica junto porque as
+   duas coisas respondem a mesma pergunta antes do jogo — está tudo de pé? */
+.preparo{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:12px;padding:14px 16px;margin-bottom:14px}
+.preparo label{display:block;font-size:.6rem;font-weight:800;letter-spacing:.08em;
   text-transform:uppercase;color:var(--c-muted-3);margin-bottom:8px}
 .live-linha{display:flex;gap:8px}
-.live-linha input{flex:1;min-width:0;padding:11px 12px;border-radius:9px;
-  border:1px solid var(--c-border);background:var(--c-bg);color:var(--c-text);
-  font-family:inherit;font-size:.88rem}
+.live-linha input{flex:1;min-width:0;padding:10px 12px;border-radius:9px;
+  border:1px solid var(--c-border-2);background:var(--c-bg-soft);color:var(--c-text);
+  font-family:inherit;font-size:.85rem}
 .live-linha input:focus{outline:none;border-color:#16a34a}
-.live-linha button{padding:11px 16px;border-radius:9px;border:1px solid var(--c-border);
-  background:var(--c-bg);color:var(--c-text);font-family:inherit;font-weight:700;
-  font-size:.84rem;cursor:pointer;flex-shrink:0}
-.live-linha button:hover{border-color:var(--c-muted-3)}
-.live-estado{margin-top:9px;font-size:.76rem;color:var(--c-muted-3);
+.live-linha button{padding:10px 16px;border-radius:99px;flex-shrink:0;
+  background:transparent;border:1.5px solid var(--c-border-2);color:var(--c-muted-4);
+  font-family:inherit;font-weight:700;font-size:.65rem;text-transform:uppercase;
+  letter-spacing:.06em;cursor:pointer}
+.live-linha button:hover:not(:disabled){border-color:var(--c-text);color:var(--c-text)}
+.live-linha button:disabled{opacity:.5;cursor:default}
+.live-estado{margin-top:10px;font-size:.72rem;color:var(--c-muted-4);
   display:flex;align-items:center;gap:7px;line-height:1.45}
+.ponto{width:7px;height:7px;border-radius:50%;background:var(--c-muted-2);flex-shrink:0}
+.ponto.ok{background:#22c55e}
+.ponto.alerta{background:#f59e0b}
 
-/* O botão é o centro da tela. Grande porque você vai apertar com pressa, no
-   celular, olhando o jogo — e não mirando o dedo. */
-.botao-caixa{position:sticky;top:56px;z-index:5;background:var(--c-bg);
-  padding:16px 0 12px;margin-bottom:4px}
-.gol{width:100%;padding:26px 20px;border:none;border-radius:16px;cursor:pointer;
-  background:#16a34a;color:#fff;font-family:'Bebas Neue',sans-serif;
-  font-size:2.1rem;letter-spacing:.06em;line-height:1;
-  display:flex;align-items:center;justify-content:center;gap:14px;
-  box-shadow:0 6px 20px rgba(22,163,74,.32);
-  transition:transform .07s,background .18s,box-shadow .18s}
+/* O botão é o centro da tela: grande porque você aperta com pressa, no celular,
+   olhando o jogo — e não mirando o dedo. Gruda no topo ao rolar. */
+.botao-caixa{position:sticky;top:52px;z-index:5;background:var(--c-bg);
+  padding:6px 0 14px}
+.gol{width:100%;padding:22px 20px;border:none;border-radius:14px;cursor:pointer;
+  background:#16a34a;color:#fff;font-family:inherit;font-size:1.15rem;
+  font-weight:800;letter-spacing:.1em;text-transform:uppercase;line-height:1;
+  display:flex;align-items:center;justify-content:center;gap:12px;
+  transition:transform .07s,background .18s,box-shadow .18s;
+  box-shadow:0 4px 14px rgba(22,163,74,.28)}
 .gol:hover{background:#15803d}
-.gol:active{transform:scale(.98)}
+.gol:active{transform:scale(.985)}
 .gol.carregando{background:#166534;box-shadow:none;cursor:default}
 .gol.pronto{background:#0f766e;box-shadow:none;cursor:default}
-.roda{width:24px;height:24px;border:3px solid rgba(255,255,255,.35);
+.roda{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.35);
   border-top-color:#fff;border-radius:50%;animation:gira .7s linear infinite;
   display:none;flex-shrink:0}
 .gol.carregando .roda{display:block}
 @keyframes gira{to{transform:rotate(360deg)}}
+.dica{text-align:center;font-size:.66rem;color:var(--c-muted-3);margin-top:8px}
 
-.estado-linha{display:flex;align-items:center;gap:8px;justify-content:center;
-  margin-top:10px;font-size:.78rem;color:var(--c-muted-3);text-align:center}
-.ponto{width:8px;height:8px;border-radius:50%;background:var(--c-muted-3);flex-shrink:0}
-.ponto.ok{background:#22c55e}
-.ponto.alerta{background:#f59e0b}
+.vazio{text-align:center;padding:44px 20px;color:var(--c-muted-3)}
+.vazio p{margin:0;font-size:.8rem;line-height:1.7}
 
-.vazio{text-align:center;padding:48px 20px;color:var(--c-muted-3)}
-.vazio .grande{font-size:2.4rem;opacity:.4;margin-bottom:10px}
-.vazio p{margin:0;font-size:.88rem;line-height:1.6}
-
-.clipe{border:1px solid var(--c-border);border-radius:14px;overflow:hidden;
-  margin-bottom:16px;background:var(--c-bg-card)}
-.clipe-topo{display:flex;align-items:center;gap:10px;padding:12px 14px;
-  border-bottom:1px solid var(--c-border)}
-.clipe-hora{font-weight:700;font-size:.92rem;letter-spacing:.02em}
-.selo{font-size:.62rem;font-weight:800;border-radius:99px;padding:3px 9px;
-  text-transform:uppercase;letter-spacing:.06em}
-.s-pedido,.s-cortando{background:#fef3c7;color:#854f0b}
-.s-pronto{background:#dcfce7;color:#14532d}
-.s-publicando{background:#dbeafe;color:#1e3a8a}
-.s-publicado{background:#e0e7ff;color:#312e81}
-.s-erro{background:#fee2e2;color:#7f1d1d}
-.tam{margin-left:auto;font-size:.72rem;color:var(--c-muted-3)}
+.clipe{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:12px;overflow:hidden;margin-bottom:12px}
+.clipe-topo{display:flex;align-items:center;gap:10px;padding:11px 14px}
+.clipe-hora{font-weight:800;font-size:.9rem}
+.selo{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
+  border:1.5px solid var(--c-border-2);border-radius:99px;padding:3px 9px;
+  color:var(--c-muted-4)}
+.selo.s-pronto{border-color:#22c55e;color:#22c55e}
+.selo.s-publicado{border-color:var(--c-text);color:var(--c-text)}
+.selo.s-erro{border-color:#fb7185;color:#fb7185}
+.tam{margin-left:auto;font-size:.66rem;color:var(--c-muted-3)}
 .clipe video{width:100%;display:block;background:#000;max-height:56vh}
 .clipe-corpo{padding:14px}
-.clipe textarea{width:100%;min-height:132px;padding:12px;
-  border:1px solid var(--c-border);border-radius:10px;background:var(--c-bg);
-  color:var(--c-text);font-family:inherit;font-size:.92rem;line-height:1.55;
-  resize:vertical;box-sizing:border-box}
+.clipe textarea{width:100%;min-height:126px;padding:12px 14px;box-sizing:border-box;
+  border:1px solid var(--c-border-2);border-radius:10px;background:var(--c-bg-soft);
+  color:var(--c-text);font-family:inherit;font-size:.9rem;line-height:1.6;
+  resize:vertical}
 .clipe textarea:focus{outline:none;border-color:#16a34a}
-.conta-letras{font-size:.7rem;color:var(--c-muted-3);text-align:right;margin-top:5px}
-.conta-letras.demais{color:#ef4444;font-weight:700}
-.nota{font-size:.76rem;color:var(--c-muted-3);line-height:1.55;margin-top:8px}
+.conta-letras{font-size:.64rem;color:var(--c-muted-3);text-align:right;margin-top:6px}
+.conta-letras.demais{color:#fb7185;font-weight:700}
+.nota{font-size:.72rem;color:var(--c-muted-3);line-height:1.6;margin-top:8px}
 .nota.ruim{color:#fb7185}
 .acoes{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
-.acoes button{padding:11px 14px;border-radius:10px;border:1px solid var(--c-border);
-  background:var(--c-bg);color:var(--c-text);font-family:inherit;font-weight:700;
-  font-size:.84rem;cursor:pointer;transition:border-color .15s,background .15s}
-.acoes button:hover:not(:disabled){border-color:var(--c-muted-3)}
-.acoes .publicar{background:#0ea5e9;border-color:#0ea5e9;color:#fff;margin-left:auto}
-.acoes .publicar:hover:not(:disabled){background:#0284c7}
-.acoes button:disabled{opacity:.4;cursor:default}
-.lembrete{margin-top:12px;padding:11px 13px;border-radius:10px;
-  background:var(--c-hover-tint);font-size:.8rem;line-height:1.55}
+.acoes button{padding:7px 14px;border-radius:99px;background:transparent;
+  border:1.5px solid var(--c-border-2);color:var(--c-muted-4);font-family:inherit;
+  font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
+  cursor:pointer}
+.acoes button:hover:not(:disabled){border-color:var(--c-text);color:var(--c-text)}
+.acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
+.acoes .publicar:hover:not(:disabled){background:#1a8cd8;border-color:#1a8cd8}
+.acoes button:disabled{opacity:.45;cursor:default}
+.lembrete{margin-top:2px;padding:11px 13px;border-radius:10px;
+  background:var(--c-bg-soft);font-size:.75rem;line-height:1.6;color:var(--c-muted-4)}
 .lembrete b{color:var(--c-text)}
-.lembrete a{color:#0ea5e9}
+.lembrete a{color:#1d9bf0}
 """
 
 
@@ -6065,12 +6066,10 @@ __CLIPES_CSS__
 <body>
 __HDR__
 <div class="wrap">
-  <div class="topo">
-    <h1>Clipes de gol</h1>
-    <p class="sub">Saiu gol, aperta o botão. O clipe chega aqui com a legenda pronta.</p>
-  </div>
+  <h1>Clipes de gol</h1>
+  <p class="sub">Saiu gol, aperta o botão. O clipe chega com a legenda pronta.</p>
 
-  <div class="live-caixa">
+  <div class="preparo">
     <label for="liveUrl">Link da transmissão</label>
     <div class="live-linha">
       <input id="liveUrl" type="url" inputmode="url" autocomplete="off"
@@ -6085,10 +6084,7 @@ __HDR__
     <button class="gol" id="btGol" onclick="pedirClipe()">
       <span class="roda"></span><span id="btGolTexto">GOL AGORA</span>
     </button>
-    <div class="estado-linha">
-      <span class="ponto" id="pontoEstado"></span>
-      <span id="textoEstado">verificando…</span>
-    </div>
+    <div class="dica" id="textoEstado">verificando…</div>
   </div>
 
   <div id="lista"></div>
@@ -6195,11 +6191,11 @@ async function pedirClipe() {
 }
 
 function dizEstado(tipo, texto) {
-  const p = document.getElementById('pontoEstado');
+  // A bolinha colorida vive no painel de preparo, junto do link. Aqui embaixo
+  // do botão é só a linha de dica — duas bolinhas dizendo coisas parecidas na
+  // mesma tela seria ruído.
   const t = document.getElementById('textoEstado');
-  if (!p || !t) return;
-  p.className = 'ponto' + (tipo ? ' ' + tipo : '');
-  t.textContent = texto;
+  if (t) t.textContent = texto;
 }
 
 function rotulo(e) {
@@ -6446,6 +6442,7 @@ _ELENCOS_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Elencos · IARABÃO</title>
 __THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
 __HEADER_CSS__
 :root{
@@ -7081,6 +7078,7 @@ _POSTS_HTML = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Posts · IARABÃO</title>
 __THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
 __HEADER_CSS__
 :root{--bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);
