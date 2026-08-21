@@ -1559,24 +1559,35 @@ def _cria_clipe(c) -> None:
             atualizado_em TIMESTAMPTZ DEFAULT NOW()
         )
     """)
+    # CREATE TABLE IF NOT EXISTS não toca em tabela que já existe. Como a sua
+    # já tem clipes dentro, as colunas novas precisam de ALTER — senão o código
+    # novo consultaria coluna inexistente e tudo cairia no except, virando
+    # "nenhum clipe" na tela, sem explicação.
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS live_id TEXT")
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS tipo TEXT "
+              "NOT NULL DEFAULT 'gol'")
 
 
 # Colunas de listagem. O BYTEA fica de fora de propósito: um clipe tem alguns
 # megabytes, e trazer isso numa lista de dez clipes seria carregar dezenas de
 # megabytes para desenhar uma tela que só precisa do tamanho.
 _COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, "
-               "texto, gol_id, media_id, post_id, erro, atualizado_em")
+               "texto, gol_id, media_id, post_id, erro, atualizado_em, "
+               "live_id, tipo")
 
 
-def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8) -> int:
+def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8,
+                       live_id: str = "", tipo: str = "gol") -> int:
     """Registra um pedido de corte. Devolve o id, ou 0 se falhou."""
     try:
         with get_conn() as conn:
             c = conn.cursor()
             _cria_clipe(c)
-            c.execute("""INSERT INTO clipe (alvo_em, antes_seg, depois_seg)
-                         VALUES (%s,%s,%s) RETURNING id""",
-                      [alvo_em, max(0, int(antes_seg)), max(1, int(depois_seg))])
+            c.execute("""INSERT INTO clipe (alvo_em, antes_seg, depois_seg,
+                                            live_id, tipo)
+                         VALUES (%s,%s,%s,%s,%s) RETURNING id""",
+                      [alvo_em, max(0, int(antes_seg)), max(1, int(depois_seg)),
+                       live_id or None, tipo if tipo in ("gol", "outro") else "gol"])
             return int(c.fetchone()[0])
     except Exception:
         return 0
@@ -1740,3 +1751,70 @@ def um_clipe(clipe_id: int) -> dict | None:
             return _clipe_json(dict(linha)) if linha else None
     except Exception:
         return None
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# LIVES EM ANDAMENTO
+#
+# Uma lista, não um campo: numa rodada há jogos simultâneos, e a versão de um
+# link só encerrava a gravação anterior quando você colava a segunda — perdia
+# o primeiro jogo em silêncio.
+#
+# Mora no app_state, que já existe e sobrevive a redeploy. Tabela nova para
+# quatro linhas de texto seria peso sem ganho.
+# ══════════════════════════════════════════════════════════════════════════
+
+CHAVE_LIVES = "clipe_lives"
+MAX_LIVES = 4
+
+
+def listar_lives() -> list[dict]:
+    try:
+        d = json.loads(get_state(CHAVE_LIVES) or "[]")
+        return d if isinstance(d, list) else []
+    except Exception:
+        return []
+
+
+def _salvar_lives(lives: list) -> bool:
+    try:
+        set_state(CHAVE_LIVES, json.dumps(lives[:MAX_LIVES], ensure_ascii=False))
+        return True
+    except Exception:
+        return False
+
+
+def adicionar_live(live_id: str, url: str, titulo: str = "") -> tuple[bool, str]:
+    """Devolve (deu certo, motivo da recusa)."""
+    lives = listar_lives()
+    if len(lives) >= MAX_LIVES:
+        return False, f"o limite é {MAX_LIVES} jogos ao mesmo tempo"
+    if any((l.get("url") or "").strip() == url.strip() for l in lives):
+        return False, "esse link já está na lista"
+    lives.append({"id": live_id, "url": url.strip(), "titulo": titulo,
+                  "criada_em": datetime.now(timezone.utc).isoformat()})
+    return (True, "") if _salvar_lives(lives) else (False, "não consegui salvar")
+
+
+def remover_live(live_id: str) -> bool:
+    lives = listar_lives()
+    restantes = [l for l in lives if l.get("id") != live_id]
+    if len(restantes) == len(lives):
+        return False
+    return _salvar_lives(restantes)
+
+
+def titulo_da_live(live_id: str, titulo: str) -> bool:
+    """O gravador descobre o título com o yt-dlp e devolve para cá.
+
+    Assim o botão na tela diz "AL HILAL X AL NASSR" em vez de um link, que é o
+    que importa quando há quatro jogos e você precisa acertar o certo com o
+    dedo, rápido.
+    """
+    lives = listar_lives()
+    achou = False
+    for l in lives:
+        if l.get("id") == live_id and titulo and l.get("titulo") != titulo:
+            l["titulo"] = titulo[:120]
+            achou = True
+    return _salvar_lives(lives) if achou else False
