@@ -12,8 +12,8 @@ POR QUE ISTO EXISTE
     construir o gravador inteiro.
 
 O QUE ELA FAZ
-    1. Sobe um vídeo mínimo (1 segundo, preto, mudo) pelo fluxo picotado real
-       — INIT / APPEND / FINALIZE / STATUS — que é o mesmo que o clipe usará.
+    1. Sobe um vídeo mínimo (1 segundo, preto, mudo) pelo caminho real da v2
+       — initialize / append / finalize — que é o mesmo que o clipe usará.
     2. Tenta várias formas possíveis de geo_restrictions, uma por vez.
     3. Lê de volta o associated_metadata que o X devolve e mostra o que grudou.
 
@@ -145,59 +145,67 @@ def _linhas_cred() -> tuple[bool, str]:
 
 
 async def _subir_video(cred: dict, dados: bytes, diz) -> str:
-    """INIT / APPEND / FINALIZE / STATUS. Devolve o media_id."""
-    # INIT — multipart, então nenhum campo do corpo entra na assinatura OAuth.
-    cab = x_client._cabecalho("POST", API_MEDIA, cred)
+    """initialize / append / finalize. Devolve o media_id.
+
+    A v2 NÃO usa mais o velho "command=INIT" em multipart no /2/media/upload —
+    esse é o formato da v1.1. O guia de início rápido do X ainda mostra assim,
+    e eu segui o guia: deu HTTP 400 "Missing media field in JSON", porque sem o
+    command reconhecido a chamada virava um upload simples, que exige o campo
+    media. A referência do OpenAPI tem endpoints próprios para cada passo.
+    """
     async with httpx.AsyncClient(timeout=90.0) as c:
-        r = await c.post(API_MEDIA, headers={"Authorization": cab}, files={
-            "command": (None, "INIT"),
-            "media_type": (None, "video/mp4"),
-            "total_bytes": (None, str(len(dados))),
-            "media_category": (None, "tweet_video"),
-        })
-        diz(f"    INIT      -> HTTP {r.status_code} {r.text[:200]}")
+        # ── initialize: corpo JSON (e corpo JSON não entra na assinatura OAuth)
+        url = f"{API_MEDIA}/initialize"
+        cab = x_client._cabecalho("POST", url, cred)
+        r = await c.post(url, headers={"Authorization": cab,
+                                       "Content-Type": "application/json"},
+                         json={"media_type": "video/mp4",
+                               "total_bytes": len(dados),
+                               "media_category": "tweet_video"})
+        diz(f"    initialize -> HTTP {r.status_code} {r.text[:220]}")
         if r.status_code >= 300:
-            raise RuntimeError("INIT falhou")
+            raise RuntimeError("initialize falhou")
         mid = str(((r.json() or {}).get("data") or {}).get("id") or "")
         if not mid:
-            raise RuntimeError("INIT sem media_id")
+            raise RuntimeError("initialize sem id")
 
-        # APPEND — o arquivo é minúsculo, um pedaço só.
-        cab = x_client._cabecalho("POST", API_MEDIA, cred)
-        r = await c.post(API_MEDIA, headers={"Authorization": cab}, files={
-            "command": (None, "APPEND"),
-            "media_id": (None, mid),
-            "segment_index": (None, "0"),
+        # ── append: multipart, com media e segment_index. Arquivo minúsculo,
+        # um pedaço só. (multipart também fica fora da assinatura.)
+        url = f"{API_MEDIA}/{mid}/append"
+        cab = x_client._cabecalho("POST", url, cred)
+        r = await c.post(url, headers={"Authorization": cab}, files={
             "media": ("clipe.mp4", dados, "video/mp4"),
+            "segment_index": (None, "0"),
         })
-        diz(f"    APPEND    -> HTTP {r.status_code} {r.text[:160]}")
+        diz(f"    append     -> HTTP {r.status_code} {r.text[:180]}")
         if r.status_code >= 300:
-            raise RuntimeError("APPEND falhou")
+            raise RuntimeError("append falhou")
 
-        cab = x_client._cabecalho("POST", API_MEDIA, cred)
-        r = await c.post(API_MEDIA, headers={"Authorization": cab}, files={
-            "command": (None, "FINALIZE"),
-            "media_id": (None, mid),
-        })
-        diz(f"    FINALIZE  -> HTTP {r.status_code} {r.text[:250]}")
+        # ── finalize
+        url = f"{API_MEDIA}/{mid}/finalize"
+        cab = x_client._cabecalho("POST", url, cred)
+        r = await c.post(url, headers={"Authorization": cab})
+        diz(f"    finalize   -> HTTP {r.status_code} {r.text[:260]}")
         if r.status_code >= 300:
-            raise RuntimeError("FINALIZE falhou")
+            raise RuntimeError("finalize falhou")
 
         info = ((r.json() or {}).get("data") or {}).get("processing_info") or {}
-        # STATUS é GET com parâmetros na URL — e AÍ eles entram na assinatura,
-        # ao contrário do corpo multipart dos passos acima.
         esperas = 0
         while info.get("state") in ("pending", "in_progress") and esperas < 20:
             await asyncio.sleep(max(1, int(info.get("check_after_secs") or 1)))
             esperas += 1
+            # STATUS é GET com parâmetros na URL — e AÍ eles entram na
+            # assinatura, ao contrário dos corpos JSON e multipart acima.
             q = {"command": "STATUS", "media_id": mid}
             cab = x_client._cabecalho("GET", API_MEDIA, cred, q)
             r = await c.get(API_MEDIA, params=q, headers={"Authorization": cab})
             if r.status_code >= 300:
-                diz(f"    STATUS    -> HTTP {r.status_code} {r.text[:160]}")
+                diz(f"    status     -> HTTP {r.status_code} {r.text[:160]}")
+                diz("    (sigo assim mesmo: um vídeo de 4 KB não costuma "
+                    "precisar de processamento)")
                 break
             info = ((r.json() or {}).get("data") or {}).get("processing_info") or {}
-            diz(f"    STATUS    -> {info.get('state')}")
+            diz(f"    status     -> {info.get('state')}")
         if info and info.get("state") == "failed":
             raise RuntimeError(f"processamento falhou: {json.dumps(info)[:200]}")
     return mid
@@ -248,7 +256,7 @@ async def sondar() -> str:
     diz(f"vídeo de teste: {len(dados)} bytes (1s, preto, mudo)")
     diz()
 
-    diz("1) UPLOAD PICOTADO — o mesmo caminho que o clipe de gol vai usar")
+    diz("1) UPLOAD EM PEDAÇOS — o mesmo caminho que o clipe de gol vai usar")
     diz("-" * 72)
     try:
         mid = await _subir_video(cred, dados, diz)
