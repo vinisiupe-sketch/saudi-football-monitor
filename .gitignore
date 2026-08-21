@@ -45,3 +45,7 @@ sondagem_live_clipe.mp4
 
 # Saida do verificador de ferramentas (local, muda a cada rodada)
 ferramentas_status.txt
+
+# Gravador — token local e as gravacoes, que sao gigantes
+clipe_token.txt
+gravacoes/
