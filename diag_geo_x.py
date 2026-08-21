@@ -336,13 +336,17 @@ async def sondar() -> str:
     if not vencedores:
         diz("4) É O CAMPO OU É A FORMA?")
         diz("-" * 72)
-        for rot, meta in [
-            ("geo vazio {}", {"geo_restrictions": {}}),
-            ("geo tipo errado", {"geo_restrictions": "BR"}),
-            ("irmão especificado", {"allow_download_status": {"allow_download": False}}),
-            ("irmão 'object' pelado", {"sensitive_media_warning": {"other": True}}),
+        provas = {}
+        for chave, rot, meta in [
+            ("vazio",   "geo vazio {}", {"geo_restrictions": {}}),
+            ("tipo",    "geo tipo errado", {"geo_restrictions": "BR"}),
+            ("irmao1",  "irmão especificado",
+             {"allow_download_status": {"allow_download": False}}),
+            ("irmao2",  "irmão 'object' pelado",
+             {"sensitive_media_warning": {"other": True}}),
         ]:
-            await _tentar(cred, mid, rot, meta, diz)
+            st, _g = await _tentar(cred, mid, rot, meta, diz)
+            provas[chave] = st
             diz()
             await asyncio.sleep(2)
 
@@ -388,6 +392,31 @@ async def sondar() -> str:
             diz("    aparece no post antes de fechar o desenho.")
             diz()
         diz("    Dá para restringir ao Brasil por API. O plano automático vive.")
+    elif (provas.get("tipo") == 400 and provas.get("vazio", 0) >= 500
+          and provas.get("irmao2") == 200):
+        # Este é o padrão mais informativo que a sondagem sabe reconhecer, e
+        # aponta para um só lugar.
+        diz("    O CAMPO EXISTE, É VALIDADO, E O HANDLER DELE CAI.")
+        diz()
+        diz("    A cadeia de evidência, toda na mesma mídia e na mesma chamada:")
+        diz(f"      - alt_text                      -> 200 (o endpoint funciona)")
+        diz(f"      - allow_download_status         -> {provas.get('irmao1')} (escrita de metadado funciona)")
+        diz(f"      - sensitive_media_warning       -> {provas.get('irmao2')} (outro campo 'object' pelado funciona)")
+        diz(f"      - geo_restrictions: \"BR\"        -> 400 'string found, object expected'")
+        diz(f"      - geo_restrictions: {{}}          -> {provas.get('vazio')}")
+        diz()
+        diz("    O 400 no tipo errado prova que o validador CONHECE o campo e")
+        diz("    exige objeto. O 5xx no objeto VAZIO prova que ele passa pela")
+        diz("    validação e quebra depois, no tratamento. Não é formato: nenhum")
+        diz("    valor meu poderia consertar um objeto vazio.")
+        diz()
+        diz("    E não é a categoria da mídia: amplify_video deu o mesmo 5xx.")
+        diz()
+        diz("    Duas leituras cabem, e daqui não dá para separar: ou o recurso")
+        diz("    está quebrado para todo mundo, ou existe uma checagem de")
+        diz("    habilitação que responde 5xx em vez de 403 para quem não tem.")
+        diz("    Nos dois casos a pergunta é para o suporte do X, não para mim")
+        diz("    continuar adivinhando formato.")
     elif servidor_falhou == len(FORMAS):
         diz(f"    Todas as {len(FORMAS)} tentativas voltaram erro de servidor (5xx),")
         diz("    embora o controle com alt_text tenha passado.")
