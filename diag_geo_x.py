@@ -211,25 +211,29 @@ async def _subir_video(cred: dict, dados: bytes, diz) -> str:
     return mid
 
 
-async def _tentar(cred: dict, mid: str, rotulo: str, forma: dict, diz) -> bool:
-    """Aplica uma forma de geo_restrictions e confere se ela grudou."""
-    corpo = {"id": mid, "metadata": {"geo_restrictions": forma}}
-    cab = x_client._cabecalho("POST", API_METADATA, cred)   # corpo JSON: fora da assinatura
-    async with httpx.AsyncClient(timeout=30.0) as c:
-        r = await c.post(API_METADATA, json=corpo,
-                         headers={"Authorization": cab,
-                                  "Content-Type": "application/json"})
+async def _tentar(cred: dict, mid: str, rotulo: str, meta: dict, diz,
+                  url: str = API_METADATA) -> tuple[int, bool]:
+    """Aplica um metadado e devolve (status_http, grudou)."""
+    corpo = {"id": mid, "metadata": meta}
+    cab = x_client._cabecalho("POST", url, cred)   # corpo JSON: fora da assinatura
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            r = await c.post(url, json=corpo,
+                             headers={"Authorization": cab,
+                                      "Content-Type": "application/json"})
+    except Exception as e:
+        diz(f"    {rotulo:18} EXPLODIU: {type(e).__name__}: {e}")
+        return 0, False
     diz(f"    {rotulo:18} HTTP {r.status_code}")
-    diz(f"        enviei : {json.dumps(forma, ensure_ascii=False)}")
+    diz(f"        enviei : {json.dumps(meta, ensure_ascii=False)[:160]}")
     diz(f"        recebi : {r.text[:400]}")
     if r.status_code >= 300:
-        return False
+        return r.status_code, False
     # A prova não é o 200 — é o campo voltar no associated_metadata. O X pode
     # aceitar a chamada e descartar em silêncio um campo que não entendeu.
     voltou = ((r.json() or {}).get("data") or {}).get("associated_metadata") or {}
-    grudou = "geo" in json.dumps(voltou).lower()
-    diz(f"        grudou : {'SIM' if grudou else 'não (o campo não voltou)'}")
-    return grudou
+    diz(f"        voltou : {json.dumps(voltou, ensure_ascii=False)[:300]}")
+    return r.status_code, bool(voltou)
 
 
 async def sondar() -> str:
@@ -270,16 +274,47 @@ async def sondar() -> str:
     diz(f"    media_id obtido: {mid}")
     diz()
 
-    diz("2) FORMATOS DE geo_restrictions")
+    # CONTROLE. Sem isto eu não sei distinguir "o formato está errado" de "o
+    # endpoint não está respondendo". Na rodada anterior as sete tentativas
+    # voltaram 503 iguais e eu escrevi no veredito que a restrição por API
+    # estava fora do alcance — conclusão que o dado não sustentava.
+    # alt_text é o campo mais simples e documentado do mesmo objeto: se ele
+    # passa, o endpoint funciona e o problema é o geo. Se ele também falha,
+    # o problema é o endpoint e nada foi testado sobre o geo.
+    diz("2) CONTROLE — o endpoint de metadados responde a alguma coisa?")
     diz("-" * 72)
-    vencedores = []
-    for rotulo, forma in FORMAS:
-        try:
-            if await _tentar(cred, mid, rotulo, forma, diz):
-                vencedores.append((rotulo, forma))
-        except Exception as e:
-            diz(f"    {rotulo:18} EXPLODIU: {type(e).__name__}: {e}")
+    st_ctrl, ok_ctrl = await _tentar(cred, mid, "alt_text (controle)",
+                                     {"alt_text": {"text": "teste de sondagem"}}, diz)
+    diz()
+    if st_ctrl >= 500 or st_ctrl == 0:
+        diz(f"    O CONTROLE FALHOU (HTTP {st_ctrl}).")
+        diz("    O endpoint de metadados não está respondendo nem ao campo mais")
+        diz("    simples que existe. Testar geo_restrictions agora não mede nada")
+        diz("    e só gastaria crédito — paro aqui.")
         diz()
+        diz("    Tente de novo em alguns minutos. Se persistir, é indisponibilidade")
+        diz("    do lado deles ou falta de permissão nesta chave, e não formato.")
+        diz("=" * 72)
+        return "\n".join(linhas)
+    if st_ctrl >= 400:
+        diz(f"    Controle voltou {st_ctrl} — o endpoint responde, mas recusou até")
+        diz("    o alt_text. Provável falta de permissão (escopo media.write).")
+        diz("    Sigo mesmo assim: a resposta do geo ainda informa.")
+        diz()
+
+    diz("3) FORMATOS DE geo_restrictions")
+    diz("-" * 72)
+    vencedores, servidor_falhou = [], 0
+    for rotulo, forma in FORMAS:
+        st, grudou = await _tentar(cred, mid, rotulo, {"geo_restrictions": forma}, diz)
+        if st >= 500 or st == 0:
+            servidor_falhou += 1
+        elif grudou:
+            vencedores.append((rotulo, forma))
+        diz()
+        # Espaço entre as chamadas: sete requisições instantâneas podem ser
+        # barradas por ritmo, e aí eu leria estrangulamento como recusa.
+        await asyncio.sleep(2)
 
     diz("=" * 72)
     diz("VEREDITO")
@@ -290,14 +325,22 @@ async def sondar() -> str:
             diz(f"      {rotulo}: {json.dumps(forma, ensure_ascii=False)}")
         diz()
         diz("    Dá para restringir ao Brasil por API. O plano automático vive.")
-    else:
-        diz("    Nenhum formato grudou.")
+    elif servidor_falhou == len(FORMAS):
+        diz(f"    Todas as {len(FORMAS)} tentativas voltaram erro de servidor (5xx),")
+        diz("    embora o controle com alt_text tenha passado.")
         diz()
-        diz("    Isso NÃO significa necessariamente que é impossível — pode ser")
-        diz("    que o campo exija nível de acesso que esta conta não tem, ou")
-        diz("    uma forma que eu não adivinhei. Mas significa que publicar")
-        diz("    restrito por API não está ao nosso alcance hoje, e que a")
-        diz("    restrição teria de ser feita à mão no Media Studio.")
+        diz("    Isso é estranho e vale repetir: pode ser que o campo exista mas")
+        diz("    esteja quebrado do lado deles, ou que exija permissão que esta")
+        diz("    chave não tem e o erro saia como 5xx em vez de 403.")
+        diz("    NÃO concluo daqui que é impossível — 5xx não é recusa de formato.")
+    else:
+        diz("    O endpoint respondeu (o controle passou), e nenhum dos formatos")
+        diz("    de geo_restrictions grudou.")
+        diz()
+        diz("    Aqui sim a conclusão se sustenta: ou nenhuma das sete formas é a")
+        diz("    certa, ou o campo não está liberado para esta conta. Em qualquer")
+        diz("    dos casos, a restrição teria de ser feita à mão no Media Studio,")
+        diz("    e o plano de aprovar pelo celular e subir sozinho não fecha.")
     diz("=" * 72)
     diz()
     diz("Nada foi publicado. Este arquivo não chama /2/tweets em lugar nenhum.")
