@@ -3,6 +3,7 @@ Saudi Football Monitor — FastAPI app principal.
 """
 import os
 import base64
+import secrets
 from zoneinfo import ZoneInfo
 
 # Agrupar a agenda por dia exige um fuso do lado do servidor: o seu "sábado"
@@ -24,7 +25,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -5592,6 +5593,201 @@ async def coletar_gols_ao_vivo() -> dict:
     diag["novos"] = len(novos)
     _ULTIMA_COLETA.update(diag)
     return {"novos": len(novos), "detalhe": novos, "diagnostico": diag}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CLIPE DE GOL
+# ══════════════════════════════════════════════════════════════════════════
+
+# Quanto tempo passa entre o gol acontecer e você conseguir apertar o botão.
+# Sem descontar isso, a janela de "10 segundos antes" viraria "6 antes", e o
+# clipe começaria com a bola já entrando. É estimativa, e é por isso que
+# existem os botões de ajuste.
+REACAO_SEG = 4
+
+# Fonte preferida para a legenda. A API-Football tem se mostrado mais rápida
+# nas medições, e legenda que chega tarde não serve para clipe ao vivo.
+FONTE_LEGENDA = "api_football"
+
+
+def _legenda_do_gol(alvo_iso: str) -> tuple[str, int | None]:
+    """Acha o alerta de gol mais próximo do instante do clipe.
+
+    A fonte publica o gol DEPOIS de ele acontecer, então procuro numa janela
+    torta de propósito: pouco para trás e bastante para frente. Um alerta que
+    chegou três minutos depois do seu toque ainda é o gol que você clipou; um
+    que chegou dois minutos ANTES é outro gol.
+    """
+    try:
+        alvo = datetime.fromisoformat(alvo_iso)
+    except Exception:
+        return "", None
+    melhor, menor = None, None
+    for l in gols_vistos(3):
+        if l.get("fonte") != FONTE_LEGENDA or not l.get("texto"):
+            continue
+        try:
+            visto = datetime.fromisoformat(l["visto_em"])
+        except Exception:
+            continue
+        d = (visto - alvo).total_seconds()
+        if not (-60 <= d <= 300):
+            continue
+        if menor is None or abs(d) < menor:
+            melhor, menor = l, abs(d)
+    return ((melhor or {}).get("texto") or ""), ((melhor or {}).get("id"))
+
+
+def _com_legenda(c: dict) -> dict:
+    """Preenche a legenda a partir do alerta de gol, se você ainda não escreveu."""
+    if not c.get("texto"):
+        texto, gol_id = _legenda_do_gol(c.get("alvo_em") or "")
+        if texto:
+            c["texto"] = texto
+            c["texto_sugerido"] = True
+            c["gol_id"] = gol_id
+    return c
+
+
+def _agente_autorizado(request: Request) -> bool:
+    """O agente de casa precisa provar quem é.
+
+    Sem isso, qualquer um na internet poderia enfiar um vídeo na sua fila de
+    publicação — e o vídeo é o que vai para o ar em nome do seu acordo com o
+    detentor dos direitos. As outras rotas do app são abertas, mas essa aqui
+    aceita conteúdo de fora, e isso é outro patamar de risco.
+    """
+    esperado = os.environ.get("CLIPE_TOKEN", "").strip()
+    if not esperado:
+        return False
+    enviado = (request.headers.get("X-Clipe-Token")
+               or request.query_params.get("token") or "")
+    return secrets.compare_digest(enviado, esperado)
+
+
+@app.post("/api/clipe/pedir")
+async def api_clipe_pedir(request: Request):
+    """O botão GOL AGORA. Carimba a hora e põe na fila do gravador."""
+    alvo = datetime.now(timezone.utc) - timedelta(seconds=REACAO_SEG)
+    cid = criar_pedido_clipe(alvo)
+    if not cid:
+        return JSONResponse({"erro": "não consegui registrar o pedido"}, 500)
+    return {"id": cid, "alvo_em": alvo.isoformat(), "reacao_descontada": REACAO_SEG}
+
+
+@app.get("/api/clipe/pendentes")
+async def api_clipe_pendentes(request: Request):
+    """O gravador de casa consulta isto para saber o que cortar."""
+    if not _agente_autorizado(request):
+        return JSONResponse({"erro": "token do agente ausente ou errado"}, 403)
+    return {"clipes": clipes_a_cortar()}
+
+
+@app.post("/api/clipe/{clipe_id}/entregar")
+async def api_clipe_entregar(clipe_id: int, request: Request):
+    """O gravador devolve o mp4, como bytes crus no corpo.
+
+    Bytes crus e não multipart de propósito: multipart exigiria a biblioteca
+    python-multipart, que não está instalada aqui e que eu teria descoberto
+    que faltava só no deploy.
+    """
+    if not _agente_autorizado(request):
+        return JSONResponse({"erro": "token do agente ausente ou errado"}, 403)
+    dados = await request.body()
+    if not dados:
+        erro_no_clipe(clipe_id, "o gravador mandou corpo vazio")
+        return JSONResponse({"erro": "corpo vazio"}, 400)
+    if len(dados) > 60 * 1024 * 1024:
+        erro_no_clipe(clipe_id, f"clipe de {len(dados)//1024//1024} MB é grande demais")
+        return JSONResponse({"erro": "clipe grande demais"}, 413)
+    if dados[4:8] != b"ftyp":
+        erro_no_clipe(clipe_id, "o que chegou não parece um mp4")
+        return JSONResponse({"erro": "não parece mp4"}, 400)
+    if not entregar_clipe(clipe_id, dados):
+        return JSONResponse({"erro": "clipe não está em estado de receber corte"}, 409)
+    return {"ok": True, "bytes": len(dados)}
+
+
+@app.post("/api/clipe/{clipe_id}/falhou")
+async def api_clipe_falhou(clipe_id: int, request: Request):
+    """O gravador avisa que não conseguiu cortar."""
+    if not _agente_autorizado(request):
+        return JSONResponse({"erro": "token do agente ausente ou errado"}, 403)
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    erro_no_clipe(clipe_id, corpo.get("erro") or "o gravador não explicou")
+    return {"ok": True}
+
+
+@app.get("/api/clipes")
+async def api_clipes(horas: int = 8):
+    return {"clipes": [_com_legenda(c) for c in clipes_recentes(horas)],
+            "agente_configurado": bool(os.environ.get("CLIPE_TOKEN", "").strip())}
+
+
+@app.get("/api/clipe/{clipe_id}/video")
+async def api_clipe_video(clipe_id: int):
+    dados = video_do_clipe(clipe_id)
+    if not dados:
+        return JSONResponse({"erro": "sem vídeo"}, 404)
+    return Response(content=dados, media_type="video/mp4",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/clipe/{clipe_id}/ajustar")
+async def api_clipe_ajustar(clipe_id: int, delta: int = -5):
+    if abs(delta) > 60:
+        return JSONResponse({"erro": "ajuste de no máximo 60s por vez"}, 400)
+    if not ajustar_clipe(clipe_id, delta):
+        return JSONResponse({"erro": "não deu para ajustar este clipe"}, 409)
+    return {"ok": True, "clipe": _com_legenda(um_clipe(clipe_id) or {})}
+
+
+@app.post("/api/clipe/{clipe_id}/texto")
+async def api_clipe_texto(clipe_id: int, request: Request):
+    corpo = await request.json()
+    texto_do_clipe(clipe_id, (corpo.get("texto") or "").strip())
+    return {"ok": True}
+
+
+@app.post("/api/clipe/{clipe_id}/publicar")
+async def api_clipe_publicar(clipe_id: int, request: Request):
+    """Sobe o vídeo e publica. Só a partir de um clique seu."""
+    c = um_clipe(clipe_id)
+    if not c:
+        return JSONResponse({"erro": "clipe não existe"}, 404)
+    if c.get("estado") == "publicado":
+        return JSONResponse({"erro": "este clipe já foi publicado"}, 409)
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    # A caixa de texto da tela manda o valor atual junto: sem isso, uma edição
+    # não salva publicaria a legenda antiga. Já me queimei exatamente assim na
+    # guia Posts.
+    texto = (corpo.get("texto") or c.get("texto") or "").strip()
+    if not texto:
+        return JSONResponse({"erro": "sem legenda"}, 400)
+    texto_do_clipe(clipe_id, texto)
+    dados = video_do_clipe(clipe_id)
+    if not dados:
+        return JSONResponse({"erro": "o clipe não tem vídeo"}, 409)
+    if not mudar_estado_clipe(clipe_id, c.get("estado") or "pronto", "publicando"):
+        return JSONResponse({"erro": "o clipe mudou de estado; recarregue"}, 409)
+    try:
+        media_id = await x_client.subir_video(dados)
+        r = await x_client.publicar(texto, media_ids=[media_id],
+                                    publicados_hoje=contar_publicados_hoje())
+    except Exception as e:
+        erro_no_clipe(clipe_id, f"{type(e).__name__}: {e}")
+        return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, 502)
+    clipe_publicado(clipe_id, media_id, r.get("id") or "")
+    return {"ok": True, "post_id": r.get("id"), "custo": r.get("custo"),
+            "url": f"https://x.com/i/status/{r.get('id')}" if r.get("id") else ""}
 
 
 @app.get("/api/diag/geo-x", response_class=PlainTextResponse)
