@@ -144,7 +144,8 @@ def _linhas_cred() -> tuple[bool, str]:
     return ok, ("faltando: " + ", ".join(faltando) if faltando else "")
 
 
-async def _subir_video(cred: dict, dados: bytes, diz) -> str:
+async def _subir_video(cred: dict, dados: bytes, diz,
+                       categoria: str = "tweet_video") -> str:
     """initialize / append / finalize. Devolve o media_id.
 
     A v2 NÃO usa mais o velho "command=INIT" em multipart no /2/media/upload —
@@ -161,7 +162,7 @@ async def _subir_video(cred: dict, dados: bytes, diz) -> str:
                                        "Content-Type": "application/json"},
                          json={"media_type": "video/mp4",
                                "total_bytes": len(dados),
-                               "media_category": "tweet_video"})
+                               "media_category": categoria})
         diz(f"    initialize -> HTTP {r.status_code} {r.text[:220]}")
         if r.status_code >= 300:
             raise RuntimeError("initialize falhou")
@@ -316,6 +317,62 @@ async def sondar() -> str:
         # barradas por ritmo, e aí eu leria estrangulamento como recusa.
         await asyncio.sleep(2)
 
+    # ── 4. É o CAMPO ou é a FORMA? ──────────────────────────────────────
+    # O controle provou que o endpoint funciona. Falta separar duas coisas
+    # que o 503 não distingue sozinho:
+    #
+    #   (a) o handler do geo_restrictions está quebrado/desligado, e QUALQUER
+    #       valor derruba — inclusive objeto vazio e tipo errado;
+    #   (b) só as formas que eu inventei estão erradas.
+    #
+    # Se {} e uma string também derem 503, é (a): nem chega na validação.
+    # Um campo validado responderia 400 a um tipo errado, não 503.
+    #
+    # Testo junto dois campos IRMÃOS do mesmo objeto, escolhidos de propósito:
+    # allow_download_status é bem especificado no OpenAPI (tem propriedades),
+    # sensitive_media_warning é declarado como "type: object" pelado, igual ao
+    # geo_restrictions. Se os pelados falham e os especificados passam, o
+    # padrão deixa de ser palpite e vira achado.
+    if not vencedores:
+        diz("4) É O CAMPO OU É A FORMA?")
+        diz("-" * 72)
+        for rot, meta in [
+            ("geo vazio {}", {"geo_restrictions": {}}),
+            ("geo tipo errado", {"geo_restrictions": "BR"}),
+            ("irmão especificado", {"allow_download_status": {"allow_download": False}}),
+            ("irmão 'object' pelado", {"sensitive_media_warning": {"other": True}}),
+        ]:
+            await _tentar(cred, mid, rot, meta, diz)
+            diz()
+            await asyncio.sleep(2)
+
+        # ── 5. A hipótese do Amplify ────────────────────────────────────────
+        # A restrição geográfica, na interface, é recurso de publisher: mora no
+        # Media Studio, junto de monetização e Amplify. Talvez ela exija que a
+        # mídia tenha sido criada como amplify_video, e não tweet_video. Custa
+        # um upload a mais descobrir.
+        diz("5) E SE A MÍDIA FOR amplify_video EM VEZ DE tweet_video?")
+        diz("-" * 72)
+        try:
+            mid2 = await _subir_video(cred, dados, diz, categoria="amplify_video")
+            diz(f"    media_id amplify: {mid2}")
+            diz()
+            for rot, forma in FORMAS[:3]:
+                st, grudou = await _tentar(cred, mid2, rot + " (amplify)",
+                                           {"geo_restrictions": forma}, diz)
+                if grudou:
+                    # Sem esta linha a descoberta não entrava na conta e o
+                    # veredito continuava dizendo que tudo falhou. Meu teste de
+                    # cenário pegou: seria o erro de ontem invertido, jogando
+                    # fora justamente o resultado que interessa.
+                    vencedores.append((rot + " (só com amplify_video)", forma))
+                diz()
+                await asyncio.sleep(2)
+        except Exception as e:
+            diz(f"    não consegui subir como amplify_video: {type(e).__name__}: {e}")
+            diz("    (isso por si só já diz que a conta não tem acesso a Amplify)")
+            diz()
+
     diz("=" * 72)
     diz("VEREDITO")
     diz("-" * 72)
@@ -324,6 +381,12 @@ async def sondar() -> str:
         for rotulo, forma in vencedores:
             diz(f"      {rotulo}: {json.dumps(forma, ensure_ascii=False)}")
         diz()
+        if any("amplify" in r for r, _ in vencedores):
+            diz("    ATENÇÃO: só funcionou com a mídia criada como amplify_video,")
+            diz("    e não como tweet_video. O clipe de gol teria de ser subido")
+            diz("    nessa categoria. Vale conferir se isso muda como o vídeo")
+            diz("    aparece no post antes de fechar o desenho.")
+            diz()
         diz("    Dá para restringir ao Brasil por API. O plano automático vive.")
     elif servidor_falhou == len(FORMAS):
         diz(f"    Todas as {len(FORMAS)} tentativas voltaram erro de servidor (5xx),")
