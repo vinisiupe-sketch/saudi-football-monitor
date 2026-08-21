@@ -25,7 +25,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -5658,7 +5658,13 @@ def _legenda_do_gol(alvo_iso: str) -> tuple[str, int | None]:
 
 
 def _com_legenda(c: dict) -> dict:
-    """Preenche a legenda a partir do alerta de gol, se você ainda não escreveu."""
+    """Preenche a legenda a partir do alerta de gol, se você ainda não escreveu.
+
+    Só em clipe de gol. Num clipe de defesa ou de cartão, colar o texto de um
+    gol que saiu por perto seria pior que deixar em branco.
+    """
+    if c.get("tipo") == "outro":
+        return c
     if not c.get("texto"):
         texto, gol_id = _legenda_do_gol(c.get("alvo_em") or "")
         if texto:
@@ -5684,14 +5690,16 @@ def _agente_autorizado(request: Request) -> bool:
     return secrets.compare_digest(enviado, esperado)
 
 
-# Guardo no app_state, que já existe e sobrevive a redeploy. Uma tabela nova
-# para duas linhas de texto seria exagero.
-CHAVE_LIVE = "clipe_live_url"
 CHAVE_GRAVADOR = "clipe_gravador"
 
 
 def _gravador_estado() -> dict:
-    """O que o gravador reportou da última vez, e há quanto tempo."""
+    """O que o gravador reportou da última vez, e há quanto tempo.
+
+    O campo 'gravando' é um dicionário {live_id: hora de início}: com quatro
+    jogos possíveis, saber que "está gravando" não basta — a tela precisa
+    dizer qual jogo está de pé e qual não começou.
+    """
     try:
         d = json.loads(get_state(CHAVE_GRAVADOR) or "{}")
     except Exception:
@@ -5707,47 +5715,90 @@ def _gravador_estado() -> dict:
     return d
 
 
-@app.get("/api/clipe/live")
-async def api_clipe_live_ler():
-    return {"url": get_state(CHAVE_LIVE) or "", "gravador": _gravador_estado()}
+@app.get("/api/clipe/lives")
+async def api_clipe_lives():
+    """O que está sendo gravado, e o que o canal está transmitindo agora."""
+    return {"lives": listar_lives(), "disponiveis": lives_disponiveis(),
+            "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES}
 
 
-@app.post("/api/clipe/live")
-async def api_clipe_live_gravar(request: Request):
+@app.post("/api/clipe/lives")
+async def api_clipe_live_add(request: Request):
+    """Põe um jogo do canal para gravar.
+
+    Recebe o id do vídeo, não uma URL. Assim não existe caminho para gravar
+    algo fora do canal — nem por engano, nem por link montado à mão.
+    """
     corpo = await request.json()
-    url = (corpo.get("url") or "").strip()
-    if url and not url.startswith(("http://", "https://")):
-        return JSONResponse({"erro": "isso não parece um link"}, 400)
-    set_state(CHAVE_LIVE, url)
-    return {"ok": True, "url": url}
+    ok, motivo = adicionar_live_do_canal((corpo.get("id") or "").strip())
+    if not ok:
+        return JSONResponse({"erro": motivo}, 400)
+    return {"ok": True, "lives": listar_lives()}
+
+
+@app.post("/api/clipe/lives/{live_id}/remover")
+async def api_clipe_live_remover(live_id: str):
+    if not remover_live(live_id):
+        return JSONResponse({"erro": "esse jogo não está na lista"}, 404)
+    return {"ok": True, "lives": listar_lives()}
 
 
 @app.post("/api/clipe/pedir")
 async def api_clipe_pedir(request: Request):
-    """O botão GOL AGORA. Carimba a hora e põe na fila do gravador."""
+    """O botão. Carimba a hora e põe na fila do gravador."""
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    live_id = (corpo.get("live_id") or "").strip()
+    tipo = "outro" if corpo.get("tipo") == "outro" else "gol"
+    lives = listar_lives()
+    if not lives:
+        return JSONResponse({"erro": "nenhum jogo sendo gravado"}, 400)
+    if not live_id:
+        # Com um jogo só, não faz sentido exigir escolha. Com dois ou mais,
+        # exijo: adivinhar qual jogo você quis clipar seria pior que perguntar.
+        if len(lives) > 1:
+            return JSONResponse({"erro": "diga de qual jogo é o clipe"}, 400)
+        live_id = lives[0].get("id") or ""
+    elif not any(l.get("id") == live_id for l in lives):
+        return JSONResponse({"erro": "esse jogo não está sendo gravado"}, 400)
     alvo = datetime.now(timezone.utc) - timedelta(seconds=REACAO_SEG)
-    cid = criar_pedido_clipe(alvo, ANTES_SEG, DEPOIS_SEG)
+    cid = criar_pedido_clipe(alvo, ANTES_SEG, DEPOIS_SEG, live_id, tipo)
     if not cid:
         return JSONResponse({"erro": "não consegui registrar o pedido"}, 500)
-    return {"id": cid, "alvo_em": alvo.isoformat(), "reacao_descontada": REACAO_SEG}
+    return {"id": cid, "alvo_em": alvo.isoformat(), "live_id": live_id,
+            "tipo": tipo, "reacao_descontada": REACAO_SEG}
 
 
-@app.get("/api/clipe/pendentes")
-async def api_clipe_pendentes(request: Request, gravando: str = "", desde: str = ""):
-    """O gravador consulta isto: pega o que cortar E qual live gravar.
+@app.post("/api/clipe/pendentes")
+async def api_clipe_pendentes(request: Request):
+    """Uma chamada só, e o gravador resolve tudo nela.
 
-    Aproveito a mesma chamada para ele dizer que está vivo. Um batimento em
-    rota separada seria outra requisição de 4 em 4 segundos sem ganho nenhum.
+    Ele manda o que está gravando e o que achou no canal; recebe a lista de
+    jogos para gravar e os cortes pendentes. Três rotas separadas seriam três
+    requisições de 4 em 4 segundos para dizer a mesma coisa.
     """
     if not _agente_autorizado(request):
         return JSONResponse({"erro": "token do agente ausente ou errado"}, 403)
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
     try:
         set_state(CHAVE_GRAVADOR, json.dumps({
             "visto_em": datetime.now(timezone.utc).isoformat(),
-            "gravando": gravando, "desde": desde}))
+            "gravando": corpo.get("gravando") or {}}))
     except Exception:
-        pass          # não deixo o batimento derrubar a entrega dos clipes
-    return {"clipes": clipes_a_cortar(), "live_url": get_state(CHAVE_LIVE) or ""}
+        pass          # o batimento não pode derrubar a entrega dos clipes
+    if isinstance(corpo.get("disponiveis"), list):
+        salvar_disponiveis(corpo["disponiveis"])
+    for t in (corpo.get("titulos") or []):
+        if isinstance(t, dict):
+            titulo_da_live(t.get("id") or "", t.get("titulo") or "")
+    return {"clipes": clipes_a_cortar(), "lives": listar_lives(), "canal": CANAL}
 
 
 @app.post("/api/clipe/{clipe_id}/entregar")
@@ -5791,10 +5842,16 @@ async def api_clipe_falhou(clipe_id: int, request: Request):
 
 @app.get("/api/clipes")
 async def api_clipes(horas: int = 8):
-    return {"clipes": [_com_legenda(c) for c in clipes_recentes(horas)],
+    lives = listar_lives()
+    nomes = {l.get("id"): (l.get("titulo") or "") for l in lives}
+    clipes = []
+    for c in clipes_recentes(horas):
+        c["jogo"] = nomes.get(c.get("live_id")) or ""
+        clipes.append(_com_legenda(c))
+    return {"clipes": clipes,
             "agente_configurado": bool(os.environ.get("CLIPE_TOKEN", "").strip()),
-            "live_url": get_state(CHAVE_LIVE) or "",
-            "gravador": _gravador_estado()}
+            "lives": lives, "disponiveis": lives_disponiveis(),
+            "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES}
 
 
 @app.get("/api/clipe/{clipe_id}/video")

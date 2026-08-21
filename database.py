@@ -1765,7 +1765,14 @@ def um_clipe(clipe_id: int) -> dict | None:
 # ══════════════════════════════════════════════════════════════════════════
 
 CHAVE_LIVES = "clipe_lives"
+CHAVE_DISPONIVEIS = "clipe_disponiveis"
 MAX_LIVES = 4
+
+# Só este canal. Você tem acordo de publicação com ele, e não com o YouTube
+# inteiro — deixar colar qualquer link seria criar a chance de gravar material
+# que você não pode publicar. Aqui a restrição é estrutural: nem existe campo
+# para colar link, você escolhe entre as transmissões que o canal está fazendo.
+CANAL = "https://www.youtube.com/@canalgoatbr"
 
 
 def listar_lives() -> list[dict]:
@@ -1782,18 +1789,6 @@ def _salvar_lives(lives: list) -> bool:
         return True
     except Exception:
         return False
-
-
-def adicionar_live(live_id: str, url: str, titulo: str = "") -> tuple[bool, str]:
-    """Devolve (deu certo, motivo da recusa)."""
-    lives = listar_lives()
-    if len(lives) >= MAX_LIVES:
-        return False, f"o limite é {MAX_LIVES} jogos ao mesmo tempo"
-    if any((l.get("url") or "").strip() == url.strip() for l in lives):
-        return False, "esse link já está na lista"
-    lives.append({"id": live_id, "url": url.strip(), "titulo": titulo,
-                  "criada_em": datetime.now(timezone.utc).isoformat()})
-    return (True, "") if _salvar_lives(lives) else (False, "não consegui salvar")
 
 
 def remover_live(live_id: str) -> bool:
@@ -1818,3 +1813,47 @@ def titulo_da_live(live_id: str, titulo: str) -> bool:
             l["titulo"] = titulo[:120]
             achou = True
     return _salvar_lives(lives) if achou else False
+
+
+def lives_disponiveis() -> list[dict]:
+    """O que o gravador viu no canal na última vez que olhou."""
+    try:
+        d = json.loads(get_state(CHAVE_DISPONIVEIS) or "{}")
+        itens = d.get("itens") if isinstance(d, dict) else None
+        return itens if isinstance(itens, list) else []
+    except Exception:
+        return []
+
+
+def salvar_disponiveis(itens: list) -> bool:
+    """O gravador reporta o que achou no canal. Só ele consegue: o Railway é
+    IP de datacenter e o YouTube barra."""
+    try:
+        set_state(CHAVE_DISPONIVEIS, json.dumps(
+            {"quando": datetime.now(timezone.utc).isoformat(),
+             "itens": itens[:20]}, ensure_ascii=False))
+        return True
+    except Exception:
+        return False
+
+
+def adicionar_live_do_canal(video_id: str) -> tuple[bool, str]:
+    """Põe para gravar uma das transmissões que o gravador achou no canal.
+
+    Recebe o id do vídeo, e NÃO uma URL vinda da tela: assim não há como pedir
+    para gravar algo fora do canal, nem por engano nem por link montado à mão.
+    """
+    achado = next((d for d in lives_disponiveis()
+                   if d.get("id") == video_id), None)
+    if not achado:
+        return False, "essa transmissão não está na lista do canal"
+    lives = listar_lives()
+    if len(lives) >= MAX_LIVES:
+        return False, f"o limite é {MAX_LIVES} jogos ao mesmo tempo"
+    if any(l.get("id") == video_id for l in lives):
+        return False, "esse jogo já está sendo gravado"
+    lives.append({"id": video_id,
+                  "url": f"https://www.youtube.com/watch?v={video_id}",
+                  "titulo": achado.get("titulo") or "",
+                  "criada_em": datetime.now(timezone.utc).isoformat()})
+    return (True, "") if _salvar_lives(lives) else (False, "não consegui salvar")
