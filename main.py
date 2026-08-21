@@ -5618,6 +5618,12 @@ async def coletar_gols_ao_vivo() -> dict:
 # existem os botões de ajuste.
 REACAO_SEG = 4
 
+# A janela do clipe. Comecei em 10/5 e no primeiro teste com jogo de verdade
+# ficou curto: 15 segundos pegam o chute e a comemoração, mas cortam fora a
+# construção da jogada, que é o que dá sentido ao gol.
+ANTES_SEG = 20
+DEPOIS_SEG = 8
+
 # Fonte preferida para a legenda. A API-Football tem se mostrado mais rápida
 # nas medições, e legenda que chega tarde não serve para clipe ao vivo.
 FONTE_LEGENDA = "api_football"
@@ -5720,7 +5726,7 @@ async def api_clipe_live_gravar(request: Request):
 async def api_clipe_pedir(request: Request):
     """O botão GOL AGORA. Carimba a hora e põe na fila do gravador."""
     alvo = datetime.now(timezone.utc) - timedelta(seconds=REACAO_SEG)
-    cid = criar_pedido_clipe(alvo)
+    cid = criar_pedido_clipe(alvo, ANTES_SEG, DEPOIS_SEG)
     if not cid:
         return JSONResponse({"erro": "não consegui registrar o pedido"}, 500)
     return {"id": cid, "alvo_em": alvo.isoformat(), "reacao_descontada": REACAO_SEG}

@@ -50,6 +50,19 @@ INTERVALO_CONSULTA = 4          # de quantos em quantos segundos pergunto ao app
 MARGEM_SEG = 2                  # folga antes de cortar, para o trecho existir
 ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 
+# Quanto o ffmpeg decodifica ANTES do ponto do corte.
+#
+# Buscar com -ss antes do -i é rápido, mas cai em qualquer lugar: se o ponto
+# não for um keyframe, o vídeo do clipe só começa no keyframe seguinte, e o
+# arquivo sai com áudio desde o segundo zero e imagem só alguns segundos
+# depois. O player mostra preto nesse intervalo. Foi o que aconteceu no seu
+# primeiro clipe: áudio em 0.000s, vídeo em 4.571s.
+#
+# Com dois estágios — busca grossa antes do -i, busca fina depois — o ffmpeg
+# decodifica desde um keyframe anterior e chega ao ponto exato com imagem.
+# Custa decodificar estes segundos, o que é rápido.
+DECODIFICA_ANTES = 30
+
 
 def diz(t: str = "") -> None:
     print(t, flush=True)
@@ -189,8 +202,8 @@ class Gravador:
     # ── cortar ────────────────────────────────────────────────────────────
     def atender(self, clipe: dict) -> None:
         cid = clipe.get("id")
-        antes = int(clipe.get("antes_seg") or 10)
-        depois = int(clipe.get("depois_seg") or 5)
+        antes = int(clipe.get("antes_seg") or 20)
+        depois = int(clipe.get("depois_seg") or 8)
         try:
             alvo = datetime.fromisoformat(clipe["alvo_em"])
         except Exception:
@@ -228,18 +241,9 @@ class Gravador:
         saida = os.path.join(GRAVACOES, f"clipe_{cid}.mp4")
         diz(f"    clipe {cid}: cortando de {inicio:.0f}s "
             f"({antes}s antes até {depois}s depois)")
-        # Recodifico em vez de copiar: cópia bruta cortaria no keyframe mais
-        # próximo, e o clipe começaria fora da hora — às vezes segundos fora.
-        cmd = [self.ffmpeg, "-y", "-loglevel", "error",
-               "-ss", f"{inicio:.2f}", "-i", pedaco.caminho,
-               "-t", str(antes + depois),
-               "-c:v", "libx264", "-profile:v", "high", "-pix_fmt", "yuv420p",
-               "-b:v", "5M", "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
-               "-movflags", "+faststart", saida]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
-                           encoding="utf-8", errors="replace")
-        if r.returncode != 0 or not os.path.exists(saida):
-            self._falhou(cid, f"ffmpeg falhou: {(r.stderr or '')[:200]}")
+        r = self._cortar(pedaco.caminho, inicio, antes + depois, saida)
+        if r is not None:
+            self._falhou(cid, r)
             return
         dados = open(saida, "rb").read()
         if len(dados) < 10000:
@@ -253,6 +257,65 @@ class Gravador:
         else:
             diz(f"    clipe {cid}: entregue ({len(dados)/1024/1024:.1f} MB). "
                 "Já está na sua tela.")
+
+    def _inicio_do_video(self, caminho: str) -> float | None:
+        """Em que segundo do arquivo a imagem começa. Áudio começa em 0."""
+        try:
+            r = subprocess.run(
+                [self.ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "error",
+                 "-select_streams", "v:0", "-show_entries", "stream=start_time",
+                 "-of", "csv=p=0", caminho],
+                capture_output=True, text=True, timeout=60)
+            return float((r.stdout or "").strip())
+        except Exception:
+            return None
+
+    def _rodar_ffmpeg(self, entradas: list, saida: str, dur: float):
+        """Recodifica no padrão do X. Copiar cru cortaria no keyframe errado."""
+        cmd = [self.ffmpeg, "-y", "-loglevel", "error"] + entradas + [
+            "-t", f"{dur:.2f}",
+            # veryfast em vez do padrão: medi na gravação real e o corte caiu
+            # de 34s para 14s, com semelhança de 0,992 contra o padrão — perda
+            # que ninguém vê num clipe de 28s a 5 Mbps. E 20 segundos a menos
+            # de espera importa: você está com o jogo rolando.
+            "-c:v", "libx264", "-preset", "veryfast",
+            "-profile:v", "high", "-pix_fmt", "yuv420p",
+            "-b:v", "5M", "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+            "-avoid_negative_ts", "make_zero",
+            "-movflags", "+faststart", saida]
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                              encoding="utf-8", errors="replace")
+
+    def _cortar(self, origem: str, inicio: float, dur: float, saida: str):
+        """Corta e CONFERE. Devolve None se deu certo, ou o motivo da falha.
+
+        A conferência existe porque eu não consegui reproduzir a condição exata
+        que atrasou o vídeo no seu primeiro clipe — ela só acontecia enquanto o
+        arquivo ainda crescia. Em vez de confiar que a correção cobre um caso
+        que não reproduzi, eu meço o resultado: se a imagem não começar junto
+        com o som, refaço do jeito lento, que decodifica desde o começo e nunca
+        desalinha.
+        """
+        grosso = max(0.0, inicio - DECODIFICA_ANTES)
+        fino = inicio - grosso
+        r = self._rodar_ffmpeg(["-ss", f"{grosso:.2f}", "-i", origem,
+                                "-ss", f"{fino:.2f}"], saida, dur)
+        if r.returncode != 0 or not os.path.exists(saida):
+            return f"ffmpeg falhou: {(r.stderr or '')[:200]}"
+
+        atraso = self._inicio_do_video(saida)
+        if atraso is not None and atraso > 0.2:
+            diz(f"        a imagem começaria {atraso:.1f}s depois do som; "
+                "refazendo do jeito lento")
+            r = self._rodar_ffmpeg(["-i", origem, "-ss", f"{inicio:.2f}"],
+                                   saida, dur)
+            if r.returncode != 0 or not os.path.exists(saida):
+                return f"ffmpeg falhou na segunda tentativa: {(r.stderr or '')[:200]}"
+            atraso2 = self._inicio_do_video(saida)
+            if atraso2 is not None and atraso2 > 0.2:
+                return (f"a imagem insiste em começar {atraso2:.1f}s depois do "
+                        "som; não mando um clipe que abre em preto")
+        return None
 
     def _falhou(self, cid, motivo: str) -> None:
         diz(f"    clipe {cid}: {motivo}")

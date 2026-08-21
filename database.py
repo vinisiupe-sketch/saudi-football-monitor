@@ -1546,8 +1546,8 @@ def _cria_clipe(c) -> None:
             id            SERIAL PRIMARY KEY,
             pedido_em     TIMESTAMPTZ DEFAULT NOW(),
             alvo_em       TIMESTAMPTZ NOT NULL,
-            antes_seg     INTEGER NOT NULL DEFAULT 10,
-            depois_seg    INTEGER NOT NULL DEFAULT 5,
+            antes_seg     INTEGER NOT NULL DEFAULT 20,
+            depois_seg    INTEGER NOT NULL DEFAULT 8,
             estado        TEXT NOT NULL DEFAULT 'pedido',
             video         BYTEA,
             tamanho       INTEGER,
@@ -1568,7 +1568,7 @@ _COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, 
                "texto, gol_id, media_id, post_id, erro, atualizado_em")
 
 
-def criar_pedido_clipe(alvo_em, antes_seg: int = 10, depois_seg: int = 5) -> int:
+def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8) -> int:
     """Registra um pedido de corte. Devolve o id, ou 0 se falhou."""
     try:
         with get_conn() as conn:
