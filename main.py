@@ -5677,6 +5677,44 @@ def _agente_autorizado(request: Request) -> bool:
     return secrets.compare_digest(enviado, esperado)
 
 
+# Guardo no app_state, que já existe e sobrevive a redeploy. Uma tabela nova
+# para duas linhas de texto seria exagero.
+CHAVE_LIVE = "clipe_live_url"
+CHAVE_GRAVADOR = "clipe_gravador"
+
+
+def _gravador_estado() -> dict:
+    """O que o gravador reportou da última vez, e há quanto tempo."""
+    try:
+        d = json.loads(get_state(CHAVE_GRAVADOR) or "{}")
+    except Exception:
+        return {}
+    try:
+        visto = datetime.fromisoformat(d.get("visto_em", ""))
+        d["ha_segundos"] = int((datetime.now(timezone.utc) - visto).total_seconds())
+    except Exception:
+        d["ha_segundos"] = None
+    # Ele consulta de 4 em 4 segundos. Um minuto sem dar sinal é a janela do
+    # gravador fechada, o computador dormindo, ou a internet caída.
+    d["online"] = d.get("ha_segundos") is not None and d["ha_segundos"] < 60
+    return d
+
+
+@app.get("/api/clipe/live")
+async def api_clipe_live_ler():
+    return {"url": get_state(CHAVE_LIVE) or "", "gravador": _gravador_estado()}
+
+
+@app.post("/api/clipe/live")
+async def api_clipe_live_gravar(request: Request):
+    corpo = await request.json()
+    url = (corpo.get("url") or "").strip()
+    if url and not url.startswith(("http://", "https://")):
+        return JSONResponse({"erro": "isso não parece um link"}, 400)
+    set_state(CHAVE_LIVE, url)
+    return {"ok": True, "url": url}
+
+
 @app.post("/api/clipe/pedir")
 async def api_clipe_pedir(request: Request):
     """O botão GOL AGORA. Carimba a hora e põe na fila do gravador."""
@@ -5688,11 +5726,21 @@ async def api_clipe_pedir(request: Request):
 
 
 @app.get("/api/clipe/pendentes")
-async def api_clipe_pendentes(request: Request):
-    """O gravador de casa consulta isto para saber o que cortar."""
+async def api_clipe_pendentes(request: Request, gravando: str = "", desde: str = ""):
+    """O gravador consulta isto: pega o que cortar E qual live gravar.
+
+    Aproveito a mesma chamada para ele dizer que está vivo. Um batimento em
+    rota separada seria outra requisição de 4 em 4 segundos sem ganho nenhum.
+    """
     if not _agente_autorizado(request):
         return JSONResponse({"erro": "token do agente ausente ou errado"}, 403)
-    return {"clipes": clipes_a_cortar()}
+    try:
+        set_state(CHAVE_GRAVADOR, json.dumps({
+            "visto_em": datetime.now(timezone.utc).isoformat(),
+            "gravando": gravando, "desde": desde}))
+    except Exception:
+        pass          # não deixo o batimento derrubar a entrega dos clipes
+    return {"clipes": clipes_a_cortar(), "live_url": get_state(CHAVE_LIVE) or ""}
 
 
 @app.post("/api/clipe/{clipe_id}/entregar")
@@ -5737,7 +5785,9 @@ async def api_clipe_falhou(clipe_id: int, request: Request):
 @app.get("/api/clipes")
 async def api_clipes(horas: int = 8):
     return {"clipes": [_com_legenda(c) for c in clipes_recentes(horas)],
-            "agente_configurado": bool(os.environ.get("CLIPE_TOKEN", "").strip())}
+            "agente_configurado": bool(os.environ.get("CLIPE_TOKEN", "").strip()),
+            "live_url": get_state(CHAVE_LIVE) or "",
+            "gravador": _gravador_estado()}
 
 
 @app.get("/api/clipe/{clipe_id}/video")
@@ -5914,6 +5964,22 @@ _CLIPES_CSS = """
   margin:0;line-height:1}
 .topo .sub{color:var(--c-muted-3);font-size:.86rem;margin:6px 0 0;line-height:1.5}
 
+.live-caixa{border:1px solid var(--c-border);border-radius:12px;padding:13px 14px;
+  margin-top:18px;background:var(--c-bg-card)}
+.live-caixa label{display:block;font-size:.72rem;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--c-muted-3);margin-bottom:8px}
+.live-linha{display:flex;gap:8px}
+.live-linha input{flex:1;min-width:0;padding:11px 12px;border-radius:9px;
+  border:1px solid var(--c-border);background:var(--c-bg);color:var(--c-text);
+  font-family:inherit;font-size:.88rem}
+.live-linha input:focus{outline:none;border-color:#16a34a}
+.live-linha button{padding:11px 16px;border-radius:9px;border:1px solid var(--c-border);
+  background:var(--c-bg);color:var(--c-text);font-family:inherit;font-weight:700;
+  font-size:.84rem;cursor:pointer;flex-shrink:0}
+.live-linha button:hover{border-color:var(--c-muted-3)}
+.live-estado{margin-top:9px;font-size:.76rem;color:var(--c-muted-3);
+  display:flex;align-items:center;gap:7px;line-height:1.45}
+
 /* O botão é o centro da tela. Grande porque você vai apertar com pressa, no
    celular, olhando o jogo — e não mirando o dedo. */
 .botao-caixa{position:sticky;top:56px;z-index:5;background:var(--c-bg);
@@ -6004,6 +6070,17 @@ __HDR__
     <p class="sub">Saiu gol, aperta o botão. O clipe chega aqui com a legenda pronta.</p>
   </div>
 
+  <div class="live-caixa">
+    <label for="liveUrl">Link da transmissão</label>
+    <div class="live-linha">
+      <input id="liveUrl" type="url" inputmode="url" autocomplete="off"
+             oninput="marcarMexendo()"
+             placeholder="cole aqui o link da live do YouTube">
+      <button id="btLive" onclick="salvarLive()">Salvar</button>
+    </div>
+    <div class="live-estado" id="liveEstado">—</div>
+  </div>
+
   <div class="botao-caixa">
     <button class="gol" id="btGol" onclick="pedirClipe()">
       <span class="roda"></span><span id="btGolTexto">GOL AGORA</span>
@@ -6033,6 +6110,53 @@ function esc(s) {
 let _timer = null;
 let _editando = null;     // id do clipe cuja caixa está com o cursor
 let _pedindo = false;
+let _mexendoNoLink = false;
+
+function marcarMexendo() { _mexendoNoLink = true; }
+
+async function salvarLive() {
+  const i = document.getElementById('liveUrl');
+  const b = document.getElementById('btLive');
+  b.disabled = true;
+  b.textContent = 'salvando…';
+  try {
+    const r = await fetch('/api/clipe/live', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: i.value.trim()})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+    b.textContent = 'salvo';
+    _mexendoNoLink = false;
+    carregar();
+  } catch (e) {
+    alert('não salvou: ' + (e.message || e));
+  }
+  setTimeout(function () { b.disabled = false; b.textContent = 'Salvar'; }, 1500);
+}
+
+function pintarGravador(d) {
+  const i = document.getElementById('liveUrl');
+  const alvo = document.getElementById('liveEstado');
+  if (!i || !alvo) return;
+  // Não sobrescrevo o campo enquanto você digita nele.
+  if (!_mexendoNoLink && document.activeElement !== i) i.value = d.live_url || '';
+  const g = d.gravador || {};
+  let ponto = 'alerta', texto;
+  if (!g.online) {
+    texto = 'gravador desligado — abra o gravador.bat no computador';
+  } else if (!d.live_url) {
+    texto = 'gravador ligado, esperando o link';
+    ponto = 'alerta';
+  } else if (g.gravando === '1') {
+    ponto = 'ok';
+    texto = 'gravando' + (g.desde ? ' desde ' + hora(g.desde) : '');
+  } else {
+    texto = 'gravador ligado, mas não está gravando ainda';
+  }
+  alvo.innerHTML = '<span class="ponto ' + ponto + '"></span><span>'
+    + esc(texto) + '</span>';
+}
 
 function hora(iso) {
   if (!iso) return '';
@@ -6097,6 +6221,8 @@ async function carregar() {
     dizEstado('alerta', 'sem contato com o servidor');
     return;
   }
+
+  pintarGravador(d);
 
   const clipes = d.clipes || [];
   const esperando = clipes.filter(function (c) { return c.estado !== 'publicado'; }).length;

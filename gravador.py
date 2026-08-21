@@ -10,8 +10,11 @@ O QUE ELE FAZ
 
 COMO RODAR
     1. Dois cliques em  gravador.bat
-    2. Cole o link da transmissão quando ele pedir
+    2. Cole o link da transmissão na guia Clipes do app, pelo celular
     3. Deixe a janela aberta até o fim do jogo
+
+    Ele fica esperando o link aparecer no app e começa a gravar sozinho.
+    Trocou o link no app? Ele encerra a gravação atual e começa a nova.
 
     Para parar: feche a janela, ou Ctrl+C.
 
@@ -36,6 +39,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
 
@@ -100,15 +104,18 @@ class Gravacao:
 
 
 class Gravador:
-    def __init__(self, url_live: str, app: str, token: str,
-                 ytdlp: list, ffmpeg: str):
-        self.url_live, self.app, self.token = url_live, app, token
+    def __init__(self, app: str, token: str, ytdlp: list, ffmpeg: str):
+        self.app, self.token = app, token
         self.ytdlp, self.ffmpeg = ytdlp, ffmpeg
         self.pedacos: list[Gravacao] = []
+        # Vem do app, não da linha de comando: assim você cola o link no
+        # celular e nem precisa chegar perto do computador.
+        self.url_live = ""
 
     # ── conversa com o app ────────────────────────────────────────────────
     def _http(self, caminho: str, dados: bytes | None = None,
               tipo: str = "application/json"):
+        """Uma chamada ao app. Devolve (dado, erro); nunca levanta."""
         req = urllib.request.Request(
             self.app + caminho, data=dados,
             headers={"X-Clipe-Token": self.token, "Content-Type": tipo},
@@ -166,6 +173,8 @@ class Gravador:
 
     def cuidar_da_gravacao(self) -> None:
         """Se o ffmpeg morreu, fecha o pedaço e começa outro."""
+        if not self.url_live:
+            return
         if self.pedacos and self.pedacos[-1].vivo():
             return
         if self.pedacos:
@@ -251,29 +260,7 @@ class Gravador:
                    json.dumps({"erro": motivo}).encode())
 
     # ── laço principal ────────────────────────────────────────────────────
-    def rodar(self) -> None:
-        if not self.comecar_pedaco():
-            return
-        diz("")
-        diz("    Pronto. Pode ir para o celular e apertar GOL AGORA quando sair gol.")
-        diz("    Deixe esta janela aberta. Ctrl+C para parar.")
-        diz("")
-        ultimo_aviso = 0.0
-        while True:
-            self.cuidar_da_gravacao()
-            d, err = self._http("/api/clipe/pendentes")
-            if err:
-                # Não desisto por causa de uma falha de rede: o jogo continua.
-                agora = time.time()
-                if agora - ultimo_aviso > 60:
-                    diz(f"    (sem contato com o app: {err})")
-                    ultimo_aviso = agora
-            else:
-                for clipe in (d or {}).get("clipes", []):
-                    self.atender(clipe)
-            time.sleep(INTERVALO_CONSULTA)
-
-    def parar(self) -> None:
+    def parar_gravacao(self) -> None:
         for p in self.pedacos:
             if p.vivo():
                 try:
@@ -281,6 +268,53 @@ class Gravador:
                     p.processo.wait(timeout=10)
                 except Exception:
                     pass
+                p.fim = datetime.now(timezone.utc)
+
+    def rodar(self) -> None:
+        diz("    Esperando o link da live. Cole na guia Clipes do app, no celular.")
+        diz("    Deixe esta janela aberta. Ctrl+C para parar.")
+        diz("")
+        ultimo_aviso = 0.0
+        while True:
+            inicio = self.pedacos[0].inicio.isoformat() if self.pedacos else ""
+            d, err = self._http(
+                "/api/clipe/pendentes?gravando="
+                + ("1" if self.pedacos and self.pedacos[-1].vivo() else "0")
+                + "&desde=" + urllib.parse.quote(inicio))
+            if err:
+                # Não desisto por causa de uma falha de rede: o jogo continua.
+                agora = time.time()
+                if agora - ultimo_aviso > 60:
+                    diz(f"    (sem contato com o app: {err})")
+                    ultimo_aviso = agora
+                time.sleep(INTERVALO_CONSULTA)
+                continue
+
+            nova = ((d or {}).get("live_url") or "").strip()
+            if nova != self.url_live:
+                if self.url_live:
+                    diz("")
+                    diz("    o link mudou no app. Encerrando esta gravação.")
+                    self.parar_gravacao()
+                self.url_live = nova
+                if nova:
+                    diz("")
+                    diz(f"    link recebido do app: {nova[:70]}")
+                    if self.comecar_pedaco():
+                        diz("    Pode apertar GOL AGORA no celular quando sair gol.")
+                        diz("")
+                else:
+                    diz("")
+                    diz("    link apagado no app. Parado, esperando outro.")
+
+            if self.url_live:
+                self.cuidar_da_gravacao()
+                for clipe in (d or {}).get("clipes", []):
+                    self.atender(clipe)
+            time.sleep(INTERVALO_CONSULTA)
+
+    def parar(self) -> None:
+        self.parar_gravacao()
 
 
 def main() -> int:
@@ -313,18 +347,10 @@ def main() -> int:
     diz(f"    app    : {app}")
     diz(f"    token  : configurado ({len(token)} caracteres)")
 
-    url = arquivo("live_url.txt")
-    if url:
-        diz(f"    link   : li de live_url.txt")
-        diz("             (para usar outro, apague o arquivo ou edite ele)")
-    else:
-        url = input("\n    Cole o link da transmissão e dê Enter:\n    > ").strip()
-    if not url:
-        diz("    sem link, não há o que gravar.")
-        return 1
+    diz(f"    link   : você cola na guia Clipes do app, pelo celular")
     diz()
 
-    g = Gravador(url, app, token, ytdlp, ffmpeg)
+    g = Gravador(app, token, ytdlp, ffmpeg)
     try:
         g.rodar()
     except KeyboardInterrupt:
