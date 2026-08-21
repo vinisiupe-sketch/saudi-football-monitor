@@ -6027,58 +6027,68 @@ body{margin:0;background:var(--c-bg);color:var(--c-text);
 .wrap{max-width:820px;margin:0 auto;padding:18px 16px 80px}
 h1{font-size:1.5rem;margin:0 0 4px}
 .sub{color:var(--c-muted-3);font-size:.8rem;margin:0 0 16px}
+.titulo-secao{font-size:.6rem;font-weight:800;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--c-muted-3);margin:22px 0 9px}
 
-/* Painel de preparo: link da live + estado do gravador. Fica junto porque as
-   duas coisas respondem a mesma pergunta antes do jogo — está tudo de pé? */
-.preparo{background:var(--c-bg-card);border:1px solid var(--c-border);
-  border-radius:12px;padding:14px 16px;margin-bottom:14px}
-.preparo label{display:block;font-size:.6rem;font-weight:800;letter-spacing:.08em;
-  text-transform:uppercase;color:var(--c-muted-3);margin-bottom:8px}
-.live-linha{display:flex;gap:8px}
-.live-linha input{flex:1;min-width:0;padding:10px 12px;border-radius:9px;
-  border:1px solid var(--c-border-2);background:var(--c-bg-soft);color:var(--c-text);
-  font-family:inherit;font-size:.85rem}
-.live-linha input:focus{outline:none;border-color:#16a34a}
-.live-linha button{padding:10px 16px;border-radius:99px;flex-shrink:0;
-  background:transparent;border:1.5px solid var(--c-border-2);color:var(--c-muted-4);
-  font-family:inherit;font-weight:700;font-size:.65rem;text-transform:uppercase;
-  letter-spacing:.06em;cursor:pointer}
-.live-linha button:hover:not(:disabled){border-color:var(--c-text);color:var(--c-text)}
-.live-linha button:disabled{opacity:.5;cursor:default}
-.live-estado{margin-top:10px;font-size:.72rem;color:var(--c-muted-4);
-  display:flex;align-items:center;gap:7px;line-height:1.45}
 .ponto{width:7px;height:7px;border-radius:50%;background:var(--c-muted-2);flex-shrink:0}
 .ponto.ok{background:#22c55e}
 .ponto.alerta{background:#f59e0b}
+.linha-estado{display:flex;align-items:center;gap:7px;font-size:.72rem;
+  color:var(--c-muted-4);line-height:1.45}
 
-/* O botão é o centro da tela: grande porque você aperta com pressa, no celular,
-   olhando o jogo — e não mirando o dedo. Gruda no topo ao rolar. */
-.botao-caixa{position:sticky;top:52px;z-index:5;background:var(--c-bg);
-  padding:6px 0 14px}
-.gol{width:100%;padding:22px 20px;border:none;border-radius:14px;cursor:pointer;
-  background:#16a34a;color:#fff;font-family:inherit;font-size:1.15rem;
-  font-weight:800;letter-spacing:.1em;text-transform:uppercase;line-height:1;
-  display:flex;align-items:center;justify-content:center;gap:12px;
-  transition:transform .07s,background .18s,box-shadow .18s;
-  box-shadow:0 4px 14px rgba(22,163,74,.28)}
-.gol:hover{background:#15803d}
-.gol:active{transform:scale(.985)}
-.gol.carregando{background:#166534;box-shadow:none;cursor:default}
-.gol.pronto{background:#0f766e;box-shadow:none;cursor:default}
-.roda{width:18px;height:18px;border:2.5px solid rgba(255,255,255,.35);
+/* Um cartão por jogo. O botão do gol é o maior elemento do cartão porque é o
+   que você aperta com pressa, no celular, olhando a partida. */
+.jogo{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:12px;padding:14px;margin-bottom:12px}
+.jogo-topo{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.jogo-nome{font-weight:800;font-size:.95rem;line-height:1.35;flex:1;min-width:0}
+.jogo-x{background:none;border:none;color:var(--c-muted-2);cursor:pointer;
+  font-size:1.1rem;line-height:1;padding:0 2px;flex-shrink:0}
+.jogo-x:hover{color:#fb7185}
+.jogo-acoes{display:flex;gap:9px}
+.bt-gol{flex:1;padding:20px 16px;border:none;border-radius:12px;cursor:pointer;
+  background:#16a34a;color:#fff;font-family:inherit;font-size:1rem;
+  font-weight:800;letter-spacing:.08em;text-transform:uppercase;line-height:1;
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  box-shadow:0 3px 12px rgba(22,163,74,.26);
+  transition:transform .07s,background .18s,box-shadow .18s}
+.bt-gol:hover{background:#15803d}
+.bt-gol:active{transform:scale(.985)}
+.bt-gol.carregando{background:#166534;box-shadow:none;cursor:default}
+.bt-gol.pronto{background:#0f766e;box-shadow:none;cursor:default}
+.bt-outro{padding:20px 18px;border-radius:12px;cursor:pointer;flex-shrink:0;
+  background:transparent;border:1.5px solid var(--c-border-2);color:var(--c-muted-4);
+  font-family:inherit;font-weight:800;font-size:.68rem;letter-spacing:.08em;
+  text-transform:uppercase;transition:border-color .15s,color .15s}
+.bt-outro:hover:not(:disabled){border-color:var(--c-text);color:var(--c-text)}
+.bt-outro:disabled,.bt-gol.carregando{cursor:default}
+.roda{width:15px;height:15px;border:2.5px solid rgba(255,255,255,.35);
   border-top-color:#fff;border-radius:50%;animation:gira .7s linear infinite;
   display:none;flex-shrink:0}
-.gol.carregando .roda{display:block}
+.bt-gol.carregando .roda{display:block}
 @keyframes gira{to{transform:rotate(360deg)}}
-.dica{text-align:center;font-size:.66rem;color:var(--c-muted-3);margin-top:8px}
+.jogo .linha-estado{margin-top:10px}
 
-.vazio{text-align:center;padding:44px 20px;color:var(--c-muted-3)}
+/* Transmissões do canal que você ainda não pôs para gravar. */
+.disp{display:flex;align-items:center;gap:10px;padding:11px 13px;
+  border:1px dashed var(--c-border-2);border-radius:10px;margin-bottom:8px}
+.disp-nome{flex:1;min-width:0;font-size:.86rem;line-height:1.35}
+.disp button{padding:8px 15px;border-radius:99px;flex-shrink:0;
+  background:transparent;border:1.5px solid var(--c-border-2);color:var(--c-muted-4);
+  font-family:inherit;font-weight:700;font-size:.65rem;text-transform:uppercase;
+  letter-spacing:.06em;cursor:pointer}
+.disp button:hover:not(:disabled){border-color:#16a34a;color:#16a34a}
+.disp button:disabled{opacity:.4;cursor:default}
+
+.vazio{text-align:center;padding:36px 20px;color:var(--c-muted-3)}
 .vazio p{margin:0;font-size:.8rem;line-height:1.7}
 
 .clipe{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:12px;overflow:hidden;margin-bottom:12px}
-.clipe-topo{display:flex;align-items:center;gap:10px;padding:11px 14px}
+.clipe-topo{display:flex;align-items:center;gap:9px;padding:11px 14px;flex-wrap:wrap}
 .clipe-hora{font-weight:800;font-size:.9rem}
+.clipe-jogo{font-size:.72rem;color:var(--c-muted-3);min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:42%}
 .selo{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
   border:1.5px solid var(--c-border-2);border-radius:99px;padding:3px 9px;
   color:var(--c-muted-4)}
@@ -6106,8 +6116,8 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .publicar:hover:not(:disabled){background:#1a8cd8;border-color:#1a8cd8}
 .acoes button:disabled{opacity:.45;cursor:default}
-.lembrete{margin-top:2px;padding:11px 13px;border-radius:10px;
-  background:var(--c-bg-soft);font-size:.75rem;line-height:1.6;color:var(--c-muted-4)}
+.lembrete{padding:11px 13px;border-radius:10px;background:var(--c-bg-soft);
+  font-size:.75rem;line-height:1.6;color:var(--c-muted-4)}
 .lembrete b{color:var(--c-text)}
 .lembrete a{color:#1d9bf0}
 """
@@ -6129,27 +6139,19 @@ __CLIPES_CSS__
 <body>
 __HDR__
 <div class="wrap">
-  <h1>Clipes de gol</h1>
-  <p class="sub">Saiu gol, aperta o botão. O clipe chega com a legenda pronta.</p>
+  <h1>Clipes</h1>
+  <p class="sub">Saiu o lance, aperta o botão do jogo. O clipe chega abaixo.</p>
 
-  <div class="preparo">
-    <label for="liveUrl">Link da transmissão</label>
-    <div class="live-linha">
-      <input id="liveUrl" type="url" inputmode="url" autocomplete="off"
-             oninput="marcarMexendo()"
-             placeholder="cole aqui o link da live do YouTube">
-      <button id="btLive" onclick="salvarLive()">Salvar</button>
-    </div>
-    <div class="live-estado" id="liveEstado">—</div>
+  <div class="linha-estado" id="estadoGravador">
+    <span class="ponto"></span><span>verificando…</span>
   </div>
 
-  <div class="botao-caixa">
-    <button class="gol" id="btGol" onclick="pedirClipe()">
-      <span class="roda"></span><span id="btGolTexto">GOL AGORA</span>
-    </button>
-    <div class="dica" id="textoEstado">verificando…</div>
-  </div>
+  <div id="jogos"></div>
 
+  <div class="titulo-secao" id="tituloDisp" style="display:none">No ar no canal</div>
+  <div id="disponiveis"></div>
+
+  <div class="titulo-secao">Clipes</div>
   <div id="lista"></div>
 </div>
 <script>
@@ -6168,54 +6170,7 @@ function esc(s) {
 
 let _timer = null;
 let _editando = null;     // id do clipe cuja caixa está com o cursor
-let _pedindo = false;
-let _mexendoNoLink = false;
-
-function marcarMexendo() { _mexendoNoLink = true; }
-
-async function salvarLive() {
-  const i = document.getElementById('liveUrl');
-  const b = document.getElementById('btLive');
-  b.disabled = true;
-  b.textContent = 'salvando…';
-  try {
-    const r = await fetch('/api/clipe/live', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({url: i.value.trim()})
-    });
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
-    b.textContent = 'salvo';
-    _mexendoNoLink = false;
-    carregar();
-  } catch (e) {
-    alert('não salvou: ' + (e.message || e));
-  }
-  setTimeout(function () { b.disabled = false; b.textContent = 'Salvar'; }, 1500);
-}
-
-function pintarGravador(d) {
-  const i = document.getElementById('liveUrl');
-  const alvo = document.getElementById('liveEstado');
-  if (!i || !alvo) return;
-  // Não sobrescrevo o campo enquanto você digita nele.
-  if (!_mexendoNoLink && document.activeElement !== i) i.value = d.live_url || '';
-  const g = d.gravador || {};
-  let ponto = 'alerta', texto;
-  if (!g.online) {
-    texto = 'gravador desligado — abra o gravador.bat no computador';
-  } else if (!d.live_url) {
-    texto = 'gravador ligado, esperando o link';
-    ponto = 'alerta';
-  } else if (g.gravando === '1') {
-    ponto = 'ok';
-    texto = 'gravando' + (g.desde ? ' desde ' + hora(g.desde) : '');
-  } else {
-    texto = 'gravador ligado, mas não está gravando ainda';
-  }
-  alvo.innerHTML = '<span class="ponto ' + ponto + '"></span><span>'
-    + esc(texto) + '</span>';
-}
+const _pedindo = {};      // live_id -> travado, para o susto do gol não virar 5 clipes
 
 function hora(iso) {
   if (!iso) return '';
@@ -6224,42 +6179,124 @@ function hora(iso) {
   } catch (e) { return ''; }
 }
 
-async function pedirClipe() {
-  const b = document.getElementById('btGol');
-  const t = document.getElementById('btGolTexto');
-  if (_pedindo) return;
-  _pedindo = true;
-  b.classList.add('carregando');
-  t.textContent = 'PEDINDO…';
+function estado(alvo, tipo, texto) {
+  if (!alvo) return;
+  alvo.innerHTML = '<span class="ponto ' + (tipo || '') + '"></span><span>'
+    + esc(texto) + '</span>';
+}
+
+// ── jogos ─────────────────────────────────────────────────────────────────
+
+async function pedir(liveId, tipo, botao) {
+  if (_pedindo[liveId]) return;
+  _pedindo[liveId] = true;
+  const original = botao.innerHTML;
+  botao.classList.add('carregando');
+  const rotulo = botao.querySelector('.rotulo');
+  if (rotulo) rotulo.textContent = 'PEDINDO…';
+  else botao.textContent = 'PEDINDO…';
   try {
-    const r = await fetch('/api/clipe/pedir', {method: 'POST'});
+    const r = await fetch('/api/clipe/pedir', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({live_id: liveId, tipo: tipo})
+    });
     const d = await r.json();
     if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
-    b.classList.remove('carregando');
-    b.classList.add('pronto');
-    t.textContent = 'PEDIDO ÀS ' + hora(d.alvo_em);
+    botao.classList.remove('carregando');
+    botao.classList.add('pronto');
+    const t = botao.querySelector('.rotulo') || botao;
+    t.textContent = hora(d.alvo_em);
     carregar();
   } catch (e) {
-    b.classList.remove('carregando');
-    t.textContent = 'NÃO DEU — TENTE DE NOVO';
-    dizEstado('alerta', e.message || String(e));
+    botao.classList.remove('carregando');
+    alert('não deu: ' + (e.message || e));
   }
-  // A trava existe porque no susto do gol é fácil apertar cinco vezes, e cinco
-  // pedidos idênticos viram cinco clipes iguais na sua tela.
   setTimeout(function () {
-    _pedindo = false;
-    b.classList.remove('carregando', 'pronto');
-    t.textContent = 'GOL AGORA';
+    _pedindo[liveId] = false;
+    botao.classList.remove('carregando', 'pronto');
+    botao.innerHTML = original;
   }, 4000);
 }
 
-function dizEstado(tipo, texto) {
-  // A bolinha colorida vive no painel de preparo, junto do link. Aqui embaixo
-  // do botão é só a linha de dica — duas bolinhas dizendo coisas parecidas na
-  // mesma tela seria ruído.
-  const t = document.getElementById('textoEstado');
-  if (t) t.textContent = texto;
+function cartaoJogo(j, grav) {
+  const d = document.createElement('div');
+  d.className = 'jogo';
+  d.id = 'jogo-' + j.id;
+
+  const topo = document.createElement('div');
+  topo.className = 'jogo-topo';
+  const nome = document.createElement('div');
+  nome.className = 'jogo-nome';
+  nome.textContent = j.titulo || j.id;
+  const x = document.createElement('button');
+  x.className = 'jogo-x';
+  x.textContent = '✕';
+  x.title = 'parar de gravar este jogo';
+  x.onclick = function () { removerJogo(j, x); };
+  topo.appendChild(nome);
+  topo.appendChild(x);
+  d.appendChild(topo);
+
+  const acoes = document.createElement('div');
+  acoes.className = 'jogo-acoes';
+
+  const gol = document.createElement('button');
+  gol.className = 'bt-gol';
+  gol.innerHTML = '<span class="roda"></span><span class="rotulo">GOL</span>';
+  gol.onclick = function () { pedir(j.id, 'gol', gol); };
+
+  const outro = document.createElement('button');
+  outro.className = 'bt-outro';
+  outro.textContent = 'Clipar';
+  outro.title = 'para lances que não são gol — a legenda vem em branco';
+  outro.onclick = function () { pedir(j.id, 'outro', outro); };
+
+  acoes.appendChild(gol);
+  acoes.appendChild(outro);
+  d.appendChild(acoes);
+
+  const linha = document.createElement('div');
+  linha.className = 'linha-estado';
+  d.appendChild(linha);
+  const desde = (grav || {})[j.id];
+  if (desde) estado(linha, 'ok', 'gravando desde ' + hora(desde));
+  else estado(linha, 'alerta', 'ainda não está gravando este jogo');
+  return d;
 }
+
+async function removerJogo(j, botao) {
+  if (!confirm('Parar de gravar "' + (j.titulo || j.id) + '"?')) return;
+  botao.disabled = true;
+  try {
+    const r = await fetch('/api/clipe/lives/' + encodeURIComponent(j.id) + '/remover',
+                          {method: 'POST'});
+    if (!r.ok) throw new Error((await r.json()).erro || 'HTTP ' + r.status);
+    carregar();
+  } catch (e) {
+    alert('não deu: ' + (e.message || e));
+    botao.disabled = false;
+  }
+}
+
+async function adicionarJogo(id, botao) {
+  botao.disabled = true;
+  botao.textContent = 'ligando…';
+  try {
+    const r = await fetch('/api/clipe/lives', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: id})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+    carregar();
+  } catch (e) {
+    alert('não deu: ' + (e.message || e));
+    botao.disabled = false;
+    botao.textContent = 'Gravar';
+  }
+}
+
+// ── ciclo ─────────────────────────────────────────────────────────────────
 
 function rotulo(e) {
   return {pedido: 'na fila', cortando: 'cortando', pronto: 'pronto',
@@ -6268,8 +6305,6 @@ function rotulo(e) {
 }
 
 async function carregar() {
-  const alvo = document.getElementById('lista');
-  if (!alvo) return;
   let d;
   try {
     const r = await fetch('/api/clipes?horas=8&_=' + Date.now());
@@ -6277,34 +6312,106 @@ async function carregar() {
     if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 200));
     d = JSON.parse(bruto);
   } catch (e) {
-    dizEstado('alerta', 'sem contato com o servidor');
+    estado(document.getElementById('estadoGravador'), 'alerta',
+           'sem contato com o servidor');
     return;
   }
 
-  pintarGravador(d);
-
-  const clipes = d.clipes || [];
-  const esperando = clipes.filter(function (c) { return c.estado !== 'publicado'; }).length;
+  const g = d.gravador || {};
+  const lives = d.lives || [];
+  const grav = g.gravando || {};
+  const est = document.getElementById('estadoGravador');
   if (!d.agente_configurado) {
-    dizEstado('alerta', 'falta a variável CLIPE_TOKEN no Railway');
-  } else if (esperando) {
-    dizEstado('ok', esperando + (esperando > 1 ? ' clipes esperando você' : ' clipe esperando você'));
+    estado(est, 'alerta', 'falta a variável CLIPE_TOKEN no Railway');
+  } else if (!g.online) {
+    estado(est, 'alerta', 'gravador desligado — abra o gravador.bat no computador');
   } else {
-    dizEstado('ok', 'pronto — deixe o gravador aberto no computador');
+    const n = Object.keys(grav).length;
+    estado(est, 'ok', n ? ('gravando ' + n + (n > 1 ? ' jogos' : ' jogo'))
+                        : 'gravador ligado, nenhum jogo gravando');
   }
 
+  pintarJogos(lives, grav);
+  pintarDisponiveis(d.disponiveis || [], lives, d.max || 4, g.online);
+  pintarClipes(d.clipes || []);
+}
+
+function pintarJogos(lives, grav) {
+  const alvo = document.getElementById('jogos');
+  if (!alvo) return;
+  if (!lives.length) {
+    alvo.innerHTML = '<div class="vazio"><p>Nenhum jogo sendo gravado.<br>'
+      + 'Escolha abaixo entre as transmissões do canal.</p></div>';
+    return;
+  }
+  const vistos = {};
+  lives.forEach(function (j) {
+    vistos[j.id] = true;
+    const assin = (j.titulo || '') + '|' + ((grav || {})[j.id] || '');
+    const atual = document.getElementById('jogo-' + j.id);
+    if (atual && atual.dataset.assin === assin) return;
+    // Não recrio o cartão enquanto o botão está no meio de um pedido: perderia
+    // o "PEDINDO…" e você não saberia se o toque pegou.
+    if (atual && _pedindo[j.id]) return;
+    const novo = cartaoJogo(j, grav);
+    novo.dataset.assin = assin;
+    if (atual) { atual.replaceWith(novo); } else { alvo.appendChild(novo); }
+  });
+  Array.prototype.slice.call(alvo.querySelectorAll('.jogo')).forEach(function (el) {
+    if (!vistos[el.id.replace('jogo-', '')]) el.remove();
+  });
+  const v = alvo.querySelector('.vazio');
+  if (v) v.remove();
+}
+
+function pintarDisponiveis(disp, lives, max, online) {
+  const alvo = document.getElementById('disponiveis');
+  const titulo = document.getElementById('tituloDisp');
+  if (!alvo || !titulo) return;
+  const jaTem = {};
+  lives.forEach(function (l) { jaTem[l.id] = true; });
+  const livres = disp.filter(function (x) { return !jaTem[x.id]; });
+  if (!livres.length) {
+    titulo.style.display = 'none';
+    alvo.innerHTML = !lives.length && online
+      ? '<div class="vazio"><p>O canal não está transmitindo nada agora.</p></div>'
+      : '';
+    return;
+  }
+  titulo.style.display = '';
+  alvo.innerHTML = '';
+  const cheio = lives.length >= max;
+  livres.forEach(function (x) {
+    const d = document.createElement('div');
+    d.className = 'disp';
+    const n = document.createElement('div');
+    n.className = 'disp-nome';
+    n.textContent = x.titulo || x.id;
+    const b = document.createElement('button');
+    b.textContent = 'Gravar';
+    b.disabled = cheio;
+    if (cheio) b.title = 'já são ' + max + ' jogos, o máximo';
+    b.onclick = function () { adicionarJogo(x.id, b); };
+    d.appendChild(n);
+    d.appendChild(b);
+    alvo.appendChild(d);
+  });
+}
+
+function pintarClipes(clipes) {
+  const alvo = document.getElementById('lista');
+  if (!alvo) return;
   if (!clipes.length) {
     if (!alvo.querySelector('.vazio')) {
-      alvo.innerHTML = '<div class="vazio"><div class="grande">🎬</div>'
-        + '<p>Nenhum clipe ainda.<br>Ligue o gravador no computador e aperte o botão quando sair gol.</p></div>';
+      alvo.innerHTML = '<div class="vazio"><p>Nenhum clipe ainda.</p></div>';
     }
     return;
   }
   const v = alvo.querySelector('.vazio');
   if (v) v.remove();
 
-  // Redesenhar tudo apagaria o que você digita e o ponto do vídeo. Só recrio o
-  // card que MUDOU, e nunca o que está com o cursor dentro.
+  // Redesenhar tudo apagaria o que você digita e o ponto do vídeo. Só recrio
+  // o card que MUDOU, e nunca o que está com o cursor dentro.
   const vistos = {};
   clipes.forEach(function (c) {
     vistos[c.id] = true;
@@ -6330,6 +6437,7 @@ function montar(c, assin) {
   const topo = document.createElement('div');
   topo.className = 'clipe-topo';
   topo.innerHTML = '<span class="clipe-hora">' + esc(hora(c.alvo_em)) + '</span>'
+    + (c.jogo ? '<span class="clipe-jogo">' + esc(c.jogo) + '</span>' : '')
     + '<span class="selo s-' + esc(c.estado) + '">' + esc(rotulo(c.estado)) + '</span>'
     + (c.tamanho ? '<span class="tam">' + (c.tamanho / 1048576).toFixed(1) + ' MB</span>' : '');
   d.appendChild(topo);
@@ -6373,7 +6481,9 @@ function montar(c, assin) {
 
   const t = document.createElement('textarea');
   t.value = c.texto || '';
-  t.placeholder = 'Sem alerta de gol ainda — escreva ou espere alguns segundos.';
+  t.placeholder = c.tipo === 'outro'
+    ? 'Escreva a legenda deste lance.'
+    : 'Sem alerta de gol ainda — escreva ou espere alguns segundos.';
   const conta = document.createElement('div');
   conta.className = 'conta-letras';
   function atualizaConta() {
@@ -6466,7 +6576,8 @@ async function publicar(id, caixa, botao) {
 
 function ciclo() {
   carregar().catch(function (err) {
-    dizEstado('alerta', 'erro: ' + (err && err.message ? err.message : String(err)));
+    estado(document.getElementById('estadoGravador'), 'alerta',
+           'erro: ' + (err && err.message ? err.message : String(err)));
   });
   clearTimeout(_timer);
   _timer = setTimeout(ciclo, 5000);
