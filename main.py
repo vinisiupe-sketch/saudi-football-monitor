@@ -25,7 +25,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -5883,6 +5883,30 @@ async def api_clipe_ajustar(clipe_id: int, delta: int = -5):
     return {"ok": True, "clipe": _com_legenda(um_clipe(clipe_id) or {})}
 
 
+@app.post("/api/clipe/{clipe_id}/janela")
+async def api_clipe_janela(clipe_id: int, request: Request):
+    """A fita de corte. Recebe a janela nova e manda o gravador refazer.
+
+    Refazer do arquivo original, e não recortar o mp4 que já está aqui, por
+    dois motivos: recortar um recorte recodifica duas vezes e piora a imagem,
+    e a partir do original os punhos podem AUMENTAR o trecho, não só encurtar.
+    """
+    corpo = await request.json()
+    try:
+        antes = int(round(float(corpo.get("antes"))))
+        depois = int(round(float(corpo.get("depois"))))
+    except Exception:
+        return JSONResponse({"erro": "janela inválida"}, 400)
+    dur = antes + depois
+    if dur < 3:
+        return JSONResponse({"erro": "o clipe ficaria com menos de 3 segundos"}, 400)
+    if dur > 140:
+        return JSONResponse({"erro": f"{dur}s passa do limite de 140s do X"}, 400)
+    if not redefinir_janela(clipe_id, antes, depois):
+        return JSONResponse({"erro": "não deu para mudar este clipe"}, 409)
+    return {"ok": True, "clipe": _com_legenda(um_clipe(clipe_id) or {})}
+
+
 @app.post("/api/clipe/{clipe_id}/texto")
 async def api_clipe_texto(clipe_id: int, request: Request):
     corpo = await request.json()
@@ -6116,6 +6140,26 @@ h1{font-size:1.5rem;margin:0 0 4px}
   color:var(--c-text);font-family:inherit;font-size:.9rem;line-height:1.6;
   resize:vertical}
 .clipe textarea:focus{outline:none;border-color:#16a34a}
+.fita-caixa{margin-top:12px}
+.fita{position:relative;height:34px;border-radius:8px;background:var(--c-bg-soft);
+  border:1px solid var(--c-border-2);touch-action:none;user-select:none}
+.fita-sel{position:absolute;top:0;bottom:0;background:rgba(22,163,74,.22);
+  border-top:2px solid #16a34a;border-bottom:2px solid #16a34a}
+.punho{position:absolute;top:-4px;bottom:-4px;width:16px;margin-left:-8px;
+  border-radius:5px;background:#16a34a;cursor:ew-resize;touch-action:none;
+  box-shadow:0 1px 4px rgba(0,0,0,.3)}
+.punho::after{content:'';position:absolute;left:6px;top:50%;width:4px;height:14px;
+  margin-top:-7px;border-left:1px solid rgba(255,255,255,.65);
+  border-right:1px solid rgba(255,255,255,.65)}
+.fita-info{font-size:.68rem;color:var(--c-muted-3);margin-top:7px;text-align:center}
+.fita-info.curto{color:#fb7185;font-weight:700}
+.fita-acoes{display:flex;gap:8px;margin-top:9px}
+.fita-acoes button{flex:1;padding:9px;border-radius:99px;background:transparent;
+  border:1.5px solid var(--c-border-2);color:var(--c-muted-4);font-family:inherit;
+  font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
+  cursor:pointer}
+.fita-acoes button:hover:not(:disabled){border-color:#16a34a;color:#16a34a}
+.fita-acoes button:disabled{opacity:.45;cursor:default}
 .conta-letras{font-size:.64rem;color:var(--c-muted-3);text-align:right;margin-top:6px}
 .conta-letras.demais{color:#fb7185;font-weight:700}
 .nota{font-size:.72rem;color:var(--c-muted-3);line-height:1.6;margin-top:8px}
@@ -6547,6 +6591,8 @@ function montar(c, assin) {
     corpo.appendChild(n);
   }
 
+  corpo.appendChild(fitaDeCorte(c, v));
+
   const acoes = botoesAjuste(c);
   const pub = document.createElement('button');
   pub.className = 'publicar';
@@ -6557,6 +6603,119 @@ function montar(c, assin) {
   corpo.appendChild(acoes);
   d.appendChild(corpo);
   return d;
+}
+
+function fitaDeCorte(c, video) {
+  // A fita mostra o clipe que existe. Arrastar os punhos NÃO recorta nada
+  // aqui: a prévia é o próprio player tocando só o trecho escolhido, o que é
+  // instantâneo e não gasta processamento. Só ao aplicar o gravador refaz o
+  // corte, e refaz do arquivo original — recortar um recorte recodificaria
+  // duas vezes e a imagem pioraria.
+  const cx = document.createElement('div');
+  cx.className = 'fita-caixa';
+
+  const dur = (c.antes_seg || 20) + (c.depois_seg || 0);
+  let ini = 0, fim = dur;
+
+  const barra = document.createElement('div');
+  barra.className = 'fita';
+  const sel = document.createElement('div');
+  sel.className = 'fita-sel';
+  const pIni = document.createElement('div');
+  pIni.className = 'punho punho-ini';
+  const pFim = document.createElement('div');
+  pFim.className = 'punho punho-fim';
+  barra.appendChild(sel);
+  barra.appendChild(pIni);
+  barra.appendChild(pFim);
+  cx.appendChild(barra);
+
+  const info = document.createElement('div');
+  info.className = 'fita-info';
+  cx.appendChild(info);
+
+  function pintar() {
+    const a = (ini / dur) * 100, b = (fim / dur) * 100;
+    sel.style.left = a + '%';
+    sel.style.width = (b - a) + '%';
+    pIni.style.left = a + '%';
+    pFim.style.left = b + '%';
+    const d = fim - ini;
+    info.textContent = d.toFixed(1) + 's  ·  do segundo ' + ini.toFixed(1)
+      + ' ao ' + fim.toFixed(1);
+    info.classList.toggle('curto', d < 3);
+  }
+  pintar();
+
+  // Prévia: o player só toca o trecho escolhido.
+  video.addEventListener('timeupdate', function () {
+    if (video.currentTime > fim + 0.05) { video.currentTime = ini; video.pause(); }
+    if (video.currentTime < ini - 0.05) video.currentTime = ini;
+  });
+
+  function arrastar(punho, qual) {
+    punho.addEventListener('pointerdown', function (ev) {
+      ev.preventDefault();
+      punho.setPointerCapture(ev.pointerId);
+      const mover = function (e) {
+        const r = barra.getBoundingClientRect();
+        let t = ((e.clientX - r.left) / r.width) * dur;
+        t = Math.max(0, Math.min(dur, t));
+        // Os punhos não se cruzam, e sobra sempre 1s entre eles: fita de
+        // largura zero não dá para agarrar de volta.
+        if (qual === 'ini') ini = Math.min(t, fim - 1);
+        else fim = Math.max(t, ini + 1);
+        pintar();
+        video.currentTime = (qual === 'ini') ? ini : Math.max(ini, fim - 0.3);
+      };
+      const soltar = function (e) {
+        punho.releasePointerCapture(ev.pointerId);
+        window.removeEventListener('pointermove', mover);
+        window.removeEventListener('pointerup', soltar);
+      };
+      window.addEventListener('pointermove', mover);
+      window.addEventListener('pointerup', soltar);
+    });
+  }
+  arrastar(pIni, 'ini');
+  arrastar(pFim, 'fim');
+
+  const acoes = document.createElement('div');
+  acoes.className = 'fita-acoes';
+  const aplicar = document.createElement('button');
+  aplicar.textContent = 'Aplicar corte';
+  aplicar.onclick = function () {
+    const d = fim - ini;
+    if (d < 3) { alert('o clipe ficaria com ' + d.toFixed(1) + 's; o mínimo é 3'); return; }
+    // A fita mede a partir do começo do clipe; o servidor pensa em torno do
+    // instante do lance. Converto aqui: o que era "segundo 5 do clipe" vira
+    // "15 segundos antes do gol".
+    const novoAntes = (c.antes_seg || 20) - ini;
+    const novoDepois = (c.depois_seg || 0) - (dur - fim);
+    aplicar.disabled = true;
+    aplicar.textContent = 'refazendo…';
+    fetch('/api/clipe/' + c.id + '/janela', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({antes: novoAntes, depois: novoDepois})
+    }).then(function (r) { return r.json().then(function (j) { return {r: r, j: j}; }); })
+      .then(function (x) {
+        if (!x.r.ok) throw new Error(x.j.erro || ('HTTP ' + x.r.status));
+        carregar();
+      })
+      .catch(function (e) {
+        alert('não deu: ' + (e.message || e));
+        aplicar.disabled = false;
+        aplicar.textContent = 'Aplicar corte';
+      });
+  };
+  const inteiro = document.createElement('button');
+  inteiro.textContent = 'Tudo';
+  inteiro.title = 'volta a fita para o clipe inteiro';
+  inteiro.onclick = function () { ini = 0; fim = dur; pintar(); video.currentTime = 0; };
+  acoes.appendChild(inteiro);
+  acoes.appendChild(aplicar);
+  cx.appendChild(acoes);
+  return cx;
 }
 
 function botoesAjuste(c) {

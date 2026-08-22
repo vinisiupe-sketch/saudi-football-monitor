@@ -359,8 +359,16 @@ class Gravador:
 
     def atender(self, clipe: dict) -> None:
         cid = clipe.get("id")
-        antes = int(clipe.get("antes_seg") or 20)
-        depois = int(clipe.get("depois_seg") or 8)
+        # "or 20" transformaria ZERO em 20. Com a fita de corte, zero é um
+        # valor legítimo — você pode terminar o clipe exatamente no lance — e
+        # depois pode até ser negativo, se o trecho acabar antes dele.
+        antes = clipe.get("antes_seg")
+        depois = clipe.get("depois_seg")
+        antes = 20 if antes is None else int(antes)
+        depois = 8 if depois is None else int(depois)
+        if antes + depois < 1:
+            self._falhou(cid, "essa janela não tem duração")
+            return
         live_id = clipe.get("live_id") or ""
         try:
             alvo = datetime.fromisoformat(clipe["alvo_em"])

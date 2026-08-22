@@ -1670,6 +1670,31 @@ def ajustar_clipe(clipe_id: int, delta_seg: int) -> bool:
         return False
 
 
+def redefinir_janela(clipe_id: int, antes_seg: int, depois_seg: int) -> bool:
+    """Muda a janela do clipe e devolve para a fila de corte.
+
+    antes e depois são medidos a partir do instante do lance, e depois PODE ser
+    negativo: se você arrastar a fita para terminar antes do gol, o fim da
+    janela fica atrás do alvo. O que precisa valer é a duração, não o sinal.
+    """
+    dur = int(antes_seg) + int(depois_seg)
+    if dur < 3 or dur > 140:
+        return False          # 140s é o teto de vídeo do X
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe
+                            SET antes_seg = %s, depois_seg = %s,
+                                estado = 'pedido', video = NULL, tamanho = NULL,
+                                erro = NULL, atualizado_em = NOW()
+                          WHERE id = %s AND estado <> 'publicado'""",
+                      [int(antes_seg), int(depois_seg), clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
 def texto_do_clipe(clipe_id: int, texto: str) -> bool:
     try:
         with get_conn() as conn:
