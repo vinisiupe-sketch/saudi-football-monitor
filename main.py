@@ -5692,6 +5692,14 @@ def _agente_autorizado(request: Request) -> bool:
 
 CHAVE_GRAVADOR = "clipe_gravador"
 
+# A versão do gravador que este servidor espera. Quando o gravador reporta
+# outra, a tela avisa para fechar e reabrir o gravador.bat.
+#
+# Sem isso, um gravador antigo rodando na memória entrega clipes com defeitos
+# já corrigidos, e nada na tela denuncia. Aconteceu: três horas de clipes com
+# o áudio adiantado depois de o defeito estar consertado no arquivo.
+VERSAO_GRAVADOR = "2026-08-21c"
+
 
 def _gravador_estado() -> dict:
     """O que o gravador reportou da última vez, e há quanto tempo.
@@ -5712,6 +5720,8 @@ def _gravador_estado() -> dict:
     # Ele consulta de 4 em 4 segundos. Um minuto sem dar sinal é a janela do
     # gravador fechada, o computador dormindo, ou a internet caída.
     d["online"] = d.get("ha_segundos") is not None and d["ha_segundos"] < 60
+    d["versao_esperada"] = VERSAO_GRAVADOR
+    d["atualizado"] = (d.get("versao") or "") == VERSAO_GRAVADOR
     return d
 
 
@@ -5790,6 +5800,7 @@ async def api_clipe_pendentes(request: Request):
     try:
         set_state(CHAVE_GRAVADOR, json.dumps({
             "visto_em": datetime.now(timezone.utc).isoformat(),
+            "versao": corpo.get("versao") or "",
             "gravando": corpo.get("gravando") or {}}))
     except Exception:
         pass          # o batimento não pode derrubar a entrega dos clipes
@@ -6085,7 +6096,9 @@ h1{font-size:1.5rem;margin:0 0 4px}
 
 .clipe{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:12px;overflow:hidden;margin-bottom:12px}
-.clipe-topo{display:flex;align-items:center;gap:9px;padding:11px 14px;flex-wrap:wrap}
+.clipe-etiqueta{padding:10px 14px 0;font-weight:800;font-size:.8rem;
+  line-height:1.35;color:var(--c-text)}
+.clipe-topo{display:flex;align-items:center;gap:9px;padding:9px 14px 11px;flex-wrap:wrap}
 .clipe-hora{font-weight:800;font-size:.9rem}
 .clipe-jogo{font-size:.72rem;color:var(--c-muted-3);min-width:0;
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:42%}
@@ -6325,6 +6338,12 @@ async function carregar() {
     estado(est, 'alerta', 'falta a variável CLIPE_TOKEN no Railway');
   } else if (!g.online) {
     estado(est, 'alerta', 'gravador desligado — abra o gravador.bat no computador');
+  } else if (g.atualizado === false) {
+    // Editar o arquivo não muda um processo que já está rodando. Sem este
+    // aviso, um gravador antigo entrega clipes com defeitos já corrigidos e
+    // nada na tela denuncia — foi o que aconteceu com o áudio adiantado.
+    estado(est, 'alerta', 'gravador desatualizado (' + esc(g.versao || 'sem versão')
+      + ') — feche e abra o gravador.bat de novo');
   } else {
     const n = Object.keys(grav).length;
     estado(est, 'ok', n ? ('gravando ' + n + (n > 1 ? ' jogos' : ' jogo'))
@@ -6425,6 +6444,15 @@ function pintarClipes(clipes) {
   Array.prototype.slice.call(alvo.querySelectorAll('.clipe')).forEach(function (el) {
     if (!vistos[el.dataset.id]) el.remove();
   });
+
+  // Reordeno para bater com a lista do servidor, que já vem do mais novo para
+  // o mais velho. Sem isto, o prepend percorrendo essa lista invertia tudo: o
+  // 7 entrava, o 6 entrava na frente dele, o 5 na frente do 6 — e o clipe mais
+  // velho terminava no topo, que é o contrário do que serve.
+  clipes.forEach(function (c) {
+    const el = document.getElementById('clipe-' + c.id);
+    if (el) alvo.appendChild(el);
+  });
 }
 
 function montar(c, assin) {
@@ -6434,11 +6462,19 @@ function montar(c, assin) {
   d.dataset.id = c.id;
   d.dataset.assin = assin;
 
+  // O jogo vai numa linha só dele, acima e em destaque: com quatro partidas
+  // ao mesmo tempo, saber de qual é o clipe importa mais que a hora dele.
+  if (c.jogo) {
+    const et = document.createElement('div');
+    et.className = 'clipe-etiqueta';
+    et.textContent = c.jogo;
+    d.appendChild(et);
+  }
   const topo = document.createElement('div');
   topo.className = 'clipe-topo';
   topo.innerHTML = '<span class="clipe-hora">' + esc(hora(c.alvo_em)) + '</span>'
-    + (c.jogo ? '<span class="clipe-jogo">' + esc(c.jogo) + '</span>' : '')
     + '<span class="selo s-' + esc(c.estado) + '">' + esc(rotulo(c.estado)) + '</span>'
+    + (c.tipo === 'outro' ? '<span class="selo">lance</span>' : '')
     + (c.tamanho ? '<span class="tam">' + (c.tamanho / 1048576).toFixed(1) + ' MB</span>' : '');
   d.appendChild(topo);
 

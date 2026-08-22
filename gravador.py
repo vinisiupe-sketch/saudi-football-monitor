@@ -66,6 +66,16 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # decodifica desde um keyframe anterior e chega ao ponto exato com imagem.
 DECODIFICA_ANTES = 30
 
+# Versão deste arquivo. O app compara com o que ele espera e avisa na tela
+# quando estão diferentes.
+#
+# Isso existe por causa de um caso real: eu corrigi o corte às 13:43, e às
+# 16:49 ainda saíam clipes com o defeito antigo. O arquivo estava certo — a
+# janela do gravador continuava rodando o código carregado na memória desde
+# antes. Editar arquivo não muda processo que já está de pé, e não havia nada
+# na tela que denunciasse isso.
+VERSAO = "2026-08-21c"
+
 
 def diz(t: str = "") -> None:
     print(t, flush=True)
@@ -428,6 +438,7 @@ class Gravador:
             self.ultimo_canal = disponiveis
             self.olhei_o_canal = agora
         corpo = {
+            "versao": VERSAO,
             "gravando": {j.id: j.desde() for j in self.jogos.values()
                          if j.gravando()},
             "titulos": [{"id": j.id, "titulo": j.titulo}
@@ -510,6 +521,7 @@ def main() -> int:
         diz("    que está configurada no Railway. Sem isso o app recusa os")
         diz("    clipes que eu mandar, e com razão.")
         return 1
+    diz(f"    versao : {VERSAO}")
     diz(f"    app    : {app}")
     diz(f"    token  : configurado ({len(token)} caracteres)")
     diz()
