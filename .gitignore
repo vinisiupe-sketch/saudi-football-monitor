@@ -49,3 +49,6 @@ ferramentas_status.txt
 # Gravador — token local e as gravacoes, que sao gigantes
 clipe_token.txt
 gravacoes/
+
+# Diagnostico do canal (saida local)
+diag_canal_RELATORIO.txt

@@ -38,6 +38,7 @@ SOBRE QUEDAS
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -110,6 +111,40 @@ def arquivo(nome: str) -> str:
     return open(c, encoding="utf-8").read().strip() if os.path.exists(c) else ""
 
 
+def conferir_rede(app: str) -> bool:
+    """Confere, na subida, que dá para chegar no app. Devolve se resolveu.
+
+    Isto existe por causa de uma tarde inteira perdida: a janela do gravador
+    ficou horas repetindo "[Errno 11001] getaddrinfo failed" enquanto a tela
+    do app dizia que o canal não estava transmitindo nada. As duas coisas
+    eram a mesma coisa — o app só sabe do canal o que este programa conta,
+    e este programa não estava conseguindo contar nada — mas nada na tela
+    ligava uma à outra, e a mensagem nem dizia qual endereço tinha falhado.
+
+    Não impeço a subida se falhar: rede volta, e o programa tenta de novo
+    sozinho. Só quero que a primeira linha da janela diga a verdade.
+    """
+    host = urllib.parse.urlsplit(app).hostname or ""
+    proxies = urllib.request.getproxies()
+    if proxies:
+        # O Python obedece à configuração de proxy do Windows. Se o proxy não
+        # existir mais, a falha aparece como se fosse DNS do app — e você fica
+        # olhando para o endereço certo achando que ele está errado.
+        diz(f"    proxy  : o Windows manda passar por {proxies}")
+    try:
+        ips = sorted({i[4][0] for i in socket.getaddrinfo(host, 443)})
+        diz(f"    rede   : {host} resolve para {', '.join(ips)}")
+        return True
+    except Exception as e:
+        diz(f"    rede   : NÃO CONSEGUI RESOLVER {host}")
+        diz(f"             {type(e).__name__}: {e}")
+        diz("             Enquanto isso não voltar, eu não falo com o app, e a")
+        diz("             guia Clipes fica sem as transmissões do canal — ela")
+        diz("             só mostra o que eu mandar. Confira internet, VPN e o")
+        diz("             endereço dentro de app_url.txt.")
+        return False
+
+
 class Gravacao:
     """Um arquivo contínuo, com a hora de relógio em que ele começou."""
 
@@ -149,10 +184,13 @@ class Jogo:
 class Gravador:
     def __init__(self, app: str, token: str, ytdlp: list, ffmpeg: str):
         self.app, self.token = app, token
+        self.host = urllib.parse.urlsplit(app).hostname or app
         self.ytdlp, self.ffmpeg = ytdlp, ffmpeg
         self.jogos: dict[str, Jogo] = {}
         self.canal = ""
         self.olhei_o_canal = 0.0
+        # Para avisar quando o contato com o app cai e quando ele volta.
+        self.falando_com_o_app = True
         # A última lista de transmissões do canal. Guardo porque é dela que
         # sai o nome do jogo para o botão — sem isso, _nomear procurava numa
         # lista que nunca era preenchida e o botão ficava com o id do vídeo.
@@ -177,6 +215,18 @@ class Gravador:
             except Exception:
                 pass
             return None, f"HTTP {e.code}: {detalhe}"
+        except urllib.error.URLError as e:
+            # A mensagem crua do Python aqui é
+            #   "<urlopen error [Errno 11001] getaddrinfo failed>"
+            # e ela não diz QUAL endereço falhou. Rodei horas com a janela
+            # repetindo isso e a linha não dava pista nenhuma de onde olhar.
+            motivo = getattr(e, "reason", e)
+            if isinstance(motivo, socket.gaierror):
+                return None, (f"não consegui traduzir o endereço {self.host} "
+                              f"para um IP ({motivo}). É DNS: internet caída, "
+                              "VPN ligada, ou proxy do Windows apontando para "
+                              "um servidor que não existe.")
+            return None, f"não cheguei em {self.host}: {motivo}"
         except Exception as e:
             return None, f"{type(e).__name__}: {e}"
 
@@ -193,26 +243,51 @@ class Gravador:
         alvo = self.canal.rstrip("/") + "/streams"
         try:
             r = subprocess.run(
+                # O TÍTULO VEM POR ÚLTIMO, de propósito. Antes a ordem era
+                # id|título|estado e eu partia a linha em todas as barras — só
+                # que os títulos deste canal TÊM barra:
+                #     "Náutico x River | AO VIVO E COM IMAGENS"
+                # Então o campo 3 virava um pedaço do título, nunca batia com
+                # "is_live", e as doze transmissões eram descartadas em
+                # silêncio. Com o título no fim e maxsplit=2, ele pode ter
+                # quantas barras quiser.
                 self.ytdlp + ["--no-warnings", "--flat-playlist",
                               "--playlist-end", "12",
-                              "--print", "%(id)s|%(title)s|%(live_status)s",
+                              "--print", "%(id)s|%(live_status)s|%(title)s",
                               alvo],
                 capture_output=True, text=True, timeout=120,
                 encoding="utf-8", errors="replace")
         except Exception as e:
             diz(f"    não consegui olhar o canal: {type(e).__name__}: {e}")
             return []
-        itens = []
+        itens, descartados = [], {}
         for linha in (r.stdout or "").splitlines():
-            partes = linha.split("|")
+            partes = linha.split("|", 2)
             if len(partes) < 3 or not partes[0].strip():
                 continue
-            vid, titulo, estado = partes[0].strip(), partes[1].strip(), partes[2].strip()
+            vid, estado, titulo = partes[0].strip(), partes[1].strip(), partes[2].strip()
             # Só o que está no ar agora. Transmissão encerrada vira vídeo
             # comum e não serve para clipar ao vivo.
             if estado != "is_live":
+                descartados[estado or "sem estado"] = \
+                    descartados.get(estado or "sem estado", 0) + 1
                 continue
             itens.append({"id": vid, "titulo": titulo, "estado": estado})
+
+        # Digo em voz alta o que achei. Antes esta função era muda: quando ela
+        # devolvia lista vazia, a tela dizia "o canal não está transmitindo
+        # nada" e não havia como saber se ela tinha olhado e não visto, ou se
+        # tinha falhado. Silêncio que parece resposta é pior que erro.
+        total = len(itens) + sum(descartados.values())
+        if r.returncode != 0 and not total:
+            diz(f"    olhei o canal e o yt-dlp reclamou: "
+                f"{(r.stderr or '').strip()[:200]}")
+        elif itens:
+            diz(f"    canal: {len(itens)} no ar de {total} — "
+                + ", ".join(i["titulo"][:34] for i in itens))
+        else:
+            resto = ", ".join(f"{n} {e}" for e, n in sorted(descartados.items()))
+            diz(f"    canal: nada no ar ({total} na lista: {resto or 'vazia'})")
         return itens
 
     # ── gravar ────────────────────────────────────────────────────────────
@@ -441,7 +516,12 @@ class Gravador:
         """Uma chamada só: conto o que sei, recebo o que preciso fazer."""
         agora = time.time()
         disponiveis = None
-        if agora - self.olhei_o_canal >= INTERVALO_CANAL:
+        # O "self.canal and" não é enfeite: o endereço do canal chega na
+        # PRIMEIRA resposta do app, então na primeira volta ele ainda é vazio.
+        # Sem essa condição, eu carimbava o relógio sem ter olhado nada e
+        # ainda mandava lista vazia — ou seja, apagava a lista do app dizendo
+        # "não tem nada no ar" antes de ter olhado uma única vez.
+        if self.canal and agora - self.olhei_o_canal >= INTERVALO_CANAL:
             disponiveis = self.transmissoes_do_canal()
             self.ultimo_canal = disponiveis
             self.olhei_o_canal = agora
@@ -479,10 +559,19 @@ class Gravador:
                 # Não desisto por causa de uma falha de rede: o jogo continua.
                 agora = time.time()
                 if agora - ultimo_aviso > 60:
-                    diz(f"    (sem contato com o app: {err})")
+                    diz(f"    sem contato com o app: {err}")
                     ultimo_aviso = agora
+                self.falando_com_o_app = False
                 time.sleep(INTERVALO_CONSULTA)
                 continue
+
+            if not self.falando_com_o_app:
+                # Sem esta linha, a volta do contato é invisível: a janela
+                # simplesmente para de reclamar, e "parou de reclamar" também é
+                # o que ela faz quando você não está olhando.
+                diz(f"    voltei a falar com o app às "
+                    f"{datetime.now().strftime('%H:%M:%S')}.")
+                self.falando_com_o_app = True
 
             if not self.canal:
                 self.canal = (d or {}).get("canal") or ""
@@ -532,6 +621,7 @@ def main() -> int:
     diz(f"    versao : {VERSAO}")
     diz(f"    app    : {app}")
     diz(f"    token  : configurado ({len(token)} caracteres)")
+    conferir_rede(app)
     diz()
 
     g = Gravador(app, token, ytdlp, ffmpeg)
