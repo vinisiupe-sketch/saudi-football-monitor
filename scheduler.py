@@ -175,6 +175,15 @@ def create_scheduler() -> AsyncIOScheduler:
         id="coletar_gols_ao_vivo",
         replace_existing=True,
     )
+    # Escalações: a mesma medição, para outro dado. De 40 em 40 segundos —
+    # a diferença entre as fontes só é confiável até a resolução deste
+    # intervalo, e apertar demais gastaria chamada sem ganho.
+    scheduler.add_job(
+        run_coletar_escalacoes,
+        trigger=IntervalTrigger(seconds=40),
+        id="coletar_escalacoes",
+        replace_existing=True,
+    )
     scheduler.add_job(
         run_publicar_aprovados,
         trigger=IntervalTrigger(seconds=30),
@@ -215,6 +224,19 @@ async def run_fila_bola_rolando():
         return r
     except Exception as e:
         print(f"❌ Erro ao montar a fila de posts: {e}")
+        return {"erro": str(e)}
+
+
+async def run_coletar_escalacoes():
+    """Carimba as escalações das duas fontes. Silencioso fora da janela."""
+    try:
+        from main import coletar_escalacoes
+        r = await coletar_escalacoes()
+        if r.get("novos"):
+            print(f"📋 {r['novos']} escalação(ões) carimbada(s)")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao carimbar escalações: {e}")
         return {"erro": str(e)}
 
 

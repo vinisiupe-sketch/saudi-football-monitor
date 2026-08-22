@@ -25,10 +25,11 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
+import clubs
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -5212,7 +5213,7 @@ function caixaFonte(rotulo, r, cor) {
 // ocupa a tela inteira. O contador na aba de alertas existe para você não ter
 // que trocar de aba só para descobrir se tem gol novo lá.
 function mostrarAba(qual) {
-  ['fim', 'gols'].forEach(function (k) {
+  ['fim', 'gols', 'esc'].forEach(function (k) {
     const p = document.getElementById('painel-' + k);
     const b = document.getElementById('aba-' + k);
     if (p) p.style.display = (k === qual) ? '' : 'none';
@@ -5372,6 +5373,144 @@ function cardDoJogo(j) {
   '</div>';
 }
 
+
+// ── ESCALAÇÕES ────────────────────────────────────────────────────────────
+
+let _escTimer = null;
+
+// A diferença só é confiável até a resolução do coletor, que passa de 40 em
+// 40 segundos. Se as duas fontes já tinham a escalação quando ele passou, o
+// que sobra é a ordem em que eu consultei — e não quem publicou antes. Mostrar
+// "-2s" como se fosse medição seria inventar precisão que não existe.
+const ESC_RESOLUCAO_SEG = 40;
+
+function escHora(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo',
+                                                     hour: '2-digit', minute: '2-digit',
+                                                     second: '2-digit'});
+  } catch (e) { return ''; }
+}
+
+async function carregarEscalacoes() {
+  const alvo = document.getElementById('fjEsc');
+  if (!alvo) return;
+  let d;
+  try {
+    const r = await fetch('/api/escalacoes?horas=12&_=' + Date.now());
+    const bruto = await r.text();
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 200));
+    d = JSON.parse(bruto);
+  } catch (e) {
+    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
+      + 'style="font-size:.76rem;color:#fb7185">Falha ao carregar as escalações:\n'
+      + esc(e.message || String(e)) + '</pre></div>';
+    return;
+  }
+
+  const lista = d.escalacoes || [];
+  const p = document.getElementById('abaEscN');
+  if (p) {
+    p.textContent = lista.length ? String(lista.length) : '';
+    p.classList.toggle('tem', lista.length > 0);
+  }
+
+  if (!lista.length) {
+    const g = d.diagnostico || {};
+    const q = g.quando ? escHora(g.quando) : 'nunca';
+    let txt = 'Nenhuma escalação ainda. Última olhada às ' + q
+      + ' — Sportmonks: ' + (g.sm_jogos || 0) + ' jogo(s) na janela, '
+      + (g.sm_com || 0) + ' com escalação'
+      + ' · API-Football: ' + (g.af_jogos || 0) + ' jogo(s), '
+      + (g.af_com || 0) + ' com escalação.';
+    if (!d.sportmonks_configurada) txt += '\n⚠️ SPORTMONKS_TOKEN não configurada.';
+    if ((g.erros || []).length) txt += '\n⚠️ ' + g.erros.join(' | ');
+    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
+      + 'style="font-size:.76rem">' + esc(txt) + '</pre></div>';
+    return;
+  }
+
+  alvo.innerHTML = '';
+  lista.forEach(function (j) {
+    alvo.appendChild(cartaoEscalacao(j));
+  });
+}
+
+function cartaoEscalacao(j) {
+  const d = document.createElement('div');
+  d.className = 'gol-linha';
+
+  const cab = document.createElement('div');
+  cab.className = 'gol-cab';
+  let selo = '<span class="dif">só uma fonte</span>';
+  if (j.diferenca_seg !== null && j.diferenca_seg !== undefined) {
+    const s = j.diferenca_seg;
+    if (Math.abs(s) < ESC_RESOLUCAO_SEG) {
+      // Honestidade sobre o que a medição alcança.
+      selo = '<span class="dif">as duas já tinham (diferença menor que a '
+           + 'passagem do coletor)</span>';
+    } else {
+      const quem = s < 0 ? 'sm' : 'af';
+      const txt = s < 0 ? 'Sportmonks ' + Math.abs(s) + 's antes'
+                        : 'API-Football ' + s + 's antes';
+      selo = '<span class="dif ' + quem + '">' + txt + '</span>';
+    }
+  }
+  cab.innerHTML = '<span>' + esc(j.jogo || '?') + '</span>'
+    + (j.comeca_em ? '<span class="conta">apito ' + esc(escHora(j.comeca_em)) + '</span>' : '')
+    + selo;
+  d.appendChild(cab);
+
+  const duas = document.createElement('div');
+  duas.className = 'duas';
+  [['API-Football', j.api_football, '#0ea5e9'],
+   ['Sportmonks', j.sportmonks, '#22c55e']].forEach(function (par) {
+    const c = document.createElement('div');
+    c.className = 'fonte';
+    c.innerHTML = '<h4><span style="width:8px;height:8px;border-radius:50%;background:'
+      + par[2] + ';display:inline-block"></span>' + par[0]
+      + '<span style="margin-left:auto;font-weight:400">'
+      + (par[1] ? esc(escHora(par[1].visto_em)) : '—') + '</span></h4>';
+    if (!par[1]) {
+      const p = document.createElement('pre');
+      p.textContent = 'ainda não publicou';
+      p.style.color = 'var(--c-muted-3)';
+      c.appendChild(p);
+    } else {
+      ((par[1].escalacao || {}).times || []).forEach(function (t) {
+        const bloco = document.createElement('pre');
+        bloco.className = 'fj-texto';
+        bloco.style.marginTop = '8px';
+        const linhas = [t.nome + (t.formacao ? '  (' + t.formacao + ')' : '')];
+        (t.titulares || []).forEach(function (p) {
+          linhas.push('  ' + (p.camisa ? String(p.camisa).padStart(2, ' ') : ' -')
+                      + '  ' + p.nome);
+        });
+        if ((t.banco || []).length) {
+          linhas.push('  banco: ' + t.banco.map(function (p) { return p.nome; }).join(', '));
+        }
+        bloco.textContent = linhas.join('\n');
+        c.appendChild(bloco);
+      });
+    }
+    duas.appendChild(c);
+  });
+  d.appendChild(duas);
+  return d;
+}
+
+function cicloEscalacoes() {
+  carregarEscalacoes().catch(function (err) {
+    const a = document.getElementById('fjEsc');
+    if (a) a.innerHTML = '<div class="result-card"><pre class="fj-texto" '
+      + 'style="font-size:.76rem;color:#fb7185">Erro nas escalações: '
+      + (err && err.message ? err.message : String(err)) + '</pre></div>';
+  });
+  clearTimeout(_escTimer);
+  _escTimer = setTimeout(cicloEscalacoes, 20000);
+}
+cicloEscalacoes();
 '''
 
 
@@ -5415,8 +5554,10 @@ __HDR__
   </div>
   <div class="abas">
     <button class="aba ativa" id="aba-fim" onclick="mostrarAba('fim')">⏱️ Fim de jogo</button>
-    <button class="aba" id="aba-gols" onclick="mostrarAba('gols')">⚽ Alertas de gol<span
+    <button class="aba" id="aba-gols" onclick="mostrarAba('gols')">⚽ Alertas<span
       class="pilula" id="abaGolsN"></span></button>
+    <button class="aba" id="aba-esc" onclick="mostrarAba('esc')">📋 Escalações<span
+      class="pilula" id="abaEscN"></span></button>
   </div>
 
   <div id="painel-fim">
@@ -5427,6 +5568,13 @@ __HDR__
     <p class="sub" style="margin:0 0 12px">Cada gol carimbado com o instante em que cada
        fonte o publicou. Diferença negativa = a Sportmonks chegou antes.</p>
     <div id="fjGols"></div>
+  </div>
+
+  <div id="painel-esc" style="display:none">
+    <p class="sub" style="margin:0 0 12px">Escalações dos jogos que começam nas
+       próximas 3 horas, com o instante em que cada fonte publicou.
+       Diferença negativa = a Sportmonks chegou antes.</p>
+    <div id="fjEsc"><div class="result-card"><div class="loading-state">Carregando…</div></div></div>
   </div>
 
 </div>
@@ -5723,6 +5871,257 @@ def _gravador_estado() -> dict:
     d["versao_esperada"] = VERSAO_GRAVADOR
     d["atualizado"] = (d.get("versao") or "") == VERSAO_GRAVADOR
     return d
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ESCALAÇÕES — qual fonte publica primeiro
+# ══════════════════════════════════════════════════════════════════════════
+
+_ULTIMA_ESCALACAO = {"quando": None, "sm_jogos": 0, "sm_com": 0,
+                     "af_jogos": 0, "af_com": 0, "novos": 0, "erros": []}
+
+# A escalação sai perto de uma hora antes. Consulto nesta janela e paro depois
+# do apito inicial — insistir o dia todo gastaria chamada à toa.
+ESC_ANTES_MIN = 180
+ESC_DEPOIS_MIN = 20
+
+
+# variante em minúsculas -> chave do clube. Montada uma vez, na subida.
+_CLUBES_POR_VARIANTE = {
+    chave: {re.sub(r"\s+", " ", re.sub(r"[^a-z ]", " ", v.lower())).strip()
+            for v in variantes}
+    for chave, variantes in clubs.ALL_CLUBS.items()
+}
+
+
+def _token_clube(nome: str) -> str:
+    """Chave canônica do clube, para o mesmo jogo casar entre as duas fontes.
+
+    Uso a lista do clubs.py, que já tem as variantes de transliteração —
+    okhdood/akhdoud, qadsiah/qadisiyah, damac/damak, khaleej/khalij. Tentei
+    antes um normalizador fonético e ele fez Al-Hilal e Al-Ahli virarem o
+    mesmo token, o que pareava jogos diferentes em silêncio. Lista fechada é
+    o que funciona aqui, e já estava pronta.
+
+    Clube fora da lista devolve um token próprio, com um prefixo que nunca
+    casa com nada: prefiro mostrar o jogo separado nas duas fontes a juntar
+    dois jogos diferentes.
+    """
+    n = re.sub(r"[^a-z ]", " ", (nome or "").lower())
+    n = re.sub(r"\s+", " ", n).strip()
+    if not n:
+        return "?"
+    for chave, variantes in _CLUBES_POR_VARIANTE.items():
+        if n in variantes:
+            return chave
+    # tenta sem os sufixos que só uma das fontes usa
+    curto = re.sub(r"\b(fc|sc|club|saudi|jeddah)\b", " ", n)
+    curto = re.sub(r"\s+", " ", curto).strip()
+    for chave, variantes in _CLUBES_POR_VARIANTE.items():
+        if curto in variantes:
+            return chave
+    return "desconhecido:" + curto.replace(" ", "")
+
+
+def _chave_escalacao(comeca_iso: str, casa: str) -> str:
+    """Identidade do jogo, igual nas duas fontes.
+
+    Hora do apito inicial mais o time da casa. Só a hora não bastaria: numa
+    rodada final os jogos começam todos no mesmo minuto.
+    """
+    quando = (comeca_iso or "")[:16]
+    return f"{quando}|{_token_clube(casa)}"
+
+
+def _esc_af(resposta: list) -> dict:
+    """Converte a escalação da API-Football para a MESMA forma da Sportmonks.
+
+    Sem isso a tela teria que saber ler dois formatos, e a comparação — que é
+    o motivo desta guia — ficaria enterrada em condicional.
+    """
+    times = []
+    for t in (resposta or []):
+        titulares = [{"nome": ((j.get("player") or {}).get("name") or "?"),
+                      "camisa": (j.get("player") or {}).get("number")}
+                     for j in (t.get("startXI") or [])]
+        banco = [{"nome": ((j.get("player") or {}).get("name") or "?"),
+                  "camisa": (j.get("player") or {}).get("number")}
+                 for j in (t.get("substitutes") or [])]
+        if not titulares and not banco:
+            continue
+        times.append({"nome": ((t.get("team") or {}).get("name") or "")
+                              .replace("-", " ").upper(),
+                      "titulares": titulares, "banco": banco,
+                      "formacao": t.get("formation") or ""})
+    # Mesma regra da Sportmonks: sem titular, a escalação não saiu.
+    if not any(t["titulares"] for t in times):
+        return {}
+    return {"times": times, "quantos": sum(len(t["titulares"]) + len(t["banco"])
+                                           for t in times)}
+
+
+async def coletar_escalacoes() -> dict:
+    """Carimba, para cada fonte, o instante em que ela publicou a escalação.
+
+    Só olha jogos na janela em torno do apito inicial. A escalação sai perto de
+    uma hora antes; insistir o dia inteiro gastaria chamada à toa.
+    """
+    agora = datetime.now(timezone.utc)
+    diag = {"quando": agora.isoformat(), "novos": 0, "sm_jogos": 0, "sm_com": 0,
+            "af_jogos": 0, "af_com": 0, "erros": []}
+    novos = []
+
+    def na_janela(quando: datetime | None) -> bool:
+        if quando is None:
+            return False
+        falta = (quando - agora).total_seconds() / 60
+        return -ESC_DEPOIS_MIN <= falta <= ESC_ANTES_MIN
+
+    # já carimbados: não gasto chamada para reconsultar o que já sei
+    ja = {(l.get("fonte"), l.get("chave")) for l in escalacoes_vistas(24)}
+
+    # ── Sportmonks: uma chamada traz o dia inteiro ────────────────────────
+    if not sm.configurado():
+        diag["erros"].append("SPORTMONKS_TOKEN ausente")
+    else:
+        for dia in (agora.date().isoformat(),
+                    (agora + timedelta(days=1)).date().isoformat()):
+            jogos, err = await sm.com_escalacao(dia)
+            if err:
+                diag["erros"].append(f"sportmonks {dia}: {str(err)[:100]}")
+                continue
+            for f in jogos:
+                quando = _quando_sm(f)
+                if not na_janela(quando):
+                    continue
+                diag["sm_jogos"] += 1
+                casa, fora = sm._lados(f)
+                chave = _chave_escalacao(
+                    quando.isoformat() if quando else "", casa.get("name") or "")
+                if ("sportmonks", chave) in ja:
+                    diag["sm_com"] += 1
+                    continue
+                esc = sm.escalacao_da_partida(f)
+                if not esc:
+                    continue
+                diag["sm_com"] += 1
+                jogo = (f"{sm._nome_card(casa.get('name'))} x "
+                        f"{sm._nome_card(fora.get('name'))}")
+                if registrar_escalacao("sportmonks", chave, jogo=jogo,
+                                       comeca_em=quando,
+                                       conteudo=json.dumps(esc, ensure_ascii=False),
+                                       fixture_sm=f.get("id")):
+                    novos.append(("sportmonks", chave))
+
+    # ── API-Football: uma chamada por jogo que ainda falta ────────────────
+    for dia in (agora.date().isoformat(),
+                (agora + timedelta(days=1)).date().isoformat()):
+        for liga_id in (AF_LEAGUE_SPL, 504, 826, 17, 18):
+            season = await _season_da_liga(liga_id, _af_temporada_corrente())
+            data, err = await _af_get("fixtures", {"league": liga_id,
+                                                   "season": season, "date": dia},
+                                      ttl=120)
+            if err or not data:
+                if err:
+                    diag["erros"].append(f"af fixtures {liga_id}: {str(err)[:80]}")
+                continue
+            for fx in data.get("response", []):
+                quando = _quando_af(fx)
+                if not na_janela(quando):
+                    continue
+                diag["af_jogos"] += 1
+                times = fx.get("teams") or {}
+                casa = (times.get("home") or {}).get("name") or ""
+                fora = (times.get("away") or {}).get("name") or ""
+                chave = _chave_escalacao(
+                    quando.isoformat() if quando else "", casa)
+                if ("api_football", chave) in ja:
+                    diag["af_com"] += 1
+                    continue
+                fid = (fx.get("fixture") or {}).get("id")
+                lin, e2 = await _af_get("fixtures/lineups", {"fixture": fid}, ttl=60)
+                if e2:
+                    diag["erros"].append(f"af lineups {fid}: {str(e2)[:80]}")
+                    continue
+                esc = _esc_af((lin or {}).get("response") or [])
+                if not esc:
+                    continue
+                diag["af_com"] += 1
+                jogo = (f"{casa.replace('-', ' ').upper()} x "
+                        f"{fora.replace('-', ' ').upper()}")
+                if registrar_escalacao("api_football", chave, jogo=jogo,
+                                       comeca_em=quando,
+                                       conteudo=json.dumps(esc, ensure_ascii=False),
+                                       fixture_af=fid):
+                    novos.append(("api_football", chave))
+
+    diag["novos"] = len(novos)
+    _ULTIMA_ESCALACAO.update(diag)
+    return diag
+
+
+def _quando_sm(f: dict) -> datetime | None:
+    for campo in ("starting_at", "start_at"):
+        bruto = f.get(campo)
+        if not bruto:
+            continue
+        try:
+            return datetime.fromisoformat(
+                str(bruto).replace(" ", "T").replace("Z", "+00:00")
+            ).replace(tzinfo=timezone.utc) if "+" not in str(bruto) else \
+                datetime.fromisoformat(str(bruto).replace(" ", "T"))
+        except Exception:
+            continue
+    return None
+
+
+def _quando_af(fx: dict) -> datetime | None:
+    bruto = (fx.get("fixture") or {}).get("date")
+    if not bruto:
+        return None
+    try:
+        d = datetime.fromisoformat(str(bruto).replace("Z", "+00:00"))
+        return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+@app.get("/api/escalacoes")
+async def api_escalacoes(horas: int = 12, coletar: int = 1):
+    """As duas fontes lado a lado, com o horário em que cada uma publicou."""
+    if coletar:
+        try:
+            await coletar_escalacoes()
+        except Exception as e:
+            _ULTIMA_ESCALACAO["erros"] = [f"coleta: {type(e).__name__}: {e}"]
+    linhas = escalacoes_vistas(horas)
+    por_jogo: dict = {}
+    for l in linhas:
+        d = por_jogo.setdefault(l.get("chave"), {
+            "jogo": l.get("jogo") or "", "comeca_em": l.get("comeca_em")})
+        if not d.get("jogo"):
+            d["jogo"] = l.get("jogo") or ""
+        try:
+            conteudo = json.loads(l.get("conteudo") or "{}")
+        except Exception:
+            conteudo = {}
+        d[l["fonte"]] = {"visto_em": l.get("visto_em"), "escalacao": conteudo}
+    saida = []
+    for chave, d in por_jogo.items():
+        a, s = d.get("api_football"), d.get("sportmonks")
+        dif = None
+        if a and s:
+            try:
+                dif = round((datetime.fromisoformat(s["visto_em"])
+                             - datetime.fromisoformat(a["visto_em"])).total_seconds())
+            except Exception:
+                pass
+        saida.append({"chave": chave, "jogo": d.get("jogo"),
+                      "comeca_em": d.get("comeca_em"),
+                      "api_football": a, "sportmonks": s, "diferenca_seg": dif})
+    saida.sort(key=lambda x: (x.get("comeca_em") or ""), reverse=True)
+    return {"escalacoes": saida, "diagnostico": _ULTIMA_ESCALACAO,
+            "sportmonks_configurada": sm.configurado()}
 
 
 @app.get("/api/clipe/lives")

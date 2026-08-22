@@ -1882,3 +1882,74 @@ def adicionar_live_do_canal(video_id: str) -> tuple[bool, str]:
                   "titulo": achado.get("titulo") or "",
                   "criada_em": datetime.now(timezone.utc).isoformat()})
     return (True, "") if _salvar_lives(lives) else (False, "não consegui salvar")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ESCALAÇÕES — quem publica primeiro
+#
+# Mesmo desenho do gol_visto, e pelo mesmo motivo: o UNIQUE por (fonte,
+# fixture) é o que faz a medição valer. A segunda vez que a fonte reportar a
+# mesma escalação não sobrescreve o horário — senão eu estaria medindo a hora
+# da última consulta, e não a da descoberta.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _cria_escalacao(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS escalacao_vista (
+            id          SERIAL PRIMARY KEY,
+            fonte       TEXT NOT NULL,
+            chave       TEXT NOT NULL,
+            fixture_af  BIGINT,
+            fixture_sm  BIGINT,
+            jogo        TEXT,
+            comeca_em   TIMESTAMPTZ,
+            conteudo    TEXT,
+            visto_em    TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (fonte, chave)
+        )
+    """)
+
+
+def registrar_escalacao(fonte: str, chave: str, jogo: str = "",
+                        comeca_em=None, conteudo: str = "",
+                        fixture_af=None, fixture_sm=None) -> bool:
+    """Carimba a primeira vez que esta fonte publicou esta escalação.
+
+    Devolve True só quando é a primeira — ou seja, quando é notícia.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_escalacao(c)
+            c.execute("""
+                INSERT INTO escalacao_vista
+                       (fonte, chave, jogo, comeca_em, conteudo,
+                        fixture_af, fixture_sm)
+                VALUES (%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (fonte, chave) DO NOTHING
+                RETURNING id
+            """, [fonte, chave, jogo, comeca_em, conteudo,
+                  fixture_af, fixture_sm])
+            return c.fetchone() is not None
+    except Exception:
+        return False
+
+
+def escalacoes_vistas(desde_horas: int = 12) -> list[dict]:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_escalacao(c)
+            c.execute("""
+                SELECT * FROM escalacao_vista
+                 WHERE visto_em > NOW() - (%s * INTERVAL '1 hour')
+                 ORDER BY visto_em DESC
+            """, [desde_horas])
+            linhas = [dict(r) for r in c.fetchall()]
+        for l in linhas:
+            for campo in ("visto_em", "comeca_em"):
+                if l.get(campo):
+                    l[campo] = l[campo].isoformat()
+        return linhas
+    except Exception:
+        return []

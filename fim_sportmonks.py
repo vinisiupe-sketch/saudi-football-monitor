@@ -305,3 +305,74 @@ async def do_dia(data_iso: str):
         return [], e
     return [f for f in ((d or {}).get("data") or [])
             if f.get("league_id") in LIGAS], None
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ESCALAÇÕES
+#
+# A pergunta aqui é a mesma do alerta de gol: qual fonte publica primeiro.
+# Para isso, o que importa é DETECTAR que a escalação existe — a lista de
+# nomes é para a tela, o carimbo é para a medição.
+# ══════════════════════════════════════════════════════════════════════════
+
+INCLUDE_ESCALACAO = "participants;state;lineups.player;lineups.type"
+
+# type_id 11 = titular, 12 = banco, segundo o catálogo deles. NÃO confio só
+# nisso: se o id mudar ou vier ausente, o formation_field decide — quem tem
+# posição em campo é titular, quem não tem está no banco. Errar essa divisão
+# estragaria a tela, mas não a medição, que é o que interessa aqui.
+TIPO_TITULAR = 11
+TIPO_BANCO = 12
+
+
+def _e_titular(j: dict) -> bool:
+    tid = j.get("type_id")
+    if tid in (TIPO_TITULAR, TIPO_BANCO):
+        return tid == TIPO_TITULAR
+    nome = ((j.get("type") or {}).get("name") or "").lower()
+    if "bench" in nome or "substitut" in nome:
+        return False
+    if "lineup" in nome or "start" in nome:
+        return True
+    return bool(j.get("formation_field"))
+
+
+def escalacao_da_partida(f: dict) -> dict:
+    """Titulares e banco por time. Vazio quando ainda não saiu.
+
+    Devolve {} — e não uma estrutura com listas vazias — quando não há nada,
+    porque quem chama usa isso para decidir se já dá para carimbar. Estrutura
+    vazia mas presente faria o carimbo sair antes da escalação existir.
+    """
+    linhas = f.get("lineups") or []
+    if not linhas:
+        return {}
+    casa, fora = _lados(f)
+    times = {casa.get("id"): {"nome": _nome_card(casa.get("name")),
+                             "titulares": [], "banco": []},
+             fora.get("id"): {"nome": _nome_card(fora.get("name")),
+                              "titulares": [], "banco": []}}
+    for j in linhas:
+        alvo = times.get(j.get("team_id"))
+        if alvo is None:
+            continue
+        nome = ((j.get("player") or {}).get("display_name")
+                or j.get("player_name") or "?")
+        item = {"nome": nome, "camisa": j.get("jersey_number")}
+        (alvo["titulares"] if _e_titular(j) else alvo["banco"]).append(item)
+    # Sem nenhum titular, a escalação não saiu de verdade: às vezes vem só o
+    # banco ou uma lista parcial, e carimbar isso mediria a coisa errada.
+    if not any(t["titulares"] for t in times.values()):
+        return {}
+    return {"times": [t for t in times.values() if t["titulares"] or t["banco"]],
+            "quantos": len(linhas)}
+
+
+async def com_escalacao(data_iso: str):
+    """Partidas do dia com o include de escalação."""
+    d, e = await _get(f"fixtures/date/{data_iso}", ttl=45,
+                      include=INCLUDE_ESCALACAO, per_page="100")
+    if e:
+        return [], e
+    return [f for f in ((d or {}).get("data") or [])
+            if f.get("league_id") in LIGAS], None
