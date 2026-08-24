@@ -52,6 +52,13 @@ GRAVACOES = os.path.join(PASTA, "gravacoes")
 
 INTERVALO_CONSULTA = 4          # de quantos em quantos segundos falo com o app
 INTERVALO_CANAL = 90            # de quantos em quantos segundos olho o canal
+
+# Quantas transmissões da aba /streams eu leio. Vou subindo enquanto não
+# aparecer nenhuma ENCERRADA — sinal de que ainda não passei pela faixa das
+# que estão no ar. Um número fixo não serve: no dia 24/08 o canal tinha doze
+# jogos agendados, meu teto era doze, e o jogo que estava rolando ficou fora
+# do corte. A tela dizia "nada no ar" com toda a convicção.
+LIMITES_CANAL = (40, 90, 200)
 MARGEM_SEG = 2                  # folga antes de cortar, para o trecho existir
 ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 
@@ -231,15 +238,8 @@ class Gravador:
             return None, f"{type(e).__name__}: {e}"
 
     # ── olhar o canal ─────────────────────────────────────────────────────
-    def transmissoes_do_canal(self) -> list:
-        """O que o canal está transmitindo agora.
-
-        Uso --flat-playlist para não abrir cada vídeo: a aba /streams do canal
-        traz o suficiente, e abrir um por um seria lento e chamaria atenção
-        do YouTube sem necessidade.
-        """
-        if not self.canal:
-            return []
+    def _ler_aba_streams(self, quantos: int) -> tuple:
+        """As N primeiras da aba /streams. Devolve (entradas, erro)."""
         alvo = self.canal.rstrip("/") + "/streams"
         try:
             r = subprocess.run(
@@ -252,20 +252,61 @@ class Gravador:
                 # silêncio. Com o título no fim e maxsplit=2, ele pode ter
                 # quantas barras quiser.
                 self.ytdlp + ["--no-warnings", "--flat-playlist",
-                              "--playlist-end", "12",
+                              "--playlist-end", str(quantos),
                               "--print", "%(id)s|%(live_status)s|%(title)s",
                               alvo],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True, text=True, timeout=180,
                 encoding="utf-8", errors="replace")
         except Exception as e:
-            diz(f"    não consegui olhar o canal: {type(e).__name__}: {e}")
-            return []
-        itens, descartados = [], {}
+            return [], f"{type(e).__name__}: {e}"
+        entradas = []
         for linha in (r.stdout or "").splitlines():
             partes = linha.split("|", 2)
             if len(partes) < 3 or not partes[0].strip():
                 continue
-            vid, estado, titulo = partes[0].strip(), partes[1].strip(), partes[2].strip()
+            entradas.append((partes[0].strip(), partes[1].strip(),
+                             partes[2].strip()))
+        erro = "" if entradas else (r.stderr or "").strip()[:200]
+        return entradas, erro
+
+    def transmissoes_do_canal(self) -> list:
+        """O que o canal está transmitindo agora.
+
+        Uso --flat-playlist para não abrir cada vídeo: a aba /streams do canal
+        traz o suficiente, e abrir um por um seria lento e chamaria atenção
+        do YouTube sem necessidade.
+
+        SOBRE QUANTAS EU LEIO
+            A aba vem nesta ordem: primeiro as AGENDADAS, depois a que está no
+            ar, depois as encerradas. Eu lia doze e parava. Num dia em que o
+            canal tinha doze jogos marcados, as doze primeiras eram todas
+            agendadas — e o jogo que estava rolando ficava do lado de fora do
+            corte, sem nada indicando que houvesse mais lista adiante.
+
+            Então o critério agora não é um número: é ler até APARECER UMA
+            ENCERRADA. Passar por uma encerrada prova que já atravessei a
+            faixa das que estão no ar, porque elas vêm antes. Se eu não
+            atravessar, aumento e leio de novo.
+        """
+        if not self.canal:
+            return []
+
+        entradas, erro, teto = [], "", 0
+        for teto in LIMITES_CANAL:
+            entradas, erro = self._ler_aba_streams(teto)
+            if erro and not entradas:
+                diz(f"    não consegui olhar o canal: {erro}")
+                return []
+            # Cheguei nas encerradas (logo, vi tudo que interessa) ou a lista
+            # acabou antes do teto (logo, não há mais nada para ver).
+            if any(e[1] == "was_live" for e in entradas) or len(entradas) < teto:
+                break
+            diz(f"    o canal tem mais de {teto} transmissões e nenhuma "
+                "encerrada até aqui; lendo mais para não cortar o jogo que "
+                "está no ar")
+
+        itens, descartados = [], {}
+        for vid, estado, titulo in entradas:
             # Só o que está no ar agora. Transmissão encerrada vira vídeo
             # comum e não serve para clipar ao vivo.
             if estado != "is_live":
@@ -279,9 +320,8 @@ class Gravador:
         # nada" e não havia como saber se ela tinha olhado e não visto, ou se
         # tinha falhado. Silêncio que parece resposta é pior que erro.
         total = len(itens) + sum(descartados.values())
-        if r.returncode != 0 and not total:
-            diz(f"    olhei o canal e o yt-dlp reclamou: "
-                f"{(r.stderr or '').strip()[:200]}")
+        if not total:
+            diz(f"    olhei o canal e não veio nada: {erro or 'lista vazia'}")
         elif itens:
             diz(f"    canal: {len(itens)} no ar de {total} — "
                 + ", ".join(i["titulo"][:34] for i in itens))
