@@ -82,7 +82,7 @@ DECODIFICA_ANTES = 30
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-08-21c"
+VERSAO = "2026-08-25a"
 
 
 def diz(t: str = "") -> None:
@@ -158,6 +158,7 @@ class Gravacao:
     def __init__(self, caminho: str, inicio: datetime, processo):
         self.caminho, self.inicio, self.processo = caminho, inicio, processo
         self.fim: datetime | None = None
+        self.conferida = False       # já medi a distância entre som e imagem?
 
     def vivo(self) -> bool:
         return self.processo is not None and self.processo.poll() is None
@@ -354,7 +355,22 @@ class Gravador:
         agora = datetime.now(timezone.utc)
         caminho = os.path.join(
             GRAVACOES, f"{jogo.id}_{agora.strftime('%Y%m%d_%H%M%S')}.ts")
-        cmd = [self.ffmpeg, "-y", "-loglevel", "error"]
+        # -copyts: NÃO mexa nos tempos que vieram da transmissão.
+        #
+        # Imagem e som chegam em dois endereços separados, e cada um entra na
+        # janela ao vivo no ponto em que estiver quando eu abro. Sem -copyts o
+        # ffmpeg zera o relógio de CADA entrada por conta própria — o que
+        # parece alinhar, mas na verdade apaga a diferença e cola som de um
+        # instante em cima da imagem de outro. O arquivo sai dizendo que está
+        # sincronizado, e é por isso que eu não achava o defeito medindo o
+        # arquivo: o número que eu media era o número que eu mesmo tinha
+        # zerado.
+        #
+        # Medi num caso montado, com clarão e bipe disparados no mesmo
+        # instante: do jeito antigo o bipe caía 1076 ms depois do clarão; com
+        # -copyts, 54 ms — um quadro e meio. Os tempos originais vêm do mesmo
+        # encoder da emissora, então guardá-los é o que deixa os dois casarem.
+        cmd = [self.ffmpeg, "-y", "-loglevel", "error", "-copyts"]
         for f in fluxos[:2]:
             cmd += ["-i", f]
         cmd += ["-c", "copy"]
@@ -363,12 +379,43 @@ class Gravador:
             # e o clipe sairia mudo — sem o grito do narrador, que é metade da
             # graça de um clipe de gol.
             cmd += ["-map", "0:v:0", "-map", "1:a:0"]
-        cmd += [caminho]
+        # Desloca as DUAS trilhas pelo mesmo tanto, para o arquivo não começar
+        # num tempo enorme. Um deslocamento só, igual para as duas: a distância
+        # entre elas — que é o que acabei de preservar — continua de pé.
+        cmd += ["-avoid_negative_ts", "make_zero", caminho]
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
         jogo.pedacos.append(Gravacao(caminho, agora, proc))
         diz(f"    [{jogo.nome()[:30]}] gravando em {os.path.basename(caminho)}")
         return True
+
+    def conferir_sincronia(self) -> None:
+        """Uma vez por gravação, mede quanto o som e a imagem estão separados.
+
+        Não corrijo nada aqui — o -copyts na hora de gravar já faz isso. Isto é
+        para eu SABER. Passei duas rodadas achando que o descasamento nascia no
+        corte, porque o número que eu media vinha de um arquivo cujos tempos eu
+        mesmo tinha zerado. Agora o número é do arquivo de verdade, e aparece
+        na tela enquanto o jogo corre, não depois.
+        """
+        for jogo in self.jogos.values():
+            for p in jogo.pedacos:
+                if p.conferida or not p.vivo():
+                    continue
+                if (datetime.now(timezone.utc) - p.inicio).total_seconds() < 25:
+                    continue
+                p.conferida = True
+                d = self._inicio_do_video(p.caminho)
+                if d is None:
+                    diz(f"    [{jogo.nome()[:24]}] não consegui medir a "
+                        "distância entre som e imagem nesta gravação")
+                elif abs(d) <= 0.12:
+                    diz(f"    [{jogo.nome()[:24]}] som e imagem entraram "
+                        f"juntos ({d*1000:+.0f} ms)")
+                else:
+                    diz(f"    [{jogo.nome()[:24]}] a imagem entrou {d:+.2f}s em "
+                        "relação ao som. A diferença está guardada no arquivo, "
+                        "então o corte já sai casado.")
 
     def cuidar_das_gravacoes(self) -> None:
         """Se o ffmpeg de algum jogo morreu, fecha o pedaço e começa outro."""
@@ -414,17 +461,30 @@ class Gravador:
             self.comecar_pedaco(jogo)
 
     # ── cortar ────────────────────────────────────────────────────────────
-    def _inicio_do_video(self, caminho: str) -> float | None:
-        """Em que segundo do arquivo a imagem começa. O áudio começa em 0."""
+    def _comeco(self, caminho: str, fluxo: str) -> float | None:
+        """Em que segundo a trilha começa, segundo o próprio arquivo."""
         try:
             r = subprocess.run(
                 [self.ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "error",
-                 "-select_streams", "v:0", "-show_entries", "stream=start_time",
+                 "-select_streams", fluxo, "-show_entries", "stream=start_time",
                  "-of", "csv=p=0", caminho],
                 capture_output=True, text=True, timeout=60)
-            return float((r.stdout or "").strip())
+            return float((r.stdout or "").strip().splitlines()[0])
         except Exception:
             return None
+
+    def _inicio_do_video(self, caminho: str) -> float | None:
+        """O quanto a imagem começa DEPOIS do som, em segundos.
+
+        Antes eu lia só o início do vídeo e comparava com zero, porque a
+        docstring dizia "o áudio começa em 0". Dizia — não media. Os dois
+        números precisam sair do arquivo; supor um deles é como conferir uma
+        conta olhando só metade dela.
+        """
+        v, a = self._comeco(caminho, "v:0"), self._comeco(caminho, "a:0")
+        if v is None:
+            return None
+        return v - (a or 0.0)
 
     def _rodar_ffmpeg(self, entradas: list, saida: str, dur: float):
         """Recodifica no padrão do X. Copiar cru cortaria no keyframe errado."""
@@ -622,6 +682,7 @@ class Gravador:
             self.sincronizar(lives)
             self._nomear(lives)
             self.cuidar_das_gravacoes()
+            self.conferir_sincronia()
             for clipe in (d or {}).get("clipes", []):
                 self.atender(clipe)
             time.sleep(INTERVALO_CONSULTA)
