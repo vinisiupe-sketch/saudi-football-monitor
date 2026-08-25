@@ -6540,6 +6540,62 @@ async def api_clipe_story(clipe_id: int, request: Request):
     return {"ok": True, "story_id": story_id}
 
 
+@app.get("/api/diag/banco", response_class=PlainTextResponse)
+async def api_diag_banco():
+    """Diz o que há com o banco — inclusive quando a resposta é "está fora".
+
+    Existe porque quase todas as funções do database.py devolvem lista vazia
+    quando dão erro. Isso protege as telas de quebrar, mas apaga a diferença
+    entre "não tem clipe" e "não consigo falar com o banco". Hoje a home deu
+    500 enquanto a guia Clipes dizia serenamente que não havia nada — as duas
+    coisas eram o mesmo banco fora do ar, e só uma delas contou.
+
+    Não imprime a senha: o endereço sai com a credencial trocada por ***.
+    """
+    import psycopg2
+    linhas = []
+    url = os.environ.get("DATABASE_URL", "") or os.environ.get("DATABASE_PUBLIC_URL", "")
+    if not url:
+        return "DATABASE_URL não está configurada no Railway."
+    seguro = re.sub(r"//[^@]+@", "//***:***@", url)
+    linhas.append(f"endereço : {seguro}")
+    t0 = time.time()
+    try:
+        conn = psycopg2.connect(url, connect_timeout=8)
+    except Exception as e:
+        linhas.append(f"conexão  : FALHOU depois de {time.time()-t0:.1f}s")
+        linhas.append(f"           {type(e).__name__}: {str(e)[:300]}")
+        linhas.append("")
+        linhas.append("Se fala em 'could not connect' ou 'timeout', o serviço do")
+        linhas.append("Postgres está parado ou fora do ar. Se fala em 'no space",)
+        linhas.append("left', o disco encheu — e o que enche é a coluna de vídeo.")
+        return "\n".join(linhas)
+    linhas.append(f"conexão  : ok em {time.time()-t0:.2f}s")
+    try:
+        c = conn.cursor()
+        c.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
+        linhas.append(f"tamanho  : {c.fetchone()[0]}")
+        c.execute("""SELECT relname, pg_size_pretty(pg_total_relation_size(c.oid))
+                       FROM pg_class c
+                       JOIN pg_namespace n ON n.oid = c.relnamespace
+                      WHERE n.nspname = 'public' AND c.relkind = 'r'
+                      ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 8""")
+        linhas.append("")
+        linhas.append("maiores tabelas:")
+        for nome, tam in c.fetchall():
+            linhas.append(f"  {nome:24} {tam}")
+        c.execute("SELECT count(*), COALESCE(sum(tamanho),0) FROM clipe WHERE video IS NOT NULL")
+        n, bytes_ = c.fetchone()
+        linhas.append("")
+        linhas.append(f"clipes com vídeo guardado: {n} "
+                      f"({(bytes_ or 0)/1048576:.0f} MB)")
+    except Exception as e:
+        linhas.append(f"consulta : FALHOU — {type(e).__name__}: {str(e)[:300]}")
+    finally:
+        conn.close()
+    return "\n".join(linhas)
+
+
 @app.get("/api/diag/instagram", response_class=PlainTextResponse)
 async def api_diag_instagram():
     """Por que o story não foi. Não mostra o valor de nenhuma credencial."""
