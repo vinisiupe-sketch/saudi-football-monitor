@@ -172,3 +172,107 @@ NUNCA invente nomes de jogadores em árabe — translitere letra por letra.
 def apply_glossary(text: str) -> str:
     """Aplica correcoes pos-traducao. Retorna texto inalterado se nao houver substituicoes."""
     return text
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# NOME DE CLUBE PARA O QUE VAI AO AR
+# ══════════════════════════════════════════════════════════════════════════
+#
+# As duas APIs escrevem o mesmo clube de jeitos diferentes — "Al-Hilal Saudi
+# FC", "Al Khaleej Saihat", "Al-Qadisiyah FC", "NEOM" — e antes o post saía
+# com o que viesse, só tirando hífen e subindo a caixa. Aqui o nome passa pela
+# tabela e sai sempre igual, venha de onde vier.
+#
+# A ponte é o clubs.py, que já guarda todas as grafias de cada clube. Eu ia
+# escrever mais um normalizador; não escrevo. Da última vez que tentei, o meu
+# fazia Al-Hilal e Al-Ahli virarem a mesma coisa.
+
+NOME_DE_EXIBICAO = {
+    # Saudi Pro League
+    "al_ahli": "Al Ahli", "al_ettifaq": "Al Ettifaq", "al_fateh": "Al Fateh",
+    "al_fayha": "Al Fayha", "al_hazem": "Al Hazem", "al_hilal": "Al Hilal",
+    "al_ittihad": "Al Ittihad", "al_khaleej": "Al Khaleej",
+    "al_kholood": "Al Kholood", "al_najmah": "Al Najma", "al_nassr": "Al Nassr",
+    "al_okhdood": "Al Okhdood", "al_qadsiah": "Al Qadsiah",
+    "al_riyadh": "Al Riyadh", "al_shabab": "Al Shabab",
+    "al_taawoun": "Al Taawoun", "damac": "Damac", "neom": "Neom S.C.",
+    # Yelo League
+    "abha": "Abha", "al_adalah": "Al Adalah", "al_anwar": "Al Anwar",
+    "al_arabi": "Al Arabi", "al_batin": "Al Batin",
+    "al_bukiryah": "Al Bukiryah", "al_diraiyah": "Al Diriyah",
+    "al_faisaly": "Al Faisaly", "al_jabalain": "Al Jabalain",
+    "al_jandal": "Al Jandal", "al_jubail": "Al Jubail",
+    "al_orobah": "Al Orobah", "al_raed": "Al Raed", "al_tai": "Al Tai",
+    "al_ula": "Al Ula", "al_wehda": "Al Wahda", "al_zulfi": "Al Zulfi",
+    "jeddah": "Jeddah",
+}
+
+# Sufixos que as APIs grudam no nome e que a tabela não tem. Só caem quando
+# sobra alguma coisa: o clube "Jeddah" existe, e tirar " jeddah" dele deixaria
+# string vazia.
+_SUFIXOS = (" saudi fc", " saudi club", " saudi", " jeddah", " saihat",
+            " mecca", " unaizah", " s.c.", " sfc", " fc", " sc", " club")
+
+
+def _achatar(nome: str) -> str:
+    """Forma de comparação: minúscula, sem pontuação, espaços colapsados."""
+    t = (nome or "").strip().lower()
+    for ch in "-_.'’‏‎":
+        t = t.replace(ch, " " if ch in "-_" else "")
+    return " ".join(t.split())
+
+
+def _indice_de_variantes() -> dict:
+    import clubs
+    idx = {}
+    for chave, variantes in clubs.ALL_CLUBS.items():
+        exibicao = NOME_DE_EXIBICAO.get(chave)
+        if not exibicao:
+            continue
+        for v in variantes:
+            achatado = _achatar(v.replace("#", ""))
+            if achatado:
+                idx.setdefault(achatado, exibicao)
+    return idx
+
+
+_POR_VARIANTE = _indice_de_variantes()
+
+
+def padronizar_clube(nome: str) -> str:
+    """O nome do clube na grafia da tabela, ou "" se eu não reconhecer.
+
+    Devolver "" de propósito, em vez de chutar o mais parecido: um chute erra
+    calado e o erro vai para o ar assinado por você. Quem chama decide o que
+    fazer com o desconhecido — e o que fazemos é deixar passar o nome cru.
+    """
+    achatado = _achatar(nome)
+    if not achatado:
+        return ""
+    if achatado in _POR_VARIANTE:
+        return _POR_VARIANTE[achatado]
+    for sufixo in _SUFIXOS:
+        if achatado.endswith(sufixo):
+            resto = achatado[: -len(sufixo)].strip()
+            if resto and resto in _POR_VARIANTE:
+                return _POR_VARIANTE[resto]
+    return ""
+
+
+def nome_para_card(nome: str) -> str:
+    """Nome em caixa alta para o card de gol: "AL HILAL", "NEOM S.C."."""
+    padrao = padronizar_clube(nome)
+    if padrao:
+        return padrao.upper()
+    # Desconhecido — adversário de torneio asiático, por exemplo. Faço o
+    # arrumado mínimo e mantenho o nome, que é melhor que apagá-lo.
+    limpo = (nome or "").strip()
+    for sufixo in (" Saudi FC", " FC", " SC", " Club"):
+        if limpo.endswith(sufixo):
+            limpo = limpo[: -len(sufixo)]
+    return limpo.replace("-", " ").upper().strip()
+
+
+# O grito, do jeito que você escreve. São símbolos matemáticos (U+1D400), não
+# letras comuns: é por isso que o X conta cada um como DOIS caracteres.
+GRITO_DE_GOL = "\U0001D46E" + "\U0001D476" * 14 + "\U0001D473"

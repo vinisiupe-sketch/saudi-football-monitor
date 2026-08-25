@@ -14,6 +14,8 @@ import urllib.parse
 
 import httpx
 
+import glossary
+
 BASE = "https://api.sportmonks.com/v3/football"
 
 # A Sportmonks fica atrás do Cloudflare, que barra cliente sem User-Agent de
@@ -84,12 +86,12 @@ def _nome_card(nome: str) -> str:
 
     Diferente do FIM DE JOGO, que usa o nome curto sem o "Al" ("Hilal 2x1
     Nassr"). Conferi nos seus posts: no card de gol o "AL" fica.
+
+    A grafia vem da tabela do glossário, não do que a API mandou. As duas
+    fontes escrevem diferente ("Al-Qadisiyah FC" numa, "Al Qadsiah" na outra)
+    e o post não pode depender de qual delas carimbou o gol primeiro.
     """
-    n = (nome or "").strip()
-    for sufixo in (" Saudi FC", " FC", " SC", " Jeddah", " Saihat", " Club"):
-        if n.endswith(sufixo):
-            n = n[: -len(sufixo)]
-    return n.replace("-", " ").upper().strip()
+    return glossary.nome_para_card(nome)
 
 
 def _placar_atual(f: dict) -> tuple[int, int]:
@@ -153,7 +155,7 @@ def gols_da_partida(f: dict) -> list[dict]:
 def texto_do_gol(f: dict, ev: dict, cores: dict, narrativa: str = "") -> str:
     """Card de GOL no formato que você usa no X.
 
-        🔵⚪️ GOOOOOOOOOOOOOOOOOL
+        🔵⚪️ 𝑮𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑶𝑳
 
         ⏰ 28' AL HILAL 3 x 0 AL FAISALY
         ⚽ Ruben Neves (p)
@@ -185,7 +187,7 @@ def texto_do_gol(f: dict, ev: dict, cores: dict, narrativa: str = "") -> str:
     elif ev.get("type_id") == TIPO_GOL_CONTRA:
         marca = " (gc)"
 
-    partes = [f"{cor} GOOOOOOOOOOOOOOOOOL".strip(), ""]
+    partes = [f"{cor} {glossary.GRITO_DE_GOL}".strip(), ""]
     minuto = ev.get("minute")
     extra = ev.get("extra_minute")
     rot_min = f"{minuto}+{extra}" if extra else f"{minuto}"

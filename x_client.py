@@ -37,6 +37,25 @@ CUSTO_POST_COM_LINK = 0.200
 
 _URL_NO_TEXTO = re.compile(r"https?://|www\.", re.I)
 
+# O X NÃO conta caracteres como o Python conta. Ele pesa cada ponto de código:
+# as faixas abaixo (latim, pontuação comum) valem 1, e todo o resto vale 2 —
+# emoji, árabe, e os símbolos matemáticos do "𝑮𝑶𝑶…𝑳", que parecem letras mas
+# não são. O grito sozinho ocupa 32 dos 280, não 16.
+#
+# Contar errado aqui não dá aviso na tela: dá HTTP 403 do X na hora de
+# publicar, com o clipe pronto e o jogo andando.
+_FAIXAS_LEVES = ((0, 4351), (8192, 8205), (8208, 8223), (8242, 8247))
+LIMITE_X = 280
+
+
+def peso_no_x(texto: str) -> int:
+    """Quantos dos 280 caracteres do X este texto ocupa."""
+    total = 0
+    for ch in (texto or ""):
+        c = ord(ch)
+        total += 1 if any(a <= c <= b for a, b in _FAIXAS_LEVES) else 2
+    return total
+
 
 class XErro(RuntimeError):
     pass
@@ -211,8 +230,11 @@ async def publicar(texto: str, imagens: list | None = None,
         raise XErro("credenciais do X ausentes: " + ", ".join(faltando))
     if not (texto or "").strip():
         raise XErro("texto vazio")
-    if len(texto) > 280:
-        raise XErro(f"texto com {len(texto)} caracteres; o limite é 280")
+    peso = peso_no_x(texto)
+    if peso > LIMITE_X:
+        raise XErro(f"texto ocupa {peso} dos {LIMITE_X} caracteres do X "
+                    f"(são {len(texto)} símbolos, mas o X pesa emoji e o "
+                    f"'𝑮𝑶𝑶…𝑳' como dois cada)")
     if texto_tem_link(texto) and not permitir_link:
         raise XErro("o texto contém link, que custa US$ 0,20 em vez de US$ 0,015 "
                     "(13x mais). Remova o link ou libere explicitamente.")

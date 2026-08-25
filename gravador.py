@@ -479,8 +479,8 @@ class Gravador:
         # depois pode até ser negativo, se o trecho acabar antes dele.
         antes = clipe.get("antes_seg")
         depois = clipe.get("depois_seg")
-        antes = 20 if antes is None else int(antes)
-        depois = 8 if depois is None else int(depois)
+        antes = 12 if antes is None else int(antes)
+        depois = 10 if depois is None else int(depois)
         if antes + depois < 1:
             self._falhou(cid, "essa janela não tem duração")
             return

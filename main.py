@@ -30,6 +30,7 @@ import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
 import clubs
+import glossary
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -5734,14 +5735,17 @@ async def coletar_gols_ao_vivo() -> dict:
                 assist = _nome_artilheiro((g.get("assist") or {}).get("name") or "")
                 cor = (TEAM_CORES.get(casa.get("name"), "") if marcou_casa
                        else TEAM_CORES.get(fora.get("name"), ""))
-                nc = (casa.get("name") or "").replace("-", " ").upper()
-                nf = (fora.get("name") or "").replace("-", " ").upper()
+                # Pela tabela, e não pelo que a API mandou: ela escreve
+                # "Al-Qadisiyah FC" onde a Sportmonks escreve "Al Qadsiah",
+                # e o post não pode mudar conforme quem carimbou primeiro.
+                nc = glossary.nome_para_card(casa.get("name"))
+                nf = glossary.nome_para_card(fora.get("name"))
                 marca = ""
                 if (g.get("detail") or "") == "Penalty":
                     marca = " (p)"
                 elif (g.get("detail") or "") == "Own Goal":
                     marca = " (gc)"
-                linhas = [f"{cor} GOOOOOOOOOOOOOOOOOL".strip(), "",
+                linhas = [f"{cor} {glossary.GRITO_DE_GOL}".strip(), "",
                           f"⏰ {minuto}' {nc} {gc} x {gf} {nf}",
                           f"⚽ {autor}{marca}"]
                 if assist:
@@ -5766,11 +5770,15 @@ async def coletar_gols_ao_vivo() -> dict:
 # existem os botões de ajuste.
 REACAO_SEG = 4
 
-# A janela do clipe. Comecei em 10/5 e no primeiro teste com jogo de verdade
-# ficou curto: 15 segundos pegam o chute e a comemoração, mas cortam fora a
-# construção da jogada, que é o que dá sentido ao gol.
-ANTES_SEG = 20
-DEPOIS_SEG = 8
+# A janela do clipe. Passou por 10/5 (curto demais: pegava o chute e a
+# comemoração, mas cortava a construção da jogada) e por 20/8. Depois de
+# clipar jogo de verdade, ficou em 12/10.
+ANTES_SEG = 12
+DEPOIS_SEG = 10
+
+# De quanto em quanto os botões de ajuste movem a janela. Era 5; com o clipe
+# em 12/10, cinco segundos mal tiravam o clipe do lugar.
+PASSO_AJUSTE = 8
 
 # Fonte preferida para a legenda. A API-Football tem se mostrado mais rápida
 # nas medições, e legenda que chega tarde não serve para clipe ao vivo.
@@ -6274,7 +6282,7 @@ async def api_clipe_video(clipe_id: int):
 
 
 @app.post("/api/clipe/{clipe_id}/ajustar")
-async def api_clipe_ajustar(clipe_id: int, delta: int = -5):
+async def api_clipe_ajustar(clipe_id: int, delta: int = -PASSO_AJUSTE):
     if abs(delta) > 60:
         return JSONResponse({"erro": "ajuste de no máximo 60s por vez"}, 400)
     if not ajustar_clipe(clipe_id, delta):
@@ -6618,6 +6626,23 @@ __CLIPES_JS__
 
 
 _CLIPES_JS = r'''
+const PASSO = __PASSO_AJUSTE__;   // quanto os botões movem a janela
+
+// O X pesa cada ponto de código: latim e pontuação valem 1, todo o resto vale
+// 2 — emoji, árabe, e o "𝑮𝑶𝑶…𝑳", que é feito de símbolos matemáticos. Um texto
+// de 200 símbolos pode passar de 280 no X. Contar aqui igual ao servidor
+// evita descobrir isso só na hora de publicar, com o jogo andando.
+function pesoX(t) {
+  let n = 0;
+  for (const ch of String(t || '')) {
+    const c = ch.codePointAt(0);
+    const leve = (c <= 4351) || (c >= 8192 && c <= 8205)
+              || (c >= 8208 && c <= 8223) || (c >= 8242 && c <= 8247);
+    n += leve ? 1 : 2;
+  }
+  return n;
+}
+
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -6966,7 +6991,7 @@ function montar(c, assin) {
   const conta = document.createElement('div');
   conta.className = 'conta-letras';
   function atualizaConta() {
-    const n = (t.value || '').length;
+    const n = pesoX(t.value);
     conta.textContent = n + ' / 280';
     conta.classList.toggle('demais', n > 280);
   }
@@ -7120,7 +7145,7 @@ function fitaDeCorte(c, video) {
 function botoesAjuste(c) {
   const a = document.createElement('div');
   a.className = 'acoes';
-  [['◀ 5s antes', -5], ['5s depois ▶', 5]].forEach(function (par) {
+  [['◀ ' + PASSO + 's antes', -PASSO], [PASSO + 's depois ▶', PASSO]].forEach(function (par) {
     const b = document.createElement('button');
     b.textContent = par[0];
     b.title = 'move a janela do corte e o gravador refaz';
@@ -7146,7 +7171,9 @@ async function ajustar(id, delta, botao) {
 async function publicar(id, caixa, botao) {
   const texto = (caixa.value || '').trim();
   if (!texto) { alert('escreva a legenda antes'); return; }
-  if (texto.length > 280) { alert('o texto tem ' + texto.length + ' caracteres; o limite do X é 280'); return; }
+  const peso = pesoX(texto);
+  if (peso > 280) { alert('o texto ocupa ' + peso + ' dos 280 caracteres do X '
+    + '(o \u{1D46E}\u{1D476}\u{1D476}\u2026\u{1D473} e os emoji contam dois cada)'); return; }
   if (!confirm('Publicar no X?\n\n' + texto)) return;
   botao.disabled = true;
   botao.textContent = 'publicando…';
@@ -7188,6 +7215,10 @@ async def clipes_page():
         .replace("__THEME__", _HEAD_COMUM)
         .replace("__CLIPES_CSS__", _CLIPES_CSS)
         .replace("__CLIPES_JS__", _CLIPES_JS)
+        # O passo dos botões vem do servidor. Se eu escrevesse 8 na tela e 8
+        # aqui, um dia mudaria um e não o outro, e o botão diria uma coisa
+        # enquanto o corte fazia outra.
+        .replace("__PASSO_AJUSTE__", str(PASSO_AJUSTE))
         .replace("__HDR__", _header("/clipes"))
     )
 
@@ -8036,12 +8067,29 @@ function cartao(p){
   '</div>';
 }
 
+
+// O X pesa cada ponto de código: latim e pontuação valem 1, todo o resto vale
+// 2 — emoji, árabe, e o "𝑮𝑶𝑶…𝑳", que é feito de símbolos matemáticos. Um texto
+// de 200 símbolos pode passar de 280 no X. Contar aqui igual ao servidor
+// evita descobrir isso só na hora de publicar, com o jogo andando.
+function pesoX(t) {
+  let n = 0;
+  for (const ch of String(t || '')) {
+    const c = ch.codePointAt(0);
+    const leve = (c <= 4351) || (c >= 8192 && c <= 8205)
+              || (c >= 8208 && c <= 8223) || (c >= 8242 && c <= 8247);
+    n += leve ? 1 : 2;
+  }
+  return n;
+}
+
 function contarTexto(id){
   const t = document.getElementById('t' + id).value;
   const c = document.getElementById('c' + id);
   const link = /https?:\\/\\/|www\\./i.test(t);
-  c.textContent = t.length + '/280' + (link ? ' · ATENÇÃO: tem link, custa 13x mais e será recusado' : '');
-  c.style.color = (t.length > 280 || link) ? '#f87171' : '';
+  const peso = pesoX(t);
+  c.textContent = peso + '/280' + (link ? ' · ATENÇÃO: tem link, custa 13x mais e será recusado' : '');
+  c.style.color = (peso > 280 || link) ? '#f87171' : '';
 }
 
 // Manda para o servidor o que está na caixa de texto AGORA.
