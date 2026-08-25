@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 # anterior — é lá que agrupar por UTC jogaria o jogo para o dia errado.
 BRT = ZoneInfo("America/Sao_Paulo")
 import re
+import unicodedata
 import asyncio
 import json
 import time
@@ -6320,13 +6321,38 @@ async def api_clipes(horas: int = 8):
             "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES}
 
 
+def _nome_do_arquivo(clipe_id: int, c: dict | None) -> str:
+    """Nome de arquivo que diz qual jogo é, sem acento e sem espaço.
+
+    Vinte clipes chamados clipe_1.mp4 na pasta de Downloads não servem para
+    nada. O nome sai como AL_HILAL_x_AL_NASSR_1742.mp4.
+    """
+    c = c or {}
+    bruto = (c.get("jogo") or "").strip()
+    # Só letras, números e espaço; o resto vira nada. Acento cai na conversão.
+    limpo = unicodedata.normalize("NFKD", bruto).encode("ascii", "ignore").decode()
+    limpo = re.sub(r"[^A-Za-z0-9 ]+", " ", limpo)
+    limpo = "_".join(limpo.split())[:60]
+    hora = ""
+    try:
+        hora = datetime.fromisoformat(c["alvo_em"]).astimezone(
+            ZoneInfo("America/Sao_Paulo")).strftime("%H%M")
+    except Exception:
+        pass
+    partes = [p for p in (limpo, hora) if p] or [f"clipe_{clipe_id}"]
+    return "_".join(partes) + ".mp4"
+
+
 @app.get("/api/clipe/{clipe_id}/video")
-async def api_clipe_video(clipe_id: int):
+async def api_clipe_video(clipe_id: int, baixar: int = 0):
     dados = video_do_clipe(clipe_id)
     if not dados:
         return JSONResponse({"erro": "sem vídeo"}, 404)
-    return Response(content=dados, media_type="video/mp4",
-                    headers={"Cache-Control": "no-store"})
+    cab = {"Cache-Control": "no-store"}
+    if baixar:
+        nome = _nome_do_arquivo(clipe_id, um_clipe(clipe_id))
+        cab["Content-Disposition"] = f'attachment; filename="{nome}"'
+    return Response(content=dados, media_type="video/mp4", headers=cab)
 
 
 @app.post("/api/clipe/{clipe_id}/ajustar")
@@ -6625,6 +6651,12 @@ h1{font-size:1.5rem;margin:0 0 4px}
   font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
   cursor:pointer}
 .acoes button:hover:not(:disabled){border-color:var(--c-text);color:var(--c-text)}
+/* O link de baixar é <a>, não <button>, então precisa das mesmas regras. */
+.acoes .baixar{padding:7px 14px;border-radius:99px;background:transparent;
+  border:1.5px solid var(--c-border-2);color:var(--c-muted-4);font-family:inherit;
+  font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
+  cursor:pointer;text-decoration:none;line-height:1.4}
+.acoes .baixar:hover{border-color:var(--c-text);color:var(--c-text)}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .publicar:hover:not(:disabled){background:#1a8cd8;border-color:#1a8cd8}
 .acoes button:disabled{opacity:.45;cursor:default}
@@ -7020,6 +7052,10 @@ function montar(c, assin) {
       + (c.post_id ? ' · <a href="https://x.com/i/status/'
           + encodeURIComponent(c.post_id) + '">ver o post</a>' : '');
     corpo.appendChild(l);
+    const ap = document.createElement('div');
+    ap.className = 'acoes';
+    ap.appendChild(botaoBaixar(c));
+    corpo.appendChild(ap);
     d.appendChild(corpo);
     return d;
   }
@@ -7071,6 +7107,7 @@ function montar(c, assin) {
   pub.textContent = c.estado === 'publicando' ? 'publicando…' : 'Publicar no X';
   pub.disabled = c.estado === 'publicando';
   pub.onclick = function () { publicar(c.id, t, pub); };
+  acoes.appendChild(botaoBaixar(c));
   acoes.appendChild(pub);
   corpo.appendChild(acoes);
   d.appendChild(corpo);
@@ -7188,6 +7225,20 @@ function fitaDeCorte(c, video) {
   acoes.appendChild(aplicar);
   cx.appendChild(acoes);
   return cx;
+}
+
+function botaoBaixar(c) {
+  // <a download> em vez de fetch + blob: o navegador cuida do arquivo sozinho,
+  // e no celular isso é o que faz o vídeo cair na galeria em vez de ficar
+  // preso numa aba. O nome do arquivo quem decide é o servidor, pelo
+  // Content-Disposition, para não haver dois lugares inventando nome.
+  const a = document.createElement('a');
+  a.className = 'baixar';
+  a.textContent = '⬇ Baixar';
+  a.href = '/api/clipe/' + c.id + '/video?baixar=1';
+  a.setAttribute('download', '');
+  a.title = 'salva o mp4 no aparelho';
+  return a;
 }
 
 function botoesAjuste(c) {
