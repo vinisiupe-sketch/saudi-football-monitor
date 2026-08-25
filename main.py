@@ -5803,6 +5803,35 @@ DEPOIS_SEG = 10
 # em 12/10, cinco segundos mal tiravam o clipe do lugar.
 PASSO_AJUSTE = 8
 
+# ATRASO DA TRANSMISSÃO — quantos segundos a live do YouTube está ATRÁS do
+# que você está assistindo quando aperta o botão.
+#
+# Isto não é detalhe fino: é a diferença entre o clipe pegar o gol e pegar a
+# jogada anterior. Você vê o lance na sua tela, aperta; nesse instante a live
+# que eu gravo ainda está mostrando o que aconteceu meia dúzia de segundos
+# antes. Sem descontar isso, eu corto cedo demais, todas as vezes.
+#
+# Medi o que dava para medir sozinho: o ffmpeg começa com uns +5s de conteúdo
+# já baixado (mediana de 22 gravações suas). Mas o resto depende de ONDE você
+# assiste — TV, outro site, a própria live — e isso eu não tenho como medir
+# daqui. Por isso o número é ajustável na tela, e não uma constante que só eu
+# posso mudar.
+#
+# O valor inicial vem da sua medição: clique às 15:04:42, corte devia começar
+# às 15:04:52. Com a janela de 12s antes, isso põe o instante do lance 22s
+# depois do clique — 26s à frente de onde eu estava colocando.
+CHAVE_ATRASO = "clipe_atraso_transmissao"
+ATRASO_PADRAO_SEG = 26
+ATRASO_MAX_SEG = 120
+
+
+def _atraso_transmissao() -> int:
+    try:
+        v = get_state(CHAVE_ATRASO)
+        return max(0, min(ATRASO_MAX_SEG, int(v))) if v is not None else ATRASO_PADRAO_SEG
+    except Exception:
+        return ATRASO_PADRAO_SEG
+
 # Fonte preferida para a legenda. A API-Football tem se mostrado mais rápida
 # nas medições, e legenda que chega tarde não serve para clipe ao vivo.
 FONTE_LEGENDA = "api_football"
@@ -6186,7 +6215,8 @@ async def api_escalacoes(horas: int = 12, coletar: int = 1):
 async def api_clipe_lives():
     """O que está sendo gravado, e o que o canal está transmitindo agora."""
     return {"lives": listar_lives(), "disponiveis": lives_disponiveis(),
-            "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES}
+            "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES,
+            "atraso": _atraso_transmissao()}
 
 
 @app.post("/api/clipe/lives")
@@ -6231,12 +6261,34 @@ async def api_clipe_pedir(request: Request):
         live_id = lives[0].get("id") or ""
     elif not any(l.get("id") == live_id for l in lives):
         return JSONResponse({"erro": "esse jogo não está sendo gravado"}, 400)
-    alvo = datetime.now(timezone.utc) - timedelta(seconds=REACAO_SEG)
+    # O instante do lance NA GRAVAÇÃO, que não é o instante do seu clique:
+    # somo o atraso da transmissão (ela está atrás do que você vê) e desconto
+    # o seu tempo de reação (você aperta um pouco depois de ver).
+    atraso = _atraso_transmissao()
+    alvo = datetime.now(timezone.utc) + timedelta(seconds=atraso - REACAO_SEG)
     cid = criar_pedido_clipe(alvo, ANTES_SEG, DEPOIS_SEG, live_id, tipo)
     if not cid:
         return JSONResponse({"erro": "não consegui registrar o pedido"}, 500)
     return {"id": cid, "alvo_em": alvo.isoformat(), "live_id": live_id,
-            "tipo": tipo, "reacao_descontada": REACAO_SEG}
+            "tipo": tipo, "reacao_descontada": REACAO_SEG, "atraso": atraso}
+
+
+@app.post("/api/clipe/atraso")
+async def api_clipe_atraso(request: Request):
+    """Muda o atraso da transmissão. É o número que faz o clipe pegar o gol."""
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    try:
+        v = int(corpo.get("segundos"))
+    except Exception:
+        return JSONResponse({"erro": "diga um número de segundos"}, 400)
+    if not (0 <= v <= ATRASO_MAX_SEG):
+        return JSONResponse({"erro": f"o atraso vai de 0 a {ATRASO_MAX_SEG}s"}, 400)
+    set_state(CHAVE_ATRASO, str(v))
+    return {"ok": True, "atraso": v}
 
 
 @app.post("/api/clipe/pendentes")
@@ -6319,7 +6371,8 @@ async def api_clipes(horas: int = 8):
     return {"clipes": clipes,
             "agente_configurado": bool(os.environ.get("CLIPE_TOKEN", "").strip()),
             "lives": lives, "disponiveis": lives_disponiveis(),
-            "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES}
+            "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES,
+            "atraso": _atraso_transmissao()}
 
 
 def _nome_do_arquivo(clipe_id: int, c: dict | None) -> str:
@@ -6485,6 +6538,17 @@ async def api_clipe_story(clipe_id: int, request: Request):
         return JSONResponse({"erro": f"{e}"}, 502)
     clipe_no_story(clipe_id, story_id)
     return {"ok": True, "story_id": story_id}
+
+
+@app.get("/api/diag/instagram", response_class=PlainTextResponse)
+async def api_diag_instagram():
+    """Por que o story não foi. Não mostra o valor de nenhuma credencial."""
+    linhas = ["DIAGNÓSTICO DO INSTAGRAM", "=" * 52, ""]
+    try:
+        linhas += await ig.diagnostico()
+    except Exception as e:
+        linhas.append(f"a checagem falhou: {type(e).__name__}: {e}")
+    return "\n".join(linhas)
 
 
 @app.get("/api/diag/geo-x", response_class=PlainTextResponse)
@@ -6712,6 +6776,23 @@ h1{font-size:1.5rem;margin:0 0 4px}
   font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
   cursor:pointer;text-decoration:none;line-height:1.4}
 .acoes .baixar:hover{border-color:var(--c-text);color:var(--c-text)}
+.atraso-caixa{margin:14px 0 4px;padding:12px 14px;border-radius:12px;
+  background:var(--c-bg-soft);border:1px solid var(--c-border-2)}
+.atraso-caixa label{display:block;font-size:.62rem;font-weight:800;
+  text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted-3)}
+.atraso-linha{display:flex;gap:9px;align-items:center;margin-top:8px;flex-wrap:wrap}
+.atraso-linha input{width:78px;padding:7px 10px;border-radius:9px;
+  background:var(--surface2);border:1.5px solid var(--c-border-2);
+  color:var(--c-text);font-family:inherit;font-size:.95rem;font-weight:700;
+  text-align:center}
+.atraso-linha span{font-size:.72rem;color:var(--c-muted-3)}
+.atraso-linha button{padding:7px 14px;border-radius:99px;background:transparent;
+  border:1.5px solid var(--c-border-2);color:var(--c-muted-4);font-family:inherit;
+  font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
+  cursor:pointer}
+.atraso-linha button:hover{border-color:var(--c-text);color:var(--c-text)}
+.atraso-ok{color:#22c55e;font-weight:700}
+.atraso-nota{margin:9px 0 0;font-size:.7rem;line-height:1.6;color:var(--c-muted-3)}
 .acoes .story{border-color:#c13584;color:#e17ab5}
 .acoes .story:hover:not(:disabled){border-color:#e1306c;color:#e1306c}
 .acoes .story:disabled{border-color:var(--c-border-2);color:var(--c-muted-3);opacity:1}
@@ -6746,6 +6827,19 @@ __HDR__
 
   <div class="linha-estado" id="estadoGravador">
     <span class="ponto"></span><span>verificando…</span>
+  </div>
+
+  <div class="atraso-caixa">
+    <label for="atraso">Atraso da transmissão</label>
+    <div class="atraso-linha">
+      <input id="atraso" type="number" min="0" max="120" step="1" inputmode="numeric">
+      <span>segundos</span>
+      <button id="salvarAtraso" type="button">Salvar</button>
+      <span class="atraso-ok" id="atrasoOk"></span>
+    </div>
+    <p class="atraso-nota">Quanto a live do canal está atrás do que você assiste.
+      Se o clipe estiver pegando a jogada ANTES do gol, aumente. Se estiver
+      pegando a comemoração já começada, diminua.</p>
   </div>
 
   <div id="jogos"></div>
@@ -6957,8 +7051,42 @@ async function carregar() {
   }
 
   pintarJogos(lives, grav);
+  pintarAtraso(d.atraso);
   pintarDisponiveis(d.disponiveis || [], lives, d.max || 4, g.online);
   pintarClipes(d.clipes || []);
+}
+
+function pintarAtraso(seg) {
+  const cx = document.getElementById('atraso');
+  if (!cx || seg === undefined || seg === null) return;
+  // Não sobrescrevo enquanto você está digitando: a tela recarrega sozinha a
+  // cada poucos segundos e apagaria o número no meio da edição.
+  if (document.activeElement === cx) return;
+  cx.value = seg;
+}
+
+function ligarAtraso() {
+  const cx = document.getElementById('atraso');
+  const b = document.getElementById('salvarAtraso');
+  const ok = document.getElementById('atrasoOk');
+  if (!cx || !b) return;
+  b.onclick = async function () {
+    b.disabled = true;
+    ok.textContent = '';
+    try {
+      const r = await fetch('/api/clipe/atraso', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({segundos: parseInt(cx.value, 10)})
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+      ok.textContent = 'salvo';
+      setTimeout(function () { ok.textContent = ''; }, 2500);
+    } catch (e) {
+      alert('não salvou: ' + (e.message || e));
+    }
+    b.disabled = false;
+  };
 }
 
 function pintarJogos(lives, grav) {
@@ -7398,6 +7526,7 @@ function ciclo() {
   clearTimeout(_timer);
   _timer = setTimeout(ciclo, 5000);
 }
+ligarAtraso();
 ciclo();
 '''
 

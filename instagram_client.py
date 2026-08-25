@@ -104,6 +104,70 @@ def conferir_video(tamanho_bytes: int, duracao_seg: float | None) -> str:
     return ""
 
 
+async def diagnostico() -> list[str]:
+    """Diz, em português, por que a publicação está falhando.
+
+    "Algo de autenticação" pode ser cinco coisas diferentes: conta pessoal em
+    vez de profissional, token vencido, token do tipo errado para o host, id
+    que não é o da conta, ou permissão que não foi concedida. Cada uma tem um
+    conserto diferente, e a mensagem crua da Meta não separa. Aqui eu pergunto
+    para eles e traduzo.
+
+    Nunca imprime o valor do token — só o tamanho e os quatro últimos
+    caracteres, que bastam para você conferir se colou o certo.
+    """
+    linhas = []
+    c = credenciais()
+    tok = c["ig_access_token"]
+    linhas.append(f"host          : {host()}")
+    linhas.append(f"IG_USER_ID    : {c['ig_user_id'] or 'AUSENTE'}")
+    linhas.append("IG_ACCESS_TOKEN: " + (
+        f"{len(tok)} caracteres, terminando em …{tok[-4:]}" if tok else "AUSENTE"))
+    if not all(c.values()):
+        linhas.append("")
+        linhas.append("Falta variável no Railway. Sem isso nem dá para perguntar.")
+        return linhas
+
+    async with httpx.AsyncClient(timeout=30.0) as cli:
+        linhas.append("")
+        linhas.append("— a conta —")
+        r = await cli.get(f"https://{host()}/{VERSAO_API}/{c['ig_user_id']}",
+                          params={"fields": "id,username,account_type",
+                                  "access_token": tok})
+        if r.status_code >= 300:
+            linhas.append(f"  NÃO CONSEGUI LER: {_erro_legivel(r)}")
+            linhas.append("")
+            linhas.append("  Os suspeitos, em ordem:")
+            linhas.append("   1. o token venceu (os curtos duram 1 hora)")
+            linhas.append("   2. o host não combina com o tipo de token —")
+            linhas.append("      graph.instagram.com quer token do Login pelo")
+            linhas.append("      Instagram; graph.facebook.com quer token de")
+            linhas.append("      Página. Trocar o IG_HOST resolve esse caso.")
+            linhas.append("   3. o IG_USER_ID não é o id dessa conta")
+            linhas.append("   4. a permissão de publicar não foi concedida")
+        else:
+            d = r.json() or {}
+            linhas.append(f"  usuário : @{d.get('username') or '?'}")
+            tipo = d.get("account_type") or "?"
+            linhas.append(f"  tipo    : {tipo}")
+            if tipo not in ("BUSINESS", "MEDIA_CREATOR", "CREATOR"):
+                linhas.append("  ⚠️  conta pessoal NÃO publica por API. Tem que")
+                linhas.append("      ser comercial ou de criador.")
+
+        linhas.append("")
+        linhas.append("— quanto já publiquei hoje —")
+        r = await cli.get(
+            f"https://{host()}/{VERSAO_API}/{c['ig_user_id']}/content_publishing_limit",
+            params={"fields": "quota_usage,config", "access_token": tok})
+        if r.status_code >= 300:
+            linhas.append(f"  não consegui ler: {_erro_legivel(r)}")
+        else:
+            dados = ((r.json() or {}).get("data") or [{}])[0]
+            linhas.append(f"  {dados.get('quota_usage', '?')} de "
+                          f"{(dados.get('config') or {}).get('quota_total', '?')}")
+    return linhas
+
+
 async def publicar_story(video_url: str, on_status=None) -> str:
     """Publica o vídeo como story e devolve o id. Levanta InstagramErro."""
     ok, faltando = configurado()
