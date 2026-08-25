@@ -5447,7 +5447,12 @@ function cartaoEscalacao(j) {
   let selo = '<span class="dif">só uma fonte</span>';
   if (j.diferenca_seg !== null && j.diferenca_seg !== undefined) {
     const s = j.diferenca_seg;
-    if (Math.abs(s) < ESC_RESOLUCAO_SEG) {
+    // A Sportmonks publica uma PROVÁVEL antes da oficial. Enquanto ela não
+    // confirmar, comparar as duas seria dar vantagem a quem chutou primeiro,
+    // então digo que a corrida ainda não terminou em vez de mostrar número.
+    if (j.diferenca_de !== 'oficial') {
+      selo = '<span class="dif">a Sportmonks ainda não confirmou — sem corrida</span>';
+    } else if (Math.abs(s) < ESC_RESOLUCAO_SEG) {
       // Honestidade sobre o que a medição alcança.
       selo = '<span class="dif">as duas já tinham (diferença menor que a '
            + 'passagem do coletor)</span>';
@@ -5465,21 +5470,37 @@ function cartaoEscalacao(j) {
 
   const duas = document.createElement('div');
   duas.className = 'duas';
-  [['API-Football', j.api_football, '#0ea5e9'],
-   ['Sportmonks', j.sportmonks, '#22c55e']].forEach(function (par) {
+  [['API-Football', j.api_football, '#0ea5e9', null],
+   ['Sportmonks', j.sportmonks, '#22c55e', j.sportmonks_oficial]].forEach(function (par) {
     const c = document.createElement('div');
     c.className = 'fonte';
+    // Etiqueta do que está ali. A Sportmonks manda uma escalação PROVÁVEL
+    // antes da oficial — feita com histórico, lesões e suspensões — e troca
+    // pela de verdade perto do apito. Sem dizer isso na tela, a provável
+    // passa por oficial e parece só uma escalação errada que chegou cedo.
+    let etiq = '';
+    if (par[0] === 'Sportmonks') {
+      const conf = ((par[1] || {}).escalacao || {}).confirmada;
+      if (par[3]) etiq = '<span class="marca ok">oficial</span>';
+      else if (conf === false) etiq = '<span class="marca prov">provável</span>';
+      else if (par[1] && conf === undefined) etiq = '<span class="marca">sem marca de confirmação</span>';
+    }
+    let quando = par[1] ? escHora(par[1].visto_em) : '—';
+    if (par[3] && par[1] && par[3].visto_em !== par[1].visto_em) {
+      quando = escHora(par[1].visto_em) + ' → oficial ' + escHora(par[3].visto_em);
+    }
     c.innerHTML = '<h4><span style="width:8px;height:8px;border-radius:50%;background:'
-      + par[2] + ';display:inline-block"></span>' + par[0]
+      + par[2] + ';display:inline-block"></span>' + par[0] + etiq
       + '<span style="margin-left:auto;font-weight:400">'
-      + (par[1] ? esc(escHora(par[1].visto_em)) : '—') + '</span></h4>';
+      + esc(quando) + '</span></h4>';
     if (!par[1]) {
       const p = document.createElement('pre');
       p.textContent = 'ainda não publicou';
       p.style.color = 'var(--c-muted-3)';
       c.appendChild(p);
     } else {
-      ((par[1].escalacao || {}).times || []).forEach(function (t) {
+      const fonte_esc = (par[3] || par[1]).escalacao || {};
+      (fonte_esc.times || []).forEach(function (t) {
         const bloco = document.createElement('pre');
         bloco.className = 'fj-texto';
         bloco.style.marginTop = '8px';
@@ -5893,6 +5914,12 @@ _ULTIMA_ESCALACAO = {"quando": None, "sm_jogos": 0, "sm_com": 0,
 ESC_ANTES_MIN = 180
 ESC_DEPOIS_MIN = 20
 
+# Nome de fonte usado só para o carimbo da escalação OFICIAL da Sportmonks.
+# A fonte "sportmonks" continua carimbando a primeira publicação, que costuma
+# ser a provável. Duas fontes em vez de uma coluna nova: a tabela já está em
+# uso e a chave única dela é (fonte, chave).
+FONTE_SM_OFICIAL = "sportmonks_oficial"
+
 
 # variante em minúsculas -> chave do clube. Montada uma vez, na subida.
 _CLUBES_POR_VARIANTE = {
@@ -6006,20 +6033,33 @@ async def coletar_escalacoes() -> dict:
                 casa, fora = sm._lados(f)
                 chave = _chave_escalacao(
                     quando.isoformat() if quando else "", casa.get("name") or "")
-                if ("sportmonks", chave) in ja:
+                confirmada = sm.escalacao_confirmada(f)
+                # Duas fontes para a mesma casa: uma carimba a PRIMEIRA vez que
+                # ela publicou qualquer coisa, a outra a primeira vez que ela
+                # disse que era oficial. Assim os dois instantes ficam
+                # guardados sem precisar mexer na tabela que já está em uso —
+                # e a comparação de velocidade passa a usar o certo.
+                faltam = [("sportmonks", chave)]
+                if confirmada:
+                    faltam.append((FONTE_SM_OFICIAL, chave))
+                faltam = [p for p in faltam if p not in ja]
+                if not faltam:
                     diag["sm_com"] += 1
                     continue
                 esc = sm.escalacao_da_partida(f)
                 if not esc:
                     continue
                 diag["sm_com"] += 1
+                if confirmada is not None:
+                    esc["confirmada"] = bool(confirmada)
                 jogo = (f"{sm._nome_card(casa.get('name'))} x "
                         f"{sm._nome_card(fora.get('name'))}")
-                if registrar_escalacao("sportmonks", chave, jogo=jogo,
-                                       comeca_em=quando,
-                                       conteudo=json.dumps(esc, ensure_ascii=False),
-                                       fixture_sm=f.get("id")):
-                    novos.append(("sportmonks", chave))
+                for fonte, ch in faltam:
+                    if registrar_escalacao(fonte, ch, jogo=jogo,
+                                           comeca_em=quando,
+                                           conteudo=json.dumps(esc, ensure_ascii=False),
+                                           fixture_sm=f.get("id")):
+                        novos.append((fonte, ch))
 
     # ── API-Football: uma chamada por jogo que ainda falta ────────────────
     for dia in (agora.date().isoformat(),
@@ -6117,16 +6157,24 @@ async def api_escalacoes(horas: int = 12, coletar: int = 1):
     saida = []
     for chave, d in por_jogo.items():
         a, s = d.get("api_football"), d.get("sportmonks")
-        dif = None
-        if a and s:
+        oficial = d.get(FONTE_SM_OFICIAL)
+        # A corrida é entre escalações OFICIAIS. Comparar a provável da
+        # Sportmonks com a da API-Football daria vantagem a quem chuta antes,
+        # que é o contrário do que a medição quer dizer.
+        lado_sm = oficial or s
+        dif, comparei = None, None
+        if a and lado_sm:
             try:
-                dif = round((datetime.fromisoformat(s["visto_em"])
+                dif = round((datetime.fromisoformat(lado_sm["visto_em"])
                              - datetime.fromisoformat(a["visto_em"])).total_seconds())
+                comparei = "oficial" if oficial else "primeira"
             except Exception:
                 pass
         saida.append({"chave": chave, "jogo": d.get("jogo"),
                       "comeca_em": d.get("comeca_em"),
-                      "api_football": a, "sportmonks": s, "diferenca_seg": dif})
+                      "api_football": a, "sportmonks": s,
+                      "sportmonks_oficial": oficial,
+                      "diferenca_seg": dif, "diferenca_de": comparei})
     saida.sort(key=lambda x: (x.get("comeca_em") or ""), reverse=True)
     return {"escalacoes": saida, "diagnostico": _ULTIMA_ESCALACAO,
             "sportmonks_configurada": sm.configurado()}
@@ -7959,6 +8007,12 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
   border:1.5px solid var(--c-border-2);color:var(--c-muted-4)}
 .dif.af{border-color:#0ea5e9;color:#0ea5e9}
 .dif.sm{border-color:#22c55e;color:#22c55e}
+/* Etiqueta de provável/oficial no cabeçalho de cada fonte. */
+.marca{font-size:.6rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+  border-radius:99px;padding:2px 7px;margin-left:7px;border:1px solid var(--c-border-2);
+  color:var(--c-muted-4)}
+.marca.ok{border-color:#22c55e;color:#22c55e}
+.marca.prov{border-color:#f59e0b;color:#f59e0b}
 .escudos img{width:44px;height:44px;object-fit:contain;background:var(--surface2);
   border-radius:8px;padding:3px}
 .acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}

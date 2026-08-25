@@ -317,7 +317,45 @@ async def do_dia(data_iso: str):
 # nomes é para a tela, o carimbo é para a medição.
 # ══════════════════════════════════════════════════════════════════════════
 
-INCLUDE_ESCALACAO = "participants;state;lineups.player;lineups.type"
+INCLUDE_ESCALACAO = ("participants;state;lineups.player;lineups.type;"
+                     "metadata.type")
+
+# A Sportmonks publica uma escalação PROVÁVEL antes da oficial — montada com
+# histórico, lesões e suspensões — e depois troca pela de verdade, tipicamente
+# uma hora antes do apito. É por isso que a escalação dela chega cedo e vem
+# errada: nesse momento ela ainda é um palpite, e está dito na documentação
+# deles.
+#
+# Quem separa uma da outra é a marca lineup_confirmed, que vem no metadata da
+# partida. Não fixo o id do tipo: procuro pelo NOME, porque id de catálogo
+# muda e eu não tenho como conferir o valor daqui.
+_MARCA_CONFIRMADA = ("lineup_confirmed", "lineupconfirmed",
+                     "lineup confirmed", "lineups_confirmed")
+
+
+def _verdadeiro(v) -> bool:
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return bool(v)
+    return str(v).strip().lower() in ("true", "1", "yes", "y")
+
+
+def escalacao_confirmada(f: dict) -> bool | None:
+    """A escalação desta partida já é a oficial?
+
+    Devolve True, False, ou None quando a marca não veio — e None é uma
+    resposta, não um erro. Tratar "não sei" como "não confirmada" carimbaria
+    tudo de provável para sempre, e a comparação entre as fontes viraria
+    ficção. Quando é None, a tela diz que não sabe.
+    """
+    for m in (f.get("metadata") or []):
+        nome = ((m.get("type") or {}).get("name")
+                or (m.get("type") or {}).get("code")
+                or (m.get("type") or {}).get("developer_name") or "")
+        if str(nome).strip().lower().replace("-", "_") in _MARCA_CONFIRMADA:
+            return _verdadeiro(m.get("value"))
+    return None
 
 # type_id 11 = titular, 12 = banco, segundo o catálogo deles. NÃO confio só
 # nisso: se o id mudar ou vier ausente, o formation_field decide — quem tem
