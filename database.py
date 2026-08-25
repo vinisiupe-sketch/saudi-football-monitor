@@ -1566,6 +1566,11 @@ def _cria_clipe(c) -> None:
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS live_id TEXT")
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS tipo TEXT "
               "NOT NULL DEFAULT 'gol'")
+    # Story do Instagram. Fica separado do estado do X de propósito: os dois
+    # destinos são independentes, e um clipe pode ir para o story sem nunca
+    # ter ido para o X, ou o contrário.
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS story_id TEXT")
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS story_em TIMESTAMPTZ")
 
 
 # Colunas de listagem. O BYTEA fica de fora de propósito: um clipe tem alguns
@@ -1573,7 +1578,7 @@ def _cria_clipe(c) -> None:
 # megabytes para desenhar uma tela que só precisa do tamanho.
 _COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, "
                "texto, gol_id, media_id, post_id, erro, atualizado_em, "
-               "live_id, tipo")
+               "live_id, tipo, story_id, story_em")
 
 
 def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8,
@@ -1608,7 +1613,7 @@ def clipes_a_cortar() -> list[dict]:
 
 
 def _clipe_json(d: dict) -> dict:
-    for campo in ("pedido_em", "alvo_em", "atualizado_em"):
+    for campo in ("pedido_em", "alvo_em", "atualizado_em", "story_em"):
         if d.get(campo) is not None:
             d[campo] = d[campo].isoformat()
     return d
@@ -1752,6 +1757,57 @@ def clipes_recentes(horas: int = 8) -> list[dict]:
             return [_clipe_json(dict(r)) for r in c.fetchall()]
     except Exception:
         return []
+
+
+def clipe_no_story(clipe_id: int, story_id: str) -> bool:
+    """Guarda o id do story publicado. Só grava se ainda não houver um.
+
+    O 'story_id IS NULL' não é zelo à toa: se dois toques chegarem juntos, o
+    segundo não pode sobrescrever o primeiro — o registro de que já foi para o
+    ar é justamente o que impede publicar duas vezes.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe SET story_id = %s, story_em = NOW(),
+                                          atualizado_em = NOW()
+                          WHERE id = %s AND story_id IS NULL""",
+                      [str(story_id), clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def reservar_clipe_para_story(clipe_id: int) -> bool:
+    """Marca a intenção de publicar, para dois toques não virarem dois stories.
+
+    Escrevo um valor provisório; quem conseguir escrever é quem publica. Se der
+    erro depois, o liberar_story() apaga a marca e o botão volta.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe SET story_id = 'enviando',
+                                          atualizado_em = NOW()
+                          WHERE id = %s AND story_id IS NULL""", [clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def liberar_story(clipe_id: int) -> bool:
+    """Desfaz a reserva quando a publicação falhou."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe SET story_id = NULL, atualizado_em = NOW()
+                          WHERE id = %s AND story_id = 'enviando'""", [clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
 
 
 def video_do_clipe(clipe_id: int) -> bytes | None:
