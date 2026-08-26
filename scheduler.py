@@ -237,9 +237,9 @@ async def run_descartar_clipes():
     """Apaga os clipes que ninguém mandou guardar. Silencioso quando não há."""
     try:
         from database import descartar_clipes, listar_lives
-        from main import HORAS_ATE_DESCARTE
+        from main import ajuste
         r = descartar_clipes([l.get("id") for l in listar_lives()],
-                             HORAS_ATE_DESCARTE)
+                             int(ajuste("clipe_horas_descarte")))
         if r.get("apagados"):
             print(f"🗑️ {r['apagados']} clipe(s) descartado(s)")
         elif r.get("erro"):
