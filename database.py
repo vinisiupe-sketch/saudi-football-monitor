@@ -1612,6 +1612,108 @@ def tamanho_do_banco_mb(ttl: int = 300) -> float | None:
         return None
 
 
+def _cria_usuario(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS usuario (
+            id            SERIAL PRIMARY KEY,
+            email         TEXT NOT NULL UNIQUE,
+            nome          TEXT,
+            senha         TEXT NOT NULL,
+            temporaria    BOOLEAN NOT NULL DEFAULT FALSE,
+            criado_em     TIMESTAMPTZ DEFAULT NOW(),
+            ultimo_acesso TIMESTAMPTZ
+        )
+    """)
+
+
+def criar_usuario(email: str, nome: str, senha_guardada: str) -> tuple[bool, str]:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_usuario(c)
+            c.execute("SELECT 1 FROM usuario WHERE email = %s", [email])
+            if c.fetchone():
+                return False, "já existe conta com esse e-mail"
+            c.execute("INSERT INTO usuario (email, nome, senha) VALUES (%s,%s,%s)",
+                      [email, nome or "", senha_guardada])
+            return True, ""
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
+def usuario_por_email(email: str) -> dict | None:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_usuario(c)
+            c.execute("SELECT * FROM usuario WHERE email = %s", [email])
+            linha = c.fetchone()
+            return dict(linha) if linha else None
+    except Exception:
+        return None
+
+
+def marcar_acesso(email: str) -> None:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_usuario(c)
+            c.execute("UPDATE usuario SET ultimo_acesso = NOW() WHERE email = %s",
+                      [email])
+    except Exception:
+        pass
+
+
+def trocar_senha(email: str, senha_guardada: str, temporaria: bool = False) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_usuario(c)
+            c.execute("UPDATE usuario SET senha = %s, temporaria = %s WHERE email = %s",
+                      [senha_guardada, temporaria, email])
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def listar_usuarios() -> list[dict]:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_usuario(c)
+            # A senha NÃO sai daqui. Nem o hash: ele não serve para nada na
+            # tela e só cria a chance de vazar num log ou numa resposta.
+            c.execute("""SELECT email, nome, temporaria, criado_em, ultimo_acesso
+                           FROM usuario ORDER BY criado_em""")
+            linhas = [dict(r) for r in c.fetchall()]
+        for l in linhas:
+            for campo in ("criado_em", "ultimo_acesso"):
+                if l.get(campo):
+                    l[campo] = l[campo].isoformat()
+        return linhas
+    except Exception:
+        return []
+
+
+def tem_algum_usuario() -> bool:
+    """Se ninguém se cadastrou ainda, o app continua aberto.
+
+    É o que evita eu te trancar do lado de fora: enquanto não existir conta
+    nenhuma, nada exige login. No instante em que a primeira conta nasce, o
+    app passa a pedir senha — e quem criou a conta é quem tem a senha.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_usuario(c)
+            c.execute("SELECT 1 FROM usuario LIMIT 1")
+            return c.fetchone() is not None
+    except Exception:
+        # Banco fora do ar não pode trancar a porta: sem conseguir perguntar,
+        # eu deixo passar. Trancar por falha de leitura seria trancar por engano.
+        return False
+
+
 def _cria_clipe(c) -> None:
     c.execute("""
         CREATE TABLE IF NOT EXISTS clipe (

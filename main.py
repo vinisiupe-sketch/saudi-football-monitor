@@ -29,13 +29,14 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
 import clubs
 import glossary
 import ajustes
+import contas
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -387,15 +388,31 @@ _ICO_INICIO  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 '2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>')
 
 _ICO_MERCADO = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
-                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
-                'stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3 9 15"/>'
-                '<path d="M8 21H3v-5"/><path d="m3 21 12-12"/></svg>')
+                'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="m11 17 2 2a1 1 0 1 0 3-3"/>'
+                '<path d="m14 14 2.5 2.5a1 1 0 1 0 3-3l-3.88-3.88a3 3 0 0 0-4.24 0'
+                'l-.88.88a1 1 0 1 1-3-3l2.81-2.81a5.79 5.79 0 0 1 7.06-.87l.47.28a2 '
+                '2 0 0 0 1.42.25L21 4"/><path d="m21 3 1 11h-2"/>'
+                '<path d="M3 3 2 14l6.5 6.5a1 1 0 1 0 3-3"/><path d="M3 4h8"/></svg>')
+
+_ICO_JORNAL  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 '
+                '0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1'
+                '.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/>'
+                '<path d="M10 6h8v4h-8V6Z"/></svg>')
 
 _ICO_ASPAS   = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 '
                 '2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4"/><path d="M20 11h-4a2 2 0 0 1-2-2V7a2 '
                 '2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4"/></svg>')
+
+_ICO_SAIR    = ('<svg width="17" height="17" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 '
+                '1 2-2h4"/><polyline points="16 17 21 12 16 7"/>'
+                '<line x1="21" x2="9" y1="12" y2="12"/></svg>')
 
 _ICO_VOLTAR = ('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
                'stroke="currentColor" stroke-width="2.4" stroke-linecap="round" '
@@ -416,7 +433,7 @@ _ICO_CONFIG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
 
 _NAV_PRINCIPAIS = [
     ("/",         _ICO_INICIO, "Início",   "home", ""),
-    ("/noticias", _ICO_HOME,   "Notícias", "",     ""),
+    ("/noticias", _ICO_JORNAL, "Notícias", "",     ""),
     ("/mercado",  _ICO_MERCADO, "Mercado",  "",     ""),
     ("/aspas",    _ICO_ASPAS,   "Aspas",    "",     ""),
     ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#FD5D5D"),
@@ -440,6 +457,25 @@ _NAV_EXTRAS = [
     # dia a dia. Deixo aqui em vez de sumir com ela sem avisar.
     ("/fontes",      _ICO_SOURCES, "Fontes",      "", "#FFBE5D"),
 ]
+
+
+# Existe conta cadastrada? Com cache, porque isto é perguntado no cabeçalho
+# de TODA página e a cada requisição do middleware — uma consulta por
+# renderização para uma resposta que muda uma vez na vida do app.
+#
+# Uma vez que vira True, nunca mais volta: conta não desaparece sozinha, e
+# ficar perguntando seria gastar consulta para confirmar o que já sei.
+_LOGIN_LIGADO = {"sim": False, "quando": 0.0}
+
+
+def _login_ligado() -> bool:
+    if _LOGIN_LIGADO["sim"]:
+        return True
+    if time.time() - _LOGIN_LIGADO["quando"] < 30:
+        return False
+    _LOGIN_LIGADO["quando"] = time.time()
+    _LOGIN_LIGADO["sim"] = tem_algum_usuario()
+    return _LOGIN_LIGADO["sim"]
 
 
 def _header(active: str) -> str:
@@ -567,13 +603,17 @@ def _header(active: str) -> str:
               '<button type="button" class="iar-btn" onclick="history.back()" '
               'title="Voltar" aria-label="Voltar">' + _ICO_VOLTAR + '</button>')
     cfg_ativa = " ativo" if active == "/config" else ""
+    # O "sair" só existe quando há login ligado. Botão de sair num app sem
+    # porta é só um botão que confunde.
+    sair = ('<a class="iar-btn" href="/sair" title="Sair" aria-label="Sair">'
+            + _ICO_SAIR + '</a>') if _login_ligado() else ""
     topo = (
         '<header class="iar-topo">'
         f'<div class="iar-lado">{voltar}</div>'
         '<a class="iar-marca" href="/" title="IARABÃO">IARABÃO</a>'
         f'<div class="iar-lado dir">{token_dot}'
         f'<a class="iar-btn{cfg_ativa}" href="/config" title="Configurações" '
-        f'aria-label="Configurações">{_ICO_CONFIG}</a></div>'
+        f'aria-label="Configurações">{_ICO_CONFIG}</a>{sair}</div>'
         '</header>'
     )
     return (topo
@@ -8020,6 +8060,9 @@ __HDR__
     Valem na hora: o app usa no clipe seguinte, e a m&aacute;quina que grava pega
     na pr&oacute;xima consulta.</p>
   <div id="lista">carregando...</div>
+
+  <div class="grupo">Quem entra</div>
+  <div id="contas">carregando...</div>
 </div>
 <script>
 __CONFIG_JS__
@@ -8152,7 +8195,431 @@ async function salvar(a, entrada, estado, padrao) {
 }
 
 carregar();
+carregarContas();
+
+async function carregarContas() {
+  const alvo = document.getElementById('contas');
+  if (!alvo) return;
+  let d;
+  try {
+    const r = await fetch('/api/usuarios');
+    d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+  } catch (e) {
+    alvo.innerHTML = '<p class="ajuda" style="color:#FD5D5D">' + esc(e.message) + '</p>';
+    return;
+  }
+  alvo.innerHTML = '';
+
+  if (!(d.liberados || []).length) {
+    const av = document.createElement('p');
+    av.className = 'ajuda';
+    av.style.color = 'var(--c-alerta)';
+    av.textContent = 'Ninguem esta liberado a criar conta. Configure '
+      + 'EMAILS_LIBERADOS no Railway, com os e-mails separados por virgula. '
+      + 'Enquanto isso o app fica aberto, sem pedir senha.';
+    alvo.appendChild(av);
+  } else {
+    const l = document.createElement('p');
+    l.className = 'ajuda';
+    l.textContent = 'Liberados a criar conta: ' + d.liberados.join(', ');
+    alvo.appendChild(l);
+  }
+
+  if (!d.sessao_fixa) {
+    const av = document.createElement('p');
+    av.className = 'ajuda';
+    av.style.color = 'var(--c-alerta)';
+    av.textContent = 'SESSAO_SECRETA nao esta configurada no Railway. Sem ela, '
+      + 'todo mundo e deslogado a cada reinicio do app, porque a chave que '
+      + 'assina a sessao muda junto. Ponha qualquer texto longo e aleatorio.';
+    alvo.appendChild(av);
+  }
+
+  (d.usuarios || []).forEach(function (u) {
+    const item = document.createElement('div');
+    item.className = 'item';
+    const linha = document.createElement('div');
+    linha.className = 'linha';
+    const rot = document.createElement('div');
+    rot.className = 'rotulo';
+    rot.textContent = (u.nome || u.email);
+    if (u.temporaria) {
+      const m = document.createElement('span');
+      m.className = 'mudado';
+      m.textContent = 'senha temporaria';
+      rot.appendChild(m);
+    }
+    linha.appendChild(rot);
+    const b = document.createElement('button');
+    b.className = 'padrao';
+    b.textContent = 'gerar senha temporaria';
+    b.onclick = function () { gerarSenha(u.email, item); };
+    linha.appendChild(b);
+    item.appendChild(linha);
+    const a = document.createElement('p');
+    a.className = 'ajuda';
+    a.textContent = u.email + (u.ultimo_acesso
+      ? ' - ultimo acesso ' + new Date(u.ultimo_acesso).toLocaleString('pt-BR')
+      : ' - nunca entrou');
+    item.appendChild(a);
+    alvo.appendChild(item);
+  });
+
+  if (!(d.usuarios || []).length) {
+    const p = document.createElement('p');
+    p.className = 'ajuda';
+    p.textContent = 'Nenhuma conta criada ainda. Enquanto for assim, o app '
+      + 'continua aberto, sem pedir senha.';
+    alvo.appendChild(p);
+  }
+}
+
+async function gerarSenha(email, onde) {
+  if (!confirm('Gerar uma senha temporaria para ' + email + '?\n\n'
+             + 'A senha atual dele para de funcionar na hora.')) return;
+  try {
+    const r = await fetch('/api/usuarios/senha-temporaria', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email: email})
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+    // A senha aparece UMA VEZ. Nao fica guardada em texto em lugar nenhum:
+    // o que foi para o banco ja e o hash.
+    const cx = document.createElement('p');
+    cx.className = 'ajuda';
+    cx.style.color = 'var(--c-acento)';
+    cx.textContent = 'Senha temporaria: ' + j.senha
+      + '   (anote agora, ela nao aparece de novo)';
+    onde.appendChild(cx);
+  } catch (e) {
+    alert('nao deu: ' + (e.message || e));
+  }
+}
 """
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ENTRAR
+#
+# O app fica aberto enquanto não existir NENHUMA conta. Assim que a primeira
+# nasce, ele passa a pedir senha. É o que impede eu te trancar do lado de fora
+# no meio de uma reforma: a porta só fecha quando alguém já tem a chave.
+#
+# Quem pode criar conta: só os e-mails de EMAILS_LIBERADOS. Sem essa variável,
+# ninguém cria. Este app decide o que sai no seu X — cadastro livre aqui seria
+# deixar a chave na fechadura.
+
+# Caminhos que continuam abertos mesmo com login ligado.
+#
+# /api/clipe/ e /api/gravador/ ficam de fora porque quem fala neles é o
+# programa na máquina de quem grava, e ele se identifica com o token do
+# agente, não com cookie de navegador. Exigir sessão ali derrubaria a
+# gravação — e o pior é que derrubaria em silêncio, no meio de um jogo.
+LIVRES = ("/entrar", "/cadastrar", "/api/entrar", "/api/cadastrar",
+          "/api/clipe/", "/api/gravador/", "/api/diag/", "/manifest",
+          "/static", "/favicon", "/sw.js", "/api/token-status")
+
+
+def _quem_esta_logado(request: Request) -> str:
+    return contas.ler_sessao(request.cookies.get(contas.COOKIE, ""))
+
+
+@app.middleware("http")
+async def exigir_login(request: Request, call_next):
+    caminho = request.url.path
+    if any(caminho.startswith(p) for p in LIVRES) or not _login_ligado():
+        return await call_next(request)
+    if _quem_esta_logado(request):
+        return await call_next(request)
+    if caminho.startswith("/api/"):
+        return JSONResponse({"erro": "não autenticado"}, 401)
+    return RedirectResponse("/entrar")
+
+
+_ENTRAR_CSS = """
+body{background:var(--c-bg);color:var(--c-text);margin:0;min-height:100vh;
+  display:flex;align-items:center;justify-content:center;padding:24px;
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif}
+.caixa{width:100%;max-width:340px}
+.marca-grande{font-family:'Bebas Neue',sans-serif;font-size:2.6rem;
+  letter-spacing:.06em;color:var(--c-acento);text-align:center;margin:0 0 6px}
+.sub{text-align:center;color:var(--c-muted-3);font-size:.78rem;margin:0 0 26px}
+label{display:block;font-size:.68rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--c-muted-3);margin:14px 0 6px}
+input{width:100%;box-sizing:border-box;padding:13px 14px;border-radius:12px;
+  background:var(--c-bg-card);border:1.5px solid var(--c-border-2);
+  color:var(--c-text);font-family:inherit;font-size:.95rem}
+input:focus{outline:none;border-color:var(--c-acento)}
+button.principal{width:100%;margin-top:20px;padding:14px;border-radius:12px;
+  background:var(--c-acento);color:var(--c-acento-texto);border:none;
+  font-family:inherit;font-weight:800;font-size:.8rem;text-transform:uppercase;
+  letter-spacing:.07em;cursor:pointer}
+button.principal:disabled{opacity:.5;cursor:default}
+.recado{margin-top:14px;padding:11px 13px;border-radius:11px;font-size:.75rem;
+  line-height:1.6;display:none}
+.recado.ruim{display:block;background:#FD5D5D1f;color:var(--c-negativo)}
+.recado.bom{display:block;background:#B6FF001f;color:var(--c-acento)}
+.rodape{margin-top:22px;text-align:center;font-size:.74rem;color:var(--c-muted-3)}
+.rodape a{color:var(--c-acento);text-decoration:none}
+.esqueci{background:none;border:none;color:var(--c-muted-3);font-family:inherit;
+  font-size:.72rem;text-decoration:underline;cursor:pointer;padding:0;
+  margin-top:12px;display:block;width:100%;text-align:center}
+"""
+
+_ENTRAR_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>__TITULO__ - IARABAO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__THEME_VARS__
+__ENTRAR_CSS__
+</style>
+</head>
+<body>
+<div class="caixa">
+  <h1 class="marca-grande">IARABAO</h1>
+  <p class="sub">__SUB__</p>
+  <form id="form" autocomplete="on">
+    __CAMPO_NOME__
+    <label for="email">E-mail</label>
+    <input id="email" name="email" type="email" autocomplete="email"
+           inputmode="email" required>
+    <label for="senha">Senha</label>
+    <input id="senha" name="senha" type="password"
+           autocomplete="__AUTOCOMPLETE__" required>
+    <button class="principal" type="submit" id="enviar">__BOTAO__</button>
+  </form>
+  <div class="recado" id="recado"></div>
+  __ESQUECI__
+  <p class="rodape">__RODAPE__</p>
+</div>
+<script>
+__ENTRAR_JS__
+</script>
+</body>
+</html>"""
+
+_ENTRAR_JS = r"""
+const ROTA = "__ROTA__";
+
+const form = document.getElementById('form');
+const recado = document.getElementById('recado');
+const enviar = document.getElementById('enviar');
+
+function dizer(texto, bom) {
+  recado.className = 'recado ' + (bom ? 'bom' : 'ruim');
+  recado.textContent = texto;
+}
+
+form.onsubmit = async function (ev) {
+  ev.preventDefault();
+  const nome = document.getElementById('nome');
+  const corpo = {
+    email: document.getElementById('email').value,
+    senha: document.getElementById('senha').value
+  };
+  if (nome) corpo.nome = nome.value;
+  enviar.disabled = true;
+  const antes = enviar.textContent;
+  enviar.textContent = 'aguarde...';
+  try {
+    const r = await fetch(ROTA, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(corpo)
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+    window.location.href = j.ir_para || '/';
+  } catch (e) {
+    dizer(e.message || String(e), false);
+    enviar.disabled = false;
+    enviar.textContent = antes;
+  }
+};
+
+const esqueci = document.getElementById('esqueci');
+if (esqueci) {
+  esqueci.onclick = function () {
+    dizer('Peca ao Vini uma senha temporaria. Ele gera uma na guia de '
+        + 'Configuracoes e te passa. Com ela voce entra e troca por outra.', true);
+  };
+}
+"""
+
+
+def _tela_de_entrada(modo: str) -> HTMLResponse:
+    cadastro = modo == "cadastrar"
+    html = (_ENTRAR_HTML
+            .replace("__TITULO__", "Criar conta" if cadastro else "Entrar")
+            .replace("__SUB__", "Crie sua conta para entrar."
+                     if cadastro else "Entre para continuar.")
+            .replace("__CAMPO_NOME__",
+                     '<label for="nome">Nome</label>'
+                     '<input id="nome" name="nome" type="text" autocomplete="name" '
+                     'placeholder="como voce quer ser chamado">' if cadastro else "")
+            .replace("__AUTOCOMPLETE__", "new-password" if cadastro else "current-password")
+            .replace("__BOTAO__", "Criar conta" if cadastro else "Entrar")
+            .replace("__ESQUECI__", "" if cadastro else
+                     '<button type="button" class="esqueci" id="esqueci">'
+                     'Esqueci minha senha</button>')
+            .replace("__RODAPE__",
+                     'Ja tem conta? <a href="/entrar">Entrar</a>' if cadastro else
+                     'Primeira vez? <a href="/cadastrar">Criar conta</a>')
+            .replace("__THEME__", _HEAD_COMUM)
+            .replace("__THEME_VARS__", _THEME_VARS_CSS)
+            .replace("__ENTRAR_CSS__", _ENTRAR_CSS)
+            .replace("__ENTRAR_JS__", _ENTRAR_JS.replace(
+                "__ROTA__", "/api/cadastrar" if cadastro else "/api/entrar")))
+    return HTMLResponse(html)
+
+
+@app.get("/entrar", response_class=HTMLResponse)
+async def pagina_entrar():
+    return _tela_de_entrada("entrar")
+
+
+@app.get("/cadastrar", response_class=HTMLResponse)
+async def pagina_cadastrar():
+    return _tela_de_entrada("cadastrar")
+
+
+def _por_o_cookie(resposta, email: str):
+    resposta.set_cookie(
+        contas.COOKIE, contas.criar_sessao(email),
+        max_age=contas.DIAS_DE_SESSAO * 86400,
+        httponly=True,      # JavaScript nenhum consegue ler o cookie
+        secure=True,        # só viaja por https
+        samesite="lax",     # não vai junto em requisição de outro site
+    )
+    return resposta
+
+
+@app.post("/api/cadastrar")
+async def api_cadastrar(request: Request):
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    email = contas.normalizar_email(corpo.get("email"))
+    senha = corpo.get("senha") or ""
+    if not email or "@" not in email:
+        return JSONResponse({"erro": "e-mail inválido"}, 400)
+    if not contas.emails_liberados():
+        return JSONResponse(
+            {"erro": "ninguém está liberado para criar conta ainda. Configure "
+                     "EMAILS_LIBERADOS no Railway."}, 403)
+    if not contas.pode_criar_conta(email):
+        # A mensagem é a mesma para "não está na lista": não confirmo nem nego
+        # se o e-mail existe em lugar nenhum.
+        return JSONResponse({"erro": "este e-mail não está liberado"}, 403)
+    fraca = contas.senha_fraca(senha)
+    if fraca:
+        return JSONResponse({"erro": fraca}, 400)
+    ok, motivo = criar_usuario(email, corpo.get("nome") or "",
+                               contas.guardar_senha(senha))
+    if not ok:
+        return JSONResponse({"erro": motivo}, 409)
+    marcar_acesso(email)
+    return _por_o_cookie(JSONResponse({"ok": True, "ir_para": "/"}), email)
+
+
+@app.post("/api/entrar")
+async def api_entrar(request: Request):
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    email = contas.normalizar_email(corpo.get("email"))
+    u = usuario_por_email(email)
+    # Uma mensagem só para e-mail que não existe e senha errada. Duas mensagens
+    # diferentes contariam a um estranho quais e-mails têm conta aqui.
+    if not u or not contas.senha_confere(corpo.get("senha") or "", u.get("senha") or ""):
+        return JSONResponse({"erro": "e-mail ou senha não conferem"}, 401)
+    marcar_acesso(email)
+    return _por_o_cookie(JSONResponse({"ok": True, "ir_para": "/"}), email)
+
+
+@app.get("/sair")
+async def sair():
+    r = RedirectResponse("/entrar")
+    r.delete_cookie(contas.COOKIE)
+    return r
+
+
+@app.get("/api/eu")
+async def api_eu(request: Request):
+    """Quem está logado. A tela inicial usa para a saudação."""
+    email = _quem_esta_logado(request)
+    if not email:
+        return {"logado": False, "exige_login": _login_ligado()}
+    u = usuario_por_email(email) or {}
+    return {"logado": True, "email": email,
+            "nome": contas.primeiro_nome(email, u.get("nome") or ""),
+            "senha_temporaria": bool(u.get("temporaria"))}
+
+
+@app.get("/api/usuarios")
+async def api_usuarios():
+    """Quem tem conta, e quem está liberado a criar."""
+    return {"usuarios": listar_usuarios(),
+            "liberados": contas.emails_liberados(),
+            "sessao_fixa": contas.segredo_configurado()}
+
+
+@app.post("/api/usuarios/senha-temporaria")
+async def api_senha_temporaria(request: Request):
+    """Gera uma senha temporária para alguém que esqueceu a dela.
+
+    É isto que substitui o "esqueci minha senha" por e-mail: o app não manda
+    e-mail, então quem devolve o acesso é você, por um caminho que você já
+    confia — WhatsApp, pessoalmente, o que for.
+
+    A senha aparece UMA VEZ, na resposta. Não fica guardada em texto em lugar
+    nenhum: o que vai para o banco já é o hash.
+    """
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    email = contas.normalizar_email(corpo.get("email"))
+    if not usuario_por_email(email):
+        return JSONResponse({"erro": "não existe conta com esse e-mail"}, 404)
+    nova = contas.senha_temporaria()
+    if not trocar_senha(email, contas.guardar_senha(nova), temporaria=True):
+        return JSONResponse({"erro": "não consegui trocar a senha"}, 500)
+    return {"ok": True, "email": email, "senha": nova}
+
+
+@app.post("/api/eu/senha")
+async def api_trocar_minha_senha(request: Request):
+    """Trocar a própria senha. Exige a senha atual."""
+    email = _quem_esta_logado(request)
+    if not email:
+        return JSONResponse({"erro": "não autenticado"}, 401)
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    u = usuario_por_email(email) or {}
+    if not contas.senha_confere(corpo.get("atual") or "", u.get("senha") or ""):
+        return JSONResponse({"erro": "a senha atual não confere"}, 401)
+    nova = corpo.get("nova") or ""
+    fraca = contas.senha_fraca(nova)
+    if fraca:
+        return JSONResponse({"erro": fraca}, 400)
+    if not trocar_senha(email, contas.guardar_senha(nova), temporaria=False):
+        return JSONResponse({"erro": "não consegui trocar a senha"}, 500)
+    return {"ok": True}
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -8373,6 +8840,23 @@ function quando(iso) {
   return t.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
 }
 
+async function saudar() {
+  try {
+    const r = await fetch('/api/eu');
+    const d = await r.json();
+    const h = document.getElementById('ola');
+    const nome = d.logado ? d.nome : '';
+    h.childNodes[0].nodeValue = 'Salamaleikum' + (nome ? ', ' + nome : '') + ' ';
+    if (d.senha_temporaria) {
+      const av = document.createElement('small');
+      av.style.color = 'var(--c-alerta)';
+      av.textContent = 'Voce esta com uma senha temporaria. Troque quando puder.';
+      h.appendChild(av);
+    }
+  } catch (e) { /* sem login ligado, a saudacao fica sem nome */ }
+}
+saudar();
+
 async function carregar() {
   let d;
   try {
@@ -8489,7 +8973,7 @@ async def home():
     """A tela de curadoria: o que entrou e o que espera decisão."""
     icones = json.dumps({
         "posts": _ICO_POSTS, "clipes": _ICO_CLIPE, "mercado": _ICO_MERCADO,
-        "aspas": _ICO_ASPAS, "noticias": _ICO_HOME,
+        "aspas": _ICO_ASPAS, "noticias": _ICO_JORNAL,
     })
     return HTMLResponse(
         _HOME_HTML

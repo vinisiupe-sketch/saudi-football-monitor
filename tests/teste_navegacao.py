@@ -38,6 +38,9 @@ corpo = [n for n in mod.body
          if (isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
              and (n.targets[0].id.startswith("_ICO_") or n.targets[0].id in quero))
          or (isinstance(n, ast.FunctionDef) and n.name == "_header")]
+# O cabeçalho pergunta se há login ligado; aqui digo que sim, para o botão de
+# sair entrar na conta dos testes.
+ns["_login_ligado"] = lambda: True
 exec(compile(ast.Module(body=corpo, type_ignores=[]), "main.py", "exec"), ns)
 html = ns["_header"]("/noticias")
 css = ns["_HEADER_CSS"]
