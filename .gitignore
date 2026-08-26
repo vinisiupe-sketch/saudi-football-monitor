@@ -52,3 +52,7 @@ gravacoes/
 
 # Diagnostico do canal (saida local)
 diag_canal_RELATORIO.txt
+
+# Registro do gravador (local, cresce a cada rodada)
+gravador_registro.txt
+gravador.py.anterior

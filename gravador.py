@@ -1,39 +1,45 @@
 """
-GRAVADOR — roda na sua máquina durante as partidas.
+GRAVADOR DE CLIPES — fica ligado na máquina de quem estiver com o PC de pé.
+
+COMO SE USA
+    Dois cliques em  instalar.bat  , uma vez só. Depois disso ele sobe junto
+    com o Windows e vive no ícone ao lado do relógio:
+
+        cinza    ligado, nenhum jogo gravando
+        verde    gravando
+        vermelho deu problema — clique para ver o que foi
+
+    Ninguém abre nada antes do jogo. Quem escolhe as partidas é o Vini, pelo
+    celular, na guia Clipes.
 
 O QUE ELE FAZ
-    1. Olha o canal do parceiro e reporta ao app quais transmissões estão no ar.
-    2. Grava as que você escolheu na guia Clipes — até quatro ao mesmo tempo.
-    3. Quando você aperta GOL AGORA (ou CLIPAR), recorta o trecho e devolve.
-
-    Você não digita minutagem nem cola link. Ele sabe a que horas começou cada
-    gravação, então converte hora-de-relógio em posição no arquivo sozinho.
-
-COMO RODAR
-    1. Dois cliques em  gravador.bat
-    2. Na guia Clipes do app, pelo celular, escolha os jogos
-    3. Deixe a janela aberta até o fim
-
-    Para parar: feche a janela, ou Ctrl+C.
-
-O QUE PRECISA ESTAR PRONTO
-    app_url.txt      — o endereço do seu app no Railway
-    clipe_token.txt  — o mesmo valor da variável CLIPE_TOKEN lá no Railway
-    yt-dlp e ffmpeg  — o checar_ferramentas.bat confirma
+    1. Olha o canal do parceiro e conta ao app quais transmissões estão no ar.
+    2. Grava as que foram escolhidas — até quatro ao mesmo tempo.
+    3. Quando alguém aperta GOL AGORA, recorta o trecho e devolve.
 
 POR QUE ELE, E NÃO O SERVIDOR, OLHA O CANAL
     O Railway é IP de datacenter, e o YouTube barra esses com verificação de
-    bot. Sua máquina tem IP residencial e passa. Então quem descobre as
-    transmissões é ele, e o servidor só guarda o que ele contou.
+    bot. Uma máquina doméstica passa. Então quem descobre as transmissões é
+    ele, e o servidor só guarda o que ele contou.
 
 O QUE ELE NÃO FAZ
-    Não publica nada. Ele só entrega o recorte para o app; quem publica é você,
-    apertando Publicar na tela, depois de assistir.
+    Não publica nada. Ele entrega o recorte para o app; quem publica é o Vini,
+    apertando Publicar na tela, depois de assistir. A senha desta máquina não
+    dá acesso à conta do X.
+
+SOBRE ATUALIZAÇÃO
+    Ele se atualiza sozinho: pergunta ao app qual versão deveria estar rodando
+    e, se estiver velho, baixa o arquivo novo, confere que compila, guarda o
+    antigo ao lado e reinicia. Quem está com a máquina não faz nada.
+
+    E os números que mudam com frequência — qualidade, janela do clipe,
+    atraso da transmissão — nem vivem aqui: vêm da guia Configurações do app.
+    Por isso este arquivo tende a ficar parado por meses.
 
 SOBRE QUEDAS
     Se uma transmissão cair, ele começa outro arquivo e continua. O trecho
-    perdido entre um arquivo e outro fica registrado: se você pedir um corte
-    que caia nesse buraco, ele avisa em vez de mandar vídeo errado.
+    perdido fica registrado: se pedirem um corte que caia nesse buraco, ele
+    avisa em vez de mandar vídeo errado.
 """
 import json
 import os
@@ -51,7 +57,6 @@ PASTA = os.path.dirname(os.path.abspath(__file__))
 GRAVACOES = os.path.join(PASTA, "gravacoes")
 
 INTERVALO_CONSULTA = 4          # de quantos em quantos segundos falo com o app
-INTERVALO_CANAL = 90            # de quantos em quantos segundos olho o canal
 
 # Quantas transmissões da aba /streams eu leio. Vou subindo enquanto não
 # aparecer nenhuma ENCERRADA — sinal de que ainda não passei pela faixa das
@@ -62,17 +67,6 @@ LIMITES_CANAL = (40, 90, 200)
 MARGEM_SEG = 2                  # folga antes de cortar, para o trecho existir
 ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 
-# Quanto o ffmpeg decodifica ANTES do ponto do corte.
-#
-# Buscar com -ss antes do -i é rápido, mas cai em qualquer lugar: se o ponto
-# não for um keyframe, o vídeo do clipe só começa no keyframe seguinte, e o
-# arquivo sai com áudio desde o segundo zero e imagem só alguns segundos
-# depois. O player mostra preto nesse intervalo. Foi o que aconteceu no
-# primeiro clipe de verdade: áudio em 0.000s, vídeo em 4.571s.
-#
-# Com dois estágios — busca grossa antes do -i, busca fina depois — o ffmpeg
-# decodifica desde um keyframe anterior e chega ao ponto exato com imagem.
-DECODIFICA_ANTES = 30
 
 # Versão deste arquivo. O app compara com o que ele espera e avisa na tela
 # quando estão diferentes.
@@ -82,11 +76,40 @@ DECODIFICA_ANTES = 30
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-08-25a"
+VERSAO = "2026-08-26a"
 
 
-def diz(t: str = "") -> None:
+# Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
+# primeira resposta não chega — e só. Quem manda é a guia de Configurações.
+#
+# É isto que faz este arquivo parar de precisar de atualização: quase tudo que
+# eu mexi nas últimas semanas foi um destes números, e agora eles mudam na tela.
+AJUSTES = {
+    "gravador_altura_max": 720,
+    "gravador_preset": "veryfast",
+    "gravador_decodifica_antes": 30,
+    "gravador_intervalo_canal": 90,
+    "gravador_horas_gravacao": 12,
+}
+
+# O que a janela mostrou por último. O programa da bandeja lê daqui, e o
+# último erro sobe para o app para você ver do celular.
+ESTADO = {"linhas": [], "ultimo_erro": "", "gravando": 0}
+LIMITE_LINHAS = 400
+
+
+def diz(t: str = "", erro: bool = False) -> None:
     print(t, flush=True)
+    try:
+        with open(os.path.join(PASTA, "gravador_registro.txt"), "a",
+                  encoding="utf-8") as f:
+            f.write(datetime.now().strftime("%d/%m %H:%M:%S ") + t + "\n")
+    except Exception:
+        pass
+    ESTADO["linhas"].append(t)
+    del ESTADO["linhas"][:-LIMITE_LINHAS]
+    if erro:
+        ESTADO["ultimo_erro"] = t
 
 
 def achar(nome: str) -> str:
@@ -152,6 +175,52 @@ def conferir_rede(app: str) -> bool:
         return False
 
 
+NOME_DA_MAQUINA = (os.environ.get("COMPUTERNAME")
+                   or os.environ.get("HOSTNAME") or socket.gethostname() or "?")
+
+
+def nao_durma(ligar: bool) -> None:
+    """Pede ao Windows para não suspender enquanto estamos gravando.
+
+    Sem isto, alguém precisa lembrar de mexer nas configurações de energia da
+    máquina — e quando a máquina é de outra pessoa, ninguém lembra. O PC dorme
+    no intervalo e a gravação morre sem erro nenhum.
+
+    Só vale enquanto há gravação em curso; assim que acaba, eu solto e o
+    computador volta a dormir normalmente. Fora do Windows, não faz nada.
+    """
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        CONTINUO, SISTEMA = 0x80000000, 0x00000001
+        ctypes.windll.kernel32.SetThreadExecutionState(
+            (CONTINUO | SISTEMA) if ligar else CONTINUO)
+    except Exception:
+        pass
+
+
+def limpar_gravacoes_velhas() -> int:
+    """Apaga os .ts antigos. Cada partida ocupa ~1,6 GB.
+
+    Hoje isso não existia, e a pasta chegou a 196 arquivos. Na máquina de
+    outra pessoa, encher o disco não é detalhe — é o fim do favor.
+    """
+    apagados = 0
+    try:
+        limite = time.time() - float(AJUSTES["gravador_horas_gravacao"]) * 3600
+        for nome in os.listdir(GRAVACOES):
+            caminho = os.path.join(GRAVACOES, nome)
+            if not nome.endswith((".ts", ".mp4")):
+                continue
+            if os.path.getmtime(caminho) < limite:
+                os.remove(caminho)
+                apagados += 1
+    except Exception:
+        pass
+    return apagados
+
+
 class Gravacao:
     """Um arquivo contínuo, com a hora de relógio em que ele começou."""
 
@@ -199,6 +268,8 @@ class Gravador:
         self.olhei_o_canal = 0.0
         # Para avisar quando o contato com o app cai e quando ele volta.
         self.falando_com_o_app = True
+        self.ja_tentei_atualizar = False
+        self.ultima_faxina = 0.0
         # A última lista de transmissões do canal. Guardo porque é dela que
         # sai o nome do jogo para o botão — sem isso, _nomear procurava numa
         # lista que nunca era preenchida e o botão ficava com o id do vídeo.
@@ -296,7 +367,7 @@ class Gravador:
         for teto in LIMITES_CANAL:
             entradas, erro = self._ler_aba_streams(teto)
             if erro and not entradas:
-                diz(f"    não consegui olhar o canal: {erro}")
+                diz(f"    não consegui olhar o canal: {erro}", erro=True)
                 return []
             # Cheguei nas encerradas (logo, vi tudo que interessa) ou a lista
             # acabou antes do teto (logo, não há mais nada para ver).
@@ -334,10 +405,11 @@ class Gravador:
     # ── gravar ────────────────────────────────────────────────────────────
     def _urls_do_fluxo(self, url: str) -> list:
         """Vídeo e áudio vêm separados nesta transmissão; pego os dois."""
+        alt = int(AJUSTES["gravador_altura_max"])
         try:
             r = subprocess.run(
                 self.ytdlp + ["--no-warnings", "-f",
-                              "bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
+                              f"bv*[height<={alt}]+ba/b[height<={alt}]/bv*+ba/b",
                               "-g", url],
                 capture_output=True, text=True, timeout=120,
                 encoding="utf-8", errors="replace")
@@ -494,7 +566,7 @@ class Gravador:
             # de 34s para 14s, com semelhança de 0,992 contra o padrão — perda
             # que ninguém vê num clipe curto a 5 Mbps. E 20 segundos a menos de
             # espera importa: você está com o jogo rolando.
-            "-c:v", "libx264", "-preset", "veryfast",
+            "-c:v", "libx264", "-preset", str(AJUSTES["gravador_preset"]),
             "-profile:v", "high", "-pix_fmt", "yuv420p",
             "-b:v", "5M", "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
             "-avoid_negative_ts", "make_zero",
@@ -511,7 +583,7 @@ class Gravador:
         reproduzi, eu meço: se a imagem não começar junto com o som, refaço do
         jeito lento, que decodifica desde o começo e nunca desalinha.
         """
-        grosso = max(0.0, inicio - DECODIFICA_ANTES)
+        grosso = max(0.0, inicio - float(AJUSTES["gravador_decodifica_antes"]))
         fino = inicio - grosso
         r = self._rodar_ffmpeg(["-ss", f"{grosso:.2f}", "-i", origem,
                                 "-ss", f"{fino:.2f}"], saida, dur)
@@ -607,7 +679,7 @@ class Gravador:
                 "Já está na sua tela.")
 
     def _falhou(self, cid, motivo: str) -> None:
-        diz(f"    clipe {cid}: {motivo}")
+        diz(f"    clipe {cid}: {motivo}", erro=True)
         self._http(f"/api/clipe/{cid}/falhou",
                    json.dumps({"erro": motivo}).encode())
 
@@ -621,12 +693,14 @@ class Gravador:
         # Sem essa condição, eu carimbava o relógio sem ter olhado nada e
         # ainda mandava lista vazia — ou seja, apagava a lista do app dizendo
         # "não tem nada no ar" antes de ter olhado uma única vez.
-        if self.canal and agora - self.olhei_o_canal >= INTERVALO_CANAL:
+        if self.canal and agora - self.olhei_o_canal >= float(AJUSTES["gravador_intervalo_canal"]):
             disponiveis = self.transmissoes_do_canal()
             self.ultimo_canal = disponiveis
             self.olhei_o_canal = agora
         corpo = {
             "versao": VERSAO,
+            "nome": NOME_DA_MAQUINA,
+            "ultimo_erro": ESTADO["ultimo_erro"],
             "gravando": {j.id: j.desde() for j in self.jogos.values()
                          if j.gravando()},
             "titulos": [{"id": j.id, "titulo": j.titulo}
@@ -659,7 +733,7 @@ class Gravador:
                 # Não desisto por causa de uma falha de rede: o jogo continua.
                 agora = time.time()
                 if agora - ultimo_aviso > 60:
-                    diz(f"    sem contato com o app: {err}")
+                    diz(f"    sem contato com o app: {err}", erro=True)
                     ultimo_aviso = agora
                 self.falando_com_o_app = False
                 time.sleep(INTERVALO_CONSULTA)
@@ -673,6 +747,16 @@ class Gravador:
                     f"{datetime.now().strftime('%H:%M:%S')}.")
                 self.falando_com_o_app = True
 
+            # Os ajustes vêm na mesma resposta. Aplico antes de qualquer
+            # outra coisa: se você mudou a qualidade na guia de Configurações,
+            # a gravação que eu começar agora já vai no valor novo.
+            for chave, valor in ((d or {}).get("ajustes") or {}).items():
+                if chave in AJUSTES and valor is not None:
+                    AJUSTES[chave] = valor
+            esperada = (d or {}).get("versao_esperada") or ""
+            if esperada and esperada != VERSAO:
+                self.atualizar(esperada)
+
             if not self.canal:
                 self.canal = (d or {}).get("canal") or ""
                 if self.canal:
@@ -683,13 +767,140 @@ class Gravador:
             self._nomear(lives)
             self.cuidar_das_gravacoes()
             self.conferir_sincronia()
+            gravando = sum(1 for j in self.jogos.values() if j.gravando())
+            ESTADO["gravando"] = gravando
+            nao_durma(gravando > 0)
+            if time.time() - self.ultima_faxina > 1800:
+                self.ultima_faxina = time.time()
+                n = limpar_gravacoes_velhas()
+                if n:
+                    diz(f"    apaguei {n} gravação(ões) antiga(s) do disco")
             for clipe in (d or {}).get("clipes", []):
                 self.atender(clipe)
             time.sleep(INTERVALO_CONSULTA)
 
+    def atualizar(self, esperada: str) -> None:
+        """Baixa a versão nova do app, confere e reinicia com ela.
+
+        Três cuidados, e cada um evita um jeito específico de estragar tudo:
+
+        1. Só troco se o arquivo novo COMPILAR. Baixar um arquivo cortado pela
+           metade e reiniciar em cima dele deixaria a máquina morta, e ela pode
+           estar na casa de outra pessoa.
+        2. Guardo o antigo ao lado. Se o novo não subir, o programa que iniciou
+           volta para ele.
+        3. Só tento uma vez por execução. Se a versão nova também não bate com
+           a esperada — porque eu errei o número, por exemplo — isso viraria um
+           laço de baixar-e-reiniciar para sempre.
+        """
+        if self.ja_tentei_atualizar:
+            return
+        self.ja_tentei_atualizar = True
+        diz("")
+        diz(f"    versão nova disponível ({VERSAO} -> {esperada}). Baixando.")
+        try:
+            req = urllib.request.Request(
+                self.app + "/api/gravador/codigo",
+                headers={"X-Clipe-Token": self.token})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                codigo = r.read().decode("utf-8")
+        except Exception as e:
+            diz(f"    não consegui baixar a versão nova: {e}", erro=True)
+            return
+        if len(codigo) < 5000 or "VERSAO" not in codigo:
+            diz("    o que veio não parece o gravador; fico na versão atual",
+                erro=True)
+            return
+        try:
+            compile(codigo, "gravador.py", "exec")
+        except SyntaxError as e:
+            diz(f"    a versão nova não compila ({e}); fico na atual", erro=True)
+            return
+        try:
+            meu = os.path.abspath(__file__)
+            with open(meu + ".anterior", "w", encoding="utf-8") as f:
+                f.write(open(meu, encoding="utf-8").read())
+            with open(meu + ".novo", "w", encoding="utf-8") as f:
+                f.write(codigo)
+            os.replace(meu + ".novo", meu)
+        except Exception as e:
+            diz(f"    não consegui trocar o arquivo: {e}", erro=True)
+            return
+        diz("    atualizado. Reiniciando com a versão nova.")
+        self.parar()
+        os.execv(sys.executable, [sys.executable, meu] + sys.argv[1:])
+
     def parar(self) -> None:
         for jogo in self.jogos.values():
             self.parar_jogo(jogo)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# O ÍCONE NA BANDEJA
+#
+# Sem janela preta. Isso não é enfeite: o console do Windows PAUSA o programa
+# quando alguém clica dentro dele para selecionar texto, e o programa fica
+# parado sem erro nenhum, sem aviso nenhum. Numa máquina emprestada, esse é o
+# jeito mais provável de a gravação morrer no meio de um jogo.
+#
+# Se o pystray não estiver instalado, o programa roda igual, só sem ícone.
+# Não quero que a falta de um enfeite impeça a gravação.
+def _desenhar(cor):
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((6, 6, 58, 58), fill=cor)
+    d.polygon([(26, 20), (26, 44), (46, 32)], fill=(255, 255, 255, 235))
+    return img
+
+
+def bandeja(g) -> None:
+    """Ícone ao lado do relógio: verde gravando, cinza parado, vermelho com erro."""
+    try:
+        import pystray
+    except Exception:
+        return
+    VERDE, CINZA, VERMELHO = (34, 197, 94, 255), (120, 130, 140, 255), (239, 68, 68, 255)
+
+    def dizer(_=None):
+        n = ESTADO["gravando"]
+        if ESTADO["ultimo_erro"] and not n:
+            return "Gravador — " + ESTADO["ultimo_erro"][:70]
+        return f"Gravador — gravando {n} jogo(s)" if n else "Gravador — parado"
+
+    def abrir_registro(_=None):
+        try:
+            os.startfile(os.path.join(PASTA, "gravador_registro.txt"))
+        except Exception:
+            pass
+
+    def abrir_app(_=None):
+        try:
+            import webbrowser
+            webbrowser.open(g.app + "/clipes")
+        except Exception:
+            pass
+
+    icone = pystray.Icon("gravador", _desenhar(CINZA), "Gravador", pystray.Menu(
+        pystray.MenuItem(dizer, None, enabled=False),
+        pystray.MenuItem("Abrir a guia Clipes", abrir_app),
+        pystray.MenuItem("Ver o que aconteceu", abrir_registro),
+        pystray.MenuItem("Sair", lambda: (g.parar(), icone.stop(), os._exit(0))),
+    ))
+
+    def pulsar(ic):
+        ic.visible = True
+        while True:
+            cor = (VERDE if ESTADO["gravando"]
+                   else VERMELHO if ESTADO["ultimo_erro"] else CINZA)
+            try:
+                ic.icon = _desenhar(cor)
+                ic.title = dizer()
+            except Exception:
+                pass
+            time.sleep(5)
+
+    icone.run(setup=pulsar)
 
 
 def main() -> int:
@@ -726,6 +937,15 @@ def main() -> int:
     diz()
 
     g = Gravador(app, token, ytdlp, ffmpeg)
+
+    # Sem console (rodando por pythonw), o laço vai para uma thread e a bandeja
+    # fica no fio principal — pystray exige isso no Windows.
+    if "--bandeja" in sys.argv or (os.name == "nt" and not sys.stdout.isatty()):
+        import threading
+        threading.Thread(target=g.rodar, daemon=True).start()
+        bandeja(g)
+        return 0
+
     try:
         g.rodar()
     except KeyboardInterrupt:

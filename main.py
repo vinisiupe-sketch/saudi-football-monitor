@@ -6006,7 +6006,7 @@ CHAVE_GRAVADOR = "clipe_gravador"
 # Sem isso, um gravador antigo rodando na memória entrega clipes com defeitos
 # já corrigidos, e nada na tela denuncia. Aconteceu: três horas de clipes com
 # o áudio adiantado depois de o defeito estar consertado no arquivo.
-VERSAO_GRAVADOR = "2026-08-25a"
+VERSAO_GRAVADOR = "2026-08-26a"
 
 
 def _gravador_estado() -> dict:
@@ -6432,6 +6432,11 @@ async def api_clipe_pendentes(request: Request):
         set_state(CHAVE_GRAVADOR, json.dumps({
             "visto_em": datetime.now(timezone.utc).isoformat(),
             "versao": corpo.get("versao") or "",
+            # O nome da máquina e o último erro sobem junto para você poder
+            # olhar a guia Clipes do celular em vez de perguntar no WhatsApp
+            # para quem está com o computador ligado.
+            "nome": str(corpo.get("nome") or "")[:40],
+            "ultimo_erro": str(corpo.get("ultimo_erro") or "")[:300],
             "gravando": corpo.get("gravando") or {}}))
     except Exception:
         pass          # o batimento não pode derrubar a entrega dos clipes
@@ -6440,7 +6445,32 @@ async def api_clipe_pendentes(request: Request):
     for t in (corpo.get("titulos") or []):
         if isinstance(t, dict):
             titulo_da_live(t.get("id") or "", t.get("titulo") or "")
-    return {"clipes": clipes_a_cortar(), "lives": listar_lives(), "canal": CANAL}
+    # Os ajustes vão na mesma resposta. É isto que faz a máquina que grava
+    # obedecer à guia de Configurações sem ninguém atualizar nada lá.
+    return {"clipes": clipes_a_cortar(), "lives": listar_lives(), "canal": CANAL,
+            "versao_esperada": VERSAO_GRAVADOR,
+            "ajustes": {a["chave"]: ajuste(a["chave"])
+                        for a in ajustes.AJUSTES
+                        if a["chave"].startswith("gravador_")}}
+
+
+@app.get("/api/gravador/codigo", response_class=PlainTextResponse)
+async def api_gravador_codigo(request: Request):
+    """O código do gravador, para ele se atualizar sozinho.
+
+    Exige o mesmo token do agente. Não é segredo — está no GitHub — mas uma
+    rota aberta que devolve arquivo do servidor é o tipo de coisa que um dia
+    devolve o arquivo errado.
+    """
+    if not _agente_autorizado(request):
+        return PlainTextResponse("token do agente ausente ou errado", 403)
+    try:
+        caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "gravador.py")
+        with open(caminho, encoding="utf-8") as f:
+            return PlainTextResponse(f.read())
+    except Exception as e:
+        return PlainTextResponse(f"não consegui ler o gravador: {e}", 500)
 
 
 @app.post("/api/clipe/{clipe_id}/entregar")
@@ -7140,6 +7170,7 @@ __HDR__
   <div class="linha-estado" id="estadoGravador">
     <span class="ponto"></span><span>verificando…</span>
   </div>
+  <div class="nota ruim" id="erroGravador" style="display:none"></div>
 
   <p class="atraso-nota" style="margin:0 0 12px">Janela do clipe, atraso da
     transmissão e descarte agora ficam em <a href="/config">Configurações</a>.</p>
@@ -7350,8 +7381,17 @@ async function carregar() {
       + ') — feche e abra o gravador.bat de novo');
   } else {
     const n = Object.keys(grav).length;
-    estado(est, 'ok', n ? ('gravando ' + n + (n > 1 ? ' jogos' : ' jogo'))
-                        : 'gravador ligado, nenhum jogo gravando');
+    const onde = g.nome ? ' em ' + esc(g.nome) : '';
+    estado(est, 'ok', (n ? ('gravando ' + n + (n > 1 ? ' jogos' : ' jogo'))
+                         : 'gravador ligado, nenhum jogo gravando') + onde);
+  }
+  // O último erro da máquina que grava aparece aqui, mesmo quando ela está
+  // online. Sem isso, saber o que houve dependia de perguntar a quem está
+  // com o computador — e ele pode estar dormindo.
+  const cxErro = document.getElementById('erroGravador');
+  if (cxErro) {
+    cxErro.textContent = g.ultimo_erro || '';
+    cxErro.style.display = g.ultimo_erro ? '' : 'none';
   }
 
   pintarJogos(lives, grav);
