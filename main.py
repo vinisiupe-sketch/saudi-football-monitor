@@ -26,7 +26,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -400,6 +400,22 @@ def _header(active: str) -> str:
     token_dot = '<span class="token-dot" id="tokenDot" title="Token X/Twitter: verificando…"></span>'
     token_script = """<script>
 (function(){
+  function mostrarAvisoBanco(d){
+    if(!d || !d.banco_aviso) return;
+    if(document.getElementById('avisoBanco')) return;
+    var b = document.createElement('div');
+    b.id = 'avisoBanco';
+    b.style.cssText = 'padding:9px 14px;font:700 .74rem/1.4 system-ui;'
+      + 'text-align:center;color:#111;background:'
+      + (d.banco_aviso === 'grave' ? '#f87171' : '#fbbf24');
+    b.textContent = 'Banco em ' + d.banco_pct + '% (' + d.banco_mb + ' MB de '
+      + d.banco_limite_mb + ' MB). '
+      + (d.banco_aviso === 'grave'
+         ? 'Quando encher, o app inteiro para. Aumente o volume no Railway.'
+         : 'Vale olhar antes que aperte.');
+    document.body.insertBefore(b, document.body.firstChild);
+  }
+
   async function loadTokenStatus(){
     var el = document.getElementById('tokenDot');
     if(!el) return;
@@ -412,6 +428,7 @@ def _header(active: str) -> str:
       }
       el.classList.remove('ok','broken');
       el.classList.add(d.status === 'ok' ? 'ok' : 'broken');
+      mostrarAvisoBanco(d);
       var quando = '';
       try{ quando = new Date(d.checked_at).toLocaleString('pt-BR'); }catch(e){}
       el.title = 'Token X/Twitter: ' + (d.status === 'ok' ? 'OK' : 'quebrado')
@@ -1471,9 +1488,23 @@ async def api_logs(limit: int = 20):
 
 @app.get("/api/token-status")
 async def api_token_status_get():
-    """Status do último check diário do token X/Twitter (rotina twitter-token-check).
-    Usado pela bolinha verde/vermelha no header."""
-    return get_token_status()
+    """Status do token do X e, junto, o quanto o banco está ocupando.
+
+    O tamanho pega carona aqui porque esta rota já é chamada no cabeçalho de
+    TODA página. É o único lugar do app que aparece em todas — e o defeito de
+    ontem não foi o banco encher, foi encher em silêncio.
+    """
+    d = dict(get_token_status() or {})
+    mb = tamanho_do_banco_mb()
+    if mb is not None:
+        pct = round(100 * mb / max(1, LIMITE_BANCO_MB))
+        d["banco_mb"] = mb
+        d["banco_pct"] = pct
+        d["banco_limite_mb"] = LIMITE_BANCO_MB
+        # 75% ainda dá tempo de agir com calma; 90% já é hoje.
+        d["banco_aviso"] = ("grave" if pct >= 90 else
+                            "atencao" if pct >= 75 else "")
+    return d
 
 
 @app.post("/api/token-status")

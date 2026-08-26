@@ -1577,6 +1577,40 @@ def _limpar_clipes_velhos() -> None:
         pass
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# QUANTO O BANCO ESTÁ OCUPANDO
+#
+# O volume encheu e ninguém soube até tudo parar. Não foi só o vídeo dentro do
+# banco que causou isso — foi não haver nenhum lugar dizendo "está em 80%".
+# Tirar o vídeo impede a causa conhecida; este medidor é para a próxima, que
+# vai ser outra coisa.
+#
+# O teto vem de variável porque quem sabe o tamanho do volume é o Railway, não
+# o Postgres: de dentro do banco não dá para enxergar o disco.
+LIMITE_BANCO_MB = int(os.environ.get("BANCO_LIMITE_MB", "500") or 500)
+_CACHE_TAMANHO: dict = {"quando": 0.0, "mb": None}
+
+
+def tamanho_do_banco_mb(ttl: int = 300) -> float | None:
+    """Megabytes ocupados. None quando não deu para perguntar.
+
+    Com cache porque isto é chamado no cabeçalho de toda página, e uma
+    consulta por visita para uma informação que muda devagar seria desperdício.
+    """
+    agora = time.time()
+    if _CACHE_TAMANHO["mb"] is not None and agora - _CACHE_TAMANHO["quando"] < ttl:
+        return _CACHE_TAMANHO["mb"]
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT pg_database_size(current_database())")
+            mb = round(c.fetchone()[0] / 1048576, 1)
+        _CACHE_TAMANHO.update({"quando": agora, "mb": mb})
+        return mb
+    except Exception:
+        return None
+
+
 def _cria_clipe(c) -> None:
     c.execute("""
         CREATE TABLE IF NOT EXISTS clipe (
