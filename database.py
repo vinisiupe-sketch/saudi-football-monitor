@@ -1922,6 +1922,29 @@ def descartar_clipes(lives_ativas: list[str], horas: int = 2) -> dict:
             os.remove(_caminho_do_clipe(cid))
         except Exception:
             pass
+
+    # DELETE não devolve disco: o Postgres só marca a linha como morta, e o
+    # arquivo da tabela continua do mesmo tamanho. Quem devolve é o VACUUM
+    # FULL, que reescreve a tabela sem os mortos.
+    #
+    # Rodo só quando apaguei alguma coisa, e nunca no meio de jogo — o
+    # descarte já espera a transmissão sair do ar. Ele tranca a tabela
+    # enquanto reescreve, mas depois da primeira faxina ela é pequena e isso
+    # leva um piscar.
+    #
+    # Precisa de conexão própria: VACUUM não roda dentro de transação, e a
+    # get_conn abre uma.
+    if saida["apagados"]:
+        try:
+            url = _get_database_url()
+            conn = psycopg2.connect(url)
+            conn.autocommit = True
+            conn.cursor().execute("VACUUM FULL clipe")
+            conn.close()
+            saida["espaco_devolvido"] = True
+        except Exception as e:
+            saida["espaco_devolvido"] = False
+            saida["erro"] = f"apaguei, mas o VACUUM falhou: {type(e).__name__}: {e}"
     return saida
 
 
