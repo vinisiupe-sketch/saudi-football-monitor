@@ -1900,6 +1900,12 @@ def descartar_clipes(lives_ativas: list[str], horas: int = 2) -> dict:
     Assim nunca some clipe no meio da partida — que seria o único jeito de
     esta regra estragar a sua noite.
     """
+    # O ::text[] não é enfeite. Com a lista vazia — que é o caso normal, sem
+    # jogo no ar — o psycopg2 manda ARRAY[] sem tipo e o Postgres recusa com
+    # "cannot determine type of empty array". A consulta inteira caía no
+    # except, a função devolvia "apagados: 0" e o agendador não dizia nada.
+    # Ou seja: a faxina falhava exatamente nas horas em que ela deveria rodar,
+    # e em silêncio. Meu teste passou porque usei uma lista com dois jogos.
     saida = {"apagados": 0, "ids": [], "erro": ""}
     try:
         with get_conn() as conn:
@@ -1909,7 +1915,7 @@ def descartar_clipes(lives_ativas: list[str], horas: int = 2) -> dict:
                           WHERE guardado = FALSE
                             AND alvo_em < NOW() - (%s * INTERVAL '1 hour')
                             AND (live_id IS NULL OR live_id = ''
-                                 OR NOT (live_id = ANY(%s)))
+                                 OR NOT (live_id = ANY(%s::text[])))
                       RETURNING id""",
                       [horas, [str(x) for x in (lives_ativas or [])]])
             saida["ids"] = [linha[0] for linha in c.fetchall()]

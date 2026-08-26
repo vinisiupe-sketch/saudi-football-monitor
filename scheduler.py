@@ -242,6 +242,10 @@ async def run_descartar_clipes():
                              HORAS_ATE_DESCARTE)
         if r.get("apagados"):
             print(f"🗑️ {r['apagados']} clipe(s) descartado(s)")
+        elif r.get("erro"):
+            # Falha de faxina precisa aparecer. A versão anterior só falava
+            # quando dava certo, e por isso o defeito ficou invisível.
+            print(f"❌ Descarte de clipes falhou: {r['erro']}")
         return r
     except Exception as e:
         print(f"❌ Erro ao descartar clipes: {e}")
