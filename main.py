@@ -6564,7 +6564,7 @@ async def api_diag_banco():
     linhas.append(f"endereço : {seguro}")
     if _FALHA_NA_SUBIDA:
         linhas.append("")
-        linhas.append("O APP SUBIU COM FALHA:")
+        linhas.append("NA ÚLTIMA SUBIDA DO APP (não é agora):")
         for f in _FALHA_NA_SUBIDA:
             linhas.append(f"  {f}")
         linhas.append("")
@@ -6607,22 +6607,24 @@ async def api_diag_banco():
 
 @app.post("/api/diag/liberar-espaco", response_class=PlainTextResponse)
 async def api_diag_liberar_espaco(confirmar: str = ""):
-    """Devolve espaço apagando os VÍDEOS guardados na tabela de clipes.
+    """Tira do banco os VÍDEOS antigos, guardando a lista de clipes.
 
-    Por que TRUNCATE e não DELETE: num Postgres com o disco cheio, o UPDATE e
-    o DELETE não devolvem espaço — eles ESCREVEM uma nova versão da linha e a
-    tabela cresce. Quem devolve é o VACUUM FULL, que precisa de espaço livre
-    para trabalhar, que é justamente o que não há. O TRUNCATE libera na hora,
-    sem precisar de espaço nenhum.
+    Duas etapas, e as duas são necessárias:
 
-    O preço é perder o histórico de clipes. Os que já foram publicados
-    continuam publicados; o que se perde é a lista na tela e os vídeos que não
-    foram baixados. Por isso exige ?confirmar=sim — e por isso digo aqui, e não
-    só no commit, que esta rota é destrutiva.
+      UPDATE video = NULL   marca as linhas antigas como mortas, mas NÃO
+                            devolve um byte — o Postgres só marca.
+      VACUUM FULL clipe     reescreve a tabela sem os mortos. É este que
+                            devolve o espaço, e ele precisa de disco livre
+                            para reescrever. Enquanto o volume estava em 99%
+                            não havia como rodar; com 5 GB, há.
+
+    A lista de clipes continua na tela. O que some é o mp4 dos antigos, que
+    já foram publicados ou baixados. Os novos nem passam mais por aqui.
     """
     if confirmar != "sim":
-        return ("Esta rota APAGA todos os clipes guardados (o vídeo e a linha).\n"
-                "Os posts que já foram para o ar continuam no ar.\n\n"
+        return ("Isto apaga o VÍDEO dos clipes antigos que ainda estão dentro\n"
+                "do banco. A lista de clipes continua; o que some é o arquivo\n"
+                "dos que já foram publicados ou baixados.\n\n"
                 "Se é isso mesmo, chame de novo com  ?confirmar=sim")
     import psycopg2
     url = os.environ.get("DATABASE_URL", "")
@@ -6633,12 +6635,17 @@ async def api_diag_liberar_espaco(confirmar: str = ""):
         conn = psycopg2.connect(url, connect_timeout=10)
         conn.autocommit = True
         c = conn.cursor()
-        c.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
-        linhas.append(f"antes  : {c.fetchone()[0]}")
-        c.execute("TRUNCATE TABLE clipe")
-        linhas.append("clipes : apagados")
-        c.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
-        linhas.append(f"depois : {c.fetchone()[0]}")
+        c.execute("SELECT pg_size_pretty(pg_database_size(current_database())), "
+                  "       pg_size_pretty(pg_total_relation_size('clipe'))")
+        antes_bd, antes_tab = c.fetchone()
+        linhas.append(f"antes  : banco {antes_bd}, tabela de clipes {antes_tab}")
+        c.execute("UPDATE clipe SET video = NULL WHERE video IS NOT NULL")
+        linhas.append(f"vídeos : {c.rowcount} apagados")
+        c.execute("VACUUM FULL clipe")
+        c.execute("SELECT pg_size_pretty(pg_database_size(current_database())), "
+                  "       pg_size_pretty(pg_total_relation_size('clipe'))")
+        depois_bd, depois_tab = c.fetchone()
+        linhas.append(f"depois : banco {depois_bd}, tabela de clipes {depois_tab}")
         conn.close()
     except Exception as e:
         linhas.append(f"FALHOU: {type(e).__name__}: {str(e)[:300]}")

@@ -1587,7 +1587,8 @@ def _limpar_clipes_velhos() -> None:
 #
 # O teto vem de variável porque quem sabe o tamanho do volume é o Railway, não
 # o Postgres: de dentro do banco não dá para enxergar o disco.
-LIMITE_BANCO_MB = int(os.environ.get("BANCO_LIMITE_MB", "500") or 500)
+# O volume foi de 500 MB para 5 GB depois que ele encheu e derrubou tudo.
+LIMITE_BANCO_MB = int(os.environ.get("BANCO_LIMITE_MB", "5000") or 5000)
 _CACHE_TAMANHO: dict = {"quando": 0.0, "mb": None}
 
 
