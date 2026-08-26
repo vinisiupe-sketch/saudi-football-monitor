@@ -51,12 +51,44 @@ print("   barra: fixa embaixo, rola no estreito, respeita a area segura do iPhon
 
 # ── a navegacao ────────────────────────────────────────────────────────────
 ok(not any(p[0] == "/config" for p in ns["_NAV_EXTRAS"]), "config duplicado no menu")
-ok(len(ns["_NAV_PRINCIPAIS"]) == 8, f"{len(ns['_NAV_PRINCIPAIS'])} itens na barra")
+# Dez itens cabem porque a barra rola. Se passar de doze, vale mandar
+# alguns para o menu de reticências antes que rolar vire caça ao ícone.
+ok(len(ns["_NAV_PRINCIPAIS"]) <= 12,
+   f"{len(ns['_NAV_PRINCIPAIS'])} itens na barra — passou do que dá para achar rolando")
 ok("color-mix(in srgb,{c}" not in src and "color-mix(in srgb,{color}" not in src,
    "sobrou a cor POR GUIA do menu, que briga com a paleta")
 print(f"   navegacao: {len(ns['_NAV_PRINCIPAIS'])} na barra, {len(ns['_NAV_EXTRAS'])} no menu")
 
+
+ns_txt = {}
+for n in mod.body:
+    if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name):
+        try:
+            ns_txt[n.targets[0].id] = ast.literal_eval(n.value)
+        except Exception:
+            pass
+
+# ── as guias novas ─────────────────────────────────────────────────────────
+for rota, rotulo in (("/noticias", "Notícias"), ("/mercado", "Mercado"),
+                     ("/aspas", "Aspas")):
+    ok(any(p[0] == rota for p in ns["_NAV_PRINCIPAIS"]),
+       f"{rotulo} não está na barra")
+    ok(f'@app.get("{rota}"' in src, f"a rota {rota} não existe")
+ok('@app.get("/")' in src and 'RedirectResponse("/noticias")' in src,
+   "a raiz do app não leva a lugar nenhum")
+ok("(a.get(\"category\") == \"mercado\") == so_mercado" in src,
+   "Mercado e Notícias não estão separando por categoria")
+ok(src.count("async def _pagina_de_noticias") == 1, "a página de notícias duplicou")
+print(f"   guias: Notícias, Mercado e Aspas na barra; / manda para Notícias")
+
+# a tela de aspas tem que mostrar quantas ficaram de fora
+ok("descartadas" in ns_txt.get("_ASPAS_JS", ""), "a tela esconde o que descartou")
+ok("Prefiro deixar de fora a " in ns_txt.get("_ASPAS_JS", ""),
+   "a tela não explica por que descartou")
+print("   aspas: mostra na tela quantas declarações ficaram de fora, e por quê")
+
 print()
 print("FALHAS:", len(falhas))
-for f in falhas: print("  -", f)
+for f in falhas:
+    print("  -", f)
 sys.exit(1 if falhas else 0)

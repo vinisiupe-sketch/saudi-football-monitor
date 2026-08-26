@@ -36,6 +36,7 @@ import fim_sportmonks as sm
 import clubs
 import glossary
 import ajustes
+import aspas
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -368,6 +369,17 @@ _HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD
 
 # As seis do dia a dia ficam na barra; o resto vai para o menu de reticências.
 # Eram dez ícones lado a lado, o que estourava a largura no celular.
+_ICO_MERCADO = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3 9 15"/>'
+                '<path d="M8 21H3v-5"/><path d="m3 21 12-12"/></svg>')
+
+_ICO_ASPAS   = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M10 11H6a2 2 0 0 1-2-2V7a2 2 0 0 1 '
+                '2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4"/><path d="M20 11h-4a2 2 0 0 1-2-2V7a2 '
+                '2 0 0 1 2-2h2a2 2 0 0 1 2 2v8a4 4 0 0 1-4 4"/></svg>')
+
 _ICO_VOLTAR = ('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
                'stroke="currentColor" stroke-width="2.4" stroke-linecap="round" '
                'stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>')
@@ -386,7 +398,9 @@ _ICO_CONFIG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                '1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>')
 
 _NAV_PRINCIPAIS = [
-    ("/",        _ICO_HOME,    "Home",    "home", "#B6FF00"),
+    ("/noticias", _ICO_HOME,   "Notícias", "home", ""),
+    ("/mercado",  _ICO_MERCADO, "Mercado",  "",     ""),
+    ("/aspas",    _ICO_ASPAS,   "Aspas",    "",     ""),
     ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#FD5D5D"),
     ("/janela",  _ICO_JANELA,  "Janela",  "",     "#B6FF00"),
     ("/numeros", _ICO_NUMEROS, "Números", "",     "#B6FF00"),
@@ -551,8 +565,16 @@ def _header(active: str) -> str:
 
 
 # ─── Dashboard ───────────────────────────────
-@app.get("/", response_class=HTMLResponse)
-async def dashboard():
+async def _pagina_de_noticias(so_mercado: bool):
+    """A antiga home, agora servindo duas telas.
+
+    MERCADO leva só as notícias de transferência; NOTÍCIAS leva todo o resto.
+    A separação usa a categoria que o pipeline já atribuía — a peneira existia
+    desde sempre, só não tinha tela própria.
+
+    Uma função com um parâmetro, e não duas cópias: são setecentas linhas, e
+    duas cópias divergiriam na primeira correção que alguém fizesse só numa.
+    """
     articles = get_recent_articles(hours=48, limit=80)
     _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
     articles = [
@@ -561,6 +583,7 @@ async def dashboard():
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and not _is_selecao_article(a)
         and _is_actually_saudi_football(a)
+        and ((a.get("category") == "mercado") == so_mercado)
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -977,7 +1000,7 @@ async def dashboard():
   </script>
 </head>
 <body>
-  {_header("/")}
+  {_header("/mercado" if so_mercado else "/noticias")}
   <div class="topbar">
     <span class="count">{len(articles)} notícias · 48h</span>
     <button class="coleta-btn" onclick="toggleColetaPainel()" title="Escolher quais categorias são traduzidas">⚙️ Coleta</button>
@@ -1321,6 +1344,30 @@ function filterCat(btn,cat){{
 </body>
 </html>"""
     return HTMLResponse(content=html)
+
+
+@app.get("/noticias", response_class=HTMLResponse)
+async def pagina_noticias():
+    """Tudo que não é transferência."""
+    return await _pagina_de_noticias(False)
+
+
+@app.get("/mercado", response_class=HTMLResponse)
+async def pagina_mercado():
+    """Só transferências: sondagens, negociações, renovações, saídas."""
+    return await _pagina_de_noticias(True)
+
+
+@app.get("/")
+async def home():
+    """Por enquanto manda para Notícias.
+
+    Aqui vai nascer a tela de aprovação. Enquanto ela não existe, mandar para
+    Notícias é melhor que deixar a raiz do app em branco — quem digita o
+    endereço sem barra nenhuma chega em algum lugar útil.
+    """
+    return RedirectResponse("/noticias")
+
 
 
 # ─── Seleção Saudita ─────────────────────────
@@ -8093,6 +8140,192 @@ async function salvar(a, entrada, estado, padrao) {
 
 carregar();
 """
+
+
+_ASPAS_CSS = """
+body{background:var(--c-bg);color:var(--c-text);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
+.wrap{max-width:760px;margin:0 auto;padding:18px 16px 70px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.02em;margin:0 0 4px}
+.sub{color:var(--c-muted-3);font-size:.78rem;line-height:1.6;margin:0 0 20px}
+.cit{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:16px;padding:18px 18px 15px;margin-bottom:12px}
+.quem{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:.03em;
+  color:var(--c-acento);margin:0 0 8px;line-height:1.1}
+.fala{font-size:1rem;line-height:1.62;margin:0 0 12px;color:var(--c-text)}
+.pe{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+  font-size:.72rem;color:var(--c-muted-3);border-top:1px solid var(--c-border);
+  padding-top:10px}
+.onde{font-style:italic}
+.via{margin-left:auto;font-weight:700;letter-spacing:.03em}
+.via a{color:var(--c-muted-4);text-decoration:none}
+.via a:hover{color:var(--c-acento)}
+.copiar{background:none;border:1px solid var(--c-border-2);border-radius:99px;
+  color:var(--c-muted-3);font-family:inherit;font-size:.62rem;font-weight:800;
+  text-transform:uppercase;letter-spacing:.06em;padding:4px 11px;cursor:pointer}
+.copiar:hover{border-color:var(--c-acento);color:var(--c-acento)}
+.vazio{padding:40px 16px;text-align:center;color:var(--c-muted-3);
+  font-size:.82rem;line-height:1.7}
+.nota{margin-top:22px;padding:13px 15px;border-radius:12px;
+  background:var(--c-bg-soft);border:1px solid var(--c-border);
+  font-size:.72rem;line-height:1.65;color:var(--c-muted-3)}
+"""
+
+_ASPAS_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Aspas - IARABAO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__ASPAS_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Aspas</h1>
+  <p class="sub">O que foi dito, de quem, onde e por qual fonte.</p>
+  <div id="lista">carregando...</div>
+</div>
+<script>
+__ASPAS_JS__
+</script>
+</body>
+</html>"""
+
+_ASPAS_JS = r"""
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function carregar() {
+  const alvo = document.getElementById('lista');
+  let d;
+  try {
+    const r = await fetch('/api/aspas?_=' + Date.now());
+    d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+  } catch (e) {
+    alvo.innerHTML = '<div class="vazio" style="color:var(--c-negativo)">'
+      + esc(e.message || String(e)) + '</div>';
+    return;
+  }
+
+  alvo.innerHTML = '';
+  (d.citacoes || []).forEach(function (c) { alvo.appendChild(cartao(c)); });
+
+  if (!(d.citacoes || []).length) {
+    alvo.innerHTML = '<div class="vazio">Nenhuma declaracao nas ultimas '
+      + (d.horas || 48) + ' horas.<br>Olhei ' + (d.materias || 0)
+      + ' materia(s) de entrevista.</div>';
+  }
+
+  // O numero de descartadas fica na tela DE PROPOSITO. Ele diz se este
+  // extrator esta servindo ou se esta deixando material para tras sem
+  // ninguem notar - e a segunda coisa e o tipo de silencio que ja me custou
+  // caro neste projeto.
+  const nota = document.createElement('div');
+  nota.className = 'nota';
+  nota.textContent = 'De ' + (d.materias || 0) + ' materia(s) de entrevista sairam '
+    + (d.citacoes || []).length + ' declaracao(oes). '
+    + (d.descartadas || 0) + ' trecho(s) entre aspas ficaram de fora por eu nao '
+    + 'conseguir dizer com seguranca quem falou. Prefiro deixar de fora a '
+    + 'atribuir a pessoa errada.';
+  alvo.appendChild(nota);
+}
+
+function cartao(c) {
+  const d = document.createElement('div');
+  d.className = 'cit';
+
+  const q = document.createElement('h2');
+  q.className = 'quem';
+  q.textContent = c.quem;
+  d.appendChild(q);
+
+  const f = document.createElement('p');
+  f.className = 'fala';
+  f.textContent = '“' + c.fala + '”';
+  d.appendChild(f);
+
+  const pe = document.createElement('div');
+  pe.className = 'pe';
+  if (c.onde) {
+    const o = document.createElement('span');
+    o.className = 'onde';
+    o.textContent = c.onde;
+    pe.appendChild(o);
+  }
+  const b = document.createElement('button');
+  b.className = 'copiar';
+  b.textContent = 'copiar';
+  b.onclick = function () {
+    const texto = c.quem + ':\n“' + c.fala + '”'
+      + (c.onde ? '\n\n' + c.onde : '')
+      + (c.via ? '\nvia: ' + c.via : '');
+    navigator.clipboard.writeText(texto).then(function () {
+      b.textContent = 'copiado';
+      setTimeout(function () { b.textContent = 'copiar'; }, 1600);
+    }).catch(function () { b.textContent = 'nao deu'; });
+  };
+  pe.appendChild(b);
+
+  const v = document.createElement('span');
+  v.className = 'via';
+  if (c.url) {
+    const a = document.createElement('a');
+    a.href = c.url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = 'via: ' + c.via;
+    v.appendChild(a);
+  } else {
+    v.textContent = 'via: ' + c.via;
+  }
+  pe.appendChild(v);
+  d.appendChild(pe);
+  return d;
+}
+
+carregar();
+"""
+
+
+@app.get("/api/aspas")
+async def api_aspas(horas: int = 48):
+    """As declaracoes das materias de entrevista, sem chamar IA nenhuma."""
+    horas = max(1, min(240, horas))
+    artigos = [a for a in get_recent_articles(hours=horas, limit=200)
+               if a.get("category") == "entrevista" and a.get("title_pt")]
+    saida, descartadas = [], 0
+    for a in artigos:
+        r = aspas.extrair(a.get("title_pt") or "", a.get("body_pt") or "",
+                          a.get("source_name") or "")
+        descartadas += r["descartadas"]
+        for c in r["citacoes"]:
+            c["url"] = a.get("url") or ""
+            c["quando"] = a.get("collected_at") or ""
+            saida.append(c)
+    saida.sort(key=lambda c: c.get("quando") or "", reverse=True)
+    return {"citacoes": saida, "descartadas": descartadas,
+            "materias": len(artigos), "horas": horas}
+
+
+@app.get("/aspas", response_class=HTMLResponse)
+async def pagina_aspas():
+    return HTMLResponse(
+        _ASPAS_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__ASPAS_CSS__", _ASPAS_CSS)
+        .replace("__ASPAS_JS__", _ASPAS_JS)
+        .replace("__HDR__", _header("/aspas"))
+    )
 
 
 @app.get("/config", response_class=HTMLResponse)
