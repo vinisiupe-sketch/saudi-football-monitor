@@ -1,0 +1,96 @@
+GRAVADOR DE CLIPES
+==================
+
+Este programa grava as transmissões dos jogos enquanto eles acontecem, para
+o Vini conseguir recortar os gols pelo celular e publicar na hora.
+
+Ele NÃO publica nada sozinho. Quem publica é o Vini, apertando o botão no
+aplicativo dele, depois de assistir ao recorte. A senha que veio junto não dá
+acesso a conta nenhuma — ela só permite que este computador entregue os
+vídeos recortados.
+
+
+COMO INSTALAR (uma vez só)
+--------------------------
+
+1. Se este computador ainda não tem Python:
+
+   - abra  https://www.python.org/downloads/
+   - clique no botão amarelo de baixar
+   - abra o arquivo baixado
+   - MARQUE a caixinha "Add python.exe to PATH" (fica na primeira tela,
+     embaixo — é fácil passar batido, e sem ela não funciona)
+   - clique em "Install Now" e espere terminar
+
+2. Dê dois cliques em  instalar.bat
+
+3. Ele vai instalar o resto sozinho. Se pedir a senha, cole a que o Vini
+   mandou e aperte Enter.
+
+4. Se aparecer uma mensagem dizendo para fechar e rodar de novo, feche a
+   janela e dê dois cliques em instalar.bat outra vez. Isso é normal e
+   acontece só na primeira vez.
+
+Pronto. Não precisa abrir mais nada.
+
+
+COMO SABER SE ESTÁ FUNCIONANDO
+------------------------------
+
+Procure um ícone redondo ao lado do relógio, no canto de baixo à direita.
+Pode estar escondido atrás da setinha "^".
+
+   cinza      ligado, nenhum jogo sendo gravado
+   verde      gravando
+   vermelho   deu algum problema
+
+Clicando com o botão DIREITO no ícone você vê o que está acontecendo.
+
+
+O QUE VOCÊ PRECISA FAZER NOS DIAS DE JOGO
+-----------------------------------------
+
+Nada. Só deixar o computador ligado.
+
+Duas coisas ajudam:
+
+   - deixe o computador na tomada e configure para NÃO suspender
+     (Configurações > Sistema > Energia > Suspensão: "nunca")
+
+   - se puder, use cabo de rede em vez de Wi-Fi. Duas horas de gravação
+     sofrem com oscilação
+
+
+QUANTO ISSO CONSOME
+-------------------
+
+Internet: cerca de 2 Mbps por jogo enquanto está gravando. Quatro jogos ao
+mesmo tempo dão uns 8 Mbps.
+
+Disco: cerca de 1,6 GB por partida. O programa apaga sozinho as gravações
+com mais de 12 horas, então não vai encher o disco.
+
+Processador: quase nada durante a gravação. Um pouco na hora que alguém pede
+um recorte, por poucos segundos.
+
+
+SE DER ALGUM PROBLEMA
+---------------------
+
+O Vini consegue ver do celular dele o que aconteceu aqui — o nome deste
+computador e a última mensagem de erro aparecem na tela dele. Provavelmente
+ele vai te procurar antes de você perceber.
+
+Se quiser olhar, clique com o botão direito no ícone e escolha
+"Ver o que aconteceu".
+
+Para desligar de vez: botão direito no ícone, "Sair". Para religar, dê dois
+cliques em gravador.bat, ou reinicie o computador.
+
+
+SOBRE ATUALIZAÇÕES
+------------------
+
+Você não precisa atualizar nada, nunca. O programa verifica sozinho se existe
+versão nova, baixa e reinicia. Se a versão nova tiver algum defeito, ele volta
+para a anterior sozinho.

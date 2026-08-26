@@ -56,3 +56,6 @@ diag_canal_RELATORIO.txt
 # Registro do gravador (local, cresce a cada rodada)
 gravador_registro.txt
 gravador.py.anterior
+
+# Kit que vai para quem vai gravar (montado, nao versionado)
+gravador-de-clipes.zip
