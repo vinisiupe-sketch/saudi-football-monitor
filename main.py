@@ -14,6 +14,9 @@ from zoneinfo import ZoneInfo
 # anterior — é lá que agrupar por UTC jogaria o jogo para o dia errado.
 BRT = ZoneInfo("America/Sao_Paulo")
 import re
+import shutil
+import subprocess
+import tempfile
 import unicodedata
 import asyncio
 import json
@@ -26,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -6435,6 +6438,84 @@ async def api_clipes(horas: int = 8):
             "atraso": _atraso_transmissao()}
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# O CORTE DA FITA
+#
+# Antes, mexer nos punhos mandava o gravador refazer o clipe a partir da
+# gravação original: melhor qualidade, mas você ficava esperando o arquivo ir
+# e voltar. Agora a fita só ANOTA o trecho, e o corte acontece aqui, no
+# servidor, no instante em que o vídeo vai sair — publicar ou baixar.
+#
+# O preço é uma recodificação a mais: o gravador já codificou uma vez, e este
+# corte codifica de novo. Num clipe de vinte segundos a olho nu não se vê, e
+# vale a troca — você deixou claro que esperar é o que incomoda.
+#
+# Se o ffmpeg não estiver na imagem, o corte não acontece e eu digo isso em
+# vez de publicar o vídeo inteiro fingindo que cortei.
+def _tem_ffmpeg() -> str:
+    return shutil.which("ffmpeg") or ""
+
+
+def _corte_pedido(c: dict) -> tuple[float, float] | None:
+    """O trecho escolhido, ou None quando é o clipe inteiro."""
+    ini, fim = c.get("corte_ini"), c.get("corte_fim")
+    if ini is None or fim is None:
+        return None
+    ini, fim = float(ini), float(fim)
+    dur = float((c.get("antes_seg") or 0) + (c.get("depois_seg") or 0))
+    # Margem de meio segundo: punho encostado na ponta é "clipe inteiro", e
+    # recodificar à toa só piora a imagem.
+    if ini <= 0.5 and (dur - fim) <= 0.5:
+        return None
+    if fim - ini < 1:
+        return None
+    return ini, fim
+
+
+def _cortar_video(dados: bytes, ini: float, fim: float) -> tuple[bytes, str]:
+    """Devolve (bytes cortados, erro). Nunca levanta."""
+    ffmpeg = _tem_ffmpeg()
+    if not ffmpeg:
+        return b"", ("este servidor está sem ffmpeg, então não consigo aplicar "
+                     "o corte da fita")
+    pasta = tempfile.mkdtemp(prefix="corte_")
+    entrada = os.path.join(pasta, "entra.mp4")
+    saida = os.path.join(pasta, "sai.mp4")
+    try:
+        with open(entrada, "wb") as f:
+            f.write(dados)
+        r = subprocess.run(
+            [ffmpeg, "-y", "-loglevel", "error", "-ss", f"{ini:.2f}",
+             "-i", entrada, "-t", f"{max(0.5, fim - ini):.2f}",
+             "-c:v", "libx264", "-preset", "veryfast", "-profile:v", "high",
+             "-pix_fmt", "yuv420p", "-b:v", "5M",
+             "-c:a", "aac", "-b:a", "128k", "-ar", "44100",
+             "-avoid_negative_ts", "make_zero", "-movflags", "+faststart", saida],
+            capture_output=True, text=True, timeout=180)
+        if r.returncode != 0 or not os.path.exists(saida):
+            return b"", f"o corte falhou: {(r.stderr or '')[:200]}"
+        with open(saida, "rb") as f:
+            cortado = f.read()
+        if len(cortado) < 10000:
+            return b"", "o corte saiu vazio"
+        return cortado, ""
+    except Exception as e:
+        return b"", f"{type(e).__name__}: {e}"
+    finally:
+        shutil.rmtree(pasta, ignore_errors=True)
+
+
+def _video_pronto(clipe_id: int, c: dict) -> tuple[bytes, str]:
+    """O mp4 como ele deve sair: já com o corte da fita aplicado."""
+    dados = video_do_clipe(clipe_id)
+    if not dados:
+        return b"", "o clipe não tem vídeo"
+    corte = _corte_pedido(c)
+    if not corte:
+        return dados, ""
+    return _cortar_video(dados, corte[0], corte[1])
+
+
 def _nome_do_arquivo(clipe_id: int, c: dict | None) -> str:
     """Nome de arquivo que diz qual jogo é, sem acento e sem espaço.
 
@@ -6459,14 +6540,29 @@ def _nome_do_arquivo(clipe_id: int, c: dict | None) -> str:
 
 @app.get("/api/clipe/{clipe_id}/video")
 async def api_clipe_video(clipe_id: int, baixar: int = 0):
-    dados = video_do_clipe(clipe_id)
-    if not dados:
-        return JSONResponse({"erro": "sem vídeo"}, 404)
-    cab = {"Cache-Control": "no-store"}
-    if baixar:
-        nome = _nome_do_arquivo(clipe_id, um_clipe(clipe_id))
-        cab["Content-Disposition"] = f'attachment; filename="{nome}"'
-    return Response(content=dados, media_type="video/mp4", headers=cab)
+    """O mp4. Na tela vai inteiro; para baixar, vai com o corte aplicado.
+
+    Inteiro na tela de propósito: a prévia da fita é o próprio player tocando
+    só o trecho escolhido, e isso é instantâneo. Se eu cortasse aqui, cada
+    arrastada de punho recodificaria o vídeo e a fita voltaria a ser lenta —
+    que é justamente o que a gente está tirando do caminho.
+    """
+    if not baixar:
+        dados = video_do_clipe(clipe_id)
+        if not dados:
+            return JSONResponse({"erro": "sem vídeo"}, 404)
+        return Response(content=dados, media_type="video/mp4",
+                        headers={"Cache-Control": "no-store"})
+    c = um_clipe(clipe_id)
+    if not c:
+        return JSONResponse({"erro": "clipe não existe"}, 404)
+    dados, erro = _video_pronto(clipe_id, c)
+    if erro:
+        return PlainTextResponse(erro, status_code=409)
+    nome = _nome_do_arquivo(clipe_id, c)
+    return Response(content=dados, media_type="video/mp4", headers={
+        "Cache-Control": "no-store",
+        "Content-Disposition": f'attachment; filename="{nome}"'})
 
 
 @app.post("/api/clipe/{clipe_id}/ajustar")
@@ -6476,6 +6572,34 @@ async def api_clipe_ajustar(clipe_id: int, delta: int = -PASSO_AJUSTE):
     if not ajustar_clipe(clipe_id, delta):
         return JSONResponse({"erro": "não deu para ajustar este clipe"}, 409)
     return {"ok": True, "clipe": _com_legenda(um_clipe(clipe_id) or {})}
+
+
+@app.post("/api/clipe/{clipe_id}/corte")
+async def api_clipe_corte(clipe_id: int, request: Request):
+    """Anota o trecho da fita. Não recorta nada aqui — por isso é instantâneo."""
+    c = um_clipe(clipe_id)
+    if not c:
+        return JSONResponse({"erro": "clipe não existe"}, 404)
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    if corpo.get("ini") is None and corpo.get("fim") is None:
+        marcar_corte(clipe_id, None, None)
+        return {"ok": True, "corte": None}
+    try:
+        ini, fim = float(corpo.get("ini")), float(corpo.get("fim"))
+    except Exception:
+        return JSONResponse({"erro": "trecho inválido"}, 400)
+    dur = float((c.get("antes_seg") or 0) + (c.get("depois_seg") or 0))
+    ini = max(0.0, min(ini, dur))
+    fim = max(0.0, min(fim, dur))
+    if fim - ini < 3:
+        return JSONResponse({"erro": "o clipe ficaria com menos de 3 segundos"}, 400)
+    if not marcar_corte(clipe_id, ini, fim):
+        return JSONResponse({"erro": "não deu para anotar o corte"}, 500)
+    return {"ok": True, "corte": [ini, fim], "duracao": round(fim - ini, 1)}
 
 
 @app.post("/api/clipe/{clipe_id}/janela")
@@ -6529,9 +6653,9 @@ async def api_clipe_publicar(clipe_id: int, request: Request):
     if not texto:
         return JSONResponse({"erro": "sem legenda"}, 400)
     texto_do_clipe(clipe_id, texto)
-    dados = video_do_clipe(clipe_id)
-    if not dados:
-        return JSONResponse({"erro": "o clipe não tem vídeo"}, 409)
+    dados, erro = _video_pronto(clipe_id, c)
+    if erro:
+        return JSONResponse({"erro": erro}, 409)
     if not mudar_estado_clipe(clipe_id, c.get("estado") or "pronto", "publicando"):
         return JSONResponse({"erro": "o clipe mudou de estado; recarregue"}, 409)
     try:
@@ -6586,6 +6710,8 @@ async def api_diag_banco():
         return "DATABASE_URL não está configurada no Railway."
     seguro = re.sub(r"//[^@]+@", "//***:***@", url)
     linhas.append(f"endereço : {seguro}")
+    ff = _tem_ffmpeg()
+    linhas.append(f"ffmpeg   : {ff or 'AUSENTE — a fita de corte não funciona'}")
     if _FALHA_NA_SUBIDA:
         linhas.append("")
         linhas.append("NA ÚLTIMA SUBIDA DO APP (não é agora):")
@@ -7439,7 +7565,8 @@ function fitaDeCorte(c, video) {
   cx.className = 'fita-caixa';
 
   const dur = (c.antes_seg || 20) + (c.depois_seg || 0);
-  let ini = 0, fim = dur;
+  let ini = (c.corte_ini === null || c.corte_ini === undefined) ? 0 : c.corte_ini;
+  let fim = (c.corte_fim === null || c.corte_fim === undefined) ? dur : c.corte_fim;
 
   const barra = document.createElement('div');
   barra.className = 'fita';
@@ -7457,6 +7584,34 @@ function fitaDeCorte(c, video) {
   const info = document.createElement('div');
   info.className = 'fita-info';
   cx.appendChild(info);
+  let marca = '';
+
+  // Salva sozinho quando você solta o punho. Não recorta nada: só anota o
+  // trecho, e o corte de verdade acontece no servidor na hora de publicar ou
+  // baixar. É isso que faz a fita responder na hora.
+  let _salvando = null;
+  function salvarCorte() {
+    clearTimeout(_salvando);
+    _salvando = setTimeout(function () {
+      const inteiro = ini <= 0.5 && (dur - fim) <= 0.5;
+      marca = 'salvando…';
+      pintar();
+      fetch('/api/clipe/' + c.id + '/corte', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(inteiro ? {ini: null, fim: null} : {ini: ini, fim: fim})
+      }).then(function (r) { return r.json().then(function (j) { return {r: r, j: j}; }); })
+        .then(function (x) {
+          if (!x.r.ok) throw new Error(x.j.erro || ('HTTP ' + x.r.status));
+          // Atualizo o clipe em memória para a tela não voltar o punho no
+          // próximo ciclo de recarga.
+          c.corte_ini = inteiro ? null : ini;
+          c.corte_fim = inteiro ? null : fim;
+          marca = inteiro ? 'clipe inteiro' : 'pronto para publicar';
+          pintar();
+        })
+        .catch(function (e) { marca = 'não salvou: ' + (e.message || e); pintar(); });
+    }, 350);
+  }
 
   function pintar() {
     const a = (ini / dur) * 100, b = (fim / dur) * 100;
@@ -7466,7 +7621,7 @@ function fitaDeCorte(c, video) {
     pFim.style.left = b + '%';
     const d = fim - ini;
     info.textContent = d.toFixed(1) + 's  ·  do segundo ' + ini.toFixed(1)
-      + ' ao ' + fim.toFixed(1);
+      + ' ao ' + fim.toFixed(1) + (marca ? '  ·  ' + marca : '');
     info.classList.toggle('curto', d < 3);
   }
   pintar();
@@ -7496,6 +7651,7 @@ function fitaDeCorte(c, video) {
         punho.releasePointerCapture(ev.pointerId);
         window.removeEventListener('pointermove', mover);
         window.removeEventListener('pointerup', soltar);
+        salvarCorte();
       };
       window.addEventListener('pointermove', mover);
       window.addEventListener('pointerup', soltar);
@@ -7506,38 +7662,13 @@ function fitaDeCorte(c, video) {
 
   const acoes = document.createElement('div');
   acoes.className = 'fita-acoes';
-  const aplicar = document.createElement('button');
-  aplicar.textContent = 'Aplicar corte';
-  aplicar.onclick = function () {
-    const d = fim - ini;
-    if (d < 3) { alert('o clipe ficaria com ' + d.toFixed(1) + 's; o mínimo é 3'); return; }
-    // A fita mede a partir do começo do clipe; o servidor pensa em torno do
-    // instante do lance. Converto aqui: o que era "segundo 5 do clipe" vira
-    // "15 segundos antes do gol".
-    const novoAntes = (c.antes_seg || 20) - ini;
-    const novoDepois = (c.depois_seg || 0) - (dur - fim);
-    aplicar.disabled = true;
-    aplicar.textContent = 'refazendo…';
-    fetch('/api/clipe/' + c.id + '/janela', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({antes: novoAntes, depois: novoDepois})
-    }).then(function (r) { return r.json().then(function (j) { return {r: r, j: j}; }); })
-      .then(function (x) {
-        if (!x.r.ok) throw new Error(x.j.erro || ('HTTP ' + x.r.status));
-        carregar();
-      })
-      .catch(function (e) {
-        alert('não deu: ' + (e.message || e));
-        aplicar.disabled = false;
-        aplicar.textContent = 'Aplicar corte';
-      });
-  };
   const inteiro = document.createElement('button');
-  inteiro.textContent = 'Tudo';
-  inteiro.title = 'volta a fita para o clipe inteiro';
-  inteiro.onclick = function () { ini = 0; fim = dur; pintar(); video.currentTime = 0; };
+  inteiro.textContent = 'Clipe inteiro';
+  inteiro.title = 'desfaz o corte';
+  inteiro.onclick = function () {
+    ini = 0; fim = dur; pintar(); video.currentTime = 0; salvarCorte();
+  };
   acoes.appendChild(inteiro);
-  acoes.appendChild(aplicar);
   cx.appendChild(acoes);
   return cx;
 }

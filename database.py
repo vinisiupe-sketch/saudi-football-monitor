@@ -1642,6 +1642,11 @@ def _cria_clipe(c) -> None:
     # esquecimento: some sozinho duas horas depois que o jogo sai do ar.
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS guardado BOOLEAN "
               "NOT NULL DEFAULT FALSE")
+    # O trecho escolhido na fita, em segundos DENTRO do arquivo. Guardar em
+    # vez de recortar na hora: arrastar o punho fica instantâneo, e o corte
+    # de verdade acontece só quando o vídeo vai sair — publicar ou baixar.
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS corte_ini REAL")
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS corte_fim REAL")
 
 
 # Colunas de listagem. O BYTEA fica de fora de propósito: um clipe tem alguns
@@ -1649,7 +1654,7 @@ def _cria_clipe(c) -> None:
 # megabytes para desenhar uma tela que só precisa do tamanho.
 _COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, "
                "texto, gol_id, media_id, post_id, erro, atualizado_em, "
-               "live_id, tipo, guardado")
+               "live_id, tipo, guardado, corte_ini, corte_fim")
 
 
 def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8,
@@ -1842,6 +1847,26 @@ def clipes_recentes(horas: int = 8) -> list[dict]:
             return [_clipe_json(dict(r)) for r in c.fetchall()]
     except Exception:
         return []
+
+
+def marcar_corte(clipe_id: int, ini, fim) -> bool:
+    """Guarda o trecho da fita. Não mexe no arquivo — é só uma anotação.
+
+    É por isso que arrastar o punho é instantâneo: nada é recortado aqui.
+    Passar None nos dois desfaz o corte e volta ao clipe inteiro.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""UPDATE clipe SET corte_ini = %s, corte_fim = %s,
+                                          atualizado_em = NOW()
+                          WHERE id = %s""",
+                      [None if ini is None else float(ini),
+                       None if fim is None else float(fim), clipe_id])
+            return c.rowcount == 1
+    except Exception:
+        return False
 
 
 def guardar_clipe(clipe_id: int, guardar: bool = True) -> tuple[bool, str]:

@@ -1,0 +1,12 @@
+# O ffmpeg entra na imagem por causa da fita de corte.
+#
+# Antes, mexer nos punhos mandava o gravador da sua máquina refazer o clipe a
+# partir da gravação original, e você esperava o arquivo ir e voltar. Agora a
+# fita só anota o trecho, e quem recorta é o servidor, na hora de publicar ou
+# baixar — para isso ele precisa do ffmpeg aqui dentro.
+#
+# aptPkgs, e não nixPkgs: nixPkgs SUBSTITUI a lista que o nixpacks montou
+# sozinho para o Python, e trocar essa lista quebraria o build inteiro. O
+# aptPkgs acrescenta.
+[phases.setup]
+aptPkgs = ["ffmpeg"]
