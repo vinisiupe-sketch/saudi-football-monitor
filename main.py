@@ -114,19 +114,46 @@ def _is_actually_saudi_football(a: dict) -> bool:
     return False
 
 
+# Se a subida falhar, guardo o motivo aqui para /api/diag/banco poder contar.
+_FALHA_NA_SUBIDA: list[str] = []
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global scheduler
-    init_db()
-    cleanup_old_trash()
-    _limpar_posts_de_competicao_removida()
-    scheduler = create_scheduler()
-    scheduler.start()
-    # Roda pipeline na inicialização
-    asyncio.create_task(run_pipeline())
+    # O init_db() ESCREVE (cria tabelas, altera colunas). Num banco que não
+    # aceita escrita — disco cheio, por exemplo — ele levanta, o lifespan
+    # morre junto, e o app inteiro não sobe.
+    #
+    # Foi o que aconteceu hoje: o app rodou o dia todo devolvendo 500 nas
+    # páginas que leem dados, e no primeiro reinício não voltou mais. Ficamos
+    # sem app E sem as rotas de diagnóstico, que são justamente as que diriam
+    # o que houve. O remédio ficou trancado do lado de dentro do problema.
+    #
+    # Agora ele sobe mesmo assim. As telas vão dar erro — e devem — mas as
+    # rotas que não dependem do banco continuam de pé, e /api/diag/banco pode
+    # contar o que está acontecendo.
+    for etapa, fn in (("init_db", init_db),
+                      ("cleanup_old_trash", cleanup_old_trash),
+                      ("limpar_posts", _limpar_posts_de_competicao_removida)):
+        try:
+            fn()
+        except Exception as e:
+            _FALHA_NA_SUBIDA.append(f"{etapa}: {type(e).__name__}: {str(e)[:300]}")
+            print(f"[SUBIDA] {etapa} falhou: {type(e).__name__}: {e}", flush=True)
+    try:
+        scheduler = create_scheduler()
+        scheduler.start()
+        asyncio.create_task(run_pipeline())
+    except Exception as e:
+        _FALHA_NA_SUBIDA.append(f"agendador: {type(e).__name__}: {str(e)[:300]}")
+        print(f"[SUBIDA] agendador falhou: {type(e).__name__}: {e}", flush=True)
     yield
-    if scheduler.running:
-        scheduler.shutdown()
+    try:
+        if scheduler and scheduler.running:
+            scheduler.shutdown()
+    except Exception:
+        pass
 
 
 app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
@@ -6559,6 +6586,12 @@ async def api_diag_banco():
         return "DATABASE_URL não está configurada no Railway."
     seguro = re.sub(r"//[^@]+@", "//***:***@", url)
     linhas.append(f"endereço : {seguro}")
+    if _FALHA_NA_SUBIDA:
+        linhas.append("")
+        linhas.append("O APP SUBIU COM FALHA:")
+        for f in _FALHA_NA_SUBIDA:
+            linhas.append(f"  {f}")
+        linhas.append("")
     t0 = time.time()
     try:
         conn = psycopg2.connect(url, connect_timeout=8)
@@ -6593,6 +6626,46 @@ async def api_diag_banco():
         linhas.append(f"consulta : FALHOU — {type(e).__name__}: {str(e)[:300]}")
     finally:
         conn.close()
+    return "\n".join(linhas)
+
+
+@app.post("/api/diag/liberar-espaco", response_class=PlainTextResponse)
+async def api_diag_liberar_espaco(confirmar: str = ""):
+    """Devolve espaço apagando os VÍDEOS guardados na tabela de clipes.
+
+    Por que TRUNCATE e não DELETE: num Postgres com o disco cheio, o UPDATE e
+    o DELETE não devolvem espaço — eles ESCREVEM uma nova versão da linha e a
+    tabela cresce. Quem devolve é o VACUUM FULL, que precisa de espaço livre
+    para trabalhar, que é justamente o que não há. O TRUNCATE libera na hora,
+    sem precisar de espaço nenhum.
+
+    O preço é perder o histórico de clipes. Os que já foram publicados
+    continuam publicados; o que se perde é a lista na tela e os vídeos que não
+    foram baixados. Por isso exige ?confirmar=sim — e por isso digo aqui, e não
+    só no commit, que esta rota é destrutiva.
+    """
+    if confirmar != "sim":
+        return ("Esta rota APAGA todos os clipes guardados (o vídeo e a linha).\n"
+                "Os posts que já foram para o ar continuam no ar.\n\n"
+                "Se é isso mesmo, chame de novo com  ?confirmar=sim")
+    import psycopg2
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
+        return "DATABASE_URL não está configurada."
+    linhas = []
+    try:
+        conn = psycopg2.connect(url, connect_timeout=10)
+        conn.autocommit = True
+        c = conn.cursor()
+        c.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
+        linhas.append(f"antes  : {c.fetchone()[0]}")
+        c.execute("TRUNCATE TABLE clipe")
+        linhas.append("clipes : apagados")
+        c.execute("SELECT pg_size_pretty(pg_database_size(current_database()))")
+        linhas.append(f"depois : {c.fetchone()[0]}")
+        conn.close()
+    except Exception as e:
+        linhas.append(f"FALHOU: {type(e).__name__}: {str(e)[:300]}")
     return "\n".join(linhas)
 
 
