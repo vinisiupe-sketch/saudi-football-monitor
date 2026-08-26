@@ -185,6 +185,12 @@ def create_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
     scheduler.add_job(
+        run_descartar_clipes,
+        trigger=IntervalTrigger(minutes=10),
+        id="descartar_clipes",
+        replace_existing=True,
+    )
+    scheduler.add_job(
         run_publicar_aprovados,
         trigger=IntervalTrigger(seconds=30),
         id="publicar_aprovados",
@@ -224,6 +230,21 @@ async def run_fila_bola_rolando():
         return r
     except Exception as e:
         print(f"❌ Erro ao montar a fila de posts: {e}")
+        return {"erro": str(e)}
+
+
+async def run_descartar_clipes():
+    """Apaga os clipes que ninguém mandou guardar. Silencioso quando não há."""
+    try:
+        from database import descartar_clipes, listar_lives
+        from main import HORAS_ATE_DESCARTE
+        r = descartar_clipes([l.get("id") for l in listar_lives()],
+                             HORAS_ATE_DESCARTE)
+        if r.get("apagados"):
+            print(f"🗑️ {r['apagados']} clipe(s) descartado(s)")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao descartar clipes: {e}")
         return {"erro": str(e)}
 
 

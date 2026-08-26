@@ -26,7 +26,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -5860,6 +5860,9 @@ DEPOIS_SEG = 10
 # em 12/10, cinco segundos mal tiravam o clipe do lugar.
 PASSO_AJUSTE = 8
 
+# Quanto tempo um clipe não guardado sobrevive depois que o jogo sai do ar.
+HORAS_ATE_DESCARTE = 2
+
 # ATRASO DA TRANSMISSÃO — quantos segundos a live do YouTube está ATRÁS do
 # que você está assistindo quando aperta o botão.
 #
@@ -6543,6 +6546,27 @@ async def api_clipe_publicar(clipe_id: int, request: Request):
             "url": f"https://x.com/i/status/{r.get('id')}" if r.get("id") else ""}
 
 
+@app.post("/api/clipe/{clipe_id}/guardar")
+async def api_clipe_guardar(clipe_id: int, guardar: int = 1):
+    """Salva o clipe para ele não ser descartado, ou desfaz isso."""
+    c = um_clipe(clipe_id)
+    if not c:
+        return JSONResponse({"erro": "clipe não existe"}, 404)
+    ok, aviso = guardar_clipe(clipe_id, bool(guardar))
+    if not ok:
+        return JSONResponse({"erro": aviso or "não deu para salvar"}, 409)
+    return {"ok": True, "guardado": bool(guardar), "aviso": aviso}
+
+
+@app.post("/api/clipe/descartar")
+async def api_clipe_descartar():
+    """Faz agora a limpeza que o agendador faria sozinho."""
+    r = descartar_clipes([l.get("id") for l in listar_lives()], HORAS_ATE_DESCARTE)
+    if r.get("erro"):
+        return JSONResponse({"erro": r["erro"]}, 500)
+    return {"ok": True, "apagados": r["apagados"], "ids": r["ids"]}
+
+
 @app.get("/api/diag/banco", response_class=PlainTextResponse)
 async def api_diag_banco():
     """Diz o que há com o banco — inclusive quando a resposta é "está fora".
@@ -6894,6 +6918,8 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .atraso-linha button:hover{border-color:var(--c-text);color:var(--c-text)}
 .atraso-ok{color:#22c55e;font-weight:700}
 .atraso-nota{margin:9px 0 0;font-size:.7rem;line-height:1.6;color:var(--c-muted-3)}
+.acoes .guardar.on{border-color:#eab308;color:#eab308}
+.selo.s-guardado{background:#eab30822;color:#eab308}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .publicar:hover:not(:disabled){background:#1a8cd8;border-color:#1a8cd8}
 .acoes button:disabled{opacity:.45;cursor:default}
@@ -6946,6 +6972,8 @@ __HDR__
   <div id="disponiveis"></div>
 
   <div class="titulo-secao">Clipes</div>
+  <p class="atraso-nota" style="margin:0 0 10px">Clipe sem ★ é apagado 2h depois
+    que o jogo sai do ar. Para ficar com um, clique em Salvar.</p>
   <div id="lista"></div>
 </div>
 <script>
@@ -7307,6 +7335,7 @@ function montar(c, assin) {
   topo.innerHTML = '<span class="clipe-hora">' + esc(hora(c.alvo_em)) + '</span>'
     + '<span class="selo s-' + esc(c.estado) + '">' + esc(rotulo(c.estado)) + '</span>'
     + (c.tipo === 'outro' ? '<span class="selo">lance</span>' : '')
+    + (c.guardado ? '<span class="selo s-guardado">★ salvo</span>' : '')
     + (c.tamanho ? '<span class="tam">' + (c.tamanho / 1048576).toFixed(1) + ' MB</span>' : '');
   d.appendChild(topo);
 
@@ -7339,6 +7368,7 @@ function montar(c, assin) {
     const ap = document.createElement('div');
     ap.className = 'acoes';
     ap.appendChild(botaoBaixar(c));
+    ap.appendChild(botaoGuardar(c));
     corpo.appendChild(ap);
     d.appendChild(corpo);
     return d;
@@ -7392,6 +7422,7 @@ function montar(c, assin) {
   pub.disabled = c.estado === 'publicando';
   pub.onclick = function () { publicar(c.id, t, pub); };
   acoes.appendChild(botaoBaixar(c));
+  acoes.appendChild(botaoGuardar(c));
   acoes.appendChild(pub);
   corpo.appendChild(acoes);
   d.appendChild(corpo);
@@ -7523,6 +7554,32 @@ function botaoBaixar(c) {
   a.setAttribute('download', '');
   a.title = 'salva o mp4 no aparelho';
   return a;
+}
+
+function botaoGuardar(c) {
+  const b = document.createElement('button');
+  b.className = 'guardar' + (c.guardado ? ' on' : '');
+  b.textContent = c.guardado ? '★ Salvo' : '☆ Salvar';
+  b.title = c.guardado
+    ? 'este fica; clique para soltar e deixar que ele seja descartado'
+    : 'sem isto ele some 2h depois que o jogo sair do ar';
+  b.onclick = function () { guardar(c.id, !c.guardado, b); };
+  return b;
+}
+
+async function guardar(id, ligar, botao) {
+  botao.disabled = true;
+  try {
+    const r = await fetch('/api/clipe/' + id + '/guardar?guardar=' + (ligar ? 1 : 0),
+                          {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+    if (d.aviso) alert(d.aviso);
+    carregar();
+  } catch (e) {
+    alert('não deu para salvar: ' + (e.message || e));
+    botao.disabled = false;
+  }
 }
 
 function botoesAjuste(c) {

@@ -1638,6 +1638,10 @@ def _cria_clipe(c) -> None:
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS live_id TEXT")
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS tipo TEXT "
               "NOT NULL DEFAULT 'gol'")
+    # Clipe que você mandou guardar. O resto é descartável por regra, não por
+    # esquecimento: some sozinho duas horas depois que o jogo sai do ar.
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS guardado BOOLEAN "
+              "NOT NULL DEFAULT FALSE")
 
 
 # Colunas de listagem. O BYTEA fica de fora de propósito: um clipe tem alguns
@@ -1645,7 +1649,7 @@ def _cria_clipe(c) -> None:
 # megabytes para desenhar uma tela que só precisa do tamanho.
 _COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, "
                "texto, gol_id, media_id, post_id, erro, atualizado_em, "
-               "live_id, tipo")
+               "live_id, tipo, guardado")
 
 
 def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8,
@@ -1838,6 +1842,87 @@ def clipes_recentes(horas: int = 8) -> list[dict]:
             return [_clipe_json(dict(r)) for r in c.fetchall()]
     except Exception:
         return []
+
+
+def guardar_clipe(clipe_id: int, guardar: bool = True) -> tuple[bool, str]:
+    """Marca (ou desmarca) um clipe para não ser descartado.
+
+    Guardar copia o mp4 do disco de volta PARA o banco, e isso é de propósito.
+    O disco do contêiner é efêmero: some no próximo redeploy. Para o clipe que
+    você quis guardar, "some no próximo redeploy" não é guardar coisa nenhuma.
+    Os descartáveis continuam só em disco, que é o que impede o banco de
+    encher de novo — foi guardar TUDO no banco que derrubou tudo.
+    """
+    dados = None
+    if guardar:
+        try:
+            caminho = _caminho_do_clipe(clipe_id)
+            if os.path.exists(caminho):
+                with open(caminho, "rb") as f:
+                    dados = f.read()
+        except Exception:
+            dados = None
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            if guardar and dados:
+                c.execute("""UPDATE clipe SET guardado = TRUE, video = %s,
+                                              tamanho = %s, atualizado_em = NOW()
+                              WHERE id = %s""",
+                          [psycopg2.Binary(dados), len(dados), clipe_id])
+            elif guardar:
+                # Sem arquivo em disco: pode ser clipe antigo, cujos bytes já
+                # estão na coluna. Marco assim mesmo, sem apagar o que houver.
+                c.execute("UPDATE clipe SET guardado = TRUE, atualizado_em = NOW() "
+                          "WHERE id = %s", [clipe_id])
+            else:
+                c.execute("UPDATE clipe SET guardado = FALSE, video = NULL, "
+                          "atualizado_em = NOW() WHERE id = %s", [clipe_id])
+            if c.rowcount != 1:
+                return False, "clipe não encontrado"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    if guardar and dados is None:
+        return True, "guardado, mas o vídeo não estava mais em disco"
+    return True, ""
+
+
+def descartar_clipes(lives_ativas: list[str], horas: int = 2) -> dict:
+    """Apaga os clipes que ninguém mandou guardar.
+
+    A regra é "duas horas depois do fim do jogo". Fim de jogo eu não tenho —
+    nenhuma das APIs me diz quando a TRANSMISSÃO acabou, que é o que importa
+    aqui. Então uso o sinal que eu tenho de verdade: enquanto o jogo estiver
+    sendo gravado, não apago nada dele. Quando ele sai do ar, os clipes com
+    mais de duas horas vão embora.
+
+    Assim nunca some clipe no meio da partida — que seria o único jeito de
+    esta regra estragar a sua noite.
+    """
+    saida = {"apagados": 0, "ids": [], "erro": ""}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("""DELETE FROM clipe
+                          WHERE guardado = FALSE
+                            AND alvo_em < NOW() - (%s * INTERVAL '1 hour')
+                            AND (live_id IS NULL OR live_id = ''
+                                 OR NOT (live_id = ANY(%s)))
+                      RETURNING id""",
+                      [horas, [str(x) for x in (lives_ativas or [])]])
+            saida["ids"] = [linha[0] for linha in c.fetchall()]
+            saida["apagados"] = len(saida["ids"])
+    except Exception as e:
+        saida["erro"] = f"{type(e).__name__}: {e}"
+        return saida
+    for cid in saida["ids"]:
+        try:
+            os.remove(_caminho_do_clipe(cid))
+        except Exception:
+            pass
+    return saida
 
 
 def video_do_clipe(clipe_id: int) -> bytes | None:
