@@ -3,6 +3,7 @@ Banco de dados PostgreSQL — armazena artigos coletados, resumos e logs.
 Usa DATABASE_URL do ambiente (fornecido automaticamente pelo Railway).
 """
 import os
+import time
 import hashlib
 import json
 from contextlib import contextmanager
@@ -1540,6 +1541,42 @@ def status_das_chaves(chaves: list[str]) -> dict[str, str]:
 ESTADOS_CLIPE = ("pedido", "cortando", "pronto", "publicando", "publicado", "erro")
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# ONDE MORA O VÍDEO DO CLIPE
+#
+# Em disco, não no banco. A versão anterior guardava o mp4 numa coluna BYTEA:
+# treze megabytes por clipe, atravessando o diário de transações do Postgres.
+# Vinte e sete clipes num dia e o banco caiu, ficou meia hora refazendo o
+# diário, e o app inteiro foi junto.
+#
+# Banco relacional não é lugar de vídeo. O que fica na tabela agora é o
+# tamanho e o nome do arquivo; o conteúdo fica aqui.
+#
+# O disco do contêiner é EFÊMERO — um redeploy leva os arquivos embora. Para
+# este uso serve: o clipe nasce, você olha, publica ou baixa, tudo em minutos.
+# Se um redeploy pegar um clipe no meio do caminho, o pior que acontece é você
+# apertar o botão de novo. Perder um clipe é bem melhor que derrubar o banco.
+# Dá para apontar CLIPES_DIR para um volume do Railway se um dia isso pesar.
+PASTA_CLIPES = os.environ.get("CLIPES_DIR", "").strip() or "/tmp/clipes"
+HORAS_GUARDA_CLIPE = 12
+
+
+def _caminho_do_clipe(clipe_id: int) -> str:
+    return os.path.join(PASTA_CLIPES, f"clipe_{int(clipe_id)}.mp4")
+
+
+def _limpar_clipes_velhos() -> None:
+    """Apaga mp4 que ninguém vai mais querer. Nunca levanta."""
+    try:
+        limite = time.time() - HORAS_GUARDA_CLIPE * 3600
+        for nome in os.listdir(PASTA_CLIPES):
+            caminho = os.path.join(PASTA_CLIPES, nome)
+            if nome.endswith(".mp4") and os.path.getmtime(caminho) < limite:
+                os.remove(caminho)
+    except Exception:
+        pass
+
+
 def _cria_clipe(c) -> None:
     c.execute("""
         CREATE TABLE IF NOT EXISTS clipe (
@@ -1566,11 +1603,6 @@ def _cria_clipe(c) -> None:
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS live_id TEXT")
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS tipo TEXT "
               "NOT NULL DEFAULT 'gol'")
-    # Story do Instagram. Fica separado do estado do X de propósito: os dois
-    # destinos são independentes, e um clipe pode ir para o story sem nunca
-    # ter ido para o X, ou o contrário.
-    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS story_id TEXT")
-    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS story_em TIMESTAMPTZ")
 
 
 # Colunas de listagem. O BYTEA fica de fora de propósito: um clipe tem alguns
@@ -1578,7 +1610,7 @@ def _cria_clipe(c) -> None:
 # megabytes para desenhar uma tela que só precisa do tamanho.
 _COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, "
                "texto, gol_id, media_id, post_id, erro, atualizado_em, "
-               "live_id, tipo, story_id, story_em")
+               "live_id, tipo")
 
 
 def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8,
@@ -1613,7 +1645,7 @@ def clipes_a_cortar() -> list[dict]:
 
 
 def _clipe_json(d: dict) -> dict:
-    for campo in ("pedido_em", "alvo_em", "atualizado_em", "story_em"):
+    for campo in ("pedido_em", "alvo_em", "atualizado_em"):
         if d.get(campo) is not None:
             d[campo] = d[campo].isoformat()
     return d
@@ -1638,16 +1670,30 @@ def mudar_estado_clipe(clipe_id: int, de: str, para: str) -> bool:
 
 
 def entregar_clipe(clipe_id: int, video: bytes) -> bool:
-    """O agente devolve o mp4 recortado."""
+    """O agente devolve o mp4 recortado. O arquivo vai para o disco."""
+    try:
+        os.makedirs(PASTA_CLIPES, exist_ok=True)
+        _limpar_clipes_velhos()
+        # Escrevo num temporário e renomeio: se o processo morrer no meio, não
+        # sobra um mp4 pela metade que a tela tentaria tocar.
+        caminho = _caminho_do_clipe(clipe_id)
+        parcial = caminho + ".parcial"
+        with open(parcial, "wb") as f:
+            f.write(video)
+        os.replace(parcial, caminho)
+    except Exception:
+        return False
     try:
         with get_conn() as conn:
             c = conn.cursor()
             _cria_clipe(c)
+            # video = NULL de propósito: se este clipe já teve bytes na coluna
+            # (de antes desta mudança), é agora que eles saem de lá.
             c.execute("""UPDATE clipe
-                            SET video = %s, tamanho = %s, estado = 'pronto',
+                            SET video = NULL, tamanho = %s, estado = 'pronto',
                                 erro = NULL, atualizado_em = NOW()
                           WHERE id = %s AND estado IN ('pedido','cortando')""",
-                      [psycopg2.Binary(video), len(video), clipe_id])
+                      [len(video), clipe_id])
             return c.rowcount == 1
     except Exception:
         return False
@@ -1759,58 +1805,17 @@ def clipes_recentes(horas: int = 8) -> list[dict]:
         return []
 
 
-def clipe_no_story(clipe_id: int, story_id: str) -> bool:
-    """Guarda o id do story publicado. Só grava se ainda não houver um.
-
-    O 'story_id IS NULL' não é zelo à toa: se dois toques chegarem juntos, o
-    segundo não pode sobrescrever o primeiro — o registro de que já foi para o
-    ar é justamente o que impede publicar duas vezes.
-    """
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            _cria_clipe(c)
-            c.execute("""UPDATE clipe SET story_id = %s, story_em = NOW(),
-                                          atualizado_em = NOW()
-                          WHERE id = %s AND story_id IS NULL""",
-                      [str(story_id), clipe_id])
-            return c.rowcount == 1
-    except Exception:
-        return False
-
-
-def reservar_clipe_para_story(clipe_id: int) -> bool:
-    """Marca a intenção de publicar, para dois toques não virarem dois stories.
-
-    Escrevo um valor provisório; quem conseguir escrever é quem publica. Se der
-    erro depois, o liberar_story() apaga a marca e o botão volta.
-    """
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            _cria_clipe(c)
-            c.execute("""UPDATE clipe SET story_id = 'enviando',
-                                          atualizado_em = NOW()
-                          WHERE id = %s AND story_id IS NULL""", [clipe_id])
-            return c.rowcount == 1
-    except Exception:
-        return False
-
-
-def liberar_story(clipe_id: int) -> bool:
-    """Desfaz a reserva quando a publicação falhou."""
-    try:
-        with get_conn() as conn:
-            c = conn.cursor()
-            _cria_clipe(c)
-            c.execute("""UPDATE clipe SET story_id = NULL, atualizado_em = NOW()
-                          WHERE id = %s AND story_id = 'enviando'""", [clipe_id])
-            return c.rowcount == 1
-    except Exception:
-        return False
-
-
 def video_do_clipe(clipe_id: int) -> bytes | None:
+    """O mp4. Do disco; e, para clipes antigos, ainda do banco."""
+    try:
+        caminho = _caminho_do_clipe(clipe_id)
+        if os.path.exists(caminho):
+            with open(caminho, "rb") as f:
+                return f.read()
+    except Exception:
+        pass
+    # Clipes gravados antes desta mudança ainda têm os bytes na coluna. Não
+    # apago a coluna: ela é o único lugar onde eles existem.
     try:
         with get_conn() as conn:
             c = conn.cursor()

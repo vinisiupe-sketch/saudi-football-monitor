@@ -26,13 +26,12 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, clipe_no_story, reservar_clipe_para_story, liberar_story
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
 import clubs
 import glossary
-import instagram_client as ig
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -6513,60 +6512,6 @@ async def api_clipe_publicar(clipe_id: int, request: Request):
             "url": f"https://x.com/i/status/{r.get('id')}" if r.get("id") else ""}
 
 
-def _endereco_publico(request: Request) -> str:
-    """O endereço deste app, visto de fora, sem barra no fim.
-
-    O Instagram vai BUSCAR o vídeo nesta URL, então ela precisa ser a de fora,
-    não a interna do contêiner. Forço https porque atrás do proxy do Railway o
-    request chega como http e eles recusam link que não seja https.
-    """
-    u = str(request.base_url).rstrip("/")
-    if u.startswith("http://") and "localhost" not in u and "127.0.0.1" not in u:
-        u = "https://" + u[len("http://"):]
-    return u
-
-
-@app.post("/api/clipe/{clipe_id}/story")
-async def api_clipe_story(clipe_id: int, request: Request):
-    """Publica o clipe como story no Instagram. Só a partir de um clique seu.
-
-    O story NÃO tem restrição por país. Isso está escrito na tela, ao lado do
-    botão, e o aviso é parte do produto: os direitos são só para o Brasil e a
-    decisão é sua a cada clipe.
-    """
-    c = um_clipe(clipe_id)
-    if not c:
-        return JSONResponse({"erro": "clipe não existe"}, 404)
-    if c.get("story_id"):
-        return JSONResponse({"erro": "este clipe já foi para o story"}, 409)
-    ok, faltando = ig.configurado()
-    if not ok:
-        return JSONResponse({"erro": "faltam variáveis no Railway: "
-                                    + ", ".join(faltando)}, 400)
-    if not (c.get("tamanho") or 0):
-        return JSONResponse({"erro": "o clipe não tem vídeo"}, 409)
-
-    # A duração eu já sei pela janela do corte; não preciso abrir o arquivo.
-    dur = (c.get("antes_seg") or 0) + (c.get("depois_seg") or 0)
-    recusa = ig.conferir_video(c.get("tamanho") or 0, dur)
-    if recusa:
-        return JSONResponse({"erro": recusa}, 400)
-
-    # Reserva antes de sair falando com o Instagram: dois toques no botão, ou
-    # um toque e um reenvio, não podem virar dois stories do mesmo lance.
-    if not reservar_clipe_para_story(clipe_id):
-        return JSONResponse({"erro": "já tem uma publicação em andamento"}, 409)
-
-    url = f"{_endereco_publico(request)}/api/clipe/{clipe_id}/video"
-    try:
-        story_id = await ig.publicar_story(url)
-    except Exception as e:
-        liberar_story(clipe_id)
-        return JSONResponse({"erro": f"{e}"}, 502)
-    clipe_no_story(clipe_id, story_id)
-    return {"ok": True, "story_id": story_id}
-
-
 @app.get("/api/diag/banco", response_class=PlainTextResponse)
 async def api_diag_banco():
     """Diz o que há com o banco — inclusive quando a resposta é "está fora".
@@ -6666,17 +6611,6 @@ async def api_diag_liberar_espaco(confirmar: str = ""):
         conn.close()
     except Exception as e:
         linhas.append(f"FALHOU: {type(e).__name__}: {str(e)[:300]}")
-    return "\n".join(linhas)
-
-
-@app.get("/api/diag/instagram", response_class=PlainTextResponse)
-async def api_diag_instagram():
-    """Por que o story não foi. Não mostra o valor de nenhuma credencial."""
-    linhas = ["DIAGNÓSTICO DO INSTAGRAM", "=" * 52, ""]
-    try:
-        linhas += await ig.diagnostico()
-    except Exception as e:
-        linhas.append(f"a checagem falhou: {type(e).__name__}: {e}")
     return "\n".join(linhas)
 
 
@@ -6922,9 +6856,6 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .atraso-linha button:hover{border-color:var(--c-text);color:var(--c-text)}
 .atraso-ok{color:#22c55e;font-weight:700}
 .atraso-nota{margin:9px 0 0;font-size:.7rem;line-height:1.6;color:var(--c-muted-3)}
-.acoes .story{border-color:#c13584;color:#e17ab5}
-.acoes .story:hover:not(:disabled){border-color:#e1306c;color:#e1306c}
-.acoes .story:disabled{border-color:var(--c-border-2);color:var(--c-muted-3);opacity:1}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .publicar:hover:not(:disabled){background:#1a8cd8;border-color:#1a8cd8}
 .acoes button:disabled{opacity:.45;cursor:default}
@@ -7370,7 +7301,6 @@ function montar(c, assin) {
     const ap = document.createElement('div');
     ap.className = 'acoes';
     ap.appendChild(botaoBaixar(c));
-    ap.appendChild(botaoStory(c));
     corpo.appendChild(ap);
     d.appendChild(corpo);
     return d;
@@ -7424,7 +7354,6 @@ function montar(c, assin) {
   pub.disabled = c.estado === 'publicando';
   pub.onclick = function () { publicar(c.id, t, pub); };
   acoes.appendChild(botaoBaixar(c));
-  acoes.appendChild(botaoStory(c));
   acoes.appendChild(pub);
   corpo.appendChild(acoes);
   d.appendChild(corpo);
@@ -7556,42 +7485,6 @@ function botaoBaixar(c) {
   a.setAttribute('download', '');
   a.title = 'salva o mp4 no aparelho';
   return a;
-}
-
-function botaoStory(c) {
-  const b = document.createElement('button');
-  b.className = 'story';
-  if (c.story_id && c.story_id !== 'enviando') {
-    b.textContent = '✓ no story';
-    b.disabled = true;
-    b.title = 'já foi para o story às ' + hora(c.story_em);
-    return b;
-  }
-  b.textContent = 'Story';
-  b.onclick = function () { mandarStory(c.id, b); };
-  return b;
-}
-
-async function mandarStory(id, botao) {
-  // O aviso do geoblock fica AQUI, na confirmação, e não só numa nota de
-  // rodapé: story do Instagram não tem restrição por país, e diferente do X
-  // não há Media Studio para entrar depois. É decisão sua a cada clipe.
-  if (!confirm('Publicar este clipe no seu story?\n\n'
-      + 'ATENÇÃO: story não tem geoblock. Vai ficar visível no mundo todo '
-      + 'por 24 horas, e não dá para restringir depois.')) return;
-  const antes = botao.textContent;
-  botao.disabled = true;
-  botao.textContent = 'enviando…';
-  try {
-    const r = await fetch('/api/clipe/' + id + '/story', {method: 'POST'});
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
-    carregar();
-  } catch (e) {
-    alert('não foi para o story: ' + (e.message || e));
-    botao.disabled = false;
-    botao.textContent = antes;
-  }
 }
 
 function botoesAjuste(c) {
