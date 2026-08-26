@@ -175,8 +175,8 @@ async def manifest():
         # standalone: abre sem a barra do Safari, como app.
         "display": "standalone",
         "orientation": "portrait",
-        "background_color": "#16161a",
-        "theme_color": "#16161a",
+        "background_color": "#08080E",
+        "theme_color": "#08080E",
         "lang": "pt-BR",
         "icons": [
             {"src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png"},
@@ -235,38 +235,109 @@ _ICO_APITO   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_MAIS    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
+# ══════════════════════════════════════════════════════════════════════════
+# A PALETA
+#
+# Vem da referência que você mandou: preto quase puro, verde-limão gritante,
+# âmbar e vermelho. É uma paleta de contraste alto, feita para telas escuras —
+# e o app passa a nascer escuro por causa disso.
+#
+# Os nomes dizem a FUNÇÃO, não a cor. "--c-acento" e não "--c-limao": se um
+# dia a marca mudar de verde para laranja, muda aqui e o app inteiro segue,
+# em vez de eu ter de caçar "limão" em quinze telas.
+#
+#   #08080E  o fundo, preto com um toque de azul
+#   #B6FF00  o acento — o que você deve olhar primeiro
+#   #FFBE5D  atenção, algo esperando
+#   #FD5D5D  negativo, recusado, erro
+PALETA = {
+    "acento": "#B6FF00",
+    "alerta": "#FFBE5D",
+    "negativo": "#FD5D5D",
+    "fundo": "#08080E",
+}
+
 _THEME_VARS_CSS = (
-    "    :root { --c-bg:#edeae4; --c-bg-card:#fafaf8; --c-bg-soft:#fff; --c-text:#1a1a1a; --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555; --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc; --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04); --c-success:#166534; --c-error:#be123c; }\n"
-    "    :root[data-theme=\"dark\"] { --c-bg:#16161a; --c-bg-card:#1e1e22; --c-bg-soft:#242428; --c-text:#ededee; --c-muted-1:#8c8c93; --c-muted-2:#84848a; --c-muted-3:#9c9ca2; --c-muted-4:#c2c0c7; --c-muted-5:#b0aeb5; --c-muted-6:#d4d2d8; --c-line:#3a3a40; --c-border:rgba(255,255,255,.1); --c-border-2:rgba(255,255,255,.2); --c-hover-tint:rgba(255,255,255,.06); --c-success:#4ade80; --c-error:#fb7185; }\n"
+    # Claro: mesma família de acentos, mas o limão vira PREENCHIMENTO com
+    # texto escuro em cima. Limão como cor de texto sobre branco é ilegível —
+    # e é assim que a referência usa, aliás: bloco verde, letra preta.
+    "    :root { --c-bg:#f2f2ef; --c-bg-card:#ffffff; --c-bg-soft:#fafaf8; "
+    "--c-text:#08080E; --c-muted-1:#8a8a92; --c-muted-2:#9a9aa2; "
+    "--c-muted-3:#6b6b73; --c-muted-4:#4a4a52; --c-muted-5:#5a5a62; "
+    "--c-muted-6:#3a3a42; --c-line:#d8d8d2; --c-border:rgba(8,8,14,.10); "
+    "--c-border-2:rgba(8,8,14,.18); --c-hover-tint:rgba(8,8,14,.05); "
+    "--c-success:#4d7c00; --c-error:#d33b3b; "
+    "--c-acento:#B6FF00; --c-acento-texto:#08080E; "
+    "--c-alerta:#FFBE5D; --c-negativo:#FD5D5D; }\n"
+    "    :root[data-theme=\"dark\"] { --c-bg:#08080E; --c-bg-card:#14141B; "
+    "--c-bg-soft:#1C1C25; --c-text:#F2F2F5; --c-muted-1:#7a7a86; "
+    "--c-muted-2:#8a8a96; --c-muted-3:#9a9aa6; --c-muted-4:#c4c4cc; "
+    "--c-muted-5:#b0b0ba; --c-muted-6:#d8d8e0; --c-line:#2A2A35; "
+    "--c-border:rgba(255,255,255,.08); --c-border-2:rgba(255,255,255,.16); "
+    "--c-hover-tint:rgba(182,255,0,.08); "
+    "--c-success:#B6FF00; --c-error:#FD5D5D; "
+    "--c-acento:#B6FF00; --c-acento-texto:#08080E; "
+    "--c-alerta:#FFBE5D; --c-negativo:#FD5D5D; }\n"
 )
 
 _HEADER_CSS = _THEME_VARS_CSS + (
-    "    header { background: var(--c-bg); border-bottom: 1px solid var(--c-border); padding: 10px 16px; display: flex; align-items: center; position: sticky; top: 0; z-index: 10; gap: 6px; }\n"
-    "    .brand { font-family: \'Bebas Neue\', sans-serif; font-size: 2rem; letter-spacing: 0.06em; color: var(--c-text); text-decoration: none; margin-right: auto; line-height: 1; }\n"
-    "    .nav-icon { width: 32px; height: 32px; border-radius: 8px; border: none; background: none; color: var(--c-muted-3); cursor: pointer; display: flex; align-items: center; justify-content: center; text-decoration: none; transition: background .15s, color .15s; flex-shrink: 0; position: relative; }\n"
-    "    .nav-icon:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
-    "    .nav-icon.active { background: var(--c-hover-tint); color: var(--c-text); }\n"
-    "    .nav-icon.cta { background: var(--c-text); color: var(--c-bg); border-radius: 8px; }\n"
-    "    .nav-icon.cta:hover { background: var(--c-muted-6); }\n"
-    "    .nav-icon.selecao { background: #15803d; color: white; }\n"
-    "    .nav-icon.selecao:hover { background: #166534; }\n"
-    "    .nav-icon.selecao.active { background: #14532d; }\n"
-    "    .nav-icon[title]:hover::after { content: attr(title); position: absolute; bottom: -28px; left: 50%; transform: translateX(-50%); background: var(--c-text); color: var(--c-bg); font-size: 0.6rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 3px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; z-index: 100; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; }\n"
-    "    .nav-badge { position: absolute; top: -4px; right: -4px; background: #ef4444; color: white; font-size: 0.48rem; font-weight: 800; min-width: 14px; height: 14px; border-radius: 99px; display: none; align-items: center; justify-content: center; padding: 0 3px; line-height: 1; border: 1.5px solid var(--c-bg); }\n"
-    "    .theme-toggle .ico-sun { display: none; }\n"
-    "    :root[data-theme=\"dark\"] .theme-toggle .ico-moon { display: none; }\n"
-    "    :root[data-theme=\"dark\"] .theme-toggle .ico-sun { display: block; }\n"
-    "    .token-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c-muted-2); margin-right: 8px; flex-shrink: 0; cursor: default; }\n"
-    "    .token-dot.ok { background: #22c55e; }\n"
-    "    .token-dot.broken { background: #ef4444; }\n"
-    "    .nav-mais { position: relative; flex-shrink: 0; }\n"
-    "    .nav-menu { display: none; position: absolute; top: calc(100% + 6px); right: 0; min-width: 172px; background: var(--c-bg-card); border: 1px solid var(--c-border-2); border-radius: 10px; padding: 5px; z-index: 200; box-shadow: 0 10px 28px rgba(0,0,0,.32); }\n"
-    "    .nav-menu.aberto { display: block; }\n"
-    "    .nav-menu a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 7px; color: var(--c-muted-4); text-decoration: none; font-size: 0.82rem; font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif; white-space: nowrap; }\n"
+    # ── O TOPO ────────────────────────────────────────────────────────────
+    "    .topo { background: var(--c-bg); padding: 12px 14px; display: flex;\n"
+    "      align-items: center; justify-content: space-between; position: sticky;\n"
+    "      top: 0; z-index: 20; gap: 8px; }\n"
+    "    .topo-lado { display: flex; align-items: center; gap: 8px; min-width: 44px; }\n"
+    "    .topo-lado.dir { justify-content: flex-end; }\n"
+    "    .marca { font-family: 'Bebas Neue', system-ui, sans-serif; font-size: 1.5rem;\n"
+    "      letter-spacing: .06em; color: var(--c-acento); text-decoration: none;\n"
+    "      line-height: 1; }\n"
+    "    .topo-btn { width: 38px; height: 38px; border-radius: 12px; display: flex;\n"
+    "      align-items: center; justify-content: center; background: var(--c-bg-card);\n"
+    "      border: 1px solid var(--c-border); color: var(--c-muted-4); cursor: pointer;\n"
+    "      text-decoration: none; padding: 0; }\n"
+    "    .topo-btn:hover, .topo-btn.ativo { color: var(--c-acento);\n"
+    "      border-color: var(--c-acento); }\n"
+    # ── A BARRA DE BAIXO ──────────────────────────────────────────────────
+    # Flutuante, como você pediu. No celular o polegar alcança a base da tela
+    # e não alcança o topo — é o lugar certo para o que se usa o tempo todo.
+    #
+    # overflow-x com rolagem: são oito ícones, e num telefone estreito eles
+    # não cabem lado a lado. Rolar é melhor que espremer até não dar para
+    # acertar com o dedo.
+    "    .barra { position: fixed; left: 50%; transform: translateX(-50%);\n"
+    "      bottom: max(12px, env(safe-area-inset-bottom)); z-index: 30;\n"
+    "      display: flex; align-items: center; gap: 2px; padding: 6px;\n"
+    "      border-radius: 999px; background: var(--c-bg-card);\n"
+    "      border: 1px solid var(--c-border-2);\n"
+    "      box-shadow: 0 8px 30px rgba(0,0,0,.45);\n"
+    "      max-width: calc(100vw - 24px); overflow-x: auto;\n"
+    "      scrollbar-width: none; }\n"
+    "    .barra::-webkit-scrollbar { display: none; }\n"
+    "    .nav-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 999px;\n"
+    "      display: flex; align-items: center; justify-content: center;\n"
+    "      color: var(--c-muted-3); text-decoration: none; position: relative;\n"
+    "      background: transparent; border: none; cursor: pointer; padding: 0; }\n"
+    "    .nav-icon:hover { color: var(--c-text); }\n"
+    "    .nav-icon.active { background: var(--c-acento);\n"
+    "      color: var(--c-acento-texto) !important; }\n"
+    "    .nav-badge { position: absolute; top: 5px; right: 6px; min-width: 15px;\n"
+    "      height: 15px; padding: 0 3px; border-radius: 99px; background: var(--c-negativo);\n"
+    "      color: #fff; font-size: .58rem; font-weight: 800; display: flex;\n"
+    "      align-items: center; justify-content: center; }\n"
+    # A página precisa de folga embaixo para o último item não ficar debaixo
+    # da barra flutuante.
+    "    body { padding-bottom: 84px; }\n"
+    # ── O MENU DE RETICÊNCIAS ─────────────────────────────────────────────
+    # Abre para CIMA agora, porque a barra vive embaixo.
+    "    .nav-mais { position: relative; flex: 0 0 auto; }\n"
+    "    .nav-menu { position: absolute; bottom: 52px; right: 0; min-width: 190px;\n"
+    "      background: var(--c-bg-card); border: 1px solid var(--c-border-2);\n"
+    "      border-radius: 14px; padding: 6px; display: none; flex-direction: column;\n"
+    "      gap: 2px; box-shadow: 0 10px 34px rgba(0,0,0,.5); z-index: 40; }\n"
+    "    .nav-menu.aberto { display: flex; }\n"
+    "    .nav-menu a { display: flex; align-items: center; gap: 10px; padding: 9px 11px;\n"
+    "      border-radius: 10px; color: var(--c-muted-4); text-decoration: none;\n"
+    "      font-size: .8rem; font-weight: 600; font-family: 'Inter', system-ui, sans-serif; }\n"
     "    .nav-menu a:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
-    "    .nav-menu a[aria-current] { font-weight: 700; }\n"
-    "    .nav-menu svg { flex-shrink: 0; }\n"
-    "    @media (max-width: 560px) { header { padding: 10px 10px; gap: 2px; overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none; } header::-webkit-scrollbar { display: none; } .brand { font-size: 1.6rem; margin-right: 8px; } .nav-icon { width: 30px; height: 30px; } }\n"
 )
 
 # Tags que transformam o site em app de tela de início no iPhone. Vão no <head>
@@ -282,7 +353,7 @@ _PWA_HEAD = (
     # black-translucent faria o conteúdo passar por baixo do relógio e da
     # bateria; "black" mantém a barra de status legível sobre o fundo escuro.
     '<meta name="apple-mobile-web-app-status-bar-style" content="black">'
-    '<meta name="theme-color" content="#16161a">'
+    '<meta name="theme-color" content="#08080E">'
     '<script>if("serviceWorker" in navigator)'
     'addEventListener("load",function(){navigator.serviceWorker.register("/sw.js")});</script>'
 )
@@ -297,6 +368,10 @@ _HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD
 
 # As seis do dia a dia ficam na barra; o resto vai para o menu de reticências.
 # Eram dez ícones lado a lado, o que estourava a largura no celular.
+_ICO_VOLTAR = ('<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+               'stroke="currentColor" stroke-width="2.4" stroke-linecap="round" '
+               'stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>')
+
 _ICO_CONFIG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                'stroke-linejoin="round"><circle cx="12" cy="12" r="3"/>'
@@ -311,56 +386,47 @@ _ICO_CONFIG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                '1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>')
 
 _NAV_PRINCIPAIS = [
-    ("/",        _ICO_HOME,    "Home",    "home", "#16a34a"),
-    ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#ef4444"),
-    ("/janela",  _ICO_JANELA,  "Janela",  "",     "#3b82f6"),
-    ("/numeros", _ICO_NUMEROS, "Números", "",     "#0ea5e9"),
-    ("/elencos", _ICO_ELENCOS, "Elencos", "",     "#14b8a6"),
+    ("/",        _ICO_HOME,    "Home",    "home", "#B6FF00"),
+    ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#FD5D5D"),
+    ("/janela",  _ICO_JANELA,  "Janela",  "",     "#B6FF00"),
+    ("/numeros", _ICO_NUMEROS, "Números", "",     "#B6FF00"),
+    ("/elencos", _ICO_ELENCOS, "Elencos", "",     "#B6FF00"),
     ("/posts",   _ICO_POSTS,   "Posts",   "",     "#1d9bf0"),
     # Entrou por último para não bagunçar a ordem que você pediu. Fica na barra,
     # e não no menu, porque é a única tela com pressa: o texto serve nos minutos
     # seguintes ao apito.
-    ("/fim-de-jogo", _ICO_APITO, "Fim de jogo", "", "#22c55e"),
+    ("/fim-de-jogo", _ICO_APITO, "Fim de jogo", "", "#B6FF00"),
     # A tela mais urgente de todas: o gol acabou de sair e o clipe tem prazo.
     # Fica na barra, e o contador aparece quando há clipe esperando você.
-    ("/clipes", _ICO_CLIPE, "Clipes", "clipes", "#16a34a"),
+    ("/clipes", _ICO_CLIPE, "Clipes", "clipes", "#B6FF00"),
 ]
 _NAV_EXTRAS = [
-    # Configurações fica no menu, e não na barra: você entra nela de vez em
-    # quando para ajustar um número, não no meio de um jogo.
-    ("/config",      _ICO_CONFIG,  "Configurações", "", "#94a3b8"),
-    ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#6366f1"),
-    ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "", "#f97316"),
-    ("/analise",     _ICO_ANALISE, "Análise",     "", "#d97706"),
+    ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#FFBE5D"),
+    ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "", "#FFBE5D"),
+    ("/analise",     _ICO_ANALISE, "Análise",     "", "#FFBE5D"),
     # Fontes não foi citada na lista, mas também não estava entre as seis do
     # dia a dia. Deixo aqui em vez de sumir com ela sem avisar.
-    ("/fontes",      _ICO_SOURCES, "Fontes",      "", "#a855f7"),
+    ("/fontes",      _ICO_SOURCES, "Fontes",      "", "#FFBE5D"),
 ]
 
 
 def _header(active: str) -> str:
     items = ""
     for href, ico, label, badge_tab, color in _NAV_PRINCIPAIS:
-        cls = "nav-icon"
-        style = ""
-        if href == active:
-            cls += " active"
-            style = f'style="color:{color};background:color-mix(in srgb,{color} 14%,transparent)"'
-        badge = f'<span class="nav-badge" data-tab="{badge_tab}" style="display:none"></span>' if badge_tab else ""
-        items += f'<a class="{cls}" {style} href="{href}" title="{label}">{ico}{badge}</a>'
+        cls = "nav-icon" + (" active" if href == active else "")
+        badge = (f'<span class="nav-badge" data-tab="{badge_tab}" style="display:none"></span>'
+                 if badge_tab else "")
+        items += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
 
     # O botão herda a cor da página aberta quando ela está escondida no menu —
     # senão não haveria pista nenhuma de onde você está.
     aberto_no_menu = next((p for p in _NAV_EXTRAS if p[0] == active), None)
     cls_mais = "nav-icon" + (" active" if aberto_no_menu else "")
     estilo_mais = ""
-    if aberto_no_menu:
-        c = aberto_no_menu[4]
-        estilo_mais = f'style="color:{c};background:color-mix(in srgb,{c} 14%,transparent)"'
     opcoes = ""
     for href, ico, label, _b, color in _NAV_EXTRAS:
         marca = ' aria-current="page"' if href == active else ""
-        cor = f'style="color:{color}"' if href == active else ""
+        cor = 'style="color:var(--c-acento)"' if href == active else ""
         opcoes += f'<a href="{href}"{marca} {cor}>{ico}<span>{label}</span></a>'
     items += (
         '<div class="nav-mais">'
@@ -427,7 +493,7 @@ def _header(active: str) -> str:
     b.id = 'avisoBanco';
     b.style.cssText = 'padding:9px 14px;font:700 .74rem/1.4 system-ui;'
       + 'text-align:center;color:#111;background:'
-      + (d.banco_aviso === 'grave' ? '#f87171' : '#fbbf24');
+      + (d.banco_aviso === 'grave' ? '#FD5D5D' : '#FFBE5D');
     b.textContent = 'Banco em ' + d.banco_pct + '% (' + d.banco_mb + ' MB de '
       + d.banco_limite_mb + ' MB). '
       + (d.banco_aviso === 'grave'
@@ -459,7 +525,27 @@ def _header(active: str) -> str:
   document.addEventListener('DOMContentLoaded', loadTokenStatus);
 })();
 </script>"""
-    return (f'<header>{token_dot}<a class="brand" href="/">IARABÃO</a>{items}</header>'
+    # ── o topo ────────────────────────────────────────────────────────────
+    # Três coisas e mais nada: voltar à esquerda, a marca no meio reduzida a
+    # "IA", e configurações à direita. O nome inteiro comia metade da largura
+    # no celular e não dizia nada que o ícone não diga.
+    #
+    # O "voltar" só aparece fora da tela inicial. Botão de voltar na primeira
+    # tela é botão que mente.
+    voltar = ("" if active == "/" else
+              '<button type="button" class="topo-btn" onclick="history.back()" '
+              'title="Voltar" aria-label="Voltar">' + _ICO_VOLTAR + '</button>')
+    cfg_ativa = " ativo" if active == "/config" else ""
+    topo = (
+        '<header class="topo">'
+        f'<div class="topo-lado">{voltar}</div>'
+        '<a class="marca" href="/" title="IARABÃO">IA</a>'
+        f'<div class="topo-lado dir">{token_dot}'
+        f'<a class="topo-btn{cfg_ativa}" href="/config" title="Configurações" '
+        f'aria-label="Configurações">{_ICO_CONFIG}</a></div>'
+        '</header>'
+    )
+    return (topo + f'<nav class="barra">{items}</nav>'
             f'{menu_script}{badge_script}{theme_script}{token_script}')
 
 
@@ -482,9 +568,9 @@ async def dashboard():
         "mercado":       ("🔀", "#dbeafe", "#1d4ed8"),
         "financas":      ("💰", "#fdf4ff", "#7e22ce"),
         "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
-        "competicao":    ("🏆", "#fef9c3", "#a16207"),
-        "treino":        ("🏋️", "#f0fdf4", "#166534"),
-        "lesao":         ("🩺", "#fff1f2", "#be123c"),
+        "competicao":    ("🏆", "#FFBE5D26", "#a16207"),
+        "treino":        ("🏋️", "#f0fdf4", "#B6FF00"),
+        "lesao":         ("🩺", "#FD5D5D1f", "#FD5D5D"),
         "geral":         ("📰", "#f1f5f9", "#475569"),
     }
 
@@ -581,8 +667,8 @@ async def dashboard():
       border: 1.5px solid transparent;
     }}
     .fs-total     {{ border-color: var(--c-line); color: var(--c-muted-1); }}
-    .fs-analise   {{ border-color: #fde68a; color: #92400e; }}
-    .fs-publicado {{ border-color: #86efac; color: var(--c-success); }}
+    .fs-analise   {{ border-color: #FFBE5D33; color: #92400e; }}
+    .fs-publicado {{ border-color: #B6FF0033; color: var(--c-success); }}
     .fs-descarte  {{ border-color: #fca5a5; color: var(--c-error); }}
     .fs-badge:hover {{ opacity: .7; }}
     .fs-badge.active-filter {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
@@ -601,13 +687,9 @@ async def dashboard():
       transition: background .2s;
     }}
     .card.flag-analise   {{ display: none; }}
-    .card.flag-visto     {{ background: #ede9fe; }}
-    .card.flag-publicado {{ background: #dcfce7; }}
+    .card.flag-visto     {{ background: #FFBE5D1a; }}
+    .card.flag-publicado {{ background: #B6FF001f; }}
     .card.flag-visto, .card.flag-publicado {{
-      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
-      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
-      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
-      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
     }}
     .card.flag-descarte  {{ display: none; }}
     .card.hidden-by-cat  {{ display: none !important; }}
@@ -643,9 +725,9 @@ async def dashboard():
     .card-flags {{ display: flex; gap: 7px; }}
     /* ── CATEGORY BADGES ── */
     .cat-badge {{ font-size: 0.6rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 4px; }}
-    .cat-mercado    {{ background: rgba(34,197,94,.18);  color: #16a34a; }}
+    .cat-mercado    {{ background: rgba(34,197,94,.18);  color: #B6FF00; }}
     .cat-competicao {{ background: rgba(234,179,8,.18);  color: #a16207; }}
-    .cat-lesao      {{ background: rgba(239,68,68,.18);  color: #dc2626; }}
+    .cat-lesao      {{ background: rgba(239,68,68,.18);  color: #FD5D5D; }}
     .cat-geral      {{ background: rgba(100,116,139,.18);color: #475569; }}
     .cat-treino     {{ background: rgba(59,130,246,.18); color: #1d4ed8; }}
     .cat-entrevista {{ background: rgba(139,92,246,.18); color: #7c3aed; }}
@@ -1263,9 +1345,9 @@ async def selecao_page():
         "mercado":       ("🔀", "#dbeafe", "#1d4ed8"),
         "financas":      ("💰", "#fdf4ff", "#7e22ce"),
         "entrevista":    ("🎙️", "#fef3c7", "#b45309"),
-        "competicao":    ("🏆", "#fef9c3", "#a16207"),
-        "treino":        ("🏋️", "#f0fdf4", "#166534"),
-        "lesao":         ("🩺", "#fff1f2", "#be123c"),
+        "competicao":    ("🏆", "#FFBE5D26", "#a16207"),
+        "treino":        ("🏋️", "#f0fdf4", "#B6FF00"),
+        "lesao":         ("🩺", "#FD5D5D1f", "#FD5D5D"),
         "geral":         ("📰", "#f1f5f9", "#475569"),
     }
     CATEGORY_TEXT = {
@@ -1347,25 +1429,21 @@ async def selecao_page():
     {_HEADER_CSS}
     .topbar {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 24px 8px; }}
     .count {{ color: var(--c-muted-1); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.07em; }}
-    .selecao-badge {{ background: #15803d; color: white; font-size: 0.6rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; }}
+    .selecao-badge {{ background: #B6FF00; color: white; font-size: 0.6rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; text-transform: uppercase; letter-spacing: 0.06em; }}
     .flag-summary {{ display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }}
     .fs-badge {{ font-size: 0.62rem; font-weight: 700; padding: 3px 10px; border-radius: 99px; cursor: pointer; user-select: none; transition: all .15s; text-transform: uppercase; letter-spacing: 0.05em; border: 1.5px solid transparent; }}
     .fs-total     {{ border-color: var(--c-line); color: var(--c-muted-1); }}
-    .fs-analise   {{ border-color: #fde68a; color: #92400e; }}
-    .fs-publicado {{ border-color: #86efac; color: var(--c-success); }}
+    .fs-analise   {{ border-color: #FFBE5D33; color: #92400e; }}
+    .fs-publicado {{ border-color: #B6FF0033; color: var(--c-success); }}
     .fs-descarte  {{ border-color: #fca5a5; color: var(--c-error); }}
     .fs-badge:hover {{ opacity: .7; }}
     .fs-badge.active-filter {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; padding: 10px 24px 80px; align-items: start; }}
     .card {{ background: var(--c-bg-card); border-radius: 16px; display: flex; flex-direction: column; transition: background .2s; }}
     .card.flag-analise   {{ display: none; }}
-    .card.flag-visto     {{ background: #ede9fe; }}
-    .card.flag-publicado {{ background: #dcfce7; }}
+    .card.flag-visto     {{ background: #FFBE5D1a; }}
+    .card.flag-publicado {{ background: #B6FF001f; }}
     .card.flag-visto, .card.flag-publicado {{
-      --c-bg: #edeae4; --c-bg-card: #fafaf8; --c-bg-soft: #fff; --c-text: #1a1a1a;
-      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
-      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
-      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
     }}
     .card.flag-descarte  {{ display: none; }}
     .card.hidden-by-cat  {{ display: none !important; }}
@@ -2176,7 +2254,7 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 }}
 .result-meta {{ font-size: .65rem; color: var(--c-muted-2); text-transform: uppercase; letter-spacing: .05em; margin-top: 8px; }}
 .loading-state, .error-state {{ text-align: center; color: var(--c-muted-3); padding: 24px; font-size: .82rem; }}
-.error-state {{ color: #dc2626; }}
+.error-state {{ color: #FD5D5D; }}
 
 .player-picker {{ display: flex; gap: 8px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }}
 .player-avatar-preview {{ width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--c-bg-soft); }}
@@ -3087,7 +3165,7 @@ async def fontes_page():
     .btn-save {{ background: var(--c-text); color: var(--c-bg); border: none; padding: 4px 14px; border-radius: 99px; font-size: 0.62rem; font-weight: 700; cursor: pointer; margin-right: 4px; text-transform: uppercase; letter-spacing: 0.06em; transition: opacity .15s; }}
     .btn-save:hover {{ opacity: .75; }}
     .btn-del {{ background: transparent; color: var(--c-error); border: 1.5px solid #fca5a5; padding: 3px 10px; border-radius: 99px; font-size: 0.75rem; font-weight: 700; cursor: pointer; transition: all .15s; }}
-    .btn-del:hover {{ background: #fff1f2; }}
+    .btn-del:hover {{ background: #FD5D5D1f; }}
     .toast {{ position: fixed; bottom: 24px; right: 24px; background: var(--c-text); color: var(--c-bg); padding: 10px 20px; border-radius: 99px; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0; transition: opacity .3s; pointer-events: none; }}
     .toast.show {{ opacity: 1; }}
   </style>
@@ -3234,11 +3312,7 @@ async def lixeira_page():
       background: var(--c-bg-card); border-radius: 16px;
       display: flex; flex-direction: column;
       transition: background .2s;
-      background: #fff1f2;
-      --c-bg: #edeae4; --c-bg-card: #fff1f2; --c-bg-soft: #fff; --c-text: #1a1a1a;
-      --c-muted-1: #999; --c-muted-2: #aaa; --c-muted-3: #777; --c-muted-4: #555;
-      --c-muted-5: #666; --c-muted-6: #444; --c-line: #ccc;
-      --c-border: rgba(0,0,0,.1); --c-border-2: rgba(0,0,0,.18); --c-hover-tint: rgba(0,0,0,.04);
+      background: #FD5D5D1f;
     }}
     .card-body {{ padding: 20px; display: flex; flex-direction: column; }}
     .card-top {{ display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }}
@@ -3252,9 +3326,9 @@ async def lixeira_page():
     .cat-mercado    {{ background:#dbeafe; color:#1d4ed8; }}
     .cat-financas   {{ background:#fdf4ff; color:#7e22ce; }}
     .cat-entrevista {{ background:#fef3c7; color:#b45309; }}
-    .cat-competicao {{ background:#fef9c3; color:#a16207; }}
-    .cat-treino     {{ background:#f0fdf4; color:#166534; }}
-    .cat-lesao      {{ background:#fff1f2; color:#be123c; }}
+    .cat-competicao {{ background:#FFBE5D26; color:#a16207; }}
+    .cat-treino     {{ background:#f0fdf4; color:#B6FF00; }}
+    .cat-lesao      {{ background:#FD5D5D1f; color:#FD5D5D; }}
     .cat-geral      {{ background:#f1f5f9; color:#475569; }}
     .card-date {{ font-size:0.65rem; font-weight:700; color:var(--c-muted-2); text-transform:uppercase; letter-spacing:0.07em; }}
     .card-text {{ font-size: 0.8rem; color: var(--c-muted-5); line-height: 1.6; margin: 0; }}
@@ -3270,8 +3344,8 @@ async def lixeira_page():
       cursor: pointer; transition: all .15s; color: var(--c-muted-4);
     }}
     .flag-circle:hover {{ background: var(--c-text); color: var(--c-bg); border-color: var(--c-text); }}
-    .restore-circ {{ border-color: #be123c; color: #be123c; }}
-    .restore-circ:hover {{ background: #be123c; color: #fff; border-color: #be123c; }}
+    .restore-circ {{ border-color: #FD5D5D; color: #FD5D5D; }}
+    .restore-circ:hover {{ background: #FD5D5D; color: #fff; border-color: #FD5D5D; }}
     .removing {{ opacity:0; transform:scale(.95); transition:all .3s; pointer-events:none; }}
   </style>
 </head>
@@ -3294,7 +3368,7 @@ async def lixeira_page():
   function copyFromBtn(btn) {{
     const txt = btn.dataset.copy || '';
     navigator.clipboard.writeText(txt).catch(() => {{}});
-    btn.style.background = '#16a34a';
+    btn.style.background = '#B6FF00';
     btn.style.color = '#fff';
     setTimeout(() => {{ btn.style.background=''; btn.style.color=''; }}, 900);
   }}
@@ -3389,11 +3463,7 @@ async def analise_page():
     .export-btn:hover {{ background:var(--c-text); color:var(--c-bg); }}
     .grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:10px; padding:10px 24px 60px; align-items:start; }}
     .card {{
-      background:#fefce8; border-radius:16px; display:flex; flex-direction:column; transition:background .2s;
-      --c-bg:#edeae4; --c-bg-card:#fefce8; --c-bg-soft:#fff; --c-text:#1a1a1a;
-      --c-muted-1:#999; --c-muted-2:#aaa; --c-muted-3:#777; --c-muted-4:#555;
-      --c-muted-5:#666; --c-muted-6:#444; --c-line:#ccc;
-      --c-border:rgba(0,0,0,.1); --c-border-2:rgba(0,0,0,.18); --c-hover-tint:rgba(0,0,0,.04);
+      background:#FFBE5D1a; border-radius:16px; display:flex; flex-direction:column; transition:background .2s;
     }}
     .card-body {{ padding:20px; display:flex; flex-direction:column; }}
     .card-top {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; }}
@@ -3402,9 +3472,9 @@ async def analise_page():
     .cat-mercado    {{ background:#dbeafe; color:#1d4ed8; }}
     .cat-financas   {{ background:#fdf4ff; color:#7e22ce; }}
     .cat-entrevista {{ background:#fef3c7; color:#b45309; }}
-    .cat-competicao {{ background:#fef9c3; color:#a16207; }}
-    .cat-treino     {{ background:#f0fdf4; color:#166534; }}
-    .cat-lesao      {{ background:#fff1f2; color:#be123c; }}
+    .cat-competicao {{ background:#FFBE5D26; color:#a16207; }}
+    .cat-treino     {{ background:#f0fdf4; color:#B6FF00; }}
+    .cat-lesao      {{ background:#FD5D5D1f; color:#FD5D5D; }}
     .cat-geral      {{ background:#f1f5f9; color:#475569; }}
     .card-date {{ font-size:0.65rem; font-weight:700; color:var(--c-muted-2); text-transform:uppercase; letter-spacing:0.07em; }}
     .card-text {{ font-size:0.8rem; color:var(--c-muted-5); line-height:1.6; margin:0; }}
@@ -3462,7 +3532,7 @@ async def analise_page():
   }}
   function copyFromBtnA(btn) {{
     navigator.clipboard.writeText(btn.dataset.copy || '').catch(()=>{{}});
-    btn.style.background='#16a34a'; btn.style.color='#fff';
+    btn.style.background='#B6FF00'; btn.style.color='#fff';
     setTimeout(()=>{{ btn.style.background=''; btn.style.color=''; }}, 900);
   }}
 </script>
@@ -3947,9 +4017,9 @@ async def _page_lesoes_impl(request: Request):
   margin-top: 5px; flex-shrink: 0;
   background: var(--c-muted-2);
 }}
-.timeline-dot.status-lesionado      {{ background: #ef4444; }}
-.timeline-dot.status-em_recuperacao {{ background: #f59e0b; }}
-.timeline-dot.status-retornando     {{ background: #22c55e; }}
+.timeline-dot.status-lesionado      {{ background: #FD5D5D; }}
+.timeline-dot.status-em_recuperacao {{ background: #FFBE5D; }}
+.timeline-dot.status-retornando     {{ background: #B6FF00; }}
 .timeline-dot.status-recuperado     {{ background: var(--c-muted-2); }}
 .timeline-dot.status-desconhecido   {{ background: var(--c-muted-2); }}
 .timeline-content {{ flex: 1; min-width: 0; }}
@@ -3977,12 +4047,12 @@ async def _page_lesoes_impl(request: Request):
   white-space: nowrap;
 }}
 .status-lesionado      {{ background: #fef2f2; color: #b91c1c; }}
-.status-em_recuperacao {{ background: #fefce8; color: #92400e; }}
-.status-retornando     {{ background: #f0fdf4; color: #15803d; }}
+.status-em_recuperacao {{ background: #FFBE5D1a; color: #92400e; }}
+.status-retornando     {{ background: #f0fdf4; color: #B6FF00; }}
 .status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
 [data-theme=dark] .status-lesionado      {{ background: #3f1212; color: #fca5a5; }}
-[data-theme=dark] .status-em_recuperacao {{ background: #3f2d00; color: #fde68a; }}
-[data-theme=dark] .status-retornando     {{ background: #052e16; color: #86efac; }}
+[data-theme=dark] .status-em_recuperacao {{ background: #3f2d00; color: #FFBE5D33; }}
+[data-theme=dark] .status-retornando     {{ background: #052e16; color: #B6FF0033; }}
 [data-theme=dark] .status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
 
 .src-chip {{
@@ -5159,7 +5229,7 @@ _FIMJOGO_CSS = '''    .fj-topo { display:flex; align-items:center; gap:10px; fle
     .fj-cab { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
     .fj-conf { font-weight:800; font-size:0.95rem; }
     .fj-selo { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; border:1.5px solid var(--c-border-2); border-radius:99px; padding:3px 9px; color:var(--c-muted-4); }
-    .fj-selo.fj-vivo { border-color:#22c55e; color:#22c55e; }
+    .fj-selo.fj-vivo { border-color:#B6FF00; color:#B6FF00; }
     .fj-selo.fj-fim { border-color:var(--c-text); color:var(--c-text); }
     .fj-texto { white-space:pre-wrap; font-family:inherit; font-size:0.9rem; line-height:1.6; margin:0; padding:12px 14px; border-radius:10px; background:var(--c-bg-soft); }
     .fj-aguardando { font-size:0.75rem; color:var(--c-muted-4); padding:6px 0; }'''
@@ -5250,8 +5320,8 @@ async function preencherTexto(j) {
     const af = d.api_football || {};
     const sm = d.sportmonks || {};
     box.innerHTML = '';
-    box.appendChild(caixaFonte('API-Football', af, '#0ea5e9'));
-    box.appendChild(caixaFonte('Sportmonks', sm, '#22c55e'));
+    box.appendChild(caixaFonte('API-Football', af, '#B6FF00'));
+    box.appendChild(caixaFonte('Sportmonks', sm, '#B6FF00'));
     box.className = 'duas';
     // O botão de copiar segue a API-Football, que é a que está no ar hoje.
     if (af.texto && af.completo) {
@@ -5323,7 +5393,7 @@ async function carregarGols() {
     // Um erro invisível é pior que um erro feio: eu passei duas rodadas
     // chutando porque a tela não me contava que a chamada estava falhando.
     alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#fb7185">Falha ao carregar o alerta de gol:\n'
+      + 'style="font-size:.76rem;color:#FD5D5D">Falha ao carregar o alerta de gol:\n'
       + esc(e.message || String(e)) + '</pre></div>';
     return;
   }
@@ -5370,8 +5440,8 @@ async function carregarGols() {
     linha.appendChild(cab);
     const duas = document.createElement('div');
     duas.className = 'duas';
-    [['API-Football', g.api_football, '#0ea5e9'],
-     ['Sportmonks', g.sportmonks, '#22c55e']].forEach(function (par) {
+    [['API-Football', g.api_football, '#B6FF00'],
+     ['Sportmonks', g.sportmonks, '#B6FF00']].forEach(function (par) {
       const c = document.createElement('div');
       c.className = 'fonte';
       const quando = par[1] ? new Date(par[1].visto_em)
@@ -5420,7 +5490,7 @@ async function carregarJogosDoDia() {
     carregarGols().catch(function (err) {
       const g = document.getElementById('fjGols');
       if (g) g.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-        + 'style="font-size:.76rem;color:#fb7185">Erro no alerta de gol: '
+        + 'style="font-size:.76rem;color:#FD5D5D">Erro no alerta de gol: '
         + (err && err.message ? err.message : String(err)) + '</pre></div>';
     });
     const seg = proximaChecagem(jogos);
@@ -5484,7 +5554,7 @@ async function carregarEscalacoes() {
     d = JSON.parse(bruto);
   } catch (e) {
     alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#fb7185">Falha ao carregar as escalações:\n'
+      + 'style="font-size:.76rem;color:#FD5D5D">Falha ao carregar as escalações:\n'
       + esc(e.message || String(e)) + '</pre></div>';
     return;
   }
@@ -5549,8 +5619,8 @@ function cartaoEscalacao(j) {
 
   const duas = document.createElement('div');
   duas.className = 'duas';
-  [['API-Football', j.api_football, '#0ea5e9', null],
-   ['Sportmonks', j.sportmonks, '#22c55e', j.sportmonks_oficial]].forEach(function (par) {
+  [['API-Football', j.api_football, '#B6FF00', null],
+   ['Sportmonks', j.sportmonks, '#B6FF00', j.sportmonks_oficial]].forEach(function (par) {
     const c = document.createElement('div');
     c.className = 'fonte';
     // Etiqueta do que está ali. A Sportmonks manda uma escalação PROVÁVEL
@@ -5605,7 +5675,7 @@ function cicloEscalacoes() {
   carregarEscalacoes().catch(function (err) {
     const a = document.getElementById('fjEsc');
     if (a) a.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#fb7185">Erro nas escalações: '
+      + 'style="font-size:.76rem;color:#FD5D5D">Erro nas escalações: '
       + (err && err.message ? err.message : String(err)) + '</pre></div>';
   });
   clearTimeout(_escTimer);
@@ -5634,12 +5704,12 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .result-card{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:12px;padding:14px 16px}
 .loading-state,.error-state{font-size:.8rem;color:var(--c-muted-3);text-align:center;padding:18px 0}
-.error-state{color:#fb7185}
+.error-state{color:#FD5D5D}
 .copy-btn{margin-left:auto;background:transparent;border:1.5px solid var(--c-border-2);
   border-radius:99px;padding:5px 14px;font-size:.65rem;font-weight:700;
   color:var(--c-muted-4);cursor:pointer}
 .copy-btn:hover{border-color:var(--c-text);color:var(--c-text)}
-.copy-btn.copied{border-color:#22c55e;color:#22c55e}
+.copy-btn.copied{border-color:#B6FF00;color:#B6FF00}
 __FJ_CSS__
 </style>
 </head>
@@ -7009,8 +7079,8 @@ h1{font-size:1.5rem;margin:0 0 4px}
   text-transform:uppercase;color:var(--c-muted-3);margin:22px 0 9px}
 
 .ponto{width:7px;height:7px;border-radius:50%;background:var(--c-muted-2);flex-shrink:0}
-.ponto.ok{background:#22c55e}
-.ponto.alerta{background:#f59e0b}
+.ponto.ok{background:#B6FF00}
+.ponto.alerta{background:#FFBE5D}
 .linha-estado{display:flex;align-items:center;gap:7px;font-size:.72rem;
   color:var(--c-muted-4);line-height:1.45}
 
@@ -7022,17 +7092,17 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .jogo-nome{font-weight:800;font-size:.95rem;line-height:1.35;flex:1;min-width:0}
 .jogo-x{background:none;border:none;color:var(--c-muted-2);cursor:pointer;
   font-size:1.1rem;line-height:1;padding:0 2px;flex-shrink:0}
-.jogo-x:hover{color:#fb7185}
+.jogo-x:hover{color:#FD5D5D}
 .jogo-acoes{display:flex;gap:9px}
 .bt-gol{flex:1;padding:20px 16px;border:none;border-radius:12px;cursor:pointer;
-  background:#16a34a;color:#fff;font-family:inherit;font-size:1rem;
+  background:#B6FF00;color:#fff;font-family:inherit;font-size:1rem;
   font-weight:800;letter-spacing:.08em;text-transform:uppercase;line-height:1;
   display:flex;align-items:center;justify-content:center;gap:10px;
   box-shadow:0 3px 12px rgba(22,163,74,.26);
   transition:transform .07s,background .18s,box-shadow .18s}
-.bt-gol:hover{background:#15803d}
+.bt-gol:hover{background:#B6FF00}
 .bt-gol:active{transform:scale(.985)}
-.bt-gol.carregando{background:#166534;box-shadow:none;cursor:default}
+.bt-gol.carregando{background:#B6FF00;box-shadow:none;cursor:default}
 .bt-gol.pronto{background:#0f766e;box-shadow:none;cursor:default}
 .bt-outro{padding:20px 18px;border-radius:12px;cursor:pointer;flex-shrink:0;
   background:transparent;border:1.5px solid var(--c-border-2);color:var(--c-muted-4);
@@ -7055,7 +7125,7 @@ h1{font-size:1.5rem;margin:0 0 4px}
   background:transparent;border:1.5px solid var(--c-border-2);color:var(--c-muted-4);
   font-family:inherit;font-weight:700;font-size:.65rem;text-transform:uppercase;
   letter-spacing:.06em;cursor:pointer}
-.disp button:hover:not(:disabled){border-color:#16a34a;color:#16a34a}
+.disp button:hover:not(:disabled){border-color:#B6FF00;color:#B6FF00}
 .disp button:disabled{opacity:.4;cursor:default}
 
 .vazio{text-align:center;padding:36px 20px;color:var(--c-muted-3)}
@@ -7072,9 +7142,9 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .selo{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;
   border:1.5px solid var(--c-border-2);border-radius:99px;padding:3px 9px;
   color:var(--c-muted-4)}
-.selo.s-pronto{border-color:#22c55e;color:#22c55e}
+.selo.s-pronto{border-color:#B6FF00;color:#B6FF00}
 .selo.s-publicado{border-color:var(--c-text);color:var(--c-text)}
-.selo.s-erro{border-color:#fb7185;color:#fb7185}
+.selo.s-erro{border-color:#FD5D5D;color:#FD5D5D}
 .tam{margin-left:auto;font-size:.66rem;color:var(--c-muted-3)}
 .clipe video{width:100%;display:block;background:#000;max-height:56vh}
 .clipe-corpo{padding:14px}
@@ -7082,31 +7152,31 @@ h1{font-size:1.5rem;margin:0 0 4px}
   border:1px solid var(--c-border-2);border-radius:10px;background:var(--c-bg-soft);
   color:var(--c-text);font-family:inherit;font-size:.9rem;line-height:1.6;
   resize:vertical}
-.clipe textarea:focus{outline:none;border-color:#16a34a}
+.clipe textarea:focus{outline:none;border-color:#B6FF00}
 .fita-caixa{margin-top:12px}
 .fita{position:relative;height:34px;border-radius:8px;background:var(--c-bg-soft);
   border:1px solid var(--c-border-2);touch-action:none;user-select:none}
 .fita-sel{position:absolute;top:0;bottom:0;background:rgba(22,163,74,.22);
-  border-top:2px solid #16a34a;border-bottom:2px solid #16a34a}
+  border-top:2px solid #B6FF00;border-bottom:2px solid #B6FF00}
 .punho{position:absolute;top:-4px;bottom:-4px;width:16px;margin-left:-8px;
-  border-radius:5px;background:#16a34a;cursor:ew-resize;touch-action:none;
+  border-radius:5px;background:#B6FF00;cursor:ew-resize;touch-action:none;
   box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .punho::after{content:'';position:absolute;left:6px;top:50%;width:4px;height:14px;
   margin-top:-7px;border-left:1px solid rgba(255,255,255,.65);
   border-right:1px solid rgba(255,255,255,.65)}
 .fita-info{font-size:.68rem;color:var(--c-muted-3);margin-top:7px;text-align:center}
-.fita-info.curto{color:#fb7185;font-weight:700}
+.fita-info.curto{color:#FD5D5D;font-weight:700}
 .fita-acoes{display:flex;gap:8px;margin-top:9px}
 .fita-acoes button{flex:1;padding:9px;border-radius:99px;background:transparent;
   border:1.5px solid var(--c-border-2);color:var(--c-muted-4);font-family:inherit;
   font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
   cursor:pointer}
-.fita-acoes button:hover:not(:disabled){border-color:#16a34a;color:#16a34a}
+.fita-acoes button:hover:not(:disabled){border-color:#B6FF00;color:#B6FF00}
 .fita-acoes button:disabled{opacity:.45;cursor:default}
 .conta-letras{font-size:.64rem;color:var(--c-muted-3);text-align:right;margin-top:6px}
-.conta-letras.demais{color:#fb7185;font-weight:700}
+.conta-letras.demais{color:#FD5D5D;font-weight:700}
 .nota{font-size:.72rem;color:var(--c-muted-3);line-height:1.6;margin-top:8px}
-.nota.ruim{color:#fb7185}
+.nota.ruim{color:#FD5D5D}
 .acoes{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
 .acoes button{padding:7px 14px;border-radius:99px;background:transparent;
   border:1.5px solid var(--c-border-2);color:var(--c-muted-4);font-family:inherit;
@@ -7134,10 +7204,10 @@ h1{font-size:1.5rem;margin:0 0 4px}
   font-weight:700;font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;
   cursor:pointer}
 .atraso-linha button:hover{border-color:var(--c-text);color:var(--c-text)}
-.atraso-ok{color:#22c55e;font-weight:700}
+.atraso-ok{color:#B6FF00;font-weight:700}
 .atraso-nota{margin:9px 0 0;font-size:.7rem;line-height:1.6;color:var(--c-muted-3)}
-.acoes .guardar.on{border-color:#eab308;color:#eab308}
-.selo.s-guardado{background:#eab30822;color:#eab308}
+.acoes .guardar.on{border-color:#FFBE5D;color:#FFBE5D}
+.selo.s-guardado{background:#FFBE5D22;color:#FFBE5D}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .publicar:hover:not(:disabled){background:#1a8cd8;border-color:#1a8cd8}
 .acoes button:disabled{opacity:.45;cursor:default}
@@ -7860,12 +7930,12 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.02em;
 .ajuda{margin:8px 0 0;font-size:.75rem;line-height:1.65;color:var(--c-muted-3)}
 .estado{font-size:.68rem;font-weight:800;text-transform:uppercase;
   letter-spacing:.06em;min-height:14px;margin-top:6px}
-.estado.ok{color:#22c55e}
-.estado.ruim{color:#fb7185}
+.estado.ok{color:#B6FF00}
+.estado.ruim{color:#FD5D5D}
 .padrao{font-size:.68rem;color:var(--c-muted-3);background:none;border:none;
   cursor:pointer;text-decoration:underline;padding:0;font-family:inherit}
 .mudado{font-size:.6rem;font-weight:800;text-transform:uppercase;
-  letter-spacing:.05em;color:#eab308;border:1px solid #eab308;border-radius:99px;
+  letter-spacing:.05em;color:#FFBE5D;border:1px solid #FFBE5D;border-radius:99px;
   padding:2px 7px;margin-left:6px}
 """
 
@@ -7911,7 +7981,7 @@ async function carregar() {
     d = await r.json();
     if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
   } catch (e) {
-    alvo.innerHTML = '<p class="ajuda" style="color:#fb7185">Nao consegui ler os '
+    alvo.innerHTML = '<p class="ajuda" style="color:#FD5D5D">Nao consegui ler os '
       + 'ajustes: ' + esc(e.message || String(e)) + '</p>';
     return;
   }
@@ -8076,7 +8146,7 @@ __THEME__
 __HEADER_CSS__
 :root{
   --bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);
-  --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:#14b8a6;
+  --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:var(--c-acento);
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);
@@ -8166,12 +8236,12 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .jog img{width:26px;height:26px;border-radius:50%;object-fit:cover;background:var(--surface2)}
 .vazio{color:var(--text2)}
 .pos-tag{display:inline-block;padding:1px 6px;border-radius:5px;font-size:.62rem;font-weight:700}
-.pos-G{background:#f59e0b22;color:#f59e0b}
-.pos-D{background:#3b82f622;color:#60a5fa}
-.pos-M{background:#22c55e22;color:#4ade80}
-.pos-A{background:#ef444422;color:#f87171}
+.pos-G{background:#FFBE5D22;color:#FFBE5D}
+.pos-D{background:#B6FF0022;color:#60a5fa}
+.pos-M{background:#B6FF0022;color:#B6FF00}
+.pos-A{background:#FD5D5D22;color:#FD5D5D}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
-.aviso{font-size:.72rem;color:#f59e0b;margin:8px 0 0}
+.aviso{font-size:.72rem;color:#FFBE5D;margin:8px 0 0}
 </style>
 </head>
 <body>
@@ -8711,7 +8781,7 @@ __THEME__
 <style>
 __HEADER_CSS__
 :root{--bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);
-  --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:#1d9bf0}
+  --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:var(--c-acento)}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
@@ -8723,10 +8793,10 @@ h1{font-size:1.5rem;margin:0 0 4px}
   background:var(--surface);color:var(--text);font-size:13px;cursor:pointer}
 .ctrl:disabled{opacity:.5;cursor:default}
 .selo{font-size:.7rem;padding:2px 8px;border-radius:20px;font-weight:700}
-.s-pendente{background:#f59e0b22;color:#f59e0b}
-.s-publicado{background:#22c55e22;color:#4ade80}
+.s-pendente{background:#FFBE5D22;color:#FFBE5D}
+.s-publicado{background:#B6FF0022;color:#B6FF00}
 .s-cancelado{background:#6b728022;color:#9ca3af}
-.s-publicando{background:#3b82f622;color:#60a5fa}
+.s-publicando{background:#B6FF0022;color:#60a5fa}
 .s-aprovado{background:#1d9bf022;color:#60c8f0}
 .canais{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
 .canal{font-size:.72rem;padding:5px 10px;border-radius:20px;border:1px solid var(--border);
@@ -8769,8 +8839,8 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
   display:flex;align-items:center;gap:7px;margin-bottom:-1px;
   font-family:inherit;transition:color .15s,border-color .15s}
 .aba:hover{color:var(--c-text)}
-.aba.ativa{color:var(--c-text);border-bottom-color:#22c55e}
-.pilula{background:#22c55e;color:#06210f;font-size:.6rem;font-weight:800;
+.aba.ativa{color:var(--c-text);border-bottom-color:#B6FF00}
+.pilula{background:#B6FF00;color:#06210f;font-size:.6rem;font-weight:800;
   border-radius:99px;padding:1px 7px;display:none}
 .pilula.tem{display:inline-block}
 .duas{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -8787,20 +8857,20 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
 .gol-min{font-weight:800;font-size:.95rem}
 .dif{font-size:.66rem;font-weight:800;border-radius:99px;padding:3px 10px;
   border:1.5px solid var(--c-border-2);color:var(--c-muted-4)}
-.dif.af{border-color:#0ea5e9;color:#0ea5e9}
-.dif.sm{border-color:#22c55e;color:#22c55e}
+.dif.af{border-color:#B6FF00;color:#B6FF00}
+.dif.sm{border-color:#B6FF00;color:#B6FF00}
 /* Etiqueta de provável/oficial no cabeçalho de cada fonte. */
 .marca{font-size:.6rem;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
   border-radius:99px;padding:2px 7px;margin-left:7px;border:1px solid var(--c-border-2);
   color:var(--c-muted-4)}
-.marca.ok{border-color:#22c55e;color:#22c55e}
-.marca.prov{border-color:#f59e0b;color:#f59e0b}
+.marca.ok{border-color:#B6FF00;color:#B6FF00}
+.marca.prov{border-color:#FFBE5D;color:#FFBE5D}
 .escudos img{width:44px;height:44px;object-fit:contain;background:var(--surface2);
   border-radius:8px;padding:3px}
 .acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:8px}
 .conta{font-size:.72rem;color:var(--text2)}
-.erro{font-size:.75rem;color:#f87171;margin-top:6px}
-.aviso{background:#f59e0b18;border:1px solid #f59e0b55;color:#fbbf24;
+.erro{font-size:.75rem;color:#FD5D5D;margin-top:6px}
+.aviso{background:#FFBE5D18;border:1px solid #FFBE5D55;color:#FFBE5D;
   border-radius:10px;padding:10px;font-size:.8rem;margin-bottom:14px}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
 </style>
@@ -8925,7 +8995,7 @@ function contarTexto(id){
   const link = /https?:\\/\\/|www\\./i.test(t);
   const peso = pesoX(t);
   c.textContent = peso + '/280' + (link ? ' · ATENÇÃO: tem link, custa 13x mais e será recusado' : '');
-  c.style.color = (peso > 280 || link) ? '#f87171' : '';
+  c.style.color = (peso > 280 || link) ? '#FD5D5D' : '';
 }
 
 // Manda para o servidor o que está na caixa de texto AGORA.
@@ -10943,8 +11013,8 @@ async def janela_page():
 {_HEADER_CSS}
 :root{{
   --bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);--border:var(--c-border);
-  --text:var(--c-text);--text2:var(--c-muted-3);--accent:#4f9cf9;
-  --green:#22c55e;--blue:#3b82f6;--amber:#f59e0b;--red:#ef4444;--purple:#a855f7;
+  --text:var(--c-text);--text2:var(--c-muted-3);--accent:var(--c-acento);
+  --green:#B6FF00;--blue:#B6FF00;--amber:#FFBE5D;--red:#FD5D5D;--purple:#FFBE5D;
 }}
 *{{box-sizing:border-box;margin:0;padding:0}}
 body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}}
@@ -10969,9 +11039,9 @@ body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacS
 .player-name{{font-size:16px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .transfer-meta{{display:flex;gap:5px;align-items:center;margin-top:3px;flex-wrap:wrap}}
 .badge{{padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600;white-space:nowrap}}
-.badge-in{{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}}
-.badge-out{{background:rgba(239,68,68,.15);color:#ef4444;border:1px solid rgba(239,68,68,.3)}}
-.badge-loan{{background:rgba(245,158,11,.15);color:#f59e0b;border:1px solid rgba(245,158,11,.3)}}
+.badge-in{{background:rgba(34,197,94,.15);color:#B6FF00;border:1px solid rgba(34,197,94,.3)}}
+.badge-out{{background:rgba(239,68,68,.15);color:#FD5D5D;border:1px solid rgba(239,68,68,.3)}}
+.badge-loan{{background:rgba(245,158,11,.15);color:#FFBE5D;border:1px solid rgba(245,158,11,.3)}}
 .badge-free{{background:rgba(148,163,184,.15);color:#94a3b8;border:1px solid rgba(148,163,184,.3)}}
 .badge-paid{{background:rgba(79,156,249,.15);color:#4f9cf9;border:1px solid rgba(79,156,249,.3)}}
 .player-meta-line{{font-size:11px;color:var(--text2);margin:2px 0 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:4px}}
@@ -11040,7 +11110,7 @@ body{{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacS
       <button class="filter-btn" onclick="copiarPost(this)">📋 Copiar</button>
       <span id="postMeta" style="font-size:12px;color:var(--text2)"></span>
     </div>
-    <div id="postAvisos" style="display:none;font-size:12px;color:#f59e0b;margin-bottom:8px"></div>
+    <div id="postAvisos" style="display:none;font-size:12px;color:#FFBE5D;margin-bottom:8px"></div>
     <pre id="postTexto" style="white-space:pre-wrap;font-family:inherit;font-size:13px;line-height:1.6;
       background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin:0;
       max-height:60vh;overflow:auto"></pre>
