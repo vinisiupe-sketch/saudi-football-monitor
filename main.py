@@ -35,6 +35,7 @@ from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
 import clubs
 import glossary
+import ajustes
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -296,6 +297,19 @@ _HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD
 
 # As seis do dia a dia ficam na barra; o resto vai para o menu de reticências.
 # Eram dez ícones lado a lado, o que estourava a largura no celular.
+_ICO_CONFIG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+               'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+               'stroke-linejoin="round"><circle cx="12" cy="12" r="3"/>'
+               '<path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 '
+               '2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 '
+               '2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 '
+               '2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 '
+               '2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 '
+               '0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 '
+               '1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 '
+               '1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 '
+               '1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>')
+
 _NAV_PRINCIPAIS = [
     ("/",        _ICO_HOME,    "Home",    "home", "#16a34a"),
     ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#ef4444"),
@@ -312,6 +326,9 @@ _NAV_PRINCIPAIS = [
     ("/clipes", _ICO_CLIPE, "Clipes", "clipes", "#16a34a"),
 ]
 _NAV_EXTRAS = [
+    # Configurações fica no menu, e não na barra: você entra nela de vez em
+    # quando para ajustar um número, não no meio de um jogo.
+    ("/config",      _ICO_CONFIG,  "Configurações", "", "#94a3b8"),
     ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#6366f1"),
     ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "", "#f97316"),
     ("/analise",     _ICO_ANALISE, "Análise",     "", "#d97706"),
@@ -5851,20 +5868,18 @@ async def coletar_gols_ao_vivo() -> dict:
 # Sem descontar isso, a janela de "10 segundos antes" viraria "6 antes", e o
 # clipe começaria com a bola já entrando. É estimativa, e é por isso que
 # existem os botões de ajuste.
-REACAO_SEG = 4
+# REACAO_SEG, ANTES_SEG, DEPOIS_SEG, PASSO_AJUSTE e HORAS_ATE_DESCARTE
+# viraram ajustes na guia de Configurações. Ficarem aqui como constante
+# seria manter uma segunda verdade, e um dia as duas discordariam.
 
 # A janela do clipe. Passou por 10/5 (curto demais: pegava o chute e a
 # comemoração, mas cortava a construção da jogada) e por 20/8. Depois de
 # clipar jogo de verdade, ficou em 12/10.
-ANTES_SEG = 12
-DEPOIS_SEG = 10
 
 # De quanto em quanto os botões de ajuste movem a janela. Era 5; com o clipe
 # em 12/10, cinco segundos mal tiravam o clipe do lugar.
-PASSO_AJUSTE = 8
 
 # Quanto tempo um clipe não guardado sobrevive depois que o jogo sai do ar.
-HORAS_ATE_DESCARTE = 2
 
 # ATRASO DA TRANSMISSÃO — quantos segundos a live do YouTube está ATRÁS do
 # que você está assistindo quando aperta o botão.
@@ -5887,13 +5902,35 @@ CHAVE_ATRASO = "clipe_atraso_transmissao"
 ATRASO_PADRAO_SEG = 26
 ATRASO_MAX_SEG = 120
 
+# Cache curto porque isto é lido em toda tela de clipe e a cada consulta do
+# gravador. Cinco segundos é rápido o bastante para você mexer na guia de
+# configurações e ver o efeito no clipe seguinte.
+_CACHE_AJUSTE: dict = {}
+
+
+def ajuste(chave: str):
+    """O valor configurado, ou o padrão. Nunca levanta."""
+    a = ajustes.POR_CHAVE.get(chave)
+    if not a:
+        return None
+    guardado = _CACHE_AJUSTE.get(chave)
+    if guardado and time.time() - guardado[0] < 5:
+        return guardado[1]
+    valor = a["padrao"]
+    try:
+        bruto = get_state(chave)
+        if bruto is not None:
+            limpo = ajustes.limpar(chave, bruto)
+            if limpo is not None:
+                valor = limpo
+    except Exception:
+        pass
+    _CACHE_AJUSTE[chave] = (time.time(), valor)
+    return valor
+
 
 def _atraso_transmissao() -> int:
-    try:
-        v = get_state(CHAVE_ATRASO)
-        return max(0, min(ATRASO_MAX_SEG, int(v))) if v is not None else ATRASO_PADRAO_SEG
-    except Exception:
-        return ATRASO_PADRAO_SEG
+    return int(ajuste("clipe_atraso_transmissao"))
 
 # Fonte preferida para a legenda. A API-Football tem se mostrado mais rápida
 # nas medições, e legenda que chega tarde não serve para clipe ao vivo.
@@ -6328,30 +6365,52 @@ async def api_clipe_pedir(request: Request):
     # somo o atraso da transmissão (ela está atrás do que você vê) e desconto
     # o seu tempo de reação (você aperta um pouco depois de ver).
     atraso = _atraso_transmissao()
-    alvo = datetime.now(timezone.utc) + timedelta(seconds=atraso - REACAO_SEG)
-    cid = criar_pedido_clipe(alvo, ANTES_SEG, DEPOIS_SEG, live_id, tipo)
+    reacao = int(ajuste("clipe_reacao_seg"))
+    alvo = datetime.now(timezone.utc) + timedelta(seconds=atraso - reacao)
+    cid = criar_pedido_clipe(alvo, int(ajuste("clipe_antes_seg")),
+                             int(ajuste("clipe_depois_seg")), live_id, tipo)
     if not cid:
         return JSONResponse({"erro": "não consegui registrar o pedido"}, 500)
     return {"id": cid, "alvo_em": alvo.isoformat(), "live_id": live_id,
-            "tipo": tipo, "reacao_descontada": REACAO_SEG, "atraso": atraso}
+            "tipo": tipo, "reacao_descontada": reacao, "atraso": atraso}
 
 
-@app.post("/api/clipe/atraso")
-async def api_clipe_atraso(request: Request):
-    """Muda o atraso da transmissão. É o número que faz o clipe pegar o gol."""
+@app.get("/api/ajustes")
+async def api_ajustes_ler():
+    """Todos os ajustes com o valor de agora, o padrão e a explicação."""
+    saida = []
+    for a in ajustes.AJUSTES:
+        d = dict(a)
+        d["valor"] = ajuste(a["chave"])
+        d["no_padrao"] = d["valor"] == a["padrao"]
+        saida.append(d)
+    return {"ajustes": saida, "grupos": ajustes.grupos()}
+
+
+@app.post("/api/ajustes")
+async def api_ajustes_gravar(request: Request):
+    """Grava um ajuste. Recusa valor fora da faixa em vez de torcer."""
     corpo = {}
     try:
         corpo = await request.json()
     except Exception:
         pass
-    try:
-        v = int(corpo.get("segundos"))
-    except Exception:
-        return JSONResponse({"erro": "diga um número de segundos"}, 400)
-    if not (0 <= v <= ATRASO_MAX_SEG):
-        return JSONResponse({"erro": f"o atraso vai de 0 a {ATRASO_MAX_SEG}s"}, 400)
-    set_state(CHAVE_ATRASO, str(v))
-    return {"ok": True, "atraso": v}
+    chave = (corpo.get("chave") or "").strip()
+    if chave not in ajustes.POR_CHAVE:
+        return JSONResponse({"erro": "não conheço esse ajuste"}, 400)
+    a = ajustes.POR_CHAVE[chave]
+    if corpo.get("padrao"):
+        valor = a["padrao"]
+    else:
+        valor = ajustes.limpar(chave, corpo.get("valor"))
+        if valor is None:
+            faixa = (f"entre {a['min']} e {a['max']}" if a["tipo"] == "int"
+                     else "uma das opções da lista")
+            return JSONResponse({"erro": f"valor inválido — precisa ser {faixa}"}, 400)
+    set_state(chave, str(valor))
+    _CACHE_AJUSTE.pop(chave, None)
+    return {"ok": True, "chave": chave, "valor": valor,
+            "no_padrao": valor == a["padrao"]}
 
 
 @app.post("/api/clipe/pendentes")
@@ -6566,7 +6625,9 @@ async def api_clipe_video(clipe_id: int, baixar: int = 0):
 
 
 @app.post("/api/clipe/{clipe_id}/ajustar")
-async def api_clipe_ajustar(clipe_id: int, delta: int = -PASSO_AJUSTE):
+async def api_clipe_ajustar(clipe_id: int, delta: int = 0):
+    if not delta:
+        return JSONResponse({"erro": "diga de quantos segundos é o ajuste"}, 400)
     if abs(delta) > 60:
         return JSONResponse({"erro": "ajuste de no máximo 60s por vez"}, 400)
     if not ajustar_clipe(clipe_id, delta):
@@ -6685,7 +6746,8 @@ async def api_clipe_guardar(clipe_id: int, guardar: int = 1):
 @app.post("/api/clipe/descartar")
 async def api_clipe_descartar():
     """Faz agora a limpeza que o agendador faria sozinho."""
-    r = descartar_clipes([l.get("id") for l in listar_lives()], HORAS_ATE_DESCARTE)
+    r = descartar_clipes([l.get("id") for l in listar_lives()],
+                         int(ajuste("clipe_horas_descarte")))
     if r.get("erro"):
         return JSONResponse({"erro": r["erro"]}, 500)
     return {"ok": True, "apagados": r["apagados"], "ids": r["ids"]}
@@ -7079,18 +7141,8 @@ __HDR__
     <span class="ponto"></span><span>verificando…</span>
   </div>
 
-  <div class="atraso-caixa">
-    <label for="atraso">Atraso da transmissão</label>
-    <div class="atraso-linha">
-      <input id="atraso" type="number" min="0" max="120" step="1" inputmode="numeric">
-      <span>segundos</span>
-      <button id="salvarAtraso" type="button">Salvar</button>
-      <span class="atraso-ok" id="atrasoOk"></span>
-    </div>
-    <p class="atraso-nota">Quanto a live do canal está atrás do que você assiste.
-      Se o clipe estiver pegando a jogada ANTES do gol, aumente. Se estiver
-      pegando a comemoração já começada, diminua.</p>
-  </div>
+  <p class="atraso-nota" style="margin:0 0 12px">Janela do clipe, atraso da
+    transmissão e descarte agora ficam em <a href="/config">Configurações</a>.</p>
 
   <div id="jogos"></div>
 
@@ -7303,42 +7355,8 @@ async function carregar() {
   }
 
   pintarJogos(lives, grav);
-  pintarAtraso(d.atraso);
   pintarDisponiveis(d.disponiveis || [], lives, d.max || 4, g.online);
   pintarClipes(d.clipes || []);
-}
-
-function pintarAtraso(seg) {
-  const cx = document.getElementById('atraso');
-  if (!cx || seg === undefined || seg === null) return;
-  // Não sobrescrevo enquanto você está digitando: a tela recarrega sozinha a
-  // cada poucos segundos e apagaria o número no meio da edição.
-  if (document.activeElement === cx) return;
-  cx.value = seg;
-}
-
-function ligarAtraso() {
-  const cx = document.getElementById('atraso');
-  const b = document.getElementById('salvarAtraso');
-  const ok = document.getElementById('atrasoOk');
-  if (!cx || !b) return;
-  b.onclick = async function () {
-    b.disabled = true;
-    ok.textContent = '';
-    try {
-      const r = await fetch('/api/clipe/atraso', {
-        method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({segundos: parseInt(cx.value, 10)})
-      });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
-      ok.textContent = 'salvo';
-      setTimeout(function () { ok.textContent = ''; }, 2500);
-    } catch (e) {
-      alert('não salvou: ' + (e.message || e));
-    }
-    b.disabled = false;
-  };
 }
 
 function pintarJogos(lives, grav) {
@@ -7774,9 +7792,209 @@ function ciclo() {
   clearTimeout(_timer);
   _timer = setTimeout(ciclo, 5000);
 }
-ligarAtraso();
 ciclo();
 '''
+
+
+_CONFIG_CSS = """
+body{background:var(--c-bg);color:var(--c-text);font-family:'Inter',system-ui,
+  -apple-system,'Segoe UI',sans-serif;margin:0}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 70px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.02em;
+  margin:0 0 4px}
+.sub{color:var(--c-muted-3);font-size:.8rem;line-height:1.6;margin:0 0 22px}
+.grupo{font-family:'Bebas Neue',sans-serif;font-size:1.15rem;letter-spacing:.04em;
+  color:var(--c-muted-4);margin:26px 0 10px;padding-bottom:6px;
+  border-bottom:1px solid var(--c-border-2)}
+.item{padding:14px 0;border-bottom:1px solid var(--c-border-2)}
+.item:last-child{border-bottom:none}
+.linha{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.rotulo{font-weight:700;font-size:.9rem;flex:1;min-width:180px}
+.campo{display:flex;gap:7px;align-items:center}
+.campo input,.campo select{width:96px;padding:8px 10px;border-radius:9px;
+  background:var(--surface2);border:1.5px solid var(--c-border-2);
+  color:var(--c-text);font-family:inherit;font-size:.95rem;font-weight:700;
+  text-align:center}
+.campo select{width:132px}
+.campo .un{font-size:.75rem;color:var(--c-muted-3)}
+.ajuda{margin:8px 0 0;font-size:.75rem;line-height:1.65;color:var(--c-muted-3)}
+.estado{font-size:.68rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.06em;min-height:14px;margin-top:6px}
+.estado.ok{color:#22c55e}
+.estado.ruim{color:#fb7185}
+.padrao{font-size:.68rem;color:var(--c-muted-3);background:none;border:none;
+  cursor:pointer;text-decoration:underline;padding:0;font-family:inherit}
+.mudado{font-size:.6rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.05em;color:#eab308;border:1px solid #eab308;border-radius:99px;
+  padding:2px 7px;margin-left:6px}
+"""
+
+_CONFIG_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Configuracoes - IARABAO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__CONFIG_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Configura&ccedil;&otilde;es</h1>
+  <p class="sub">Os n&uacute;meros que d&aacute; para mexer sem tocar em c&oacute;digo.
+    Valem na hora: o app usa no clipe seguinte, e a m&aacute;quina que grava pega
+    na pr&oacute;xima consulta.</p>
+  <div id="lista">carregando...</div>
+</div>
+<script>
+__CONFIG_JS__
+</script>
+</body>
+</html>"""
+
+_CONFIG_JS = r"""
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function carregar() {
+  const alvo = document.getElementById('lista');
+  let d;
+  try {
+    const r = await fetch('/api/ajustes?_=' + Date.now());
+    d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+  } catch (e) {
+    alvo.innerHTML = '<p class="ajuda" style="color:#fb7185">Nao consegui ler os '
+      + 'ajustes: ' + esc(e.message || String(e)) + '</p>';
+    return;
+  }
+  alvo.innerHTML = '';
+  (d.grupos || []).forEach(function (g) {
+    const t = document.createElement('div');
+    t.className = 'grupo';
+    t.textContent = g;
+    alvo.appendChild(t);
+    (d.ajustes || []).filter(function (a) { return a.grupo === g; })
+      .forEach(function (a) { alvo.appendChild(cartao(a)); });
+  });
+}
+
+function cartao(a) {
+  const d = document.createElement('div');
+  d.className = 'item';
+
+  const linha = document.createElement('div');
+  linha.className = 'linha';
+  const rot = document.createElement('div');
+  rot.className = 'rotulo';
+  rot.textContent = a.rotulo;
+  if (!a.no_padrao) {
+    const m = document.createElement('span');
+    m.className = 'mudado';
+    m.textContent = 'mudado';
+    m.title = 'o padrao e ' + a.padrao;
+    rot.appendChild(m);
+  }
+  linha.appendChild(rot);
+
+  const campo = document.createElement('div');
+  campo.className = 'campo';
+  let entrada;
+  if (a.tipo === 'escolha') {
+    entrada = document.createElement('select');
+    (a.opcoes || []).forEach(function (o) {
+      const op = document.createElement('option');
+      op.value = o;
+      op.textContent = o;
+      if (o === a.valor) op.selected = true;
+      entrada.appendChild(op);
+    });
+  } else {
+    entrada = document.createElement('input');
+    entrada.type = 'number';
+    entrada.min = a.min;
+    entrada.max = a.max;
+    entrada.step = 1;
+    entrada.inputMode = 'numeric';
+    entrada.value = a.valor;
+  }
+  campo.appendChild(entrada);
+  if (a.unidade) {
+    const un = document.createElement('span');
+    un.className = 'un';
+    un.textContent = a.unidade;
+    campo.appendChild(un);
+  }
+  linha.appendChild(campo);
+  d.appendChild(linha);
+
+  const ajuda = document.createElement('p');
+  ajuda.className = 'ajuda';
+  ajuda.textContent = a.ajuda;
+  d.appendChild(ajuda);
+
+  const estado = document.createElement('div');
+  estado.className = 'estado';
+  d.appendChild(estado);
+
+  const voltar = document.createElement('button');
+  voltar.className = 'padrao';
+  voltar.textContent = 'voltar ao padrao (' + a.padrao + ')';
+  voltar.onclick = function () { salvar(a, entrada, estado, true); };
+  d.appendChild(voltar);
+
+  // Salva ao sair do campo, e nao a cada tecla: digitar "1" no caminho de
+  // "12" gravaria um valor que voce nunca quis.
+  entrada.onchange = function () { salvar(a, entrada, estado, false); };
+  entrada.onblur = function () { salvar(a, entrada, estado, false); };
+  return d;
+}
+
+async function salvar(a, entrada, estado, padrao) {
+  const valor = padrao ? a.padrao : entrada.value;
+  if (!padrao && String(valor) === String(a.valor)) return;
+  estado.className = 'estado';
+  estado.textContent = 'salvando...';
+  try {
+    const r = await fetch('/api/ajustes', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({chave: a.chave, valor: valor, padrao: padrao})
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+    a.valor = j.valor;
+    entrada.value = j.valor;
+    estado.className = 'estado ok';
+    estado.textContent = 'salvo';
+    setTimeout(carregar, 1200);
+  } catch (e) {
+    estado.className = 'estado ruim';
+    estado.textContent = e.message || String(e);
+    entrada.value = a.valor;
+  }
+}
+
+carregar();
+"""
+
+
+@app.get("/config", response_class=HTMLResponse)
+async def config_page():
+    return HTMLResponse(
+        _CONFIG_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__CONFIG_CSS__", _CONFIG_CSS)
+        .replace("__CONFIG_JS__", _CONFIG_JS)
+        .replace("__HDR__", _header("/config"))
+    )
 
 
 @app.get("/clipes", response_class=HTMLResponse)
@@ -7790,7 +8008,7 @@ async def clipes_page():
         # O passo dos botões vem do servidor. Se eu escrevesse 8 na tela e 8
         # aqui, um dia mudaria um e não o outro, e o botão diria uma coisa
         # enquanto o corte fazia outra.
-        .replace("__PASSO_AJUSTE__", str(PASSO_AJUSTE))
+        .replace("__PASSO_AJUSTE__", str(ajuste("clipe_passo_ajuste")))
         .replace("__HDR__", _header("/clipes"))
     )
 
