@@ -36,7 +36,6 @@ import fim_sportmonks as sm
 import clubs
 import glossary
 import ajustes
-import aspas
 from sources import SOURCE_MOON
 import elenco_tm
 import x_client
@@ -282,63 +281,76 @@ _THEME_VARS_CSS = (
 )
 
 _HEADER_CSS = _THEME_VARS_CSS + (
-    # ── O TOPO ────────────────────────────────────────────────────────────
-    "    .topo { background: var(--c-bg); padding: 12px 14px; display: flex;\n"
+    # TODAS as classes daqui levam o prefixo "iar-".
+    #
+    # Não é preciosismo. A barra de baixo se chamava ".barra", e as telas de
+    # Posts e Elencos já tinham uma ".barra" delas — uma fileira de botões.
+    # O CSS da página carrega DEPOIS deste, então a definição delas vencia e a
+    # pílula flutuante virava uma bolha esparramada. O mesmo valia para ".topo"
+    # e ".marca".
+    #
+    # Um prefixo resolve a classe inteira de problema de uma vez, em vez de eu
+    # renomear uma por uma toda vez que alguém criar um ".card" novo.
+    "    .iar-topo { background: var(--c-bg); padding: 12px 14px; display: flex;\n"
     "      align-items: center; justify-content: space-between; position: sticky;\n"
-    "      top: 0; z-index: 20; gap: 8px; }\n"
-    "    .topo-lado { display: flex; align-items: center; gap: 8px; min-width: 44px; }\n"
-    "    .topo-lado.dir { justify-content: flex-end; }\n"
-    "    .marca { font-family: 'Bebas Neue', system-ui, sans-serif; font-size: 1.5rem;\n"
-    "      letter-spacing: .06em; color: var(--c-acento); text-decoration: none;\n"
-    "      line-height: 1; }\n"
-    "    .topo-btn { width: 38px; height: 38px; border-radius: 12px; display: flex;\n"
-    "      align-items: center; justify-content: center; background: var(--c-bg-card);\n"
-    "      border: 1px solid var(--c-border); color: var(--c-muted-4); cursor: pointer;\n"
-    "      text-decoration: none; padding: 0; }\n"
-    "    .topo-btn:hover, .topo-btn.ativo { color: var(--c-acento);\n"
+    "      top: 0; z-index: 20; gap: 10px; }\n"
+    "    .iar-lado { display: flex; align-items: center; gap: 8px; min-width: 44px; }\n"
+    "    .iar-lado.dir { justify-content: flex-end; }\n"
+    "    .iar-marca { font-family: 'Bebas Neue', system-ui, sans-serif;\n"
+    "      font-size: 1.45rem; letter-spacing: .05em; color: var(--c-acento);\n"
+    "      text-decoration: none; line-height: 1; white-space: nowrap;\n"
+    "      overflow: hidden; text-overflow: ellipsis; }\n"
+    "    .iar-btn { width: 38px; height: 38px; flex: 0 0 38px; border-radius: 12px;\n"
+    "      display: flex; align-items: center; justify-content: center;\n"
+    "      background: var(--c-bg-card); border: 1px solid var(--c-border);\n"
+    "      color: var(--c-muted-4); cursor: pointer; text-decoration: none;\n"
+    "      padding: 0; }\n"
+    "    .iar-btn:hover, .iar-btn.ativo { color: var(--c-acento);\n"
     "      border-color: var(--c-acento); }\n"
     # ── A BARRA DE BAIXO ──────────────────────────────────────────────────
-    # Flutuante, como você pediu. No celular o polegar alcança a base da tela
-    # e não alcança o topo — é o lugar certo para o que se usa o tempo todo.
-    #
-    # overflow-x com rolagem: são oito ícones, e num telefone estreito eles
-    # não cabem lado a lado. Rolar é melhor que espremer até não dar para
-    # acertar com o dedo.
-    "    .barra { position: fixed; left: 50%; transform: translateX(-50%);\n"
+    # A rolagem fica no MIOLO, não na pílula. Overflow cria contexto de
+    # recorte, e o menu de reticências é posicionado em relação à pílula: com
+    # overflow nela, o menu abria e ficava cortado, invisível. O botão parecia
+    # não funcionar — e funcionava.
+    "    .iar-nav { position: fixed; left: 50%; transform: translateX(-50%);\n"
     "      bottom: max(12px, env(safe-area-inset-bottom)); z-index: 30;\n"
-    "      display: flex; align-items: center; gap: 2px; padding: 6px;\n"
+    "      display: flex; align-items: center; padding: 6px; gap: 4px;\n"
     "      border-radius: 999px; background: var(--c-bg-card);\n"
     "      border: 1px solid var(--c-border-2);\n"
     "      box-shadow: 0 8px 30px rgba(0,0,0,.45);\n"
-    "      max-width: calc(100vw - 24px); overflow-x: auto;\n"
-    "      scrollbar-width: none; }\n"
-    "    .barra::-webkit-scrollbar { display: none; }\n"
-    "    .nav-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 999px;\n"
+    "      max-width: calc(100vw - 20px); }\n"
+    "    .iar-rolo { display: flex; align-items: center; gap: 2px;\n"
+    "      overflow-x: auto; scrollbar-width: none; }\n"
+    "    .iar-rolo::-webkit-scrollbar { display: none; }\n"
+    "    .iar-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 999px;\n"
     "      display: flex; align-items: center; justify-content: center;\n"
     "      color: var(--c-muted-3); text-decoration: none; position: relative;\n"
     "      background: transparent; border: none; cursor: pointer; padding: 0; }\n"
-    "    .nav-icon:hover { color: var(--c-text); }\n"
-    "    .nav-icon.active { background: var(--c-acento);\n"
+    "    .iar-icon:hover { color: var(--c-text); }\n"
+    "    .iar-icon.ativo { background: var(--c-acento);\n"
     "      color: var(--c-acento-texto) !important; }\n"
-    "    .nav-badge { position: absolute; top: 5px; right: 6px; min-width: 15px;\n"
-    "      height: 15px; padding: 0 3px; border-radius: 99px; background: var(--c-negativo);\n"
-    "      color: #fff; font-size: .58rem; font-weight: 800; display: flex;\n"
-    "      align-items: center; justify-content: center; }\n"
-    # A página precisa de folga embaixo para o último item não ficar debaixo
-    # da barra flutuante.
-    "    body { padding-bottom: 84px; }\n"
+    "    .iar-badge { position: absolute; top: 5px; right: 6px; min-width: 15px;\n"
+    "      height: 15px; padding: 0 3px; border-radius: 99px;\n"
+    "      background: var(--c-negativo); color: #fff; font-size: .58rem;\n"
+    "      font-weight: 800; display: flex; align-items: center;\n"
+    "      justify-content: center; }\n"
+    "    body { padding-bottom: 88px; }\n"
     # ── O MENU DE RETICÊNCIAS ─────────────────────────────────────────────
-    # Abre para CIMA agora, porque a barra vive embaixo.
-    "    .nav-mais { position: relative; flex: 0 0 auto; }\n"
-    "    .nav-menu { position: absolute; bottom: 52px; right: 0; min-width: 190px;\n"
-    "      background: var(--c-bg-card); border: 1px solid var(--c-border-2);\n"
-    "      border-radius: 14px; padding: 6px; display: none; flex-direction: column;\n"
-    "      gap: 2px; box-shadow: 0 10px 34px rgba(0,0,0,.5); z-index: 40; }\n"
-    "    .nav-menu.aberto { display: flex; }\n"
-    "    .nav-menu a { display: flex; align-items: center; gap: 10px; padding: 9px 11px;\n"
-    "      border-radius: 10px; color: var(--c-muted-4); text-decoration: none;\n"
-    "      font-size: .8rem; font-weight: 600; font-family: 'Inter', system-ui, sans-serif; }\n"
-    "    .nav-menu a:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
+    # Fixo, e não absoluto: assim nenhum overflow de ancestral consegue
+    # recortá-lo, que foi exatamente o que aconteceu.
+    "    .iar-mais { flex: 0 0 auto; display: flex; }\n"
+    "    .iar-menu { position: fixed; right: 14px;\n"
+    "      bottom: calc(max(12px, env(safe-area-inset-bottom)) + 62px);\n"
+    "      min-width: 196px; background: var(--c-bg-card);\n"
+    "      border: 1px solid var(--c-border-2); border-radius: 14px; padding: 6px;\n"
+    "      display: none; flex-direction: column; gap: 2px;\n"
+    "      box-shadow: 0 10px 34px rgba(0,0,0,.55); z-index: 40; }\n"
+    "    .iar-menu.aberto { display: flex; }\n"
+    "    .iar-menu a { display: flex; align-items: center; gap: 10px;\n"
+    "      padding: 9px 11px; border-radius: 10px; color: var(--c-muted-4);\n"
+    "      text-decoration: none; font-size: .8rem; font-weight: 600;\n"
+    "      font-family: 'Inter', system-ui, sans-serif; }\n"
+    "    .iar-menu a:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
 )
 
 # Tags que transformam o site em app de tela de início no iPhone. Vão no <head>
@@ -369,6 +381,11 @@ _HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD
 
 # As seis do dia a dia ficam na barra; o resto vai para o menu de reticências.
 # Eram dez ícones lado a lado, o que estourava a largura no celular.
+_ICO_INICIO  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 '
+                '2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>')
+
 _ICO_MERCADO = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M21 3 9 15"/>'
@@ -398,7 +415,8 @@ _ICO_CONFIG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                '1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>')
 
 _NAV_PRINCIPAIS = [
-    ("/noticias", _ICO_HOME,   "Notícias", "home", ""),
+    ("/",         _ICO_INICIO, "Início",   "home", ""),
+    ("/noticias", _ICO_HOME,   "Notícias", "",     ""),
     ("/mercado",  _ICO_MERCADO, "Mercado",  "",     ""),
     ("/aspas",    _ICO_ASPAS,   "Aspas",    "",     ""),
     ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#FD5D5D"),
@@ -425,28 +443,27 @@ _NAV_EXTRAS = [
 
 
 def _header(active: str) -> str:
-    items = ""
+    rolaveis = ""
     for href, ico, label, badge_tab, color in _NAV_PRINCIPAIS:
-        cls = "nav-icon" + (" active" if href == active else "")
-        badge = (f'<span class="nav-badge" data-tab="{badge_tab}" style="display:none"></span>'
+        cls = "iar-icon" + (" ativo" if href == active else "")
+        badge = (f'<span class="iar-badge" data-tab="{badge_tab}" style="display:none"></span>'
                  if badge_tab else "")
-        items += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
+        rolaveis += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
 
     # O botão herda a cor da página aberta quando ela está escondida no menu —
     # senão não haveria pista nenhuma de onde você está.
     aberto_no_menu = next((p for p in _NAV_EXTRAS if p[0] == active), None)
-    cls_mais = "nav-icon" + (" active" if aberto_no_menu else "")
+    cls_mais = "iar-icon" + (" ativo" if aberto_no_menu else "")
     estilo_mais = ""
     opcoes = ""
     for href, ico, label, _b, color in _NAV_EXTRAS:
         marca = ' aria-current="page"' if href == active else ""
         cor = 'style="color:var(--c-acento)"' if href == active else ""
         opcoes += f'<a href="{href}"{marca} {cor}>{ico}<span>{label}</span></a>'
-    items += (
-        '<div class="nav-mais">'
-        f'<button type="button" class="{cls_mais}" {estilo_mais} id="btnMais" '
+    items = (
+        '<div class="iar-mais">'
+        f'<button type="button" class="{cls_mais}" id="btnMais" '
         'aria-haspopup="true" aria-expanded="false" title="Mais">' + _ICO_MAIS + '</button>'
-        f'<div class="nav-menu" id="navMenu">{opcoes}</div>'
         '</div>'
     )
     menu_script = """<script>
@@ -547,33 +564,37 @@ def _header(active: str) -> str:
     # O "voltar" só aparece fora da tela inicial. Botão de voltar na primeira
     # tela é botão que mente.
     voltar = ("" if active == "/" else
-              '<button type="button" class="topo-btn" onclick="history.back()" '
+              '<button type="button" class="iar-btn" onclick="history.back()" '
               'title="Voltar" aria-label="Voltar">' + _ICO_VOLTAR + '</button>')
     cfg_ativa = " ativo" if active == "/config" else ""
     topo = (
-        '<header class="topo">'
-        f'<div class="topo-lado">{voltar}</div>'
-        '<a class="marca" href="/" title="IARABÃO">IA</a>'
-        f'<div class="topo-lado dir">{token_dot}'
-        f'<a class="topo-btn{cfg_ativa}" href="/config" title="Configurações" '
+        '<header class="iar-topo">'
+        f'<div class="iar-lado">{voltar}</div>'
+        '<a class="iar-marca" href="/" title="IARABÃO">IARABÃO</a>'
+        f'<div class="iar-lado dir">{token_dot}'
+        f'<a class="iar-btn{cfg_ativa}" href="/config" title="Configurações" '
         f'aria-label="Configurações">{_ICO_CONFIG}</a></div>'
         '</header>'
     )
-    return (topo + f'<nav class="barra">{items}</nav>'
-            f'{menu_script}{badge_script}{theme_script}{token_script}')
+    return (topo
+            + f'<nav class="iar-nav"><div class="iar-rolo">{rolaveis}</div>{items}</nav>'
+            + f'<div class="iar-menu" id="navMenu">{opcoes}</div>'
+            + f'{menu_script}{badge_script}{theme_script}{token_script}')
 
 
 
 # ─── Dashboard ───────────────────────────────
-async def _pagina_de_noticias(so_mercado: bool):
-    """A antiga home, agora servindo duas telas.
+async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
+    """A antiga home, agora servindo três telas.
 
-    MERCADO leva só as notícias de transferência; NOTÍCIAS leva todo o resto.
-    A separação usa a categoria que o pipeline já atribuía — a peneira existia
-    desde sempre, só não tinha tela própria.
+    MERCADO leva as de transferência, ASPAS leva as de entrevista, e NOTÍCIAS
+    leva o resto. A separação usa a categoria que o pipeline já atribuía — a
+    peneira existia desde sempre, só não tinha tela própria.
 
-    Uma função com um parâmetro, e não duas cópias: são setecentas linhas, e
-    duas cópias divergiriam na primeira correção que alguém fizesse só numa.
+    Uma função com um parâmetro, e não três cópias: são setecentas linhas, e
+    cópias divergiriam na primeira correção que alguém fizesse só numa delas.
+
+    categoria vazia significa "tudo que não é mercado nem entrevista".
     """
     articles = get_recent_articles(hours=48, limit=80)
     _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
@@ -583,7 +604,8 @@ async def _pagina_de_noticias(so_mercado: bool):
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and not _is_selecao_article(a)
         and _is_actually_saudi_football(a)
-        and ((a.get("category") == "mercado") == so_mercado)
+        and (a.get("category") == categoria if categoria
+             else a.get("category") not in ("mercado", "entrevista"))
     ]
     articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
 
@@ -1000,7 +1022,7 @@ async def _pagina_de_noticias(so_mercado: bool):
   </script>
 </head>
 <body>
-  {_header("/mercado" if so_mercado else "/noticias")}
+  {_header(rota)}
   <div class="topbar">
     <span class="count">{len(articles)} notícias · 48h</span>
     <button class="coleta-btn" onclick="toggleColetaPainel()" title="Escolher quais categorias são traduzidas">⚙️ Coleta</button>
@@ -1348,25 +1370,16 @@ function filterCat(btn,cat){{
 
 @app.get("/noticias", response_class=HTMLResponse)
 async def pagina_noticias():
-    """Tudo que não é transferência."""
-    return await _pagina_de_noticias(False)
+    """Tudo que não é transferência nem entrevista."""
+    return await _pagina_de_noticias("", "/noticias")
 
 
 @app.get("/mercado", response_class=HTMLResponse)
 async def pagina_mercado():
     """Só transferências: sondagens, negociações, renovações, saídas."""
-    return await _pagina_de_noticias(True)
+    return await _pagina_de_noticias("mercado", "/mercado")
 
 
-@app.get("/")
-async def home():
-    """Por enquanto manda para Notícias.
-
-    Aqui vai nascer a tela de aprovação. Enquanto ela não existe, mandar para
-    Notícias é melhor que deixar a raiz do app em branco — quem digita o
-    endereço sem barra nenhuma chega em algum lugar útil.
-    """
-    return RedirectResponse("/noticias")
 
 
 
@@ -8142,190 +8155,366 @@ carregar();
 """
 
 
-_ASPAS_CSS = """
+# ══════════════════════════════════════════════════════════════════════════
+# A TELA INICIAL — APROVAÇÃO
+#
+# A ideia: sua rotina de posts vira um log de curadoria. O app junta o que
+# está esperando decisão nas várias guias, mostra em números grandes quanto
+# tem de cada tipo, e embaixo a lista com ✓ e ✗.
+#
+# Os números NÃO são estimativa. Cada um é uma contagem de coisa que existe e
+# está esperando você: post na fila, clipe pronto, notícia que ainda não foi
+# vista. Se um número mentir, é bug meu, não arredondamento.
+
+# Cada categoria: chave, rótulo, ícone e onde ela mora.
+CATEGORIAS_APROVACAO = [
+    ("posts",   "Posts",     "/posts",    "acento"),
+    ("clipes",  "Clipes",    "/clipes",   "alerta"),
+    ("mercado", "Mercado",   "/mercado",  "acento"),
+    ("aspas",   "Aspas",     "/aspas",    "alerta"),
+]
+
+
+def _contar_para_aprovar() -> dict:
+    """Quanto está esperando decisão em cada frente.
+
+    Cada contagem vem de uma consulta de verdade. Onde eu não souber contar,
+    devolvo None e a tela mostra um traço — melhor um traço honesto que um
+    zero que faz você achar que não tem nada esperando.
+    """
+    saida = {}
+    try:
+        saida["posts"] = len(listar_posts(status="pendente", limite=200))
+    except Exception:
+        saida["posts"] = None
+    try:
+        saida["clipes"] = len([c for c in clipes_recentes(24)
+                               if c.get("estado") == "pronto"])
+    except Exception:
+        saida["clipes"] = None
+    for chave, categoria in (("mercado", "mercado"), ("aspas", "entrevista")):
+        try:
+            saida[chave] = len([a for a in get_recent_articles(hours=24, limit=200)
+                                if a.get("category") == categoria
+                                and a.get("title_pt")])
+        except Exception:
+            saida[chave] = None
+    return saida
+
+
+def _log_de_entrada(limite: int = 40) -> list:
+    """O que entrou, em ordem de chegada, com de onde veio e quando."""
+    itens = []
+    try:
+        for p in listar_posts(limite=limite):
+            itens.append({
+                "tipo": "posts", "titulo": (p.get("texto") or "")[:120],
+                "quando": (p.get("criado_em") or ""), "estado": p.get("status") or "",
+                "id": p.get("id"), "onde": "/posts",
+            })
+    except Exception:
+        pass
+    try:
+        for c in clipes_recentes(24):
+            itens.append({
+                "tipo": "clipes",
+                "titulo": (c.get("texto") or c.get("jogo") or "Clipe")[:120],
+                "quando": c.get("atualizado_em") or c.get("pedido_em") or "",
+                "estado": c.get("estado") or "", "id": c.get("id"), "onde": "/clipes",
+            })
+    except Exception:
+        pass
+    try:
+        for a in get_recent_articles(hours=24, limit=60):
+            if not a.get("title_pt"):
+                continue
+            cat = a.get("category") or "geral"
+            itens.append({
+                "tipo": "mercado" if cat == "mercado" else
+                        "aspas" if cat == "entrevista" else "noticias",
+                "titulo": (a.get("title_pt") or "")[:120],
+                "quando": a.get("collected_at") or "", "estado": "",
+                "id": a.get("id"), "onde": "/mercado" if cat == "mercado" else
+                        "/aspas" if cat == "entrevista" else "/noticias",
+            })
+    except Exception:
+        pass
+    itens.sort(key=lambda i: str(i.get("quando") or ""), reverse=True)
+    return itens[:limite]
+
+
+@app.get("/api/aprovacao")
+async def api_aprovacao():
+    """Os números e o log da tela inicial."""
+    return {"numeros": _contar_para_aprovar(), "log": _log_de_entrada(),
+            "categorias": [{"chave": c[0], "rotulo": c[1], "onde": c[2],
+                            "cor": c[3]} for c in CATEGORIAS_APROVACAO]}
+
+
+@app.post("/api/aprovacao/{tipo}/{item_id}")
+async def api_aprovacao_decidir(tipo: str, item_id: int, decisao: str = ""):
+    """O ✓ e o ✗ da lista.
+
+    Só sabe decidir o que tem decisão de verdade por trás. Post pendente vira
+    aprovado ou cancelado. Para os outros tipos eu digo que não sei, em vez de
+    fingir que registrei — botão que não faz nada é pior que botão ausente.
+    """
+    if decisao not in ("sim", "nao"):
+        return JSONResponse({"erro": "diga sim ou nao"}, 400)
+    if tipo != "posts":
+        return JSONResponse(
+            {"erro": f"ainda não sei aprovar '{tipo}' por aqui — abra a guia"}, 400)
+    novo = "aprovado" if decisao == "sim" else "cancelado"
+    if not marcar_post(item_id, novo):
+        return JSONResponse({"erro": "não consegui mudar este post"}, 409)
+    return {"ok": True, "estado": novo}
+
+
+_HOME_CSS = """
 body{background:var(--c-bg);color:var(--c-text);
   font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
-.wrap{max-width:760px;margin:0 auto;padding:18px 16px 70px}
-h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.02em;margin:0 0 4px}
-.sub{color:var(--c-muted-3);font-size:.78rem;line-height:1.6;margin:0 0 20px}
-.cit{background:var(--c-bg-card);border:1px solid var(--c-border);
-  border-radius:16px;padding:18px 18px 15px;margin-bottom:12px}
-.quem{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:.03em;
-  color:var(--c-acento);margin:0 0 8px;line-height:1.1}
-.fala{font-size:1rem;line-height:1.62;margin:0 0 12px;color:var(--c-text)}
-.pe{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
-  font-size:.72rem;color:var(--c-muted-3);border-top:1px solid var(--c-border);
-  padding-top:10px}
-.onde{font-style:italic}
-.via{margin-left:auto;font-weight:700;letter-spacing:.03em}
-.via a{color:var(--c-muted-4);text-decoration:none}
-.via a:hover{color:var(--c-acento)}
-.copiar{background:none;border:1px solid var(--c-border-2);border-radius:99px;
-  color:var(--c-muted-3);font-family:inherit;font-size:.62rem;font-weight:800;
-  text-transform:uppercase;letter-spacing:.06em;padding:4px 11px;cursor:pointer}
-.copiar:hover{border-color:var(--c-acento);color:var(--c-acento)}
-.vazio{padding:40px 16px;text-align:center;color:var(--c-muted-3);
+.wrap{max-width:820px;margin:0 auto;padding:6px 16px 70px}
+.ola{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
+  margin:8px 0 2px;line-height:1.05}
+.ola small{display:block;font-family:'Inter',sans-serif;font-size:.76rem;
+  font-weight:500;letter-spacing:0;color:var(--c-muted-3);margin-top:6px}
+.numeros{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:20px 0 8px}
+.bloco{border-radius:20px;padding:16px 16px 14px;text-decoration:none;
+  display:flex;flex-direction:column;min-height:112px;border:1px solid transparent}
+.bloco .rot{font-size:.74rem;font-weight:700;opacity:.75;margin-bottom:auto}
+.bloco .num{font-family:'Bebas Neue',sans-serif;font-size:2.6rem;line-height:1;
+  letter-spacing:.01em}
+.bloco .ico{width:30px;height:30px;border-radius:10px;display:flex;
+  align-items:center;justify-content:center;margin-bottom:10px}
+.bloco.acento{background:var(--c-acento);color:var(--c-acento-texto)}
+.bloco.acento .ico{background:rgba(8,8,14,.16)}
+.bloco.alerta{background:var(--c-alerta);color:#08080E}
+.bloco.alerta .ico{background:rgba(8,8,14,.16)}
+.bloco.quieto{background:var(--c-bg-card);color:var(--c-text);
+  border-color:var(--c-border)}
+.bloco.quieto .ico{background:var(--c-bg-soft);color:var(--c-acento)}
+.titulo-secao{display:flex;align-items:center;justify-content:space-between;
+  margin:26px 0 10px}
+.titulo-secao h2{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;
+  letter-spacing:.04em;margin:0}
+.titulo-secao a{font-size:.72rem;color:var(--c-muted-3);text-decoration:none}
+.item{display:flex;align-items:center;gap:12px;background:var(--c-bg-card);
+  border:1px solid var(--c-border);border-radius:16px;padding:12px 14px;
+  margin-bottom:8px}
+.item .ico{width:34px;height:34px;flex:0 0 34px;border-radius:11px;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--c-bg-soft);color:var(--c-acento)}
+.item .meio{flex:1;min-width:0}
+.item .tit{font-size:.82rem;font-weight:600;line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden}
+.item .sub{font-size:.68rem;color:var(--c-muted-3);margin-top:3px}
+.item .acoes{display:flex;gap:6px;flex:0 0 auto}
+.dec{width:34px;height:34px;border-radius:11px;border:1px solid var(--c-border-2);
+  background:transparent;color:var(--c-muted-3);cursor:pointer;display:flex;
+  align-items:center;justify-content:center;padding:0}
+.dec.sim:hover{background:var(--c-acento);border-color:var(--c-acento);
+  color:var(--c-acento-texto)}
+.dec.nao:hover{background:var(--c-negativo);border-color:var(--c-negativo);color:#fff}
+.dec:disabled{opacity:.35;cursor:default}
+.vazio{padding:34px 16px;text-align:center;color:var(--c-muted-3);
   font-size:.82rem;line-height:1.7}
-.nota{margin-top:22px;padding:13px 15px;border-radius:12px;
-  background:var(--c-bg-soft);border:1px solid var(--c-border);
-  font-size:.72rem;line-height:1.65;color:var(--c-muted-3)}
+@media (min-width:640px){.numeros{grid-template-columns:repeat(4,1fr)}}
 """
 
-_ASPAS_HTML = """<!DOCTYPE html>
+_HOME_HTML = """<!DOCTYPE html>
 <html lang="pt">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Aspas - IARABAO</title>
+<title>IARABAO</title>
 __THEME__
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
 __HEADER_CSS__
-__ASPAS_CSS__
+__HOME_CSS__
 </style>
 </head>
 <body>
 __HDR__
 <div class="wrap">
-  <h1>Aspas</h1>
-  <p class="sub">O que foi dito, de quem, onde e por qual fonte.</p>
-  <div id="lista">carregando...</div>
+  <h1 class="ola" id="ola">Salamaleikum
+    <small id="resumo">carregando...</small>
+  </h1>
+  <div class="numeros" id="numeros"></div>
+  <div class="titulo-secao">
+    <h2>Entrou agora</h2>
+    <a href="/noticias">ver noticias</a>
+  </div>
+  <div id="log">carregando...</div>
 </div>
 <script>
-__ASPAS_JS__
+__HOME_JS__
 </script>
 </body>
 </html>"""
 
-_ASPAS_JS = r"""
+_HOME_JS = r"""
+const ICONES = __ICONES_JSON__;
+
 function esc(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+function quando(iso) {
+  if (!iso) return '';
+  const t = new Date(iso);
+  if (isNaN(t)) return '';
+  const min = Math.floor((Date.now() - t.getTime()) / 60000);
+  if (min < 1) return 'agora';
+  if (min < 60) return 'ha ' + min + ' min';
+  if (min < 1440) return 'ha ' + Math.floor(min / 60) + 'h';
+  return t.toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit'});
+}
+
 async function carregar() {
-  const alvo = document.getElementById('lista');
   let d;
   try {
-    const r = await fetch('/api/aspas?_=' + Date.now());
+    const r = await fetch('/api/aprovacao?_=' + Date.now());
     d = await r.json();
     if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
   } catch (e) {
-    alvo.innerHTML = '<div class="vazio" style="color:var(--c-negativo)">'
-      + esc(e.message || String(e)) + '</div>';
+    document.getElementById('resumo').textContent =
+      'nao consegui carregar: ' + (e.message || e);
     return;
   }
 
+  const n = d.numeros || {};
+  const total = Object.values(n).reduce(function (s, v) {
+    return s + (typeof v === 'number' ? v : 0);
+  }, 0);
+  document.getElementById('resumo').textContent = total
+    ? total + ' item(ns) esperando voce.'
+    : 'Nada esperando decisao agora.';
+
+  const cx = document.getElementById('numeros');
+  cx.innerHTML = '';
+  (d.categorias || []).forEach(function (c) {
+    const v = n[c.chave];
+    const a = document.createElement('a');
+    // Sem nada esperando, o bloco fica quieto. Cor forte em tudo o tempo todo
+    // faz voce parar de enxergar a cor forte.
+    a.className = 'bloco ' + (v ? c.cor : 'quieto');
+    a.href = c.onde;
+    a.innerHTML = '<div class="ico">' + (ICONES[c.chave] || '') + '</div>'
+      + '<div class="rot">' + esc(c.rotulo) + '</div>'
+      + '<div class="num">' + (v === null || v === undefined ? '—' : v) + '</div>';
+    cx.appendChild(a);
+  });
+
+  const alvo = document.getElementById('log');
   alvo.innerHTML = '';
-  (d.citacoes || []).forEach(function (c) { alvo.appendChild(cartao(c)); });
-
-  if (!(d.citacoes || []).length) {
-    alvo.innerHTML = '<div class="vazio">Nenhuma declaracao nas ultimas '
-      + (d.horas || 48) + ' horas.<br>Olhei ' + (d.materias || 0)
-      + ' materia(s) de entrevista.</div>';
+  const log = d.log || [];
+  if (!log.length) {
+    alvo.innerHTML = '<div class="vazio">Nada entrou nas ultimas 24 horas.</div>';
+    return;
   }
-
-  // O numero de descartadas fica na tela DE PROPOSITO. Ele diz se este
-  // extrator esta servindo ou se esta deixando material para tras sem
-  // ninguem notar - e a segunda coisa e o tipo de silencio que ja me custou
-  // caro neste projeto.
-  const nota = document.createElement('div');
-  nota.className = 'nota';
-  nota.textContent = 'De ' + (d.materias || 0) + ' materia(s) de entrevista sairam '
-    + (d.citacoes || []).length + ' declaracao(oes). '
-    + (d.descartadas || 0) + ' trecho(s) entre aspas ficaram de fora por eu nao '
-    + 'conseguir dizer com seguranca quem falou. Prefiro deixar de fora a '
-    + 'atribuir a pessoa errada.';
-  alvo.appendChild(nota);
+  log.forEach(function (i) { alvo.appendChild(linha(i)); });
 }
 
-function cartao(c) {
+function linha(i) {
   const d = document.createElement('div');
-  d.className = 'cit';
+  d.className = 'item';
 
-  const q = document.createElement('h2');
-  q.className = 'quem';
-  q.textContent = c.quem;
-  d.appendChild(q);
+  const ico = document.createElement('div');
+  ico.className = 'ico';
+  ico.innerHTML = ICONES[i.tipo] || ICONES.noticias || '';
+  d.appendChild(ico);
 
-  const f = document.createElement('p');
-  f.className = 'fala';
-  f.textContent = '“' + c.fala + '”';
-  d.appendChild(f);
+  const meio = document.createElement('div');
+  meio.className = 'meio';
+  const t = document.createElement('div');
+  t.className = 'tit';
+  t.textContent = i.titulo || '(sem titulo)';
+  const s = document.createElement('div');
+  s.className = 'sub';
+  s.textContent = [i.tipo, quando(i.quando), i.estado].filter(Boolean).join(' · ');
+  meio.appendChild(t);
+  meio.appendChild(s);
+  d.appendChild(meio);
 
-  const pe = document.createElement('div');
-  pe.className = 'pe';
-  if (c.onde) {
-    const o = document.createElement('span');
-    o.className = 'onde';
-    o.textContent = c.onde;
-    pe.appendChild(o);
-  }
-  const b = document.createElement('button');
-  b.className = 'copiar';
-  b.textContent = 'copiar';
-  b.onclick = function () {
-    const texto = c.quem + ':\n“' + c.fala + '”'
-      + (c.onde ? '\n\n' + c.onde : '')
-      + (c.via ? '\nvia: ' + c.via : '');
-    navigator.clipboard.writeText(texto).then(function () {
-      b.textContent = 'copiado';
-      setTimeout(function () { b.textContent = 'copiar'; }, 1600);
-    }).catch(function () { b.textContent = 'nao deu'; });
-  };
-  pe.appendChild(b);
-
-  const v = document.createElement('span');
-  v.className = 'via';
-  if (c.url) {
-    const a = document.createElement('a');
-    a.href = c.url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    a.textContent = 'via: ' + c.via;
-    v.appendChild(a);
+  const acoes = document.createElement('div');
+  acoes.className = 'acoes';
+  // O check e o X so aparecem onde existe decisao de verdade por tras. Botao
+  // que nao faz nada e pior que botao ausente.
+  if (i.tipo === 'posts' && i.estado === 'pendente') {
+    acoes.appendChild(botao(i, 'sim', '✓'));
+    acoes.appendChild(botao(i, 'nao', '✕'));
   } else {
-    v.textContent = 'via: ' + c.via;
+    const a = document.createElement('a');
+    a.className = 'dec';
+    a.href = i.onde;
+    a.title = 'abrir na guia';
+    a.textContent = '›';
+    acoes.appendChild(a);
   }
-  pe.appendChild(v);
-  d.appendChild(pe);
+  d.appendChild(acoes);
   return d;
 }
 
+function botao(i, decisao, rotulo) {
+  const b = document.createElement('button');
+  b.className = 'dec ' + decisao;
+  b.textContent = rotulo;
+  b.title = decisao === 'sim' ? 'aprovar' : 'recusar';
+  b.onclick = async function () {
+    b.disabled = true;
+    try {
+      const r = await fetch('/api/aprovacao/' + i.tipo + '/' + i.id
+                            + '?decisao=' + decisao, {method: 'POST'});
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+      carregar();
+    } catch (e) {
+      alert('nao deu: ' + (e.message || e));
+      b.disabled = false;
+    }
+  };
+  return b;
+}
+
 carregar();
+setInterval(carregar, 60000);
 """
 
 
-@app.get("/api/aspas")
-async def api_aspas(horas: int = 48):
-    """As declaracoes das materias de entrevista, sem chamar IA nenhuma."""
-    horas = max(1, min(240, horas))
-    artigos = [a for a in get_recent_articles(hours=horas, limit=200)
-               if a.get("category") == "entrevista" and a.get("title_pt")]
-    saida, descartadas = [], 0
-    for a in artigos:
-        r = aspas.extrair(a.get("title_pt") or "", a.get("body_pt") or "",
-                          a.get("source_name") or "")
-        descartadas += r["descartadas"]
-        for c in r["citacoes"]:
-            c["url"] = a.get("url") or ""
-            c["quando"] = a.get("collected_at") or ""
-            saida.append(c)
-    saida.sort(key=lambda c: c.get("quando") or "", reverse=True)
-    return {"citacoes": saida, "descartadas": descartadas,
-            "materias": len(artigos), "horas": horas}
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    """A tela de curadoria: o que entrou e o que espera decisão."""
+    icones = json.dumps({
+        "posts": _ICO_POSTS, "clipes": _ICO_CLIPE, "mercado": _ICO_MERCADO,
+        "aspas": _ICO_ASPAS, "noticias": _ICO_HOME,
+    })
+    return HTMLResponse(
+        _HOME_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__HOME_CSS__", _HOME_CSS)
+        .replace("__HOME_JS__", _HOME_JS.replace("__ICONES_JSON__", icones))
+        .replace("__HDR__", _header("/"))
+    )
 
 
 @app.get("/aspas", response_class=HTMLResponse)
 async def pagina_aspas():
-    return HTMLResponse(
-        _ASPAS_HTML
-        .replace("__HEADER_CSS__", _HEADER_CSS)
-        .replace("__THEME__", _HEAD_COMUM)
-        .replace("__ASPAS_CSS__", _ASPAS_CSS)
-        .replace("__ASPAS_JS__", _ASPAS_JS)
-        .replace("__HDR__", _header("/aspas"))
-    )
+    """As notícias de entrevista, como notícia mesmo.
+
+    Aqui havia um extrator que lia o texto e montava a citação sozinho, sem
+    IA. Funcionava razoavelmente e errava o suficiente para incomodar — e a
+    decisão de tratar uma declaração é sua, não minha. Então a guia virou a
+    lista das entrevistas, e o tratamento acontece quando você toca a varinha
+    num cartão, como já acontece nas outras telas.
+
+    O aspas.py continua no projeto. Não apago porque ele pode voltar a servir
+    como primeira leitura barata antes de gastar chamada de IA.
+    """
+    return await _pagina_de_noticias("entrevista", "/aspas")
 
 
 @app.get("/config", response_class=HTMLResponse)
