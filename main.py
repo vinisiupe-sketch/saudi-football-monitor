@@ -13754,8 +13754,8 @@ async def diag_nomes():
         "arbitragem": "SELECT casa FROM arbitragem UNION SELECT fora FROM arbitragem",
         "previa":     "SELECT casa FROM previa UNION SELECT fora FROM previa",
         "lesoes":     "SELECT DISTINCT club FROM injuries",
-        "janela":     "SELECT DISTINCT club_out FROM window_transfers "
-                      "UNION SELECT DISTINCT club_in FROM window_transfers",
+        "janela":     "SELECT DISTINCT team_out_name FROM window_transfers "
+                      "UNION SELECT DISTINCT team_in_name FROM window_transfers",
         "clubes_extra": "SELECT DISTINCT nome FROM clubes_extra",
     }
     por_canonico = {}
@@ -13826,6 +13826,15 @@ async def diag_nomes():
            pega("SELECT player_name, player_id FROM window_transfers")]
     linhas.append(f"\n  jogadores na janela ........ {len(jan)}")
     linhas.append(f"  com id do Transfermarkt .... {sum(1 for j in jan if j[1])}")
+    fotos = pega("SELECT COUNT(*) FROM window_transfers WHERE photo <> ''")
+    if fotos:
+        linhas.append(f"  com foto ................... {fotos[0][0]}")
+    # Os nomes da janela e os das lesões são as mesmas pessoas? Se batessem,
+    # os ids do Transfermarkt já resolveriam metade do problema de graça.
+    nomes_jan = {_norm(j[0]) for j in jan if j[0]}
+    nomes_les = {_norm(n) for n in nomes}
+    linhas.append(f"  nomes de lesão que existem na janela: "
+                  f"{len(nomes_jan & nomes_les)} de {len(nomes_les)}")
 
     # ── NOTÍCIAS: quanto do material bruto é árabe ─────────────────────────
     bloco("NOTÍCIAS")
