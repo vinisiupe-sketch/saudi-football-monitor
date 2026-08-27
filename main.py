@@ -13721,3 +13721,120 @@ async def api_meu_perfil(request: Request):
             "pode_configurar": bool(papel) and contas.pode_ver(papel, "/configuracoes"),
             "pode_home": bool(papel) and contas.pode_ver(papel, "/"),
             "casa": contas.CASA_DO_PAPEL.get(papel, "/noticias")}
+
+
+@app.get("/api/diag/nomes", response_class=PlainTextResponse)
+async def diag_nomes():
+    """Quantas grafias diferentes o app usa para a mesma coisa.
+
+    Sondagem para decidir o tamanho da padronização. Não muda nada: só conta.
+    """
+    import glossary
+    from difflib import SequenceMatcher
+    linhas = []
+
+    def bloco(t):
+        linhas.append("")
+        linhas.append(t)
+        linhas.append("─" * len(t))
+
+    def pega(sql, params=None):
+        try:
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute(sql, params or [])
+                return c.fetchall()
+        except Exception as e:
+            linhas.append(f"  (erro: {type(e).__name__}: {e})")
+            return []
+
+    # ── CLUBES: a mesma equipe, escrita em quantos lugares diferentes ──────
+    bloco("CLUBES — uma grafia por guia")
+    fontes = {
+        "arbitragem": "SELECT casa FROM arbitragem UNION SELECT fora FROM arbitragem",
+        "previa":     "SELECT casa FROM previa UNION SELECT fora FROM previa",
+        "lesoes":     "SELECT DISTINCT club FROM injuries",
+        "janela":     "SELECT DISTINCT club_out FROM window_transfers "
+                      "UNION SELECT DISTINCT club_in FROM window_transfers",
+        "clubes_extra": "SELECT DISTINCT nome FROM clubes_extra",
+    }
+    por_canonico = {}
+    for guia, sql in fontes.items():
+        brutos = [r[0] for r in pega(sql) if r[0]]
+        reconhecidos = 0
+        for b in brutos:
+            canon = glossary.padronizar_clube(b)
+            if canon:
+                reconhecidos += 1
+                por_canonico.setdefault(canon, {}).setdefault(b, set()).add(guia)
+            else:
+                por_canonico.setdefault(f"?? {b}", {}).setdefault(b, set()).add(guia)
+        linhas.append(f"  {guia:14} {len(brutos):4} grafias, "
+                      f"{reconhecidos} reconhecidas pelo glossário, "
+                      f"{len(brutos) - reconhecidos} não")
+
+    divergentes = {k: v for k, v in por_canonico.items()
+                   if not k.startswith("??") and len(v) > 1}
+    linhas.append(f"\n  clubes escritos de mais de um jeito: {len(divergentes)}")
+    for canon, grafias in sorted(divergentes.items())[:25]:
+        linhas.append(f"    {canon}")
+        for g, guias in sorted(grafias.items()):
+            linhas.append(f"        {g!r:38} ({', '.join(sorted(guias))})")
+
+    desconhecidos = sorted(k[3:] for k in por_canonico if k.startswith("??"))
+    linhas.append(f"\n  clubes que o glossário NÃO reconhece: {len(desconhecidos)}")
+    for d in desconhecidos[:30]:
+        linhas.append(f"    {d!r}")
+
+    # ── JOGADORES: só existem em lesões e janela, e sem id nenhum ──────────
+    bloco("JOGADORES")
+    lesoes = [(r[0] or "", r[1] or "", r[2] or "")
+              for r in pega("SELECT player_name, player_name_orig, club FROM injuries")]
+    nomes = sorted({l[0] for l in lesoes if l[0]})
+    com_orig = [l for l in lesoes if l[1]]
+    arabes = [l for l in com_orig if any("؀" <= c <= "ۿ" for c in l[1])]
+    linhas.append(f"  lesões registradas ......... {len(lesoes)}")
+    linhas.append(f"  nomes distintos ............ {len(nomes)}")
+    linhas.append(f"  com grafia original ........ {len(com_orig)}")
+    linhas.append(f"  com original em árabe ...... {len(arabes)}")
+
+    # Pares parecidos: é aqui que o SequenceMatcher de 0,75 pode ter fundido
+    # gente diferente, ou deixado de fundir a mesma pessoa.
+    def _norm(s):
+        import unicodedata
+        s = (s or "").lower().strip()
+        return "".join(c for c in unicodedata.normalize("NFD", s)
+                       if unicodedata.category(c) != "Mn")
+    perigosos, quase = [], []
+    for i, a in enumerate(nomes):
+        for b in nomes[i + 1:]:
+            r = SequenceMatcher(None, _norm(a), _norm(b)).ratio()
+            if r >= 0.75:
+                perigosos.append((round(r, 2), a, b))
+            elif r >= 0.62:
+                quase.append((round(r, 2), a, b))
+    linhas.append(f"\n  pares com semelhança >= 0,75 (o app trata como a MESMA"
+                  f" pessoa): {len(perigosos)}")
+    for r, a, b in sorted(perigosos, reverse=True)[:20]:
+        linhas.append(f"    {r}  {a!r}  ~  {b!r}")
+    linhas.append(f"\n  pares entre 0,62 e 0,75 (o app trata como pessoas"
+                  f" DIFERENTES): {len(quase)}")
+    for r, a, b in sorted(quase, reverse=True)[:20]:
+        linhas.append(f"    {r}  {a!r}  ~  {b!r}")
+
+    jan = [(r[0] or "", r[1] or "") for r in
+           pega("SELECT player_name, player_id FROM window_transfers")]
+    linhas.append(f"\n  jogadores na janela ........ {len(jan)}")
+    linhas.append(f"  com id do Transfermarkt .... {sum(1 for j in jan if j[1])}")
+
+    # ── NOTÍCIAS: quanto do material bruto é árabe ─────────────────────────
+    bloco("NOTÍCIAS")
+    art = pega("SELECT language, COUNT(*) FROM articles GROUP BY language "
+               "ORDER BY 2 DESC")
+    for lang, n in art:
+        linhas.append(f"  {str(lang or '?'):6} {n}")
+    guardados = pega("SELECT COUNT(*) FROM articles WHERE body_orig <> ''")
+    if guardados:
+        linhas.append(f"  com corpo original guardado: {guardados[0][0]}")
+
+    return PlainTextResponse("\n".join(linhas))
