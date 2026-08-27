@@ -276,3 +276,38 @@ def nome_para_card(nome: str) -> str:
 # O grito, do jeito que você escreve. São símbolos matemáticos (U+1D400), não
 # letras comuns: é por isso que o X conta cada um como DOIS caracteres.
 GRITO_DE_GOL = "\U0001D46E" + "\U0001D476" * 14 + "\U0001D473"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# O QUE VAI PARA O BANCO
+# ══════════════════════════════════════════════════════════════════════════
+
+def clube_para_guardar(nome: str) -> str:
+    """O nome do clube como ele deve ser GRAVADO.
+
+    A medição de 27/08 mostrou 29 clubes escritos de mais de um jeito dentro
+    do próprio app — 'Al Hilal' nas lesões, 'Al-Hilal SFC' na janela,
+    'Al-Hilal Saudi FC' na prévia, 'Al Diraiyah' na arbitragem. Nenhuma dessas
+    grafias foi inventada aqui: são as fontes. O erro era guardar o texto cru
+    em vez do canônico, e depois traduzir só na hora de mostrar — o que
+    funciona numa tela e não funciona quando você quer cruzar duas.
+
+    Por que dá para gravar o canônico sem guardar o original ao lado: o
+    `padronizar_clube` não chuta. Ele casa contra uma lista explícita de
+    variantes e devolve "" quando não conhece. Não existe o caso de "ele achou
+    parecido e errou" — ou sabe, ou não sabe. Onde não sabe, o nome cru passa
+    inteiro, e aparece em /api/diag/nomes para eu ampliar a lista.
+
+    Isso vale para clube saudita. Ajax, Atalanta e os sub-21 da janela caem no
+    "não sei" de propósito: forçá-los para dentro da tabela saudita seria
+    inventar um clube que não existe lá.
+    """
+    limpo = " ".join((nome or "").split())
+    if not limpo:
+        return ""
+    return padronizar_clube(limpo) or limpo
+
+
+def clubes_do_texto(*nomes) -> list[str]:
+    """Vários de uma vez, na mesma regra."""
+    return [clube_para_guardar(n) for n in nomes]

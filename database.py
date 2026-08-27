@@ -261,6 +261,69 @@ def init_db():
     print("✅ Banco de dados PostgreSQL inicializado.")
 
 
+def _clube(nome) -> str:
+    """O nome do clube como ele vai para o banco.
+
+    Fica aqui, e não em cada chamador, pelo mesmo motivo da permissão estar no
+    middleware: escrita nova nasce padronizada, em vez de depender de alguém
+    lembrar de padronizar. Quem grava clube passa por esta função.
+    """
+    try:
+        import glossary
+        return glossary.clube_para_guardar(nome)
+    except Exception:
+        # Glossário quebrado não pode impedir a gravação — o nome cru serve.
+        return " ".join(str(nome or "").split())
+
+
+def padronizar_clubes_gravados() -> dict:
+    """Passa o glossário no que já está no banco.
+
+    Roda uma vez e deixa recado no app_state. Repetir seria inofensivo — a
+    função é idempotente, canônico de canônico é ele mesmo — mas não há
+    motivo para varrer quatro tabelas em toda subida.
+
+    Só reescreve onde o nome MUDA. Linha que já está certa não é tocada, e
+    clube que o glossário não conhece fica exatamente como está.
+    """
+    if get_state("clubes_padronizados") == "sim":
+        return {"pulado": True}
+    alvos = [("arbitragem", ("casa", "fora")),
+             ("previa", ("casa", "fora")),
+             ("injuries", ("club",)),
+             ("window_transfers", ("team_in_name", "team_out_name")),
+             ("clubes_extra", ("nome",))]
+    trocados = {}
+    try:
+        with get_conn() as conn:
+            for tabela, colunas in alvos:
+                for col in colunas:
+                    c = conn.cursor()
+                    try:
+                        c.execute(f"SELECT DISTINCT {col} FROM {tabela} "
+                                  f"WHERE {col} IS NOT NULL AND {col} <> ''")
+                        brutos = [r[0] for r in c.fetchall()]
+                    except Exception as e:
+                        print(f"⚠️ padronizar {tabela}.{col}: {e}")
+                        continue
+                    for bruto in brutos:
+                        certo = _clube(bruto)
+                        if certo == bruto:
+                            continue
+                        c.execute(f"UPDATE {tabela} SET {col} = %s WHERE {col} = %s",
+                                  [certo, bruto])
+                        trocados[f"{bruto} → {certo}"] = c.rowcount
+        set_state("clubes_padronizados", "sim")
+    except Exception as e:
+        print(f"[SUBIDA] padronizar clubes: {type(e).__name__}: {e}", flush=True)
+        raise
+    print(f"[SUBIDA] clubes padronizados: {len(trocados)} grafias trocadas",
+          flush=True)
+    for k, n in sorted(trocados.items()):
+        print(f"          {k}  ({n} linhas)", flush=True)
+    return {"grafias": len(trocados), "detalhe": trocados}
+
+
 def make_article_id(url: str, title: str) -> str:
     """Gera ID unico para um artigo a partir da URL (fallback para title)."""
     src = (url or title or "").strip().encode("utf-8")
@@ -645,7 +708,7 @@ def upsert_injury(data: dict) -> str:
     from difflib import SequenceMatcher
 
     player_name = (data.get("player_name") or "").strip()
-    club = (data.get("club") or "").strip()
+    club = _clube(data.get("club"))
     source_info = data.get("source_info") or {}
     now = datetime.now(timezone.utc).isoformat()
 
@@ -1104,8 +1167,10 @@ def upsert_window_transfers(transfers: list[dict]) -> tuple[int, list[str]]:
                 t.get("player_id"), t.get("player_name", ""),
                 t.get("photo"), t.get("age"), t.get("position"),
                 t.get("market_value"), t.get("fee"),
-                t.get("team_in", {}).get("name"), t.get("team_in", {}).get("logo"),
-                t.get("team_out", {}).get("name"), t.get("team_out", {}).get("logo"),
+                _clube(t.get("team_in", {}).get("name")),
+                t.get("team_in", {}).get("logo"),
+                _clube(t.get("team_out", {}).get("name")),
+                t.get("team_out", {}).get("logo"),
                 t.get("direction", "in"), t.get("transfer_date"),
                 t.get("nationality"), t.get("flag_url"),
             ])
@@ -1400,7 +1465,7 @@ def salvar_previa(p: dict) -> bool:
                     texto=EXCLUDED.texto, fatos=EXCLUDED.fatos,
                     suspeitos=EXCLUDED.suspeitos, escalacao=EXCLUDED.escalacao,
                     gerado_em=NOW()
-            """, [chave, p.get("dia"), p.get("casa") or "", p.get("fora") or "",
+            """, [chave, p.get("dia"), _clube(p.get("casa")), _clube(p.get("fora")),
                   p.get("quando"), p.get("competicao") or "", p["texto"],
                   _json.dumps(p.get("fatos") or {}, ensure_ascii=False, default=str),
                   _json.dumps(p.get("suspeitos") or [], ensure_ascii=False),
@@ -1486,8 +1551,8 @@ def salvar_arbitragem(jogos: list[dict]) -> int:
                         casa = EXCLUDED.casa, fora = EXCLUDED.fora,
                         papeis = EXCLUDED.papeis, capturado_em = NOW()
                 """, [int(j["mid"]), j.get("dia"), j.get("hora") or "",
-                      j.get("competicao") or "", j.get("casa") or "",
-                      j.get("fora") or "",
+                      j.get("competicao") or "", _clube(j.get("casa")),
+                      _clube(j.get("fora")),
                       _json.dumps(j.get("papeis") or [], ensure_ascii=False)])
                 gravados += 1
                 for p in (j.get("papeis") or []):
