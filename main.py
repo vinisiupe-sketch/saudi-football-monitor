@@ -12858,7 +12858,11 @@ def _noticias_dos_clubes(casa: str, fora: str, limite: int = 8) -> list[dict]:
             baixo = (titulo + " " + (a.get("body_pt") or "")[:400]).lower()
             if not any(x in baixo for x in alvos):
                 continue
-            achadas.append({"titulo": titulo, "fonte": a.get("source") or "",
+            # source_name, não source. Mesmo erro das lesões, no mesmo dia:
+            # a chave errada não levanta exceção, devolve "" e o texto sai sem
+            # a fonte — que é justamente o que dá lastro a uma citação no ar.
+            achadas.append({"titulo": titulo,
+                            "fonte": a.get("source_name") or "",
                             "quando": (a.get("collected_at") or "")[:10],
                             "categoria": a.get("category") or ""})
             if len(achadas) >= limite:
@@ -12877,9 +12881,22 @@ def _desfalques_dos_clubes(casa: str, fora: str) -> list[dict]:
             clube = (l.get("club") or "")
             if (glossary.padronizar_clube(clube) or clube).lower() not in alvos:
                 continue
-            fora_lista.append({"jogador": l.get("player") or "", "clube": clube,
-                               "motivo": l.get("injury_type") or l.get("status") or "",
-                               "retorno": l.get("expected_return") or ""})
+            # A coluna é player_name. Eu li "player", que não existe, e mandei
+            # oito lesões sem nome nenhum para o modelo — que escreveu, com
+            # razão, "8 desfalques sem nomes divulgados". O modelo relatou a
+            # ausência com honestidade; quem inventou o buraco fui eu.
+            #
+            # Por isso lesão sem nome agora nem é enviada: um registro vazio
+            # não vira informação, vira uma frase estranha no meio do texto.
+            nome = (l.get("player_name") or "").strip()
+            if not nome:
+                continue
+            fora_lista.append({
+                "jogador": nome, "clube": clube,
+                "motivo": l.get("injury_type") or l.get("status") or "",
+                "onde": l.get("body_part") or "",
+                "retorno": l.get("expected_return") or "",
+            })
     except Exception as e:
         print(f"[PRÉVIA] lesões: {e}", flush=True)
     return fora_lista
