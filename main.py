@@ -12638,6 +12638,14 @@ function copiar(){
   });
 }
 
+// O log da tela inicial linka para /arbitragem?dia=AAAA-MM-DD. Sem ler isto,
+// o link abria sempre em hoje e o dia que você clicou não aparecia — o link
+// funcionava, mas levava ao lugar errado, que é pior do que não funcionar.
+(function(){
+  const q = new URLSearchParams(location.search).get('dia') || '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(q)) document.getElementById('dia').value = q;
+})();
+
 document.getElementById('dia').addEventListener('change', carregar);
 carregar();
 """
