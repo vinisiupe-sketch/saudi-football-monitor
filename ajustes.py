@@ -139,6 +139,18 @@ AJUSTES = [
         "ajuda": "De quanto em quanto tempo a máquina que grava pergunta ao "
                  "YouTube o que está no ar no canal do parceiro.",
     },
+    # ── Arbitragem ────────────────────────────────────────────────────────
+    {
+        "chave": "arbitragem_cabecalho",
+        "grupo": "Arbitragem",
+        "rotulo": "Primeira linha do texto",
+        "tipo": "texto",
+        "padrao": "👨‍⚖️ 𝐀𝐑𝐁𝐈𝐓𝐑𝐀𝐆𝐄𝐌 𝐃𝐎 𝐃𝐈𝐀",
+        "ajuda": "Este padrão eu reconstruí olhando um print seu — o emoji "
+                 "estava pequeno demais para eu ter certeza de qual era. Se "
+                 "não for esse, cole aqui a linha exata do seu post e ela "
+                 "passa a valer.",
+    },
 ]
 
 POR_CHAVE = {a["chave"]: a for a in AJUSTES}

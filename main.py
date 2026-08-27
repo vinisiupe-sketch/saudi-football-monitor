@@ -12356,12 +12356,17 @@ def _traduzir_arbitro():
 
 
 def _cabecalho_arbitragem() -> str:
+    """A primeira linha do post, vinda de Configurações.
+
+    Passa por `ajuste()` e não direto pelo get_state para valer o mesmo cache
+    e o mesmo padrão dos outros — duas fontes para a mesma configuração é como
+    se começa a ter dois valores diferentes para a mesma coisa.
+    """
     import arbitragem as arb
     try:
-        salvo = (get_state("arbitragem_cabecalho") or "").strip()
+        return (ajuste("arbitragem_cabecalho") or "").strip() or arb.CABECALHO_PADRAO
     except Exception:
-        salvo = ""
-    return salvo or arb.CABECALHO_PADRAO
+        return arb.CABECALHO_PADRAO
 
 
 def buscar_arbitragem(dia: str | None = None) -> dict:
