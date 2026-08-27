@@ -36,7 +36,6 @@ SOBRE OS NOMES
 """
 import re
 import unicodedata
-from urllib.parse import quote
 
 # O httpx é importado só dentro de quem vai à rede. Assim a leitura do HTML
 # pode ser testada em qualquer lugar, sem depender de biblioteca de rede —
@@ -248,8 +247,6 @@ def escala_da_pagina(html: str) -> dict:
 #
 # Uniformizo só o hífen. Não é capricho: sem isso o mesmo post sai com duas
 # convenções, e a incoerência que é DELES vira aparentemente sua.
-SPL_API = "https://api-sdp.spl.com.sa/v1/spl/football"
-
 # Como a liga chama cada papel, traduzido para os nomes que o SAFF usa —
 # que são os que o resto do módulo já fala.
 PAPEL_DA_LIGA = {
@@ -279,71 +276,25 @@ def uniformizar_al(nome: str) -> str:
     return " ".join(saida)
 
 
-def _json(url: str, cliente):
-    r = cliente.get(url, timeout=TEMPO_LIMITE, follow_redirects=True,
-                    headers={"Accept": "application/json",
-                             "User-Agent": "Mozilla/5.0 (compatible; IARABAO/1.0)"})
-    r.raise_for_status()
-    return r.json()
-
-
 def _confronto(casa: str, fora: str) -> frozenset:
-    """A identidade de um jogo para cruzar as duas fontes.
-
-    Sem ordem: o SAFF pode chamar de mandante quem a liga chama de visitante,
-    e um jogo não deixa de ser o mesmo por causa disso. Passa pelo glossário
-    de clubes para que 'Al Diraiyah' e 'Diriyah Club' se reconheçam.
-    """
-    import glossary
-    lados = []
-    for n in (casa, fora):
-        limpo = re.sub(r"\s*-\s*[A-Z]{3}$", "", " ".join((n or "").split()))
-        lados.append((glossary.padronizar_clube(limpo) or limpo).lower())
-    return frozenset(lados)
+    """Mesma identidade de jogo que a prévia usa — de propósito, uma só."""
+    import liga_spl
+    return liga_spl.confronto(casa, fora)
 
 
 def escala_da_liga(dia: str, cliente) -> dict:
-    """Mapa {confronto: [papéis]} com os nomes como a liga escreve.
-
-    Descobre competição → temporada → jogos → escala. Nenhum id fixo no
-    código: id de catálogo muda de temporada, e um id chumbado aqui pararia
-    de funcionar em julho sem avisar ninguém.
-    """
-    comps = _json(f"{SPL_API}/competitions?locale=en-GB", cliente).get("competitions") or []
-    if not comps:
+    """Mapa {confronto: [papéis]} com os nomes como a liga escreve."""
+    import liga_spl
+    sid = liga_spl.temporada(dia, cliente)
+    if not sid:
         return {}
-    cid = comps[0].get("competitionId")
-    temporadas = _json(f"{SPL_API}/competitions/{quote(cid, safe='')}/seasons?locale=en-GB",
-                       cliente).get("seasons") or []
-    # A temporada que contém o dia pedido, e não "a primeira da lista".
-    escolhida = None
-    for t in temporadas:
-        ini = (t.get("startDateUtc") or "")[:10]
-        fim = (t.get("endDateUtc") or "")[:10]
-        if ini and fim and ini <= dia <= fim:
-            escolhida = t
-            break
-    if not escolhida:
-        return {}
-    sid = quote(escolhida.get("seasonId") or "", safe="")
-    jogos = _json(f"{SPL_API}/seasons/{sid}/matches?locale=en-GB",
-                  cliente).get("matches") or []
-
     saida = {}
-    for j in jogos:
-        # matchDateLocal é a hora da Arábia, que é o dia do calendário do SAFF.
-        # Usar o UTC jogaria um jogo das 21h para o dia seguinte.
-        quando = (j.get("matchDateLocal") or j.get("matchDateUtc") or "")[:10]
-        if quando != dia:
-            continue
-        casa = (j.get("home") or {}).get("shortName") or ""
-        fora = (j.get("away") or {}).get("shortName") or ""
-        mid = quote(j.get("matchId") or "", safe="")
+    for j in liga_spl.jogos_do_dia(sid, dia, cliente):
+        mid = j.get("matchId")
         if not mid:
             continue
         try:
-            fatos = _json(f"{SPL_API}/seasons/{sid}/match/{mid}/matchfacts?locale=en-GB",
-                          cliente)
+            fatos = liga_spl.arbitros_do_jogo(sid, mid, cliente)
         except Exception:
             continue
         papeis = []
@@ -355,7 +306,8 @@ def escala_da_liga(dia: str, cliente) -> dict:
             papeis.append({"papel": papel, "nome": nome,
                            "pais": (a.get("nationality") or "").strip()})
         if papeis:
-            saida[_confronto(casa, fora)] = papeis
+            saida[liga_spl.confronto((j.get("home") or {}).get("shortName") or "",
+                                     (j.get("away") or {}).get("shortName") or "")] = papeis
     return saida
 
 

@@ -227,6 +227,31 @@ def init_db():
                 visto_em  TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        # A prévia de cada jogo com transmissão.
+        #
+        # Guarda os FATOS junto com o texto, e não só o texto. Assim dá para
+        # conferir depois de onde saiu cada número, e para reescrever a prévia
+        # sem consultar de novo uma API que talvez já tenha mudado a resposta.
+        #
+        # `numeros_suspeitos` é a lista dos números do texto que eu não achei
+        # nos fatos. Fica gravada junto: um aviso que só existe na hora de
+        # gerar é um aviso que some justamente quando você vai ler.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS previa (
+                chave        TEXT PRIMARY KEY,
+                dia          DATE NOT NULL,
+                casa         TEXT,
+                fora         TEXT,
+                quando       TIMESTAMPTZ,
+                competicao   TEXT,
+                texto        TEXT NOT NULL,
+                fatos        TEXT,
+                suspeitos    TEXT,
+                escalacao    TEXT,
+                gerado_em    TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_previa_dia ON previa(dia)")
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
@@ -1349,6 +1374,88 @@ def listar_posts(status: str | None = None, limite: int = 60) -> list[dict]:
             if l.get(campo):
                 l[campo] = l[campo].isoformat()
     return linhas
+
+
+def salvar_previa(p: dict) -> bool:
+    """Grava (ou regrava) a prévia de um jogo.
+
+    Regravar é o caso normal, não a exceção: a prévia nasce na véspera com
+    escalação provável e é reescrita quando a oficial sai. Por isso o UPDATE
+    troca tudo — inclusive o campo `escalacao`, que é como a tela sabe se está
+    olhando uma dedução ou um fato.
+    """
+    import json as _json
+    chave = (p.get("chave") or "").strip()
+    if not chave or not (p.get("texto") or "").strip():
+        return False
+    try:
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                INSERT INTO previa (chave, dia, casa, fora, quando, competicao,
+                                    texto, fatos, suspeitos, escalacao, gerado_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                ON CONFLICT (chave) DO UPDATE SET
+                    dia=EXCLUDED.dia, casa=EXCLUDED.casa, fora=EXCLUDED.fora,
+                    quando=EXCLUDED.quando, competicao=EXCLUDED.competicao,
+                    texto=EXCLUDED.texto, fatos=EXCLUDED.fatos,
+                    suspeitos=EXCLUDED.suspeitos, escalacao=EXCLUDED.escalacao,
+                    gerado_em=NOW()
+            """, [chave, p.get("dia"), p.get("casa") or "", p.get("fora") or "",
+                  p.get("quando"), p.get("competicao") or "", p["texto"],
+                  _json.dumps(p.get("fatos") or {}, ensure_ascii=False, default=str),
+                  _json.dumps(p.get("suspeitos") or [], ensure_ascii=False),
+                  p.get("escalacao") or ""])
+        return True
+    except Exception as e:
+        print(f"⚠️ salvar_previa({chave}): {e}")
+        return False
+
+
+def previas_do_dia(dia: str) -> list[dict]:
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("SELECT * FROM previa WHERE dia = %s ORDER BY quando NULLS LAST, casa",
+                      [dia])
+            linhas = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ previas_do_dia({dia}): {e}")
+        return []
+    for l in linhas:
+        for campo in ("fatos", "suspeitos"):
+            try:
+                l[campo] = _json.loads(l.get(campo) or ("[]" if campo == "suspeitos" else "{}"))
+            except Exception:
+                l[campo] = [] if campo == "suspeitos" else {}
+        for campo in ("dia", "quando", "gerado_em"):
+            if l.get(campo) is not None:
+                l[campo] = l[campo].isoformat()
+    return linhas
+
+
+def dias_com_previa(limite: int = 30) -> list[dict]:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT dia, COUNT(*) FROM previa
+                         GROUP BY dia ORDER BY dia DESC LIMIT %s""", [limite])
+            return [{"dia": d.isoformat(), "jogos": n} for d, n in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ dias_com_previa: {e}")
+        return []
+
+
+def previa_com_escalacao(chave: str) -> str:
+    """Se esta prévia já foi escrita com escalação oficial, não precisa refazer."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT escalacao FROM previa WHERE chave = %s", [chave])
+            linha = c.fetchone()
+            return (linha[0] or "") if linha else ""
+    except Exception:
+        return ""
 
 
 def salvar_arbitragem(jogos: list[dict]) -> int:

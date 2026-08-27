@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -238,6 +238,10 @@ _ICO_ARBITRO = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M13 8h6a3 3 0 0 1 0 6h-1.2A6 6 0 1 1 13 8Z"/>'
                 '<circle cx="9" cy="11" r="2"/><path d="M13 8 9.5 4.5"/></svg>')
+_ICO_PREVIA  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/>'
+                '<path d="M14 4v6h6"/><path d="M8 14h7M8 17.5h5"/></svg>')
 _ICO_MAIS    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
@@ -443,7 +447,6 @@ _NAV_PRINCIPAIS = [
     ("/aspas",    _ICO_ASPAS,   "Aspas",    "",     ""),
     ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#FD5D5D"),
     ("/janela",  _ICO_JANELA,  "Janela",  "",     "#B6FF00"),
-    ("/numeros", _ICO_NUMEROS, "Números", "",     "#B6FF00"),
     ("/elencos", _ICO_ELENCOS, "Elencos", "",     "#B6FF00"),
     ("/posts",   _ICO_POSTS,   "Agendamentos", "", "#1d9bf0"),
     # Entrou por último para não bagunçar a ordem que você pediu. Fica na barra,
@@ -456,8 +459,16 @@ _NAV_PRINCIPAIS = [
     # A escala do dia. Fica na barra porque é consulta diária, e porque a
     # janela de captura é curta: o SAFF publica e tira do ar.
     ("/arbitragem", _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
+    # Sua preparação para o ar. Fica ao lado de Arbitragem porque as duas
+    # são telas de dia de jogo, consultadas com o jogo prestes a começar.
+    ("/previa", _ICO_PREVIA, "Prévia", "", "#B6FF00"),
 ]
 _NAV_EXTRAS = [
+    # Saiu da barra quando a Prévia entrou. O limite de doze é meu próprio
+    # teste, e ele existe porque barra que rola demais vira caça ao ícone.
+    # Números é tela de consulta, não de dia de jogo — foi a que menos
+    # sofre indo para cá. Se eu errei, é uma linha para desfazer.
+    ("/numeros",     _ICO_NUMEROS, "Números",     "", "#B6FF00"),
     ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#FFBE5D"),
     ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "", "#FFBE5D"),
     ("/analise",     _ICO_ANALISE, "Análise",     "", "#FFBE5D"),
@@ -12711,3 +12722,447 @@ async def diag_arbitros_sportmonks(data: str = "2026-08-26"):
                           f"  | common={r.get('common_name')}"
                           f"  | display={r.get('display_name')}  | {pais}")
     return PlainTextResponse("\n".join(linhas))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PRÉVIA DE JOGO
+#
+# Para a sua preparação como comentarista, não para publicar. Só dos jogos
+# marcados com transmissão na guia Agendamentos. Duas entregas: na véspera,
+# com escalação provável deduzida, e de novo quando a liga publica a oficial.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _chave_da_previa(fixture_id) -> str:
+    return f"previa:{fixture_id}"
+
+
+async def _jogos_para_previa(dia: str) -> list[dict]:
+    """Os jogos daquele dia que VOCÊ marcou como tendo transmissão.
+
+    O filtro é o ponto do recurso. Sem ele a prévia viraria um relatório de
+    dezoito jogos por rodada, dos quais você comenta um ou dois.
+    """
+    import posts_gerador as pg
+    marcados = transmissoes(jogos_com_transmissao())
+    if not marcados:
+        return []
+    inicio = _af_temporada_corrente()
+    saida = []
+    for liga_id, nome_comp in pg.COMPETICOES.items():
+        season = await _season_da_liga(liga_id, inicio)
+        dados, err = await _af_get("fixtures", {"league": liga_id, "season": season,
+                                                "date": dia}, ttl=1800)
+        if err:
+            print(f"[PRÉVIA] {nome_comp}: {err}", flush=True)
+            continue
+        for f in (dados or {}).get("response", []):
+            fid = (f.get("fixture") or {}).get("id")
+            canais = marcados.get(fid)
+            if not canais:
+                continue
+            times = f.get("teams") or {}
+            saida.append({
+                "fixture_id": fid,
+                "casa": (times.get("home") or {}).get("name") or "",
+                "fora": (times.get("away") or {}).get("name") or "",
+                "quando": (f.get("fixture") or {}).get("date") or "",
+                "estadio": ((f.get("fixture") or {}).get("venue") or {}).get("name") or "",
+                "rodada": (f.get("league") or {}).get("round") or "",
+                "competicao": nome_comp,
+                "canais": canais,
+            })
+    return saida
+
+
+def _noticias_dos_clubes(casa: str, fora: str, limite: int = 8) -> list[dict]:
+    """O que saiu na semana sobre os dois, já traduzido.
+
+    Uso o texto que JÁ foi traduzido e pago. Buscar notícia nova aqui seria
+    pagar duas vezes pela mesma coisa.
+    """
+    import glossary
+    alvos = [(glossary.padronizar_clube(n) or n).lower() for n in (casa, fora) if n]
+    achadas = []
+    try:
+        for a in get_recent_articles(hours=8 * 24, limit=200):
+            titulo = a.get("title_pt") or ""
+            if not titulo:
+                continue
+            baixo = (titulo + " " + (a.get("body_pt") or "")[:400]).lower()
+            if not any(x in baixo for x in alvos):
+                continue
+            achadas.append({"titulo": titulo, "fonte": a.get("source") or "",
+                            "quando": (a.get("collected_at") or "")[:10],
+                            "categoria": a.get("category") or ""})
+            if len(achadas) >= limite:
+                break
+    except Exception as e:
+        print(f"[PRÉVIA] notícias: {e}", flush=True)
+    return achadas
+
+
+def _desfalques_dos_clubes(casa: str, fora: str) -> list[dict]:
+    import glossary
+    alvos = [(glossary.padronizar_clube(n) or n).lower() for n in (casa, fora) if n]
+    fora_lista = []
+    try:
+        for l in get_injuries(include_recovered=False):
+            clube = (l.get("club") or "")
+            if (glossary.padronizar_clube(clube) or clube).lower() not in alvos:
+                continue
+            fora_lista.append({"jogador": l.get("player") or "", "clube": clube,
+                               "motivo": l.get("injury_type") or l.get("status") or "",
+                               "retorno": l.get("expected_return") or ""})
+    except Exception as e:
+        print(f"[PRÉVIA] lesões: {e}", flush=True)
+    return fora_lista
+
+
+def _arbitragem_do_confronto(dia: str, casa: str, fora: str) -> list[dict]:
+    """A escala já guardada para este jogo, se houver."""
+    import liga_spl
+    alvo = liga_spl.confronto(casa, fora)
+    for a in arbitragem_do_dia(dia):
+        if liga_spl.confronto(a.get("casa"), a.get("fora")) == alvo:
+            traduzir = _traduzir_arbitro()
+            import arbitragem as arb
+            return [{"papel": p.get("papel"), "nome": arb.nome_publicado(p, traduzir),
+                     "pais": p.get("pais")} for p in (a.get("papeis") or [])]
+    return []
+
+
+def _coletar_da_liga(jogo: dict, dia: str, cliente) -> dict:
+    """Tudo que a liga sabe deste jogo: tabela, forma, confronto e escalação.
+
+    Devolve {} quando não acha o jogo lá — o que acontece em Copa do Rei,
+    Supercopa e AFC, que a API da liga não cobre. Quem chama precisa saber a
+    diferença entre "não achei" e "achei e está vazio".
+    """
+    import liga_spl
+    import previa as pv
+    sid = liga_spl.temporada(dia, cliente)
+    if not sid:
+        return {}
+    alvo = liga_spl.confronto(jogo["casa"], jogo["fora"])
+    achado = None
+    for j in liga_spl.jogos_do_dia(sid, dia, cliente):
+        if liga_spl.confronto((j.get("home") or {}).get("shortName") or "",
+                              (j.get("away") or {}).get("shortName") or "") == alvo:
+            achado = j
+            break
+    if not achado:
+        return {}
+
+    mid = achado.get("matchId")
+    tabela = liga_spl.tabela(sid, cliente)
+    saida = {
+        "sid": sid, "mid": mid,
+        "tabela_casa": liga_spl.linha_da_tabela(tabela, jogo["casa"]),
+        "tabela_fora": liga_spl.linha_da_tabela(tabela, jogo["fora"]),
+        "previa": {},
+        "escala_casa": {}, "escala_fora": {},
+        "oficial": False,
+    }
+    try:
+        saida["previa"] = liga_spl.previa_do_jogo(sid, mid, cliente)
+    except Exception as e:
+        print(f"[PRÉVIA] matchPreview {mid}: {e}", flush=True)
+
+    # A oficial, se já saiu. Antes disso as listas vêm vazias — é assim que a
+    # liga diz "ainda não", e é o sinal que dispara a segunda entrega.
+    try:
+        escala = liga_spl.escala_do_jogo(sid, mid, cliente)
+    except Exception as e:
+        escala = {}
+        print(f"[PRÉVIA] lineups {mid}: {e}", flush=True)
+    if liga_spl.tem_escalacao(escala):
+        saida["oficial"] = True
+        saida["escala_casa"] = pv.escalacao_oficial(escala, "home")
+        saida["escala_fora"] = pv.escalacao_oficial(escala, "away")
+        return saida
+
+    # Ainda não saiu: deduzo dos últimos jogos de cada time.
+    passados = liga_spl.jogos_ate(sid, dia, cliente)
+    for lado, chave in (("home", "escala_casa"), ("away", "escala_fora")):
+        time_id = (achado.get(lado) or {}).get("teamId") or ""
+        if not time_id:
+            continue
+        dele = [j for j in passados
+                if time_id in ((j.get("home") or {}).get("teamId"),
+                               (j.get("away") or {}).get("teamId"))
+                ][:pv.RODADAS_PARA_O_PROVAVEL]
+        escalas = {}
+        for j in dele:
+            try:
+                escalas[j.get("matchId")] = liga_spl.escala_do_jogo(
+                    sid, j.get("matchId"), cliente)
+            except Exception:
+                continue
+        saida[chave] = pv.escalacao_provavel(dele, escalas, time_id)
+    return saida
+
+
+async def gerar_previa(jogo: dict, dia: str, forcar: bool = False) -> dict:
+    """Monta os fatos, pede o texto e confere os números antes de guardar."""
+    import httpx
+    import previa as pv
+
+    chave = _chave_da_previa(jogo["fixture_id"])
+    if not forcar and previa_com_escalacao(chave) == "oficial":
+        # Já foi reescrita com a escalação de verdade. Refazer só gastaria
+        # chamada para chegar no mesmo lugar.
+        return {"chave": chave, "pulado": "já está com a escalação oficial"}
+
+    with httpx.Client() as cliente:
+        try:
+            liga = _coletar_da_liga(jogo, dia, cliente)
+        except Exception as e:
+            liga = {}
+            print(f"[PRÉVIA] liga: {type(e).__name__}: {e}", flush=True)
+
+    fatos = pv.montar_fatos(
+        jogo,
+        liga.get("tabela_casa") or {}, liga.get("tabela_fora") or {},
+        liga.get("previa") or {},
+        liga.get("escala_casa") or {}, liga.get("escala_fora") or {},
+        _arbitragem_do_confronto(dia, jogo["casa"], jogo["fora"]),
+        _desfalques_dos_clubes(jogo["casa"], jogo["fora"]),
+        _noticias_dos_clubes(jogo["casa"], jogo["fora"]),
+        [],
+    )
+
+    faltou = pv.sem_dados_suficientes(fatos)
+    if faltou:
+        return {"chave": chave, "erro": faltou}
+
+    from processor import call_claude
+    try:
+        async with httpx.AsyncClient() as ac:
+            texto = await call_claude(pv.montar_pedido(fatos), pv.SISTEMA, ac,
+                                      max_tokens=2000, cache_system=True)
+    except Exception as e:
+        return {"chave": chave, "erro": f"{type(e).__name__}: {e}"}
+
+    suspeitos = pv.conferir_numeros(texto, fatos)
+    origem = "oficial" if liga.get("oficial") else "provavel"
+    ok = salvar_previa({
+        "chave": chave, "dia": dia, "casa": jogo["casa"], "fora": jogo["fora"],
+        "quando": jogo.get("quando") or None, "competicao": jogo.get("competicao"),
+        "texto": texto, "fatos": fatos, "suspeitos": suspeitos, "escalacao": origem,
+    })
+    return {"chave": chave, "ok": ok, "escalacao": origem,
+            "suspeitos": suspeitos, "tamanho": len(texto)}
+
+
+async def gerar_previas(dia: str | None = None, forcar: bool = False) -> dict:
+    """Todas as prévias de um dia. Erro num jogo não derruba os outros."""
+    dia = dia or _dia_de_brasilia(1)
+    jogos = await _jogos_para_previa(dia)
+    resultados = []
+    for j in jogos:
+        resultados.append(await gerar_previa(j, dia, forcar=forcar))
+    feitos = sum(1 for r in resultados if r.get("ok"))
+    print(f"[PRÉVIA] {dia}: {feitos} de {len(jogos)} jogos com transmissão",
+          flush=True)
+    return {"dia": dia, "jogos": len(jogos), "gerados": feitos,
+            "detalhe": resultados}
+
+
+@app.get("/api/previa")
+async def api_previa(dia: str = ""):
+    dia = (dia or "").strip() or _dia_de_brasilia()
+    return {"dia": dia, "hoje": _dia_de_brasilia(),
+            "amanha": _dia_de_brasilia(1),
+            "previas": previas_do_dia(dia), "dias": dias_com_previa(30)}
+
+
+@app.post("/api/previa/gerar")
+async def api_previa_gerar(request: Request):
+    """Gera agora, sem esperar o horário. `forcar` reescreve o que já existe."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    dia = (corpo.get("dia") or "").strip() or _dia_de_brasilia()
+    return await gerar_previas(dia, forcar=bool(corpo.get("forcar")))
+
+
+_PREVIA_CSS = """
+body{background:var(--c-bg);color:var(--c-text);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
+.wrap{max-width:820px;margin:0 auto;padding:6px 16px 90px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
+  margin:10px 0 4px}
+.sub{font-size:.76rem;color:var(--c-muted-3);line-height:1.55;margin:0 0 16px}
+.barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.ctrl{background:var(--c-bg-card);color:var(--c-text);border:1px solid var(--c-border);
+  border-radius:12px;padding:8px 13px;font-size:.78rem;font-family:inherit;cursor:pointer}
+.ctrl:hover{border-color:var(--c-acento)}
+.ctrl.forte{background:var(--c-acento);color:var(--c-acento-texto);
+  border-color:var(--c-acento);font-weight:700}
+.jogo{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:18px;padding:0;margin-bottom:14px;overflow:hidden}
+.jogo .topo{padding:14px 16px;display:flex;justify-content:space-between;
+  align-items:flex-start;gap:12px;cursor:pointer}
+.jogo .conf{font-family:'Bebas Neue',sans-serif;font-size:1.35rem;
+  letter-spacing:.03em;line-height:1.1}
+.jogo .meta{font-size:.68rem;color:var(--c-muted-3);margin-top:4px}
+.selo{font-size:.6rem;padding:2px 8px;border-radius:20px;white-space:nowrap;
+  letter-spacing:.03em}
+.selo.oficial{background:var(--c-acento);color:var(--c-acento-texto);font-weight:700}
+.selo.provavel{background:rgba(255,190,93,.16);color:var(--c-alerta);
+  border:1px solid var(--c-alerta)}
+.corpo{padding:0 16px 16px;display:none}
+.corpo.aberto{display:block}
+.corpo h2{font-family:'Bebas Neue',sans-serif;font-size:1.05rem;letter-spacing:.04em;
+  margin:18px 0 6px;color:var(--c-acento)}
+.corpo p,.corpo li{font-size:.86rem;line-height:1.65;margin:6px 0}
+.corpo ul{padding-left:18px;margin:6px 0}
+.corpo strong{font-weight:700}
+.aviso{border-radius:14px;padding:11px 13px;font-size:.74rem;line-height:1.55;
+  margin:12px 0;border:1px solid var(--c-alerta);background:rgba(255,190,93,.10)}
+.aviso b{display:block;margin-bottom:3px}
+.vazio{text-align:center;color:var(--c-muted-3);font-size:.8rem;padding:34px 12px;
+  line-height:1.6}
+"""
+
+_PREVIA_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Prévia · IARABÃO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__PREVIA_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Prévia</h1>
+  <p class="sub">Sua preparação para o ar, só dos jogos marcados com transmissão
+     em Agendamentos. Sai na véspera com escalação provável e é reescrita
+     quando a liga publica a oficial.</p>
+  <div class="barra">
+    <input type="date" id="dia" class="ctrl">
+    <button class="ctrl" onclick="carregar()">↻ Atualizar</button>
+    <button class="ctrl forte" onclick="gerar()">Gerar agora</button>
+  </div>
+  <div id="conteudo" class="vazio">carregando…</div>
+</div>
+<script>
+__PREVIA_JS__
+</script>
+</body>
+</html>"""
+
+_PREVIA_JS = r"""
+function esc(s){return String(s==null?'':s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+// Markdown mínimo: título, lista, negrito e parágrafo. Não uso biblioteca de
+// fora porque o texto vem de um modelo, e menos superfície é melhor.
+function md(t){
+  const linhas = esc(t).split('\n');
+  let saida = '', lista = false;
+  for (let l of linhas) {
+    l = l.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    const li = l.match(/^\s*[-*]\s+(.*)$/);
+    const h2 = l.match(/^\s*#{1,3}\s+(.*)$/);
+    if (li) { if (!lista) { saida += '<ul>'; lista = true; }
+              saida += '<li>' + li[1] + '</li>'; continue; }
+    if (lista) { saida += '</ul>'; lista = false; }
+    if (h2) { saida += '<h2>' + h2[1] + '</h2>'; continue; }
+    if (l.trim()) saida += '<p>' + l + '</p>';
+  }
+  if (lista) saida += '</ul>';
+  return saida;
+}
+
+function hora(iso){
+  if (!iso) return '';
+  const d = new Date(iso);
+  return isNaN(d) ? '' : d.toLocaleString('pt-BR',
+    {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+}
+
+async function carregar(){
+  const d = document.getElementById('dia').value;
+  const r = await (await fetch('/api/previa' + (d ? '?dia=' + encodeURIComponent(d) : ''))).json();
+  const campo = document.getElementById('dia');
+  if (campo && !campo.value) campo.value = r.dia;
+  desenhar(r);
+}
+
+function desenhar(r){
+  const alvo = document.getElementById('conteudo');
+  if (!r.previas || !r.previas.length) {
+    alvo.className = 'vazio';
+    alvo.innerHTML = 'Nenhuma prévia para ' + esc(r.dia) + '.<br><br>' +
+      'A prévia só é escrita para jogo marcado com transmissão na guia ' +
+      'Agendamentos. Se você já marcou, use “Gerar agora”.';
+    return;
+  }
+  alvo.className = '';
+  alvo.innerHTML = r.previas.map(function(p, i){
+    const oficial = p.escalacao === 'oficial';
+    const aviso = (p.suspeitos && p.suspeitos.length)
+      ? '<div class="aviso"><b>' + p.suspeitos.length +
+        ' número(s) que não achei nos dados</b>' + esc(p.suspeitos.join(', ')) +
+        ' — confira antes de falar no ar.</div>'
+      : '';
+    return '<div class="jogo">' +
+      '<div class="topo" onclick="abrir(' + i + ')">' +
+        '<div><div class="conf">' + esc(p.casa) + ' x ' + esc(p.fora) + '</div>' +
+        '<div class="meta">' + esc(p.competicao || '') + ' · ' + hora(p.quando) +
+        ' · atualizada ' + hora(p.gerado_em) + '</div></div>' +
+        '<span class="selo ' + (oficial ? 'oficial' : 'provavel') + '">' +
+        (oficial ? 'escalação oficial' : 'escalação provável') + '</span>' +
+      '</div>' +
+      '<div class="corpo' + (i === 0 ? ' aberto' : '') + '" id="c' + i + '">' +
+        aviso + md(p.texto) + '</div></div>';
+  }).join('');
+}
+
+function abrir(i){
+  const el = document.getElementById('c' + i);
+  if (el) el.classList.toggle('aberto');
+}
+
+async function gerar(){
+  const alvo = document.getElementById('conteudo');
+  alvo.className = 'vazio';
+  alvo.innerHTML = 'montando… isso leva alguns segundos por jogo.';
+  const d = await (await fetch('/api/previa/gerar', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({dia: document.getElementById('dia').value})})).json();
+  if (!d.jogos) {
+    alvo.innerHTML = 'Nenhum jogo com transmissão marcada nesta data.<br><br>' +
+      'Marque o canal na guia Agendamentos e tente de novo.';
+    return;
+  }
+  await carregar();
+}
+
+(function(){
+  const q = new URLSearchParams(location.search).get('dia') || '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(q)) document.getElementById('dia').value = q;
+})();
+document.getElementById('dia').addEventListener('change', carregar);
+carregar();
+"""
+
+
+@app.get("/previa", response_class=HTMLResponse)
+async def pagina_previa():
+    return HTMLResponse(
+        _PREVIA_HTML
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__PREVIA_CSS__", _PREVIA_CSS)
+        .replace("__PREVIA_JS__", _PREVIA_JS)
+        .replace("__HDR__", _header("/previa"))
+    )
