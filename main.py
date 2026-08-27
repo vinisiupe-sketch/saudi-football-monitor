@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -139,7 +139,8 @@ async def lifespan(app: FastAPI):
     # contar o que está acontecendo.
     for etapa, fn in (("init_db", init_db),
                       ("cleanup_old_trash", cleanup_old_trash),
-                      ("limpar_posts", _limpar_posts_de_competicao_removida)):
+                      ("limpar_posts", _limpar_posts_de_competicao_removida),
+                      ("transmissoes", _mudar_transmissoes_para_tabela)):
         try:
             fn()
         except Exception as e:
@@ -188,7 +189,7 @@ async def manifest():
         # Atalhos no toque longo do ícone. O primeiro é o que tem pressa.
         "shortcuts": [
             {"name": "Fim de jogo", "url": "/fim-de-jogo"},
-            {"name": "Posts", "url": "/posts"},
+            {"name": "Agendamentos", "url": "/posts"},
             {"name": "Números", "url": "/numeros"},
         ],
     }, media_type="application/manifest+json")
@@ -440,7 +441,7 @@ _NAV_PRINCIPAIS = [
     ("/janela",  _ICO_JANELA,  "Janela",  "",     "#B6FF00"),
     ("/numeros", _ICO_NUMEROS, "Números", "",     "#B6FF00"),
     ("/elencos", _ICO_ELENCOS, "Elencos", "",     "#B6FF00"),
-    ("/posts",   _ICO_POSTS,   "Posts",   "",     "#1d9bf0"),
+    ("/posts",   _ICO_POSTS,   "Agendamentos", "", "#1d9bf0"),
     # Entrou por último para não bagunçar a ordem que você pediu. Fica na barra,
     # e não no menu, porque é a única tela com pressa: o texto serve nos minutos
     # seguintes ao apito.
@@ -8635,7 +8636,7 @@ async def api_trocar_minha_senha(request: Request):
 
 # Cada categoria: chave, rótulo, ícone e onde ela mora.
 CATEGORIAS_APROVACAO = [
-    ("posts",   "Posts",     "/posts",    "acento"),
+    ("posts",   "Agendamentos", "/posts", "acento"),
     ("clipes",  "Clipes",    "/clipes",   "alerta"),
     ("mercado", "Mercado",   "/mercado",  "acento"),
     ("aspas",   "Aspas",     "/aspas",    "alerta"),
@@ -9681,7 +9682,7 @@ _POSTS_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Posts · IARABÃO</title>
+<title>Agendamentos · IARABÃO</title>
 __THEME__
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
@@ -9784,7 +9785,7 @@ textarea{width:100%;background:var(--surface2);color:var(--text);border:1px soli
 <body>
 __HDR__
 <div class="wrap">
-  <h1>Posts</h1>
+  <h1>Agendamentos</h1>
   <p class="sub">Clique num dia para montar a fila dele e ver só os posts daquele dia.
      Clicar de novo não duplica: confere escudos e cores. Você marca a transmissão e aprova —
      aí o post sai sozinho no horário do apito. Sem aprovação, nada é publicado.</p>
@@ -9859,7 +9860,7 @@ function cartao(p){
           : '<div style="white-space:pre-wrap;font-size:.85rem;line-height:1.5">' + esc(p.texto) + '</div>') +
     (pend ? '<div class="conta" id="c' + p.id + '"></div>' : '') +
     (pend ? '<div class="canais">' + CANAIS.map(function(c){
-        const on = p.texto.indexOf(c) > -1;
+        const on = Array.isArray(p.canais) && p.canais.indexOf(c) > -1;
         return '<span class="canal' + (on ? ' on' : '') + '" data-post="' + p.id +
                '" data-canal="' + esc(c) + '" onclick="alternarCanal(this)">' + esc(c) + '</span>';
       }).join('') + '</div>' : '') +
@@ -10299,6 +10300,39 @@ async def _season_da_liga(league_id: int, ano_inicio: int) -> int:
     return ano_inicio
 
 
+def _mudar_transmissoes_para_tabela() -> int:
+    """Passa para a tabela o que hoje só existe escrito dentro dos posts.
+
+    Roda uma vez e deixa recado no app_state. Não é caro nem perigoso repetir
+    — é INSERT ... ON CONFLICT — mas repetir escreveria por cima de uma
+    marcação feita à mão depois, e essa seria a única perda possível aqui.
+
+    Posts sem linha de transmissão não viram linha nenhuma na tabela: eles
+    ainda não foram olhados, e registrar [] diria mentira ("olhei, não tem").
+    """
+    import posts_gerador as pg
+    if get_state("transmissao_migrada") == "sim":
+        return 0
+    movidos = 0
+    try:
+        for p in listar_posts(limite=1000):
+            fid = pg.jogo_da_chave(p.get("chave_unica"))
+            if fid is None:
+                continue
+            canais = pg.canais_da_linha(p.get("texto"))
+            if canais is None:
+                continue
+            if marcar_transmissao(fid, canais):
+                movidos += 1
+        set_state("transmissao_migrada", "sim")
+    except Exception as e:
+        # Sem marcar como migrada: se falhou no meio, a próxima subida termina.
+        print(f"[SUBIDA] transmissões: {type(e).__name__}: {e}", flush=True)
+        raise
+    print(f"[SUBIDA] transmissões movidas para a tabela: {movidos}", flush=True)
+    return movidos
+
+
 def _limpar_posts_de_competicao_removida() -> int:
     """Cancela post ainda parado na fila de competição que saiu da lista.
 
@@ -10493,6 +10527,22 @@ async def api_posts_fila(status: str = "", dia: str = ""):
             else:
                 detalhe.append({"ref": ref, "chave": None, "tem": True})
         p["escudos"] = detalhe
+    # De onde a tela sabe quais canais estão acesos. Antes ela procurava o nome
+    # do canal dentro do texto do post — e "Sportv" está dentro de "Sportv 2",
+    # então marcar o 2 acendia os dois. Agora vem da tabela; o texto só entra
+    # como rede para os posts que existiam antes desta tabela.
+    ids = {}
+    for p in posts:
+        fid = pg.jogo_da_chave(p.get("chave_unica"))
+        if fid is not None:
+            ids[p["id"]] = fid
+    guardados = transmissoes(list(ids.values()))
+    for p in posts:
+        fid = ids.get(p["id"])
+        if fid is not None and fid in guardados:
+            p["canais"] = guardados[fid]
+        else:
+            p["canais"] = pg.canais_da_linha(p.get("texto"))
     return {"posts": posts,
             "canais": pg.TRANSMISSOES,
             "x_configurado": ok_x, "x_faltando": faltando,
@@ -10600,8 +10650,15 @@ async def api_posts_transmissao(post_id: int, request: Request):
     item = obter_post(post_id)
     if not item or item["status"] != "pendente":
         return {"erro": "só dá pra editar post pendente"}
+    canais = [c for c in (corpo.get("canais") or []) if c in pg.TRANSMISSOES]
+    # Grava o fato antes de desenhar a linha. Se o texto do post der problema
+    # mais adiante, a marcação do jogo já está salva — e é dela que vive o
+    # relatório de prévia, não do texto.
+    fid = pg.jogo_da_chave(item.get("chave_unica"))
+    if fid is not None:
+        marcar_transmissao(fid, canais)
     linhas = item["texto"].split("\n")
-    nova = pg.linha_transmissao(corpo.get("canais") or [])
+    nova = pg.linha_transmissao(canais)
     # A transmissão é sempre a última linha; trocar por posição evita mexer no
     # que o usuário porventura editou à mão nas linhas de cima.
     if linhas and (linhas[-1].startswith("🖥️") or linhas[-1].startswith("❌")):

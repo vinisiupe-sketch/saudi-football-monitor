@@ -134,3 +134,58 @@ def linha_transmissao(canais: list[str] | None) -> str:
 def chave_do_jogo(fixture_id) -> str:
     """Identidade do post na fila: um jogo gera um BOLA ROLANDO, e só um."""
     return f"bola_rolando:{fixture_id}"
+
+
+def jogo_da_chave(chave: str):
+    """O caminho de volta: de 'bola_rolando:12345' para 12345.
+
+    Devolve None se a chave não for de um jogo. Chutar um número aqui faria a
+    transmissão ser gravada no jogo errado, e ninguém perceberia.
+    """
+    if not chave or ":" not in str(chave):
+        return None
+    tipo, _, resto = str(chave).partition(":")
+    if tipo != "bola_rolando":
+        return None
+    try:
+        return int(resto)
+    except (TypeError, ValueError):
+        return None
+
+
+def canais_da_linha(texto: str) -> list[str] | None:
+    """Lê de volta os canais de um post que já existe.
+
+    Serve para o backfill e como rede: enquanto a tabela de transmissão não
+    tiver a linha deste jogo, a tela ainda mostra o que o post diz.
+
+    Devolve None quando o post não tem linha de transmissão nenhuma — que é
+    diferente de [] ("marcado como sem transmissão").
+
+    Casa pelo nome inteiro e não por 'está contido', porque "Sportv" está
+    contido em "Sportv 2": procurar por pedaço acenderia o canal errado.
+    """
+    if not texto:
+        return None
+    linhas = [l.strip() for l in str(texto).split("\n") if l.strip()]
+    linha = ""
+    for l in reversed(linhas):
+        if l.startswith("🖥️") or l.startswith("❌"):
+            linha = l
+            break
+    if not linha:
+        return None
+    if linha.startswith("❌"):
+        return []
+    corpo = linha[len("🖥️"):].strip()
+    pedacos = []
+    for parte in corpo.split(","):
+        pedacos.extend(p.strip() for p in parte.split(" e "))
+    achados = [p for p in pedacos if p in TRANSMISSOES]
+    # Um canal com " e " no nome sobreviveria partido em dois e sumiria da
+    # lista. Se sobrou algo por reconhecer, tento a linha inteira também.
+    for c in TRANSMISSOES:
+        if c not in achados and (corpo == c or corpo.endswith(" e " + c)
+                                 or corpo.startswith(c + ",")):
+            achados.append(c)
+    return [c for c in TRANSMISSOES if c in achados]

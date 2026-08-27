@@ -175,6 +175,24 @@ def init_db():
                 apurada_em  TEXT NOT NULL
             )
         """)
+        # Quais jogos têm transmissão, e por onde.
+        #
+        # Isto NASCEU como uma linha de texto no fim do post de BOLA ROLANDO, e
+        # por um tempo foi só isso. Funcionava para o post e para mais nada: uma
+        # linha de texto não responde "quais jogos de amanhã eu comento?" sem
+        # alguém sair lendo post por post e reconhecendo emoji. E se o post
+        # fosse cancelado, a informação ia junto — apagada por um clique que
+        # tinha outra intenção.
+        #
+        # Aqui a marcação é um fato sobre o JOGO, com vida própria. A linha do
+        # post passa a ser um desenho desse fato, não o lugar onde ele mora.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS transmissao (
+                fixture_id    INTEGER PRIMARY KEY,
+                canais        TEXT NOT NULL DEFAULT '[]',
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
@@ -1297,6 +1315,98 @@ def listar_posts(status: str | None = None, limite: int = 60) -> list[dict]:
             if l.get(campo):
                 l[campo] = l[campo].isoformat()
     return linhas
+
+
+def marcar_transmissao(fixture_id, canais: list[str]) -> bool:
+    """Grava por onde este jogo passa. Lista vazia = marcado como sem transmissão.
+
+    Repare que lista vazia NÃO é o mesmo que linha ausente. Linha ausente quer
+    dizer "ninguém olhou este jogo ainda"; lista vazia quer dizer "olhei, e não
+    tem transmissão". Quem for perguntar depois precisa dessa diferença — senão
+    um jogo esquecido e um jogo sem transmissão viram a mesma coisa.
+    """
+    import json as _json
+    try:
+        fid = int(fixture_id)
+    except (TypeError, ValueError):
+        return False
+    try:
+        with get_conn() as conn:
+            conn.cursor().execute("""
+                INSERT INTO transmissao (fixture_id, canais, atualizado_em)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (fixture_id) DO UPDATE
+                   SET canais = EXCLUDED.canais, atualizado_em = NOW()
+            """, [fid, _json.dumps(list(canais or []), ensure_ascii=False)])
+        return True
+    except Exception as e:
+        print(f"⚠️ marcar_transmissao({fixture_id}): {e}")
+        return False
+
+
+def transmissao_do_jogo(fixture_id) -> list[str] | None:
+    """Os canais deste jogo, [] se marcado sem transmissão, None se nunca marcado."""
+    import json as _json
+    try:
+        fid = int(fixture_id)
+    except (TypeError, ValueError):
+        return None
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT canais FROM transmissao WHERE fixture_id = %s", [fid])
+            linha = c.fetchone()
+    except Exception:
+        return None
+    if not linha:
+        return None
+    try:
+        return list(_json.loads(linha[0] or "[]"))
+    except Exception:
+        return []
+
+
+def transmissoes(fixture_ids: list) -> dict[int, list[str]]:
+    """Vários de uma vez. Só devolve os que foram marcados."""
+    import json as _json
+    ids = []
+    for f in (fixture_ids or []):
+        try:
+            ids.append(int(f))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        return {}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT fixture_id, canais FROM transmissao "
+                      "WHERE fixture_id = ANY(%s::int[])", [ids])
+            linhas = c.fetchall()
+    except Exception as e:
+        print(f"⚠️ transmissoes: {e}")
+        return {}
+    saida = {}
+    for fid, canais in linhas:
+        try:
+            saida[int(fid)] = list(_json.loads(canais or "[]"))
+        except Exception:
+            saida[int(fid)] = []
+    return saida
+
+
+def jogos_com_transmissao() -> list[int]:
+    """Só os que têm ao menos um canal. Os marcados como sem transmissão ficam
+    de fora — eles foram olhados, e a resposta foi não."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT fixture_id FROM transmissao "
+                      "WHERE canais <> '[]' AND canais <> '' ORDER BY fixture_id")
+            return [int(r[0]) for r in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ jogos_com_transmissao: {e}")
+        return []
 
 
 def obter_post(post_fila_id: int) -> dict | None:
