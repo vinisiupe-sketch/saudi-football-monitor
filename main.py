@@ -8099,6 +8099,9 @@ __HDR__
     na pr&oacute;xima consulta.</p>
   <div id="lista">carregando...</div>
 
+  <div class="grupo">Convidar</div>
+  <div id="convites">carregando...</div>
+
   <div class="grupo">Quem entra</div>
   <div id="contas">carregando...</div>
 </div>
@@ -8234,6 +8237,7 @@ async function salvar(a, entrada, estado, padrao) {
 
 carregar();
 carregarContas();
+carregarConvites();
 
 async function carregarContas() {
   const alvo = document.getElementById('contas');
@@ -8289,6 +8293,19 @@ async function carregarContas() {
       rot.appendChild(m);
     }
     linha.appendChild(rot);
+    // O papel fica ao lado do nome porque e a informacao que decide o que
+    // essa pessoa alcanca. Escondida num submenu, ninguem confere.
+    const sel = document.createElement('select');
+    sel.className = 'padrao';
+    [['adm','Administrador'],['gerente','Gerente'],['leitor','Leitor']]
+      .forEach(function (par) {
+        const o = document.createElement('option');
+        o.value = par[0]; o.textContent = par[1];
+        if ((u.papel || 'leitor') === par[0]) o.selected = true;
+        sel.appendChild(o);
+      });
+    sel.onchange = function () { trocarPapel(u.email, sel); };
+    linha.appendChild(sel);
     const b = document.createElement('button');
     b.className = 'padrao';
     b.textContent = 'gerar senha temporaria';
@@ -8313,6 +8330,24 @@ async function carregarContas() {
   }
 }
 
+async function trocarPapel(email, sel) {
+  const antes = sel.dataset.antes || sel.value;
+  try {
+    const r = await fetch('/api/usuarios/papel', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({email: email, papel: sel.value})
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+    sel.dataset.antes = sel.value;
+  } catch (e) {
+    // Volta ao que era. Um seletor que mostra um papel e guardou outro e a
+    // pior forma de errar aqui: parece certo na tela e esta errado no banco.
+    sel.value = antes;
+    alert('nao deu: ' + (e.message || e));
+  }
+}
+
 async function gerarSenha(email, onde) {
   if (!confirm('Gerar uma senha temporaria para ' + email + '?\n\n'
              + 'A senha atual dele para de funcionar na hora.')) return;
@@ -8334,6 +8369,93 @@ async function gerarSenha(email, onde) {
   } catch (e) {
     alert('nao deu: ' + (e.message || e));
   }
+}
+
+// ── Convites ──────────────────────────────────────────────────────────────
+// O codigo aparece UMA vez, aqui, e nunca mais. O banco guarda so o resumo,
+// entao nem eu consigo recuperar um convite ja criado. Perdeu, gera outro.
+const PAPEL_AJUDA = {
+  gerente: 'Faz tudo que voce faz, menos Configuracoes e contas.',
+  leitor: 'Ve as guias. Nao entra na tela inicial de aprovacao e nao aprova, '
+        + 'publica nem manda gerar relatorio.'
+};
+
+async function carregarConvites() {
+  const alvo = document.getElementById('convites');
+  if (!alvo) return;
+  let d;
+  try {
+    const r = await fetch('/api/convites');
+    d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+  } catch (e) {
+    alvo.innerHTML = '<p class="ajuda" style="color:#FD5D5D">' + esc(e.message) + '</p>';
+    return;
+  }
+  alvo.innerHTML = '';
+
+  (d.papeis || []).forEach(function (p) {
+    const item = document.createElement('div');
+    item.className = 'item';
+    const linha = document.createElement('div');
+    linha.className = 'linha';
+    const rot = document.createElement('div');
+    rot.className = 'rotulo';
+    rot.textContent = p.rotulo;
+    linha.appendChild(rot);
+    const b = document.createElement('button');
+    b.className = 'padrao';
+    b.textContent = 'gerar convite';
+    b.onclick = function () { gerarConvite(p.chave, item, b); };
+    linha.appendChild(b);
+    item.appendChild(linha);
+    const a = document.createElement('p');
+    a.className = 'ajuda';
+    a.textContent = PAPEL_AJUDA[p.chave] || '';
+    item.appendChild(a);
+    alvo.appendChild(item);
+  });
+
+  const usados = (d.convites || []).filter(function (c) { return c.usado_em; }).length;
+  const abertos = (d.convites || []).length - usados;
+  const resumo = document.createElement('p');
+  resumo.className = 'ajuda';
+  resumo.textContent = abertos + ' convite(s) esperando alguem, ' + usados
+    + ' ja usado(s). Cada um serve uma vez so e vence em 7 dias.';
+  alvo.appendChild(resumo);
+}
+
+async function gerarConvite(papel, onde, botao) {
+  botao.disabled = true;
+  try {
+    const r = await fetch('/api/convites', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({papel: papel})
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+    const link = location.origin + j.link;
+    const cx = document.createElement('p');
+    cx.className = 'ajuda';
+    cx.style.color = 'var(--c-acento)';
+    cx.style.wordBreak = 'break-all';
+    cx.textContent = link + '   (vale ' + j.dias + ' dias, uma pessoa so — '
+                   + 'copie agora, nao aparece de novo)';
+    onde.appendChild(cx);
+    const copiar = document.createElement('button');
+    copiar.className = 'padrao';
+    copiar.textContent = 'copiar link';
+    copiar.onclick = function () {
+      navigator.clipboard.writeText(link).then(function () {
+        copiar.textContent = 'copiado';
+        setTimeout(function () { copiar.textContent = 'copiar link'; }, 1500);
+      });
+    };
+    onde.appendChild(copiar);
+  } catch (e) {
+    alert('nao deu: ' + (e.message || e));
+  }
+  botao.disabled = false;
 }
 """
 
