@@ -138,6 +138,65 @@ def testar():
              arb.chave_do_arbitro("Abdullah Alojaym"))
     conferir("chave de vazio", arb.chave_do_arbitro("   "), "")
 
+    # ──────────────────────────── uniformizar o separador do 'Al'
+    # A liga escreveu, no MESMO jogo: "Al-Salam" com hífen, "Al Ghamdi" com
+    # espaço e "Alahmari" grudado. Três convenções numa tabela só.
+    conferir("hífen vira espaço", arb.uniformizar_al("Hassan Al-Salam"), "Hassan Al Salam")
+    conferir("grudado separa", arb.uniformizar_al("Khald Alahmari"), "Khald Al Ahmari")
+    conferir("já certo não muda", arb.uniformizar_al("Mohammed Al Ghamdi"),
+             "Mohammed Al Ghamdi")
+    conferir("sem Al não muda", arb.uniformizar_al("Mazen Hadi"), "Mazen Hadi")
+    # E o que ela NÃO pode fazer: consertar vogal. 'Khald' é erro da liga, mas
+    # escolher entre 'Khald' e 'Khaled' seria eu decidindo o nome de alguém.
+    conferir("não conserta vogal",
+             "Khald" in arb.uniformizar_al("Khald Alahmari"), True)
+    # Nome curto começando com 'Al' não pode ser partido: 'Alaa' viraria 'Al Aa'.
+    conferir("nome curto intacto", arb.uniformizar_al("Alaa Nasser"), "Alaa Nasser")
+
+    # ──────────────────────────────── qual nome vai para o post
+    pessoa = {"papel": "VAR", "nome_saff": "Khalid Alahmari",
+              "nome_liga": "Khald Al Ahmari", "pais": "Saudi Arabia"}
+    conferir("sem glossário, manda a liga", arb.nome_publicado(pessoa),
+             "Khald Al Ahmari")
+    conferir("com glossário, manda você",
+             arb.nome_publicado(pessoa, lambda n: "Khaled Al Ahmari"),
+             "Khaled Al Ahmari")
+    sem_liga = dict(pessoa, nome_liga="")
+    conferir("sem liga nem glossário, sobra o SAFF",
+             arb.nome_publicado(sem_liga), "Khalid Alahmari")
+
+    # A junção guarda AS DUAS grafias, nunca só a escolhida.
+    juntos = arb._juntar_fontes(
+        [{"papel": "VAR", "nome_saff": "Khalid Alahmari", "pais": "Saudi Arabia"},
+         {"papel": "AVAR", "nome_saff": "Hamed Alahmari", "pais": "Saudi Arabia"}],
+        [{"papel": "VAR", "nome": "Khald Al Ahmari", "pais": "Saudi Arabia"}])
+    conferir("guardou as duas", (juntos[0]["nome_saff"], juntos[0]["nome_liga"]),
+             ("Khalid Alahmari", "Khald Al Ahmari"))
+    conferir("papel que a liga não tinha fica só com o SAFF",
+             (juntos[1]["nome_liga"], juntos[1]["nome_saff"]),
+             ("", "Hamed Alahmari"))
+    # Só o que cai no SAFF vira aviso — é a única grafia feia de verdade.
+    jogo_misto = {"papeis": juntos}
+    conferir("aviso só para o que sobrou no SAFF",
+             [n["chave"] for n in arb.nomes_sem_traducao([jogo_misto])],
+             ["hamed alahmari"])
+    conferir("mas o elenco mostra os dois",
+             len(arb.elenco_do_dia([jogo_misto])), 2)
+    conferir("e diz de onde cada um veio",
+             [n["fonte"] for n in arb.elenco_do_dia([jogo_misto])],
+             ["liga", "saff"])
+
+    # ── cruzar as duas fontes: mandante e visitante podem vir trocados ──
+    conferir("confronto sem ordem",
+             arb._confronto("Al Diraiyah", "Al Kholood"),
+             arb._confronto("Al Kholood", "Al Diraiyah"))
+    # E os nomes de clube diferem entre as fontes: 'Al Diraiyah' no SAFF,
+    # 'Diriyah Club' na liga. Sem passar pelo glossário, o cruzamento falha e
+    # o jogo sai com a grafia pior sem ninguém entender por quê.
+    conferir("confronto cruza grafias diferentes",
+             arb._confronto("Al Diraiyah", "Al Kholood"),
+             arb._confronto("Al Diriyah", "Al Kholood"))
+
     # ─────────────────────────────────────────────── texto
     traducoes = {
         "sami aljurays": "Sami Al Jaris",

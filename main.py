@@ -12408,6 +12408,7 @@ async def api_arbitragem(dia: str = ""):
         "jogos": jogos,
         "texto": arb.montar_texto(jogos, traduzir, _cabecalho_arbitragem()) if jogos else "",
         "faltando": arb.nomes_sem_traducao(jogos, traduzir),
+        "elenco": arb.elenco_do_dia(jogos, traduzir),
         "paises_sem_bandeira": arb.paises_desconhecidos(jogos),
         "dias": dias_com_arbitragem(30),
         "glossario_pendente": len(nomes_de_arbitros(so_faltando=True)),
@@ -12484,6 +12485,13 @@ table.gloss input{width:100%;background:var(--c-bg-soft);color:var(--c-text);
   font-family:inherit;font-size:.78rem}
 table.gloss input:focus{outline:none;border-color:var(--c-acento)}
 .vezes{color:var(--c-muted-3);font-size:.68rem;text-align:right;white-space:nowrap}
+.fonte{display:inline-block;margin-left:7px;font-size:.6rem;padding:1px 6px;
+  border-radius:20px;vertical-align:middle;letter-spacing:.03em}
+.fonte.f-seu{background:var(--c-acento);color:var(--c-acento-texto);font-weight:700}
+.fonte.f-liga{background:var(--c-bg-soft);color:var(--c-muted-3);
+  border:1px solid var(--c-border)}
+.fonte.f-saff{background:rgba(255,190,93,.16);color:var(--c-alerta);
+  border:1px solid var(--c-alerta)}
 """
 
 _ARB_HTML = """<!DOCTYPE html>
@@ -12549,8 +12557,9 @@ function desenhar(d){
   // dentro dele.
   if ((d.faltando || []).length) {
     avisos.push('<div class="aviso alerta"><b>' + d.faltando.length +
-      ' nome(s) ainda sem a sua grafia</b>Enquanto não preencher, o texto sai com o ' +
-      'nome como o SAFF escreve. A lista para preencher está no fim da página.</div>');
+      ' nome(s) saindo com a grafia do SAFF</b>A liga oficial não tinha esses ' +
+      'nomes e você não definiu. É a pior das três grafias — vale conferir na ' +
+      'lista do fim da página.</div>');
   }
   if ((d.paises_sem_bandeira || []).length) {
     avisos.push('<div class="aviso alerta"><b>País sem bandeira no meu mapa</b>' +
@@ -12576,20 +12585,31 @@ function desenhar(d){
       '<pre class="texto" id="texto">' + esc(d.texto) + '</pre>' +
       '<div class="barra" style="margin:12px 0 0">' +
       '<button class="ctrl forte" onclick="copiar()">Copiar</button></div></div>';
-  desenharGlossario(d.faltando || []);
+  desenharGlossario(d.elenco || []);
 }
 
-function desenharGlossario(faltando){
+// Mostra TODO MUNDO, não só quem está faltando. A liga também erra — ela
+// escreveu "Khald Alahmari" —, e nome errado fora de uma lista de pendências
+// é nome errado que ninguém revisa.
+const ROTULO_FONTE = {seu: 'seu', liga: 'liga', saff: 'SAFF'};
+
+function desenharGlossario(elenco){
   const alvo = document.getElementById('glossario');
-  if (!faltando.length) { alvo.innerHTML = ''; return; }
-  const linhas = faltando.map(function(f){
-    return '<tr><td class="saff">' + esc(f.saff) + '</td>' +
-      '<td><input placeholder="como você escreve" data-chave="' + esc(f.chave) +
-      '" onchange="salvarNome(this)"></td></tr>';
+  if (!elenco.length) { alvo.innerHTML = ''; return; }
+  const linhas = elenco.map(function(f){
+    return '<tr>' +
+      '<td class="saff">' + esc(f.publicado) +
+        '<span class="fonte f-' + esc(f.fonte) + '">' +
+        esc(ROTULO_FONTE[f.fonte] || f.fonte) + '</span></td>' +
+      '<td><input placeholder="deixe em branco para manter" value="' + esc(f.seu) +
+        '" data-chave="' + esc(f.chave) + '" onchange="salvarNome(this)"></td></tr>';
   }).join('');
-  alvo.innerHTML = '<div class="bloco"><h2>Nomes para definir' +
-    '<span>preenche uma vez, vale para sempre</span></h2>' +
-    '<table class="gloss">' + linhas + '</table></div>';
+  alvo.innerHTML = '<div class="bloco"><h2>Nomes do dia' +
+    '<span>a etiqueta diz de onde veio</span></h2>' +
+    '<table class="gloss">' + linhas + '</table>' +
+    '<p class="sub" style="margin:12px 0 0">O que você escrever aqui passa a ' +
+    'valer sempre, acima da liga e do SAFF. Campo em branco deixa como está.</p>' +
+    '</div>';
 }
 
 async function salvarNome(el){

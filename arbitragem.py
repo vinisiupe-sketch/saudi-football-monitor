@@ -36,6 +36,7 @@ SOBRE OS NOMES
 """
 import re
 import unicodedata
+from urllib.parse import quote
 
 # O httpx é importado só dentro de quem vai à rede. Assim a leitura do HTML
 # pode ser testada em qualquer lugar, sem depender de biblioteca de rede —
@@ -233,6 +234,131 @@ def escala_da_pagina(html: str) -> dict:
 
 
 # ── Rede ────────────────────────────────────────────────────────────────────
+# ── A liga oficial ──────────────────────────────────────────────────────────
+#
+# O SAFF diz QUAIS jogos já têm arbitragem — inclusive Copa do Rei e Supercopa,
+# que a liga não cobre. A liga diz COMO se escreve o nome. Cada uma no que é
+# boa.
+#
+# Sobre a grafia: nenhuma das fontes é coerente, nem consigo mesma. No mesmo
+# jogo a liga escreveu "Al-Salam" com hífen, "Al Ghamdi" com espaço e
+# "Alahmari" grudado. O campo `shortName` da API é o mais limpo dos quatro —
+# é o nome curto que eles usam em tela, sem a corrente de patronímicos que
+# aparece no site ("Abdullah bin Nasser bin Mohammed Al Ojaym").
+#
+# Uniformizo só o hífen. Não é capricho: sem isso o mesmo post sai com duas
+# convenções, e a incoerência que é DELES vira aparentemente sua.
+SPL_API = "https://api-sdp.spl.com.sa/v1/spl/football"
+
+# Como a liga chama cada papel, traduzido para os nomes que o SAFF usa —
+# que são os que o resto do módulo já fala.
+PAPEL_DA_LIGA = {
+    "Referee": "Referee",
+    "Assistant Referee 1": "Assistant Referee 1",
+    "Assistant Referee 2": "Assistant Referee 2",
+    "Fourth Official": "Fourth Official",
+    "VAR": "VAR",
+    "Assistant VAR Official": "AVAR",
+    "AVAR": "AVAR",
+}
+
+
+def uniformizar_al(nome: str) -> str:
+    """'Al-Salam' e 'Alahmari' viram 'Al Salam' e 'Al Ahmari'.
+
+    Só mexe no separador. NÃO troca vogal: 'Khald' continua 'Khald' e
+    'Jurays' continua 'Jurays'. Consertar a grafia seria eu escolhendo como
+    se escreve o nome de uma pessoa, e essa não é uma escolha minha.
+    """
+    saida = []
+    for p in " ".join((nome or "").replace("Al-", "Al ").split()).split():
+        if p[:2] in ("Al", "AL", "al") and len(p) > 4 and p[2:3].isalpha():
+            saida.append("Al " + p[2:].capitalize())
+        else:
+            saida.append(p)
+    return " ".join(saida)
+
+
+def _json(url: str, cliente):
+    r = cliente.get(url, timeout=TEMPO_LIMITE, follow_redirects=True,
+                    headers={"Accept": "application/json",
+                             "User-Agent": "Mozilla/5.0 (compatible; IARABAO/1.0)"})
+    r.raise_for_status()
+    return r.json()
+
+
+def _confronto(casa: str, fora: str) -> frozenset:
+    """A identidade de um jogo para cruzar as duas fontes.
+
+    Sem ordem: o SAFF pode chamar de mandante quem a liga chama de visitante,
+    e um jogo não deixa de ser o mesmo por causa disso. Passa pelo glossário
+    de clubes para que 'Al Diraiyah' e 'Diriyah Club' se reconheçam.
+    """
+    import glossary
+    lados = []
+    for n in (casa, fora):
+        limpo = re.sub(r"\s*-\s*[A-Z]{3}$", "", " ".join((n or "").split()))
+        lados.append((glossary.padronizar_clube(limpo) or limpo).lower())
+    return frozenset(lados)
+
+
+def escala_da_liga(dia: str, cliente) -> dict:
+    """Mapa {confronto: [papéis]} com os nomes como a liga escreve.
+
+    Descobre competição → temporada → jogos → escala. Nenhum id fixo no
+    código: id de catálogo muda de temporada, e um id chumbado aqui pararia
+    de funcionar em julho sem avisar ninguém.
+    """
+    comps = _json(f"{SPL_API}/competitions?locale=en-GB", cliente).get("competitions") or []
+    if not comps:
+        return {}
+    cid = comps[0].get("competitionId")
+    temporadas = _json(f"{SPL_API}/competitions/{quote(cid, safe='')}/seasons?locale=en-GB",
+                       cliente).get("seasons") or []
+    # A temporada que contém o dia pedido, e não "a primeira da lista".
+    escolhida = None
+    for t in temporadas:
+        ini = (t.get("startDateUtc") or "")[:10]
+        fim = (t.get("endDateUtc") or "")[:10]
+        if ini and fim and ini <= dia <= fim:
+            escolhida = t
+            break
+    if not escolhida:
+        return {}
+    sid = quote(escolhida.get("seasonId") or "", safe="")
+    jogos = _json(f"{SPL_API}/seasons/{sid}/matches?locale=en-GB",
+                  cliente).get("matches") or []
+
+    saida = {}
+    for j in jogos:
+        # matchDateLocal é a hora da Arábia, que é o dia do calendário do SAFF.
+        # Usar o UTC jogaria um jogo das 21h para o dia seguinte.
+        quando = (j.get("matchDateLocal") or j.get("matchDateUtc") or "")[:10]
+        if quando != dia:
+            continue
+        casa = (j.get("home") or {}).get("shortName") or ""
+        fora = (j.get("away") or {}).get("shortName") or ""
+        mid = quote(j.get("matchId") or "", safe="")
+        if not mid:
+            continue
+        try:
+            fatos = _json(f"{SPL_API}/seasons/{sid}/match/{mid}/matchfacts?locale=en-GB",
+                          cliente)
+        except Exception:
+            continue
+        papeis = []
+        for a in (fatos.get("referees") or []):
+            papel = PAPEL_DA_LIGA.get((a.get("role") or "").strip())
+            nome = uniformizar_al(a.get("shortName") or "")
+            if not papel or not nome:
+                continue
+            papeis.append({"papel": papel, "nome": nome,
+                           "pais": (a.get("nationality") or "").strip()})
+        if papeis:
+            saida[_confronto(casa, fora)] = papeis
+    return saida
+
+
 def _baixar(url: str, cliente) -> str:
     r = cliente.get(url, timeout=TEMPO_LIMITE, follow_redirects=True,
                     headers={"User-Agent": "Mozilla/5.0 (compatible; IARABAO/1.0)"})
@@ -261,6 +387,14 @@ def buscar_do_dia(dia: str) -> dict:
             saida["erros"].append(f"calendário de {dia}: {type(e).__name__}: {e}")
             return saida
 
+        # A liga só cobre a Roshn. Se ela falhar, seguimos com o SAFF: ter o
+        # nome escrito de um jeito pior é muito melhor que não ter o nome.
+        try:
+            da_liga = escala_da_liga(dia, cliente)
+        except Exception as e:
+            da_liga = {}
+            saida["erros"].append(f"site da liga: {type(e).__name__}: {e}")
+
         for jogo in jogos_do_calendario(html):
             if not competicao_coberta(jogo["competicao"]):
                 saida["ignorados"].append({"competicao": jogo["competicao"],
@@ -276,13 +410,62 @@ def buscar_do_dia(dia: str) -> dict:
                 saida["erros"].append(
                     f"jogo {jogo['mid']}: página do apito veio sem nenhum nome")
                 continue
+            papeis = _juntar_fontes(
+                escala["papeis"],
+                da_liga.get(_confronto(escala["casa"], escala["fora"])) or [])
             saida["jogos"].append({
                 "mid": jogo["mid"], "dia": dia, "hora": jogo["hora"],
                 "competicao": escala["competicao"] or jogo["competicao"],
                 "casa": escala["casa"], "fora": escala["fora"],
-                "papeis": escala["papeis"],
+                "papeis": papeis,
             })
+
+        # Jogo que a liga tem e o SAFF não. Hoje não deve acontecer — as duas
+        # publicam no dia —, mas se acontecer eu quero saber, e não descobrir
+        # meses depois que faltava jogo na guia.
+        vistos = {_confronto(j["casa"], j["fora"]) for j in saida["jogos"]}
+        for conf in da_liga:
+            if conf not in vistos:
+                saida["erros"].append(
+                    f"a liga publicou a escala de {' x '.join(sorted(conf))} "
+                    f"e o SAFF não — este jogo ficou de fora")
     return saida
+
+
+def _juntar_fontes(do_saff: list[dict], da_liga: list[dict]) -> list[dict]:
+    """Um registro por papel, guardando o nome das DUAS fontes.
+
+    Guardo os dois em vez de escolher aqui porque a escolha pode mudar — e se
+    eu jogasse fora o nome do SAFF, mudar de ideia exigiria buscar de novo num
+    site que já apagou a página.
+    """
+    por_papel = {p["papel"]: p for p in da_liga}
+    juntos = []
+    for p in do_saff:
+        liga = por_papel.get(p["papel"]) or {}
+        juntos.append({
+            "papel": p["papel"],
+            "nome_saff": p.get("nome_saff") or "",
+            "nome_liga": liga.get("nome") or "",
+            "pais": p.get("pais") or liga.get("pais") or "",
+        })
+    return juntos
+
+
+def nome_publicado(p: dict, traduzir=None) -> str:
+    """O nome que vai para o post, na ordem de precedência combinada.
+
+    1. o seu glossário, se você tiver definido
+    2. a liga oficial
+    3. o SAFF
+
+    A ordem não é arbitrária: a única grafia que você controla vem primeiro, e
+    a última é a que sempre existe.
+    """
+    traduzir = traduzir or (lambda n: "")
+    bruto = " ".join((p.get("nome_saff") or "").split())
+    return (traduzir(bruto) or (p.get("nome_liga") or "").strip()
+            or bruto)
 
 
 # ── Texto do post ───────────────────────────────────────────────────────────
@@ -313,22 +496,22 @@ def montar_texto(jogos: list[dict], traduzir=None,
         linhas = [f"{nome_do_clube(j.get('casa'))} x {nome_do_clube(j.get('fora'))}"]
         for p in j.get("papeis") or []:
             emoji = EMOJI_PAPEL.get(p.get("papel"), "•")
-            nome = traduzir(p.get("nome_saff")) or " ".join(
-                (p.get("nome_saff") or "").split())
+            nome = nome_publicado(p, traduzir)
             flag = bandeira(p.get("pais"))
             linhas.append(f"{emoji} {flag} {nome}".replace("  ", " ").strip())
         blocos.append("\n".join(linhas))
     return (cabecalho + "\n\n" + "\n\n".join(blocos)).strip()
 
 
-def nomes_sem_traducao(jogos: list[dict], traduzir=None) -> list[dict]:
-    """Quem apareceu hoje e ainda não tem grafia definida.
+def elenco_do_dia(jogos: list[dict], traduzir=None) -> list[dict]:
+    """Todo mundo que apita hoje, com as duas grafias e a que vai sair.
 
-    É esta lista que fecha o glossário: enquanto ela tiver gente, o post sai
-    com o nome do SAFF, e você sabe disso olhando a tela.
+    A tela mostra esta lista inteira, e não só o que está faltando. O motivo:
+    a liga também erra — ela escreveu "Khald Alahmari" —, e um nome errado que
+    NÃO está numa lista de pendências é um nome errado que ninguém revisa.
     """
     traduzir = traduzir or (lambda n: "")
-    vistos, faltando = set(), []
+    vistos, saida = set(), []
     for j in jogos:
         for p in j.get("papeis") or []:
             bruto = " ".join((p.get("nome_saff") or "").split())
@@ -336,10 +519,24 @@ def nomes_sem_traducao(jogos: list[dict], traduzir=None) -> list[dict]:
             if not chave or chave in vistos:
                 continue
             vistos.add(chave)
-            if not traduzir(bruto):
-                faltando.append({"chave": chave, "saff": bruto,
-                                 "pais": p.get("pais") or ""})
-    return faltando
+            seu = traduzir(bruto)
+            liga = (p.get("nome_liga") or "").strip()
+            saida.append({
+                "chave": chave, "saff": bruto, "liga": liga,
+                "seu": seu, "pais": p.get("pais") or "",
+                "publicado": nome_publicado(p, traduzir),
+                "fonte": "seu" if seu else ("liga" if liga else "saff"),
+            })
+    return saida
+
+
+def nomes_sem_traducao(jogos: list[dict], traduzir=None) -> list[dict]:
+    """Só quem vai sair com a grafia do SAFF — a pior das três.
+
+    Aqui a liga não tinha o nome e você não definiu. É o único caso em que o
+    post publica "Alkhurbush" grudado, e por isso é o único que vira aviso.
+    """
+    return [n for n in elenco_do_dia(jogos, traduzir) if n["fonte"] == "saff"]
 
 
 def paises_desconhecidos(jogos: list[dict]) -> list[str]:
