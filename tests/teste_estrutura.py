@@ -97,7 +97,8 @@ def conferir_ordem(caminho):
 
 os.chdir(RAIZ)
 ARQUIVOS = ["main.py", "database.py", "scheduler.py", "gravador.py",
-            "ajustes.py", "glossary.py", "fim_sportmonks.py", "x_client.py"]
+            "ajustes.py", "glossary.py", "fim_sportmonks.py", "x_client.py",
+            "arbitragem.py", "contas.py", "posts_gerador.py"]
 
 # ── 1. tudo compila ────────────────────────────────────────────────────────
 for a in ARQUIVOS:
@@ -107,7 +108,12 @@ for a in ARQUIVOS:
 print(f"  {len(ARQUIVOS)} arquivos compilam")
 
 # ── 2. ordem dos nomes ─────────────────────────────────────────────────────
-for a in ("main.py", "database.py", "gravador.py"):
+# O scheduler.py entrou nesta lista depois de deixar passar um `asyncio.to_thread`
+# sem `import asyncio`. Ele compila: o nome só é procurado quando a função roda,
+# e ela roda às 11h UTC, sozinha, imprimindo o erro num log que ninguém abre.
+# Justamente por isso ele precisa estar aqui, e não porque é grande.
+for a in ("main.py", "database.py", "gravador.py", "scheduler.py",
+          "arbitragem.py"):
     p = conferir_ordem(a)
     ok(not p, f"{a}: nome usado antes de existir: {p[:4]}")
 print("  nenhum nome usado antes de existir")

@@ -1,0 +1,9 @@
+Recortes REAIS do site do SAFF, capturados em 27/08/2026.
+
+Não são fixtures escritas à mão. Foram tiradas do HTML servido pelo site,
+com os estilos e escudos removidos para caber no repositório. O que sobrou
+é a estrutura de verdade: nome do time dentro de <a> com um <br> na frente,
+&amp; na URL do apito, cabeçalho do jogo separado da competição por <br>.
+
+Servem para o teste bater contra a marcação que o site realmente entrega, e
+não contra a que eu imaginei que ele entregava.

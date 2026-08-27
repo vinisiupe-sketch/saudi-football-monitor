@@ -193,6 +193,40 @@ def init_db():
                 atualizado_em TIMESTAMPTZ DEFAULT NOW()
             )
         """)
+        # A escala de arbitragem de cada jogo.
+        #
+        # Guardar aqui não é cache: é a única cópia. O SAFF publica no dia e
+        # depois tira do ar — em datas antigas não há apito em jogo nenhum. O
+        # que não for capturado no dia não volta.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS arbitragem (
+                mid          INTEGER PRIMARY KEY,
+                dia          DATE NOT NULL,
+                hora         TEXT,
+                competicao   TEXT,
+                casa         TEXT,
+                fora         TEXT,
+                papeis       TEXT NOT NULL,
+                capturado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_arbitragem_dia ON arbitragem(dia)")
+        # Como o SAFF escreve o nome × como o canal escreve.
+        #
+        # A linha nasce na primeira vez que o árbitro aparece, com nome vazio.
+        # Ou seja: a própria tabela é a lista do que falta traduzir, e ela se
+        # preenche sozinha à medida que os árbitros aparecem. Não existe
+        # cadastro inicial para fazer.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS arbitro_nome (
+                chave     TEXT PRIMARY KEY,
+                saff      TEXT NOT NULL,
+                nome      TEXT,
+                pais      TEXT,
+                vezes     INTEGER NOT NULL DEFAULT 1,
+                visto_em  TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
@@ -1315,6 +1349,133 @@ def listar_posts(status: str | None = None, limite: int = 60) -> list[dict]:
             if l.get(campo):
                 l[campo] = l[campo].isoformat()
     return linhas
+
+
+def salvar_arbitragem(jogos: list[dict]) -> int:
+    """Guarda a escala de cada jogo e registra os árbitros vistos.
+
+    Reescreve por cima quando o mesmo jogo volta: o SAFF corrige escala em
+    cima da hora, e a correção é que vale. O ON CONFLICT do glossário NÃO
+    toca no campo `nome` — se sobrescrevesse, cada nova aparição do árbitro
+    apagaria a grafia que você tinha acabado de definir.
+    """
+    import json as _json
+    if not jogos:
+        return 0
+    gravados = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for j in jogos:
+                if j.get("mid") is None:
+                    continue
+                c.execute("""
+                    INSERT INTO arbitragem
+                        (mid, dia, hora, competicao, casa, fora, papeis, capturado_em)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (mid) DO UPDATE SET
+                        dia = EXCLUDED.dia, hora = EXCLUDED.hora,
+                        competicao = EXCLUDED.competicao,
+                        casa = EXCLUDED.casa, fora = EXCLUDED.fora,
+                        papeis = EXCLUDED.papeis, capturado_em = NOW()
+                """, [int(j["mid"]), j.get("dia"), j.get("hora") or "",
+                      j.get("competicao") or "", j.get("casa") or "",
+                      j.get("fora") or "",
+                      _json.dumps(j.get("papeis") or [], ensure_ascii=False)])
+                gravados += 1
+                for p in (j.get("papeis") or []):
+                    import arbitragem as _arb
+                    bruto = " ".join((p.get("nome_saff") or "").split())
+                    chave = _arb.chave_do_arbitro(bruto)
+                    if not chave:
+                        continue
+                    c.execute("""
+                        INSERT INTO arbitro_nome (chave, saff, pais, vezes, visto_em)
+                        VALUES (%s, %s, %s, 1, NOW())
+                        ON CONFLICT (chave) DO UPDATE SET
+                            saff = EXCLUDED.saff, pais = EXCLUDED.pais,
+                            vezes = arbitro_nome.vezes + 1, visto_em = NOW()
+                    """, [chave, bruto, p.get("pais") or ""])
+    except Exception as e:
+        print(f"⚠️ salvar_arbitragem: {e}")
+        return 0
+    return gravados
+
+
+def arbitragem_do_dia(dia: str) -> list[dict]:
+    """A escala guardada para esta data, na ordem dos jogos."""
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""SELECT * FROM arbitragem WHERE dia = %s
+                         ORDER BY hora NULLS LAST, mid""", [dia])
+            linhas = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ arbitragem_do_dia({dia}): {e}")
+        return []
+    for l in linhas:
+        try:
+            l["papeis"] = _json.loads(l.get("papeis") or "[]")
+        except Exception:
+            l["papeis"] = []
+        for campo in ("dia", "capturado_em"):
+            if l.get(campo) is not None:
+                l[campo] = l[campo].isoformat()
+    return linhas
+
+
+def dias_com_arbitragem(limite: int = 30) -> list[dict]:
+    """As datas que já foram capturadas, da mais nova para a mais velha."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT dia, COUNT(*) FROM arbitragem
+                         GROUP BY dia ORDER BY dia DESC LIMIT %s""", [limite])
+            return [{"dia": d.isoformat(), "jogos": n} for d, n in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ dias_com_arbitragem: {e}")
+        return []
+
+
+def nomes_de_arbitros(so_faltando: bool = False) -> list[dict]:
+    """O glossário de árbitros. Os mais frequentes primeiro — traduzir esses
+    primeiro é o que mais rende."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            sql = "SELECT chave, saff, nome, pais, vezes FROM arbitro_nome"
+            if so_faltando:
+                sql += " WHERE nome IS NULL OR nome = ''"
+            sql += " ORDER BY vezes DESC, saff"
+            c.execute(sql)
+            return [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ nomes_de_arbitros: {e}")
+        return []
+
+
+def traducoes_de_arbitros() -> dict[str, str]:
+    """Só o que já foi traduzido, pronto para consulta rápida na montagem."""
+    return {r["chave"]: r["nome"] for r in nomes_de_arbitros()
+            if (r.get("nome") or "").strip()}
+
+
+def definir_nome_de_arbitro(chave: str, nome: str) -> bool:
+    """Grava a grafia do canal para este árbitro. Nome vazio volta a pendente."""
+    chave = (chave or "").strip()
+    if not chave:
+        return False
+    nome = " ".join((nome or "").split())
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("UPDATE arbitro_nome SET nome = %s WHERE chave = %s",
+                      [nome or None, chave])
+            return c.rowcount > 0
+    except Exception as e:
+        print(f"⚠️ definir_nome_de_arbitro: {e}")
+        return False
 
 
 def marcar_transmissao(fixture_id, canais: list[str]) -> bool:

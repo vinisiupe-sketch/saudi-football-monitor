@@ -2,6 +2,7 @@
 Agendador — usa APScheduler para rodar a pipeline de coleta periodicamente.
 Período inativo: 01h–06h horário de Brasília (UTC-3).
 """
+import asyncio
 import os
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
@@ -161,6 +162,17 @@ def create_scheduler() -> AsyncIOScheduler:
         id="fila_bola_rolando_diaria",
         replace_existing=True,
     )
+    # 8h de Brasília = 11h UTC. A escala de arbitragem do SAFF sai no dia, em
+    # horário que eles não anunciam. Uma passada só, como combinado; se o SAFF
+    # atrasar, o botão "Buscar no SAFF agora" na guia resolve na hora.
+    scheduler.add_job(
+        run_arbitragem,
+        trigger="cron",
+        hour=11,
+        minute=0,
+        id="arbitragem_diaria",
+        replace_existing=True,
+    )
     # A cada 30s: publica o que VOCÊ aprovou e cujo horário de início chegou.
     # O X não tem endpoint de agendamento fora da Ads API (que exige conta de
     # anunciante), então o disparo é nosso mesmo. Com 60s o atraso podia chegar
@@ -217,6 +229,26 @@ async def run_varredura_competicoes():
         return r
     except Exception as e:
         print(f"❌ Erro na varredura de competições: {e}")
+        return {"erro": str(e)}
+
+
+async def run_arbitragem():
+    """Busca a escala de arbitragem do dia no SAFF e guarda.
+
+    Esta é a única chance. O SAFF publica no dia e depois tira do ar — em
+    datas antigas não há apito em jogo nenhum. Se esta rotina falhar calada,
+    o dia se perde e ninguém descobre, então o erro é impresso e o resultado
+    também: "0 guardados" precisa aparecer no log tanto quanto "5 guardados".
+    """
+    try:
+        from main import buscar_arbitragem
+        r = await asyncio.to_thread(buscar_arbitragem)
+        print(f"🧑‍⚖️ Arbitragem {r.get('dia')}: {r.get('guardados')} guardados, "
+              f"{len(r.get('ignorados') or [])} fora das nossas competições, "
+              f"{len(r.get('erros') or [])} erros")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao buscar a arbitragem do dia: {type(e).__name__}: {e}")
         return {"erro": str(e)}
 
 

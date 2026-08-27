@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -234,6 +234,10 @@ _ICO_CLIPE   = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 '1-2-2V8Z"/><path d="m3 8 2.5-4h13L21 8"/><path d="m8 4-2 4"/>'
                 '<path d="m13 4-2 4"/><path d="m18 4-2 4"/></svg>')
 _ICO_APITO   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>'
+_ICO_ARBITRO = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="M13 8h6a3 3 0 0 1 0 6h-1.2A6 6 0 1 1 13 8Z"/>'
+                '<circle cx="9" cy="11" r="2"/><path d="M13 8 9.5 4.5"/></svg>')
 _ICO_MAIS    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
@@ -449,6 +453,9 @@ _NAV_PRINCIPAIS = [
     # A tela mais urgente de todas: o gol acabou de sair e o clipe tem prazo.
     # Fica na barra, e o contador aparece quando há clipe esperando você.
     ("/clipes", _ICO_CLIPE, "Clipes", "clipes", "#B6FF00"),
+    # A escala do dia. Fica na barra porque é consulta diária, e porque a
+    # janela de captura é curta: o SAFF publica e tira do ar.
+    ("/arbitragem", _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
 ]
 _NAV_EXTRAS = [
     ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#FFBE5D"),
@@ -8707,6 +8714,24 @@ def _log_de_entrada(limite: int = 40) -> list:
             })
     except Exception:
         pass
+    try:
+        # Uma linha por dia, não uma por jogo: a arbitragem chega toda de uma
+        # vez, e seis linhas iguais empurrariam o resto do log para fora.
+        for dia in (_dia_de_brasilia(), _dia_de_brasilia(-1)):
+            jogos = arbitragem_do_dia(dia)
+            if not jogos:
+                continue
+            itens.append({
+                "tipo": "arbitragem",
+                "titulo": f"Arbitragem de {dia[8:10]}/{dia[5:7]}: "
+                          + ", ".join(f"{j.get('casa')} x {j.get('fora')}"
+                                      for j in jogos[:3])
+                          + ("…" if len(jogos) > 3 else ""),
+                "quando": jogos[0].get("capturado_em") or "",
+                "estado": "", "id": None, "onde": f"/arbitragem?dia={dia}",
+            })
+    except Exception:
+        pass
     itens.sort(key=lambda i: str(i.get("quando") or ""), reverse=True)
     return itens[:limite]
 
@@ -8975,6 +9000,7 @@ async def home():
     icones = json.dumps({
         "posts": _ICO_POSTS, "clipes": _ICO_CLIPE, "mercado": _ICO_MERCADO,
         "aspas": _ICO_ASPAS, "noticias": _ICO_JORNAL,
+        "arbitragem": _ICO_ARBITRO,
     })
     return HTMLResponse(
         _HOME_HTML
@@ -12293,3 +12319,332 @@ load(false);
 </script>
 </body>
 </html>""")
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ARBITRAGEM DO DIA
+#
+# O SAFF publica a escala no dia do jogo e depois tira do ar. Em datas
+# antigas não há apito em jogo nenhum. Por isso esta guia guarda: o banco é a
+# única cópia que sobra, e a busca diária das 8h é a única chance de pegar.
+# ══════════════════════════════════════════════════════════════════════════
+
+def _dia_de_brasilia(quantos_dias: int = 0) -> str:
+    """A data de hoje em Brasília, no formato do SAFF.
+
+    O Railway roda em UTC. Às 22h de Brasília já é o dia seguinte em UTC, e
+    pedir "hoje" ao servidor traria o calendário de amanhã sem avisar.
+    """
+    from datetime import datetime, timedelta, timezone
+    agora = datetime.now(timezone.utc) - timedelta(hours=3)
+    return (agora + timedelta(days=quantos_dias)).strftime("%Y-%m-%d")
+
+
+def _traduzir_arbitro():
+    """Uma função que converte nome do SAFF na grafia do canal.
+
+    Lê o glossário inteiro de uma vez e devolve uma consulta em memória: são
+    seis nomes por jogo, e uma ida ao banco por nome seria uma consulta por
+    linha do post.
+    """
+    import arbitragem as arb
+    try:
+        tabela = traducoes_de_arbitros()
+    except Exception:
+        tabela = {}
+    return lambda bruto: tabela.get(arb.chave_do_arbitro(bruto), "")
+
+
+def _cabecalho_arbitragem() -> str:
+    import arbitragem as arb
+    try:
+        salvo = (get_state("arbitragem_cabecalho") or "").strip()
+    except Exception:
+        salvo = ""
+    return salvo or arb.CABECALHO_PADRAO
+
+
+def buscar_arbitragem(dia: str | None = None) -> dict:
+    """Vai ao SAFF, guarda o que achar e conta o que aconteceu.
+
+    Devolve sempre os três números — guardados, ignorados e erros. Um retorno
+    que só diga "0 jogos" não distingue "o SAFF ainda não publicou" de "o site
+    caiu", e essas duas situações pedem coisas diferentes de você.
+    """
+    import arbitragem as arb
+    dia = dia or _dia_de_brasilia()
+    achado = arb.buscar_do_dia(dia)
+    gravados = salvar_arbitragem(achado["jogos"])
+    resultado = {
+        "dia": dia,
+        "guardados": gravados,
+        "encontrados": len(achado["jogos"]),
+        "ignorados": achado["ignorados"],
+        "erros": achado["erros"],
+    }
+    print(f"[ARBITRAGEM] {dia}: {gravados} guardados, "
+          f"{len(achado['ignorados'])} fora das competições cobertas, "
+          f"{len(achado['erros'])} erros", flush=True)
+    for e in achado["erros"]:
+        print(f"[ARBITRAGEM] erro: {e}", flush=True)
+    return resultado
+
+
+@app.get("/api/arbitragem")
+async def api_arbitragem(dia: str = ""):
+    """A escala guardada de um dia, já com o texto montado."""
+    import arbitragem as arb
+    dia = (dia or "").strip() or _dia_de_brasilia()
+    jogos = arbitragem_do_dia(dia)
+    traduzir = _traduzir_arbitro()
+    return {
+        "dia": dia,
+        "hoje": _dia_de_brasilia(),
+        "jogos": jogos,
+        "texto": arb.montar_texto(jogos, traduzir, _cabecalho_arbitragem()) if jogos else "",
+        "faltando": arb.nomes_sem_traducao(jogos, traduzir),
+        "paises_sem_bandeira": arb.paises_desconhecidos(jogos),
+        "dias": dias_com_arbitragem(30),
+        "glossario_pendente": len(nomes_de_arbitros(so_faltando=True)),
+    }
+
+
+@app.post("/api/arbitragem/buscar")
+async def api_arbitragem_buscar(request: Request):
+    """Busca agora, sem esperar as 8h. Serve quando o SAFF atrasa."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    dia = (corpo.get("dia") or "").strip() or _dia_de_brasilia()
+    return buscar_arbitragem(dia)
+
+
+@app.get("/api/arbitragem/nomes")
+async def api_arbitragem_nomes(faltando: str = ""):
+    """O glossário de árbitros, os mais frequentes primeiro."""
+    return {"nomes": nomes_de_arbitros(so_faltando=(faltando == "sim"))}
+
+
+@app.post("/api/arbitragem/nome")
+async def api_arbitragem_nome(request: Request):
+    """Define a grafia do canal para um árbitro."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, 400)
+    chave = (corpo.get("chave") or "").strip()
+    if not chave:
+        return JSONResponse({"erro": "faltou dizer qual árbitro"}, 400)
+    ok = definir_nome_de_arbitro(chave, corpo.get("nome") or "")
+    if not ok:
+        return JSONResponse({"erro": "não achei esse árbitro no glossário"}, 404)
+    return {"ok": True}
+
+
+_ARB_CSS = """
+body{background:var(--c-bg);color:var(--c-text);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
+.wrap{max-width:820px;margin:0 auto;padding:6px 16px 90px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
+  margin:10px 0 4px}
+.sub{font-size:.76rem;color:var(--c-muted-3);line-height:1.55;margin:0 0 16px}
+.barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.ctrl{background:var(--c-bg-card);color:var(--c-text);border:1px solid var(--c-border);
+  border-radius:12px;padding:8px 13px;font-size:.78rem;font-family:inherit;cursor:pointer}
+.ctrl:hover{border-color:var(--c-acento)}
+.ctrl.forte{background:var(--c-acento);color:var(--c-acento-texto);border-color:var(--c-acento);
+  font-weight:700}
+.aviso{border-radius:14px;padding:12px 14px;font-size:.76rem;line-height:1.55;
+  margin-bottom:12px;border:1px solid var(--c-border)}
+.aviso.alerta{background:rgba(255,190,93,.10);border-color:var(--c-alerta)}
+.aviso.ruim{background:rgba(253,93,93,.10);border-color:var(--c-negativo)}
+.aviso b{display:block;margin-bottom:4px}
+.bloco{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:18px;padding:14px 16px;margin-bottom:12px}
+.bloco h2{font-family:'Bebas Neue',sans-serif;font-size:1.2rem;letter-spacing:.04em;
+  margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+.bloco h2 span{font-family:'Inter',sans-serif;font-size:.66rem;font-weight:500;
+  letter-spacing:0;color:var(--c-muted-3)}
+pre.texto{white-space:pre-wrap;word-break:break-word;font-family:inherit;
+  font-size:.86rem;line-height:1.65;margin:0;background:var(--c-bg-soft);
+  border-radius:14px;padding:14px 15px}
+.vazio{text-align:center;color:var(--c-muted-3);font-size:.8rem;padding:34px 12px;
+  line-height:1.6}
+table.gloss{width:100%;border-collapse:collapse;font-size:.78rem}
+table.gloss td{padding:6px 4px;border-bottom:1px solid var(--c-border)}
+table.gloss td.saff{color:var(--c-muted-3);white-space:nowrap}
+table.gloss input{width:100%;background:var(--c-bg-soft);color:var(--c-text);
+  border:1px solid var(--c-border);border-radius:9px;padding:6px 8px;
+  font-family:inherit;font-size:.78rem}
+table.gloss input:focus{outline:none;border-color:var(--c-acento)}
+.vezes{color:var(--c-muted-3);font-size:.68rem;text-align:right;white-space:nowrap}
+"""
+
+_ARB_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arbitragem · IARABÃO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__ARB_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Arbitragem</h1>
+  <p class="sub">O SAFF publica a escala no dia do jogo e tira do ar depois de
+     alguns dias. O app busca sozinho às 8h e guarda — o que está aqui não
+     depende mais do site continuar publicando.</p>
+  <div class="barra">
+    <input type="date" id="dia" class="ctrl">
+    <button class="ctrl" onclick="carregar()">↻ Atualizar</button>
+    <button class="ctrl forte" onclick="buscarAgora()">Buscar no SAFF agora</button>
+  </div>
+  <div id="avisos"></div>
+  <div id="conteudo" class="vazio">carregando…</div>
+  <div id="glossario"></div>
+</div>
+<script>
+__ARB_JS__
+</script>
+</body>
+</html>"""
+
+_ARB_JS = r"""
+function esc(s){return String(s==null?'':s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+let ULTIMO = null;
+
+function hojeCampo(){
+  const c = document.getElementById('dia');
+  return (c && c.value) ? c.value : '';
+}
+
+async function carregar(){
+  const d = hojeCampo();
+  const r = await fetch('/api/arbitragem' + (d ? '?dia=' + encodeURIComponent(d) : ''));
+  const dados = await r.json();
+  ULTIMO = dados;
+  const campo = document.getElementById('dia');
+  if (campo && !campo.value) campo.value = dados.dia;
+  desenhar(dados);
+}
+
+function desenhar(d){
+  const avisos = [];
+  // A lista de nomes sem grafia aparece ANTES do texto, de propósito. Se
+  // aparecesse depois, você copiaria o bloco sem saber que tem nome do SAFF
+  // dentro dele.
+  if ((d.faltando || []).length) {
+    avisos.push('<div class="aviso alerta"><b>' + d.faltando.length +
+      ' nome(s) ainda sem a sua grafia</b>Enquanto não preencher, o texto sai com o ' +
+      'nome como o SAFF escreve. A lista para preencher está no fim da página.</div>');
+  }
+  if ((d.paises_sem_bandeira || []).length) {
+    avisos.push('<div class="aviso alerta"><b>País sem bandeira no meu mapa</b>' +
+      esc(d.paises_sem_bandeira.join(', ')) +
+      ' — o nome sai sem bandeira. Me avise para eu incluir.</div>');
+  }
+  document.getElementById('avisos').innerHTML = avisos.join('');
+
+  const alvo = document.getElementById('conteudo');
+  if (!d.jogos || !d.jogos.length) {
+    alvo.className = 'vazio';
+    alvo.innerHTML = 'Nada guardado para ' + esc(d.dia) + '.<br><br>' +
+      (d.dia === d.hoje
+        ? 'Se já passou das 8h, use “Buscar no SAFF agora”. Pode ser que o SAFF ainda não tenha publicado a escala do dia.'
+        : 'Este dia não foi capturado. O SAFF não guarda escala antiga, então não dá para buscar depois.');
+    document.getElementById('glossario').innerHTML = '';
+    return;
+  }
+  alvo.className = '';
+  alvo.innerHTML =
+    '<div class="bloco"><h2>Texto para copiar' +
+      '<span>' + d.jogos.length + ' jogo(s)</span></h2>' +
+      '<pre class="texto" id="texto">' + esc(d.texto) + '</pre>' +
+      '<div class="barra" style="margin:12px 0 0">' +
+      '<button class="ctrl forte" onclick="copiar()">Copiar</button></div></div>';
+  desenharGlossario(d.faltando || []);
+}
+
+function desenharGlossario(faltando){
+  const alvo = document.getElementById('glossario');
+  if (!faltando.length) { alvo.innerHTML = ''; return; }
+  const linhas = faltando.map(function(f){
+    return '<tr><td class="saff">' + esc(f.saff) + '</td>' +
+      '<td><input placeholder="como você escreve" data-chave="' + esc(f.chave) +
+      '" onchange="salvarNome(this)"></td></tr>';
+  }).join('');
+  alvo.innerHTML = '<div class="bloco"><h2>Nomes para definir' +
+    '<span>preenche uma vez, vale para sempre</span></h2>' +
+    '<table class="gloss">' + linhas + '</table></div>';
+}
+
+async function salvarNome(el){
+  const d = await (await fetch('/api/arbitragem/nome', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({chave: el.dataset.chave, nome: el.value})})).json();
+  if (d.erro) { alert(d.erro); return; }
+  carregar();
+}
+
+async function buscarAgora(){
+  const alvo = document.getElementById('conteudo');
+  alvo.className = 'vazio'; alvo.innerHTML = 'consultando o SAFF…';
+  const d = await (await fetch('/api/arbitragem/buscar', {method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({dia: hojeCampo()})})).json();
+  const partes = [];
+  if (d.erros && d.erros.length) {
+    partes.push('<div class="aviso ruim"><b>Deu problema na busca</b>' +
+      d.erros.map(esc).join('<br>') + '</div>');
+  }
+  if (!d.guardados) {
+    // Distinguir as duas ausências é o ponto. "Publicou, mas só sub-16" e
+    // "não publicou nada" levam a decisões diferentes.
+    const ign = (d.ignorados || []).length;
+    partes.push('<div class="aviso alerta"><b>Nenhum jogo das nossas competições</b>' +
+      (ign ? 'O SAFF publicou ' + ign + ' escala(s), mas de competições que ' +
+             'não cobrimos (2ª divisão, sub-16, futsal).'
+           : 'O SAFF ainda não publicou escala nenhuma para este dia.') +
+      '</div>');
+  }
+  document.getElementById('avisos').innerHTML = partes.join('');
+  await carregar();
+  if (partes.length) {
+    document.getElementById('avisos').innerHTML =
+      partes.join('') + document.getElementById('avisos').innerHTML;
+  }
+}
+
+function copiar(){
+  const t = ULTIMO && ULTIMO.texto ? ULTIMO.texto : '';
+  if (!t) return;
+  navigator.clipboard.writeText(t).then(function(){
+    const b = event.target; const antes = b.textContent;
+    b.textContent = 'copiado'; setTimeout(function(){ b.textContent = antes; }, 1400);
+  });
+}
+
+document.getElementById('dia').addEventListener('change', carregar);
+carregar();
+"""
+
+
+@app.get("/arbitragem", response_class=HTMLResponse)
+async def pagina_arbitragem():
+    return HTMLResponse(
+        _ARB_HTML
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__ARB_CSS__", _ARB_CSS)
+        .replace("__ARB_JS__", _ARB_JS)
+        .replace("__HDR__", _header("/arbitragem"))
+    )
