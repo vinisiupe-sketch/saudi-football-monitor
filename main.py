@@ -12661,3 +12661,33 @@ async def pagina_arbitragem():
         .replace("__ARB_JS__", _ARB_JS)
         .replace("__HDR__", _header("/arbitragem"))
     )
+
+
+@app.get("/api/diag/arbitros-sportmonks", response_class=PlainTextResponse)
+async def diag_arbitros_sportmonks(data: str = "2026-08-26"):
+    """Como a Sportmonks escreve o nome dos árbitros de um dia.
+
+    Sondagem: serve para comparar a grafia dela com a do SAFF e com a do
+    canal, antes de decidir de qual fonte o glossário deve nascer. Não guarda
+    nada e não é chamada por nenhuma tela.
+    """
+    import fim_sportmonks as sm
+    linhas = [f"data: {data}"]
+    d, e = await sm._get(f"fixtures/date/{data}", ttl=60,
+                         include="participants;referees.referee.country",
+                         per_page="100")
+    if e:
+        return PlainTextResponse(f"erro: {e}")
+    for f in ((d or {}).get("data") or []):
+        nomes = [p.get("name") for p in (f.get("participants") or [])]
+        linhas.append(f"\n[liga {f.get('league_id')}] {' x '.join(str(n) for n in nomes)}")
+        arbs = f.get("referees") or []
+        if not arbs:
+            linhas.append("   (sem árbitro)")
+        for a in arbs:
+            r = a.get("referee") or {}
+            pais = (r.get("country") or {}).get("name")
+            linhas.append(f"   {a.get('type_id')}: {r.get('name')}"
+                          f"  | common={r.get('common_name')}"
+                          f"  | display={r.get('display_name')}  | {pais}")
+    return PlainTextResponse("\n".join(linhas))
