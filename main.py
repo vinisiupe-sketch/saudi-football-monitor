@@ -8860,6 +8860,40 @@ CATEGORIAS_APROVACAO = [
 ]
 
 
+# Os únicos dois estados que ainda pedem alguma coisa de você. 'publicado',
+# 'cancelado' e 'falho' são registro do que aconteceu — lugar de histórico, não
+# de fila.
+ESTADOS_ABERTOS = ("pendente", "aprovado")
+
+
+def _posts_do_futuro(limite: int = 200) -> list[dict]:
+    """Os posts que ainda vão acontecer.
+
+    Duas peneiras, e as duas são necessárias. O estado tira o que já foi
+    resolvido. O horário tira o que está aberto mas já perdeu a hora — um
+    BOLA ROLANDO de um jogo que começou há 40 minutos continua 'pendente' até
+    a varredura de expiração passar, e nesse intervalo ele fica na sua tela
+    pedindo uma decisão que não existe mais.
+    """
+    from datetime import datetime, timezone
+    agora = datetime.now(timezone.utc)
+    abertos = []
+    for p in listar_posts(limite=limite):
+        if (p.get("status") or "") not in ESTADOS_ABERTOS:
+            continue
+        quando = p.get("agendado_para")
+        if quando:
+            try:
+                if datetime.fromisoformat(quando) < agora:
+                    continue
+            except (TypeError, ValueError):
+                # Data ilegível não é motivo para esconder o post: melhor ele
+                # aparecer a mais e você decidir do que sumir em silêncio.
+                pass
+        abertos.append(p)
+    return abertos
+
+
 def _contar_para_aprovar() -> dict:
     """Quanto está esperando decisão em cada frente.
 
@@ -8869,7 +8903,8 @@ def _contar_para_aprovar() -> dict:
     """
     saida = {}
     try:
-        saida["posts"] = len(listar_posts(status="pendente", limite=200))
+        saida["posts"] = len([p for p in _posts_do_futuro()
+                              if p.get("status") == "pendente"])
     except Exception:
         saida["posts"] = None
     try:
@@ -8903,10 +8938,17 @@ def _log_de_entrada(limite: int = 40) -> list:
     """O que entrou, em ordem de chegada, com de onde veio e quando."""
     itens = []
     try:
-        for p in listar_posts(limite=limite):
+        # Só o que ainda vai acontecer. A home listava a fila inteira, e post
+        # publicado e cancelado ficavam empurrando para baixo os que ainda
+        # pediam decisão — que é o oposto do que uma fila serve para fazer.
+        for p in _posts_do_futuro(limite * 3):
             itens.append({
                 "tipo": "posts", "titulo": (p.get("texto") or "")[:120],
-                "quando": (p.get("criado_em") or ""), "estado": p.get("status") or "",
+                # Ordeno pelo HORÁRIO DO JOGO, não pela hora em que o post foi
+                # criado. Todos nascem juntos, às 23h da véspera; ordenar pela
+                # criação embaralharia a rodada inteira num empate só.
+                "quando": (p.get("agendado_para") or p.get("criado_em") or ""),
+                "estado": p.get("status") or "",
                 "id": p.get("id"), "onde": "/posts",
             })
     except Exception:
