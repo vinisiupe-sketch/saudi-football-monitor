@@ -10307,8 +10307,12 @@ def _mudar_transmissoes_para_tabela() -> int:
     — é INSERT ... ON CONFLICT — mas repetir escreveria por cima de uma
     marcação feita à mão depois, e essa seria a única perda possível aqui.
 
-    Posts sem linha de transmissão não viram linha nenhuma na tabela: eles
-    ainda não foram olhados, e registrar [] diria mentira ("olhei, não tem").
+    Só migra post com canal marcado. O "❌ Sem transmissão" NÃO entra, e este
+    é o detalhe que quase passou: essa linha não é uma decisão sua, é o que o
+    gerador escreve em todo post no momento em que ele nasce. Migrar o ❌ como
+    [] carimbaria "olhei e não tem" em jogo nenhum que você tenha olhado —
+    apagando na migração exatamente a diferença que a tabela existe para
+    guardar. Daqui para frente o ❌ vale, porque aí ele veio de um clique seu.
     """
     import posts_gerador as pg
     if get_state("transmissao_migrada") == "sim":
@@ -10320,7 +10324,7 @@ def _mudar_transmissoes_para_tabela() -> int:
             if fid is None:
                 continue
             canais = pg.canais_da_linha(p.get("texto"))
-            if canais is None:
+            if not canais:      # None (sem linha) e [] (o ❌ de fábrica)
                 continue
             if marcar_transmissao(fid, canais):
                 movidos += 1
