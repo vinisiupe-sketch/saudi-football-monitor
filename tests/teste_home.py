@@ -8,11 +8,16 @@ do que fala, e botão que não faz nada é pior que botão ausente.
 import ast
 import json
 import os
+import re
 import subprocess
 import sys
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 os.chdir(RAIZ)
+# Sem a raiz aqui, o `import posts_gerador` de dentro do _log_de_entrada falha,
+# o except de fora engole, e os posts somem da home sem uma linha de erro. Foi
+# assim que este teste "pegou" um defeito que era dele mesmo.
+sys.path.insert(0, RAIZ)
 falhas = []
 
 
@@ -54,6 +59,7 @@ POSTS = [
 ns = {"listar_posts": lambda **k: POSTS,
       "clipes_recentes": lambda h: [{"estado": "pronto"}, {"estado": "erro"}],
       "MARCA_SEPARADA": SEPARADA,
+      "HORAS_DE_NOTICIA": 48,
       "get_all_flags": lambda: {"m1": SEPARADA, "e1": SEPARADA,
                                 "m3": SEPARADA, "g1": SEPARADA},
       "get_recent_articles": lambda **k: [
@@ -143,6 +149,8 @@ ns3 = {"listar_posts": lambda **k: [
            {"id": 9, "texto": "gol", "atualizado_em": "2026-08-26T10:00:00",
             "estado": "pronto"}],
        "MARCA_SEPARADA": SEPARADA,
+       "HORAS_DE_NOTICIA": 48,
+      "HORAS_DE_NOTICIA": 48,
        "get_all_flags": lambda: {"x": SEPARADA, "y": SEPARADA},
        "arbitragem_do_dia": lambda d: [],
        "_dia_de_brasilia": lambda n=0: "2026-08-27",
@@ -167,12 +175,52 @@ ok(not any("nao separei" in i["titulo"] for i in log),
    "notícia não separada entrou no log da home")
 print(f"  log: {len(log)} itens, do mais novo para o mais velho")
 
+js = textos["_HOME_JS"]
+
+# ── a home e a guia têm que olhar a MESMA janela ───────────────────────────
+# A guia mostrava 48h e a home lia 24h. Você separava uma notícia de ontem à
+# tarde, o card ficava verde na guia, e ela simplesmente não chegava na home —
+# sem erro, sem aviso. Nenhum teste pegava porque cada lado estava certo
+# sozinho; o defeito só existia entre os dois.
+# Outras telas têm janelas próprias e legítimas (a lixeira, a seleção, a
+# prévia). O que precisa bater é só isto: a guia que você usa para separar e
+# os dois lugares da home que leem o que você separou.
+DEVEM_CONCORDAR = ("_pagina_de_noticias", "_log_de_entrada", "_contar_para_aprovar")
+for alvo in DEVEM_CONCORDAR:
+    fn = next((n for n in ast.walk(mod)
+               if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and n.name == alvo), None)
+    ok(fn is not None, f"não achei {alvo}")
+    if not fn:
+        continue
+    usou = []
+    for ch in ast.walk(fn):
+        if (isinstance(ch, ast.Call) and isinstance(ch.func, ast.Name)
+                and ch.func.id == "get_recent_articles"):
+            usou += [ast.unparse(k.value) for k in ch.keywords if k.arg == "hours"]
+    ok(usou and set(usou) == {"HORAS_DE_NOTICIA"},
+       f"{alvo} lê notícia com janela própria em vez da constante: {usou}")
+ok("HORAS_DE_NOTICIA = " in src, "a constante da janela sumiu")
+print("  janela de notícias: guia e home leem a mesma constante")
+
+# ── o card abre para baixo ─────────────────────────────────────────────────
+# Item 2 e 3 do que você pediu: decidir sem sair da home.
+ok('"canais_possiveis"' in src, "o post não manda as emissoras para o card abrir")
+ok('"texto": p.get("texto")' in src, "o post não manda o texto inteiro")
+ok('"texto": (a.get("body_pt")' in src, "a notícia não manda o corpo traduzido")
+ok("corpo.classList.toggle('aberto')" in js, "o card não abre ao tocar")
+ok("/transmissao" in js, "não dá para marcar a transmissão pela home")
+# Ao trocar a transmissão o texto do post muda (a última linha é ela). Se a
+# tela não atualizar, você aprova olhando uma versão que já não existe.
+ok("p.textContent = j.texto" in js,
+   "o texto do post não é atualizado depois de mexer na transmissão")
+print("  card abre com texto, emissoras e link para a guia")
+
 # ── a decisão ──────────────────────────────────────────────────────────────
 ok('if tipo != "posts":' in src,
    "a rota finge que aprova tipos que ela não sabe aprovar")
 ok('"ainda não sei aprovar' in src, "não explica por que recusou")
 ok('decisao not in ("sim", "nao")' in src, "aceita qualquer decisão")
-js = textos["_HOME_JS"]
 ok("i.tipo === 'posts' && i.estado === 'pendente'" in js,
    "mostra ✓ e ✗ em item que não tem decisão por trás")
 print("  decisão: só onde existe de verdade, e diz quando não sabe")

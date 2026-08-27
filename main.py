@@ -662,6 +662,27 @@ def _header(active: str) -> str:
 
 
 # ─── Dashboard ───────────────────────────────
+# A marca que você põe arrastando o card para a direita, ou no ✓.
+#
+# O VALOR guardado é "publicado", e não "separado", por um motivo chato: já
+# existem centenas de linhas marcadas assim no banco. Renomear o valor exigiria
+# migrar todas, e uma migração que erra aqui apaga a sua peneira inteira.
+#
+# Então o valor fica, e o SIGNIFICADO é este: "separei, quero usar". O rótulo
+# do botão na tela diz Separado. Esta constante existe para que ninguém
+# (inclusive eu daqui a três meses) leia a string "publicado" no meio de um
+# `if` e conclua que a home está listando o que já foi ao ar.
+MARCA_SEPARADA = "publicado"
+
+# A janela de notícias que a guia mostra. A home TEM que usar a mesma.
+#
+# Ela usava 24h enquanto a guia mostrava 48h, e o efeito era perverso: você
+# separava uma notícia de ontem à tarde, ela ficava marcada na guia, e
+# simplesmente não chegava na home. Sem erro, sem aviso — o card verde na guia
+# dizia que tinha dado certo.
+HORAS_DE_NOTICIA = 48
+
+
 async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
     """A antiga home, agora servindo três telas.
 
@@ -674,7 +695,7 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
 
     categoria vazia significa "tudo que não é mercado nem entrevista".
     """
-    articles = get_recent_articles(hours=48, limit=80)
+    articles = get_recent_articles(hours=HORAS_DE_NOTICIA, limit=80)
     _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
     articles = [
         a for a in articles
@@ -8840,18 +8861,6 @@ async def api_trocar_minha_senha(request: Request):
 # vista. Se um número mentir, é bug meu, não arredondamento.
 
 # Cada categoria: chave, rótulo, ícone e onde ela mora.
-# A marca que você põe arrastando o card para a direita, ou no ✓.
-#
-# O VALOR guardado é "publicado", e não "separado", por um motivo chato: já
-# existem centenas de linhas marcadas assim no banco. Renomear o valor exigiria
-# migrar todas, e uma migração que erra aqui apaga a sua peneira inteira.
-#
-# Então o valor fica, e o SIGNIFICADO é este: "separei, quero usar". O rótulo
-# do botão na tela diz Separado. Esta constante existe para que ninguém
-# (inclusive eu daqui a três meses) leia a string "publicado" no meio de um
-# `if` e conclua que a home está listando o que já foi ao ar.
-MARCA_SEPARADA = "publicado"
-
 CATEGORIAS_APROVACAO = [
     ("posts",   "Agendamentos", "/posts", "acento"),
     ("clipes",  "Clipes",    "/clipes",   "alerta"),
@@ -8925,7 +8934,8 @@ def _contar_para_aprovar() -> dict:
             saida[chave] = None
             continue
         try:
-            saida[chave] = len([a for a in get_recent_articles(hours=24, limit=200)
+            saida[chave] = len([a for a in get_recent_articles(
+                                    hours=HORAS_DE_NOTICIA, limit=300)
                                 if a.get("category") == categoria
                                 and a.get("title_pt")
                                 and marcas.get(a.get("id")) == MARCA_SEPARADA])
@@ -8941,9 +8951,19 @@ def _log_de_entrada(limite: int = 40) -> list:
         # Só o que ainda vai acontecer. A home listava a fila inteira, e post
         # publicado e cancelado ficavam empurrando para baixo os que ainda
         # pediam decisão — que é o oposto do que uma fila serve para fazer.
+        import posts_gerador as pg
+        try:
+            marcados = transmissoes(jogos_com_transmissao())
+        except Exception:
+            marcados = {}
         for p in _posts_do_futuro(limite * 3):
+            fid = pg.jogo_da_chave(p.get("chave_unica"))
             itens.append({
                 "tipo": "posts", "titulo": (p.get("texto") or "")[:120],
+                "texto": p.get("texto") or "",
+                "fixture_id": fid,
+                "canais": (marcados.get(fid) or []) if fid is not None else [],
+                "canais_possiveis": pg.TRANSMISSOES,
                 # Ordeno pelo HORÁRIO DO JOGO, não pela hora em que o post foi
                 # criado. Todos nascem juntos, às 23h da véspera; ordenar pela
                 # criação embaralharia a rodada inteira num empate só.
@@ -8968,7 +8988,7 @@ def _log_de_entrada(limite: int = 40) -> list:
     except Exception:
         marcas = {}
     try:
-        for a in get_recent_articles(hours=24, limit=200):
+        for a in get_recent_articles(hours=HORAS_DE_NOTICIA, limit=300):
             if not a.get("title_pt"):
                 continue
             # Só entra o que você separou na guia — arrastando para a direita
@@ -8981,6 +9001,9 @@ def _log_de_entrada(limite: int = 40) -> list:
                 "tipo": "mercado" if cat == "mercado" else
                         "aspas" if cat == "entrevista" else "noticias",
                 "titulo": (a.get("title_pt") or "")[:120],
+                "texto": (a.get("body_pt") or "")[:900],
+                "fonte": a.get("source_name") or "",
+                "url": a.get("url") or "",
                 "quando": a.get("collected_at") or "", "estado": "",
                 "id": a.get("id"), "onde": "/mercado" if cat == "mercado" else
                         "/aspas" if cat == "entrevista" else "/noticias",
@@ -9076,6 +9099,21 @@ body{background:var(--c-bg);color:var(--c-text);
   overflow:hidden}
 .item .sub{font-size:.68rem;color:var(--c-muted-3);margin-top:3px}
 .item .acoes{display:flex;gap:6px;flex:0 0 auto}
+.caixa{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:16px;margin-bottom:8px;overflow:hidden}
+.caixa .item{background:none;border:none;border-radius:0;margin:0}
+.corpo{display:none;padding:0 14px 12px 60px}
+.corpo.aberto{display:block}
+.corpo .texto{white-space:pre-wrap;font-size:.78rem;line-height:1.6;
+  color:var(--c-muted-3);margin:0 0 10px}
+.corpo .canais{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.corpo .canal{font-size:.68rem;padding:4px 9px;border-radius:20px;cursor:pointer;
+  border:1px solid var(--c-border-2);color:var(--c-muted-3);user-select:none}
+.corpo .canal.on{border-color:var(--c-acento);color:var(--c-acento-texto);
+  background:var(--c-acento);font-weight:700}
+.corpo .pe{display:flex;gap:14px;flex-wrap:wrap;font-size:.68rem;
+  color:var(--c-muted-3)}
+.corpo .pe a{color:var(--c-acento);text-decoration:none}
 .dec{width:34px;height:34px;border-radius:11px;border:1px solid var(--c-border-2);
   background:transparent;color:var(--c-muted-3);cursor:pointer;display:flex;
   align-items:center;justify-content:center;padding:0}
@@ -9202,6 +9240,9 @@ async function carregar() {
 }
 
 function linha(i) {
+  const caixa = document.createElement('div');
+  caixa.className = 'caixa';
+
   const d = document.createElement('div');
   d.className = 'item';
 
@@ -9229,16 +9270,97 @@ function linha(i) {
   if (i.tipo === 'posts' && i.estado === 'pendente') {
     acoes.appendChild(botao(i, 'sim', '✓'));
     acoes.appendChild(botao(i, 'nao', '✕'));
-  } else {
-    const a = document.createElement('a');
-    a.className = 'dec';
-    a.href = i.onde;
-    a.title = 'abrir na guia';
-    a.textContent = '›';
-    acoes.appendChild(a);
   }
   d.appendChild(acoes);
-  return d;
+
+  // O corpo abre para baixo. Antes, tocar no card levava para a guia e voce
+  // perdia o lugar na lista; agora a decisao inteira cabe aqui.
+  const corpo = document.createElement('div');
+  corpo.className = 'corpo';
+  corpo.appendChild(detalhe(i));
+  meio.style.cursor = 'pointer';
+  meio.onclick = function () { corpo.classList.toggle('aberto'); };
+
+  caixa.appendChild(d);
+  caixa.appendChild(corpo);
+  return caixa;
+}
+
+function detalhe(i) {
+  const box = document.createElement('div');
+
+  if (i.texto) {
+    const p = document.createElement('p');
+    p.className = 'texto';
+    p.textContent = i.texto;
+    box.appendChild(p);
+  }
+
+  // Post de BOLA ROLANDO: as emissoras ficam aqui, para voce marcar e aprovar
+  // sem sair. Eram tres telas para uma decisao de um toque.
+  if (i.tipo === 'posts' && Array.isArray(i.canais_possiveis)) {
+    const linhaCanais = document.createElement('div');
+    linhaCanais.className = 'canais';
+    i.canais_possiveis.forEach(function (c) {
+      const b = document.createElement('span');
+      b.className = 'canal' + ((i.canais || []).indexOf(c) > -1 ? ' on' : '');
+      b.textContent = c;
+      b.onclick = function () {
+        b.classList.toggle('on');
+        salvarCanais(i, linhaCanais, box);
+      };
+      linhaCanais.appendChild(b);
+    });
+    box.appendChild(linhaCanais);
+  }
+
+  const pe = document.createElement('div');
+  pe.className = 'pe';
+  if (i.fonte) {
+    const f = document.createElement('span');
+    f.textContent = i.fonte;
+    pe.appendChild(f);
+  }
+  const ir = document.createElement('a');
+  ir.href = i.onde;
+  ir.textContent = 'abrir na guia ›';
+  pe.appendChild(ir);
+  if (i.url) {
+    const o = document.createElement('a');
+    o.href = i.url;
+    o.target = '_blank';
+    o.rel = 'noopener';
+    o.textContent = 'ver original ›';
+    pe.appendChild(o);
+  }
+  box.appendChild(pe);
+  return box;
+}
+
+async function salvarCanais(i, linhaCanais, box) {
+  const marcados = [];
+  linhaCanais.querySelectorAll('.canal.on').forEach(function (c) {
+    marcados.push(c.textContent);
+  });
+  try {
+    const r = await fetch('/api/posts/' + i.id + '/transmissao', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({canais: marcados})
+    });
+    const j = await r.json();
+    if (j.erro) throw new Error(j.erro);
+    i.canais = marcados;
+    // O texto do post muda junto (a ultima linha e a transmissao). Atualizo o
+    // que esta na tela, senao voce aprova olhando uma versao velha.
+    if (j.texto) {
+      i.texto = j.texto;
+      const p = box.querySelector('.texto');
+      if (p) p.textContent = j.texto;
+    }
+  } catch (e) {
+    alert('nao deu para salvar a transmissao: ' + (e.message || e));
+    carregar();
+  }
 }
 
 function botao(i, decisao, rotulo) {
