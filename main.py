@@ -756,7 +756,7 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
               <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
               <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
               <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
-              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
+              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Separado — vai para a tela inicial">{ICO_CHECK}</button>
             </div>
           </div>
         </div>"""
@@ -1546,7 +1546,7 @@ async def selecao_page():
               <button class="flag-circle copy-btn" data-copy="{copy_safe}" onclick="copyFromBtn(this)" title="Copiar">{ICO_COPY}</button>
               <button class="flag-circle wand-btn" data-news="{news_safe}" data-source="{handle}" data-moon="{moon}" data-category="{category}" onclick="gerarTexto(this)" title="Gerar post">{ICO_WAND}</button>
               <button class="flag-circle desc-btn"  onclick="toggleFlag('{art_id}','descartado')" title="Lixeira">{ICO_TRASH}</button>
-              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Publicado">{ICO_CHECK}</button>
+              <button class="flag-circle pub-btn"   onclick="toggleFlag('{art_id}','publicado')"  title="Separado — vai para a tela inicial">{ICO_CHECK}</button>
             </div>
           </div>
         </div>"""
@@ -8840,6 +8840,18 @@ async def api_trocar_minha_senha(request: Request):
 # vista. Se um número mentir, é bug meu, não arredondamento.
 
 # Cada categoria: chave, rótulo, ícone e onde ela mora.
+# A marca que você põe arrastando o card para a direita, ou no ✓.
+#
+# O VALOR guardado é "publicado", e não "separado", por um motivo chato: já
+# existem centenas de linhas marcadas assim no banco. Renomear o valor exigiria
+# migrar todas, e uma migração que erra aqui apaga a sua peneira inteira.
+#
+# Então o valor fica, e o SIGNIFICADO é este: "separei, quero usar". O rótulo
+# do botão na tela diz Separado. Esta constante existe para que ninguém
+# (inclusive eu daqui a três meses) leia a string "publicado" no meio de um
+# `if` e conclua que a home está listando o que já foi ao ar.
+MARCA_SEPARADA = "publicado"
+
 CATEGORIAS_APROVACAO = [
     ("posts",   "Agendamentos", "/posts", "acento"),
     ("clipes",  "Clipes",    "/clipes",   "alerta"),
@@ -8865,11 +8877,23 @@ def _contar_para_aprovar() -> dict:
                                if c.get("estado") == "pronto"])
     except Exception:
         saida["clipes"] = None
+    # Só o que VOCÊ separou. Antes eram todas as notícias das últimas 24h, e a
+    # home virava um espelho da coleta — número grande que não pedia decisão
+    # nenhuma. Agora o número é o tamanho da sua pilha, e por isso ele
+    # significa alguma coisa quando cresce.
+    try:
+        marcas = get_all_flags()
+    except Exception:
+        marcas = None
     for chave, categoria in (("mercado", "mercado"), ("aspas", "entrevista")):
+        if marcas is None:
+            saida[chave] = None
+            continue
         try:
             saida[chave] = len([a for a in get_recent_articles(hours=24, limit=200)
                                 if a.get("category") == categoria
-                                and a.get("title_pt")])
+                                and a.get("title_pt")
+                                and marcas.get(a.get("id")) == MARCA_SEPARADA])
         except Exception:
             saida[chave] = None
     return saida
@@ -8898,8 +8922,17 @@ def _log_de_entrada(limite: int = 40) -> list:
     except Exception:
         pass
     try:
-        for a in get_recent_articles(hours=24, limit=60):
+        marcas = get_all_flags()
+    except Exception:
+        marcas = {}
+    try:
+        for a in get_recent_articles(hours=24, limit=200):
             if not a.get("title_pt"):
+                continue
+            # Só entra o que você separou na guia — arrastando para a direita
+            # ou no ✓. A home era uma lista de tudo que a coleta trouxe; agora
+            # é a lista do que você escolheu, que é outra coisa.
+            if marcas.get(a.get("id")) != MARCA_SEPARADA:
                 continue
             cat = a.get("category") or "geral"
             itens.append({

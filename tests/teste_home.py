@@ -32,22 +32,48 @@ for n in mod.body:
             pass
 
 # ── as contagens ───────────────────────────────────────────────────────────
+# A home só conta o que VOCÊ separou na guia (arrastar para a direita / ✓).
+# Aqui: dois de mercado, mas só um separado; um de aspas separado; e um de
+# mercado separado porém sem tradução, que não pode entrar.
+SEPARADA = "publicado"
 ns = {"listar_posts": lambda **k: [{"id": 1}, {"id": 2}],
       "clipes_recentes": lambda h: [{"estado": "pronto"}, {"estado": "erro"}],
+      "MARCA_SEPARADA": SEPARADA,
+      "get_all_flags": lambda: {"m1": SEPARADA, "e1": SEPARADA,
+                                "m3": SEPARADA, "g1": SEPARADA},
       "get_recent_articles": lambda **k: [
-          {"category": "mercado", "title_pt": "a"},
-          {"category": "entrevista", "title_pt": "b"},
-          {"category": "geral", "title_pt": "c"},
-          {"category": "mercado", "title_pt": None}]}
+          {"id": "m1", "category": "mercado", "title_pt": "a"},
+          {"id": "m2", "category": "mercado", "title_pt": "nao separada"},
+          {"id": "e1", "category": "entrevista", "title_pt": "b"},
+          {"id": "e2", "category": "entrevista", "title_pt": "nao separada"},
+          {"id": "g1", "category": "geral", "title_pt": "c"},
+          {"id": "m3", "category": "mercado", "title_pt": None}]}
 f = next(n for n in mod.body if isinstance(n, ast.FunctionDef)
          and n.name == "_contar_para_aprovar")
 exec(compile(ast.Module(body=[f], type_ignores=[]), "main.py", "exec"), ns)
 n = ns["_contar_para_aprovar"]()
 ok(n["posts"] == 2, f"posts: {n['posts']}")
 ok(n["clipes"] == 1, f"clipes deveria contar só os prontos: {n['clipes']}")
-ok(n["mercado"] == 1, f"mercado deveria ignorar sem tradução: {n['mercado']}")
+ok(n["mercado"] == 1, f"mercado: separadas e traduzidas, deu {n['mercado']}")
 ok(n["aspas"] == 1, f"aspas: {n['aspas']}")
 print(f"  contagens: {n}")
+
+# Sem NENHUMA separada, a home mostra zero — e zero aqui é verdade, não falha.
+ns_vazio = dict(ns); ns_vazio["get_all_flags"] = lambda: {}
+exec(compile(ast.Module(body=[f], type_ignores=[]), "main.py", "exec"), ns_vazio)
+nv = ns_vazio["_contar_para_aprovar"]()
+ok(nv["mercado"] == 0 and nv["aspas"] == 0,
+   f"sem separar nada deveria dar zero: {nv}")
+
+# Mas se a LEITURA das marcas falhar, tem que virar traço. Zero diria "você
+# não separou nada", quando a verdade é "eu não consegui olhar".
+def explode_flags():
+    raise RuntimeError("banco fora")
+ns_falha = dict(ns); ns_falha["get_all_flags"] = explode_flags
+exec(compile(ast.Module(body=[f], type_ignores=[]), "main.py", "exec"), ns_falha)
+nf = ns_falha["_contar_para_aprovar"]()
+ok(nf["mercado"] is None and nf["aspas"] is None,
+   f"falha ao ler as marcas virou número: {nf}")
 
 # banco fora do ar não pode virar zero — zero faz você achar que não tem nada
 def explode(*a, **k):
@@ -70,17 +96,27 @@ ns3 = {"listar_posts": lambda **k: [
        "clipes_recentes": lambda h: [
            {"id": 9, "texto": "gol", "atualizado_em": "2026-08-26T10:00:00",
             "estado": "pronto"}],
+       "MARCA_SEPARADA": SEPARADA,
+       "get_all_flags": lambda: {"x": SEPARADA, "y": SEPARADA},
+       "arbitragem_do_dia": lambda d: [],
+       "_dia_de_brasilia": lambda n=0: "2026-08-27",
        "get_recent_articles": lambda **k: [
            {"id": "x", "title_pt": "noticia nova", "category": "mercado",
             "collected_at": "2026-08-26T12:00:00"},
            {"id": "y", "title_pt": None, "category": "geral",
-            "collected_at": "2026-08-26T13:00:00"}]}
+            "collected_at": "2026-08-26T13:00:00"},
+           {"id": "z", "title_pt": "essa eu nao separei", "category": "mercado",
+            "collected_at": "2026-08-26T23:00:00"}]}
 exec(compile(ast.Module(body=[g], type_ignores=[]), "main.py", "exec"), ns3)
 log = ns3["_log_de_entrada"]()
 ok([i["tipo"] for i in log] == ["mercado", "clipes", "posts"],
    f"o log não está do mais novo para o mais velho: {[i['tipo'] for i in log]}")
 ok(all(i.get("onde") for i in log), "item sem para onde ir ao tocar")
 ok(not any(i["titulo"] == "None" for i in log), "artigo sem tradução entrou no log")
+# A notícia mais NOVA das três é a que ele não separou. Se ela aparecer, é
+# porque o filtro caiu — e o sintoma seria a home voltando a encher sozinha.
+ok(not any("nao separei" in i["titulo"] for i in log),
+   "notícia não separada entrou no log da home")
 print(f"  log: {len(log)} itens, do mais novo para o mais velho")
 
 # ── a decisão ──────────────────────────────────────────────────────────────
