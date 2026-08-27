@@ -162,3 +162,98 @@ def ler_sessao(cookie: str) -> str:
     if int(corpo.get("v", 0)) < time.time():
         return ""
     return normalizar_email(corpo.get("e", ""))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CONVITES E PAPÉIS
+# ══════════════════════════════════════════════════════════════════════════
+
+# Os três papéis, do mais forte para o mais fraco. A ordem importa: é ela que
+# responde "gerente pode o que leitor pode?".
+PAPEIS = ("adm", "gerente", "leitor")
+ROTULO_DO_PAPEL = {
+    "adm": "Administrador",
+    "gerente": "Gerente",
+    "leitor": "Leitor",
+}
+DIAS_DE_CONVITE = 7
+
+
+def papel_valido(papel: str) -> str:
+    """O papel pedido, ou 'leitor' se vier qualquer outra coisa.
+
+    Nunca levanta e nunca promove. Um valor estranho chegando por aqui tem que
+    virar o acesso MENOR, não o maior.
+    """
+    p = (papel or "").strip().lower()
+    return p if p in PAPEIS else "leitor"
+
+
+def novo_convite() -> tuple[str, str]:
+    """Devolve (código para mandar, resumo para guardar).
+
+    O código só existe neste retorno. Depois disso o banco tem apenas o
+    resumo, então nem eu nem ninguém com acesso ao banco consegue reconstruir
+    um convite já criado — perdeu, gera outro.
+    """
+    import secrets
+    codigo = secrets.token_urlsafe(18)
+    return codigo, resumo_do_convite(codigo)
+
+
+def resumo_do_convite(codigo: str) -> str:
+    """SHA-256 do código. Convite é de uso único e vive uma semana; não precisa
+    da lentidão do scrypt, que aqui só atrasaria o cadastro sem ganho real."""
+    import hashlib
+    return hashlib.sha256((codigo or "").strip().encode("utf-8")).hexdigest()
+
+
+def validade_do_convite(dias: int = DIAS_DE_CONVITE):
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone.utc) + timedelta(days=dias)
+
+
+# ── O que cada papel enxerga ────────────────────────────────────────────────
+#
+# Descrevo por PREFIXO de rota, e a regra é de negação: listo o que cada papel
+# NÃO pode. Fazer ao contrário — listar o permitido — significaria que toda
+# guia nova nasce invisível para gerente e leitor, e alguém só descobriria
+# quando reclamassem.
+# A tela de Configurações é /config, não /configuracoes. Escrevi o nome longo
+# primeiro e a regra não pegava nada — o teste passava porque testava a MINHA
+# escrita, não a rota de verdade. Por isso as duas estão aqui, e há um teste
+# que confere esta lista contra as rotas registradas no main.
+CONFIG = ("/config", "/configuracoes", "/api/ajustes")
+CONTAS = ("/usuarios", "/api/usuarios", "/api/convites")
+
+PROIBIDO = {
+    "adm": (),
+    # Gerente faz tudo, menos mexer nos ajustes do app e nas contas.
+    "gerente": CONFIG + CONTAS,
+    # Leitor lê as guias. Não entra na home de aprovação (que é onde se decide
+    # o que vai ao ar) nem em nada que publique, aprove ou apague.
+    "leitor": CONFIG + CONTAS + (
+        "/api/aprovacao", "/api/posts", "/api/clipe",
+        "/api/previa/gerar", "/api/arbitragem/buscar", "/api/arbitragem/nome"),
+}
+
+# A home é "/" — que é prefixo de TODAS as rotas. Comparar por prefixo aqui
+# trancaria o leitor para fora do app inteiro, e o defeito apareceria como
+# "não consigo abrir nada", sem pista da causa. Por isso ela mora numa lista
+# separada, comparada por igualdade.
+PROIBIDO_EXATO = {
+    "adm": (),
+    "gerente": (),
+    "leitor": ("/", "/api/aprovacao"),
+}
+
+# Para onde mandar quem não pode ver a home. Leitor cai direto nas notícias.
+CASA_DO_PAPEL = {"adm": "/", "gerente": "/", "leitor": "/noticias"}
+
+
+def pode_ver(papel: str, caminho: str) -> bool:
+    p = papel_valido(papel)
+    caminho = caminho or ""
+    if caminho in PROIBIDO_EXATO.get(p, ()):
+        return False
+    return not any(caminho.startswith(x) for x in PROIBIDO.get(p, ()))

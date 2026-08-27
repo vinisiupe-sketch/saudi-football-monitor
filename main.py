@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -635,10 +635,29 @@ def _header(active: str) -> str:
         f'aria-label="Configurações">{_ICO_CONFIG}</a>{sair}</div>'
         '</header>'
     )
+    # Esconder é conforto, não proteção. Quem chamar /config direto continua
+    # barrado pelo middleware, com ou sem este script. O que ele evita é o
+    # botão que existe, você aperta e leva um empurrão de volta — que parece
+    # defeito, não permissão.
+    perfil_script = """<script>
+(function(){
+  fetch('/api/meu-perfil').then(function(r){return r.json();}).then(function(p){
+    if (!p.papel) return;
+    if (!p.pode_configurar)
+      document.querySelectorAll('a[href="/config"]').forEach(function(e){e.remove();});
+    if (!p.pode_home) {
+      document.querySelectorAll('.iar-icon[href="/"]').forEach(function(e){e.remove();});
+      var marca = document.querySelector('.iar-marca');
+      if (marca) marca.setAttribute('href', p.casa || '/noticias');
+    }
+  }).catch(function(){});
+})();
+</script>"""
     return (topo
             + f'<nav class="iar-nav"><div class="iar-rolo">{rolaveis}</div>{items}</nav>'
             + f'<div class="iar-menu" id="navMenu">{opcoes}</div>'
-            + f'{menu_script}{badge_script}{theme_script}{token_script}')
+            + f'{menu_script}{badge_script}{theme_script}{token_script}'
+            + f'{perfil_script}')
 
 
 
@@ -8345,16 +8364,32 @@ def _quem_esta_logado(request: Request) -> str:
     return contas.ler_sessao(request.cookies.get(contas.COOKIE, ""))
 
 
+def _papel_de_quem_pede(request: Request) -> str:
+    email = _quem_esta_logado(request)
+    return papel_do_usuario(email) if email else ""
+
+
 @app.middleware("http")
 async def exigir_login(request: Request, call_next):
     caminho = request.url.path
     if any(caminho.startswith(p) for p in LIVRES) or not _login_ligado():
         return await call_next(request)
-    if _quem_esta_logado(request):
-        return await call_next(request)
-    if caminho.startswith("/api/"):
-        return JSONResponse({"erro": "não autenticado"}, 401)
-    return RedirectResponse("/entrar")
+    email = _quem_esta_logado(request)
+    if not email:
+        if caminho.startswith("/api/"):
+            return JSONResponse({"erro": "não autenticado"}, 401)
+        return RedirectResponse("/entrar")
+
+    # A permissão é conferida AQUI, no meio do caminho, e não em cada rota.
+    # Rota nova entra no app já protegida; se dependesse de eu lembrar de pôr
+    # o decorador, a primeira que eu esquecesse ficaria aberta em silêncio.
+    papel = papel_do_usuario(email)
+    if not contas.pode_ver(papel, caminho):
+        if caminho.startswith("/api/"):
+            return JSONResponse(
+                {"erro": "seu perfil não tem acesso a isso"}, 403)
+        return RedirectResponse(contas.CASA_DO_PAPEL.get(papel, "/noticias"))
+    return await call_next(request)
 
 
 _ENTRAR_CSS = """
@@ -8427,6 +8462,14 @@ __ENTRAR_JS__
 _ENTRAR_JS = r"""
 const ROTA = "__ROTA__";
 
+// O link do convite ja traz o codigo. Pedir para a pessoa copiar e colar um
+// token de 24 caracteres do WhatsApp e pedir para ela errar.
+(function () {
+  const campo = document.getElementById('convite');
+  const veio = new URLSearchParams(location.search).get('convite');
+  if (campo && veio) campo.value = veio;
+})();
+
 const form = document.getElementById('form');
 const recado = document.getElementById('recado');
 const enviar = document.getElementById('enviar');
@@ -8444,6 +8487,8 @@ form.onsubmit = async function (ev) {
     senha: document.getElementById('senha').value
   };
   if (nome) corpo.nome = nome.value;
+  const convite = document.getElementById('convite');
+  if (convite) corpo.convite = convite.value;
   enviar.disabled = true;
   const antes = enviar.textContent;
   enviar.textContent = 'aguarde...';
@@ -8481,7 +8526,10 @@ def _tela_de_entrada(modo: str) -> HTMLResponse:
             .replace("__CAMPO_NOME__",
                      '<label for="nome">Nome</label>'
                      '<input id="nome" name="nome" type="text" autocomplete="name" '
-                     'placeholder="como voce quer ser chamado">' if cadastro else "")
+                     'placeholder="como voce quer ser chamado">'
+                     '<label for="convite">Convite</label>'
+                     '<input id="convite" name="convite" type="text" '
+                     'placeholder="o codigo que voce recebeu">' if cadastro else "")
             .replace("__AUTOCOMPLETE__", "new-password" if cadastro else "current-password")
             .replace("__BOTAO__", "Criar conta" if cadastro else "Entrar")
             .replace("__ESQUECI__", "" if cadastro else
@@ -8528,25 +8576,42 @@ async def api_cadastrar(request: Request):
         pass
     email = contas.normalizar_email(corpo.get("email"))
     senha = corpo.get("senha") or ""
+    codigo = (corpo.get("convite") or "").strip()
     if not email or "@" not in email:
         return JSONResponse({"erro": "e-mail inválido"}, 400)
-    if not contas.emails_liberados():
-        return JSONResponse(
-            {"erro": "ninguém está liberado para criar conta ainda. Configure "
-                     "EMAILS_LIBERADOS no Railway."}, 403)
-    if not contas.pode_criar_conta(email):
-        # A mensagem é a mesma para "não está na lista": não confirmo nem nego
-        # se o e-mail existe em lugar nenhum.
-        return JSONResponse({"erro": "este e-mail não está liberado"}, 403)
+
+    # Sem nenhuma conta ainda, o primeiro cadastro é livre e vira adm. Exigir
+    # convite aqui seria exigir que alguém convidasse — e não há ninguém para
+    # convidar. É a única porta aberta, e ela se fecha sozinha no primeiro uso.
+    primeiro = not tem_algum_usuario()
+    convite = None
+    if not primeiro:
+        if not codigo:
+            return JSONResponse({"erro": "é preciso um convite para criar conta"}, 403)
+        convite = convite_valido(contas.resumo_do_convite(codigo))
+        if not convite:
+            # Mesma resposta para código errado, já usado e vencido: dizer qual
+            # dos três seria contar a quem está tentando o que mudar na próxima.
+            return JSONResponse({"erro": "convite inválido ou já usado"}, 403)
+
     fraca = contas.senha_fraca(senha)
     if fraca:
         return JSONResponse({"erro": fraca}, 400)
+
+    papel = "adm" if primeiro else contas.papel_valido(convite.get("papel"))
+    # Queimo o convite ANTES de criar a conta. Se falhar depois, sobra um
+    # convite gasto sem usuário — chato. Na ordem inversa, duas pessoas com o
+    # mesmo código poderiam criar duas contas, o que é bem pior.
+    if convite and not queimar_convite(convite["resumo"], email):
+        return JSONResponse({"erro": "convite inválido ou já usado"}, 403)
+
     ok, motivo = criar_usuario(email, corpo.get("nome") or "",
-                               contas.guardar_senha(senha))
+                               contas.guardar_senha(senha), papel)
     if not ok:
         return JSONResponse({"erro": motivo}, 409)
     marcar_acesso(email)
-    return _por_o_cookie(JSONResponse({"ok": True, "ir_para": "/"}), email)
+    destino = contas.CASA_DO_PAPEL.get(papel, "/noticias")
+    return _por_o_cookie(JSONResponse({"ok": True, "ir_para": destino}), email)
 
 
 @app.post("/api/entrar")
@@ -12737,15 +12802,19 @@ def _chave_da_previa(fixture_id) -> str:
 
 
 async def _jogos_para_previa(dia: str) -> list[dict]:
-    """Os jogos daquele dia que VOCÊ marcou como tendo transmissão.
+    """TODOS os jogos do dia nas competições que o app cobre.
 
-    O filtro é o ponto do recurso. Sem ele a prévia viraria um relatório de
-    dezoito jogos por rodada, dos quais você comenta um ou dois.
+    A primeira versão listava só os jogos com transmissão marcada. A tela
+    mostrou por que isso era pior: marcar transmissão é uma decisão sobre o
+    POST, e amarrar o relatório a ela obrigava você a mentir num lugar para
+    conseguir uma coisa no outro. Aqui a lista é o dia inteiro e a escolha é o
+    clique — que é também onde está a economia, porque relatório só custa
+    quando alguém pede.
+
+    A transmissão continua vindo junto, como informação do cartão.
     """
     import posts_gerador as pg
     marcados = transmissoes(jogos_com_transmissao())
-    if not marcados:
-        return []
     inicio = _af_temporada_corrente()
     saida = []
     for liga_id, nome_comp in pg.COMPETICOES.items():
@@ -12757,9 +12826,6 @@ async def _jogos_para_previa(dia: str) -> list[dict]:
             continue
         for f in (dados or {}).get("response", []):
             fid = (f.get("fixture") or {}).get("id")
-            canais = marcados.get(fid)
-            if not canais:
-                continue
             times = f.get("teams") or {}
             saida.append({
                 "fixture_id": fid,
@@ -12769,8 +12835,9 @@ async def _jogos_para_previa(dia: str) -> list[dict]:
                 "estadio": ((f.get("fixture") or {}).get("venue") or {}).get("name") or "",
                 "rodada": (f.get("league") or {}).get("round") or "",
                 "competicao": nome_comp,
-                "canais": canais,
+                "canais": marcados.get(fid) or [],
             })
+    saida.sort(key=lambda j: (j.get("quando") or "", j.get("casa") or ""))
     return saida
 
 
@@ -12902,8 +12969,15 @@ def _coletar_da_liga(jogo: dict, dia: str, cliente) -> dict:
     return saida
 
 
-async def gerar_previa(jogo: dict, dia: str, forcar: bool = False) -> dict:
-    """Monta os fatos, pede o texto e confere os números antes de guardar."""
+async def gerar_previa(jogo: dict, dia: str, forcar: bool = False,
+                       so_se_oficial: bool = False) -> dict:
+    """Monta os fatos, pede o texto e confere os números antes de guardar.
+
+    `so_se_oficial` é para a rotina automática: ela coleta, e só gasta chamada
+    de modelo se a escalação oficial realmente saiu. Sem isso, varrer de meia
+    em meia hora reescreveria o mesmo texto o dia todo, pagando por cada
+    passada.
+    """
     import httpx
     import previa as pv
 
@@ -12919,6 +12993,9 @@ async def gerar_previa(jogo: dict, dia: str, forcar: bool = False) -> dict:
         except Exception as e:
             liga = {}
             print(f"[PRÉVIA] liga: {type(e).__name__}: {e}", flush=True)
+
+    if so_se_oficial and not liga.get("oficial"):
+        return {"chave": chave, "pulado": "a escalação oficial ainda não saiu"}
 
     fatos = pv.montar_fatos(
         jogo,
@@ -12954,37 +13031,83 @@ async def gerar_previa(jogo: dict, dia: str, forcar: bool = False) -> dict:
             "suspeitos": suspeitos, "tamanho": len(texto)}
 
 
-async def gerar_previas(dia: str | None = None, forcar: bool = False) -> dict:
-    """Todas as prévias de um dia. Erro num jogo não derruba os outros."""
-    dia = dia or _dia_de_brasilia(1)
-    jogos = await _jogos_para_previa(dia)
-    resultados = []
-    for j in jogos:
-        resultados.append(await gerar_previa(j, dia, forcar=forcar))
-    feitos = sum(1 for r in resultados if r.get("ok"))
-    print(f"[PRÉVIA] {dia}: {feitos} de {len(jogos)} jogos com transmissão",
-          flush=True)
-    return {"dia": dia, "jogos": len(jogos), "gerados": feitos,
-            "detalhe": resultados}
+async def reescrever_previas_com_oficial(dia: str | None = None) -> dict:
+    """Reescreve as prévias JÁ GERADAS deste dia, se a escalação oficial saiu.
+
+    Só mexe no que já existe. Um jogo que você não pediu continua sem custar
+    nada — a rotina automática nunca cria prévia, só atualiza a que você
+    mandou criar.
+    """
+    dia = dia or _dia_de_brasilia()
+    existentes = {p.get("chave"): p for p in previas_do_dia(dia)}
+    pendentes = [c for c, p in existentes.items() if p.get("escalacao") != "oficial"]
+    if not pendentes:
+        return {"dia": dia, "candidatas": 0, "reescritas": 0}
+    jogos = {(_chave_da_previa(j["fixture_id"])): j
+             for j in await _jogos_para_previa(dia)}
+    feitas = 0
+    for chave in pendentes:
+        jogo = jogos.get(chave)
+        if not jogo:
+            continue
+        r = await gerar_previa(jogo, dia, forcar=True, so_se_oficial=True)
+        if r.get("ok"):
+            feitas += 1
+    return {"dia": dia, "candidatas": len(pendentes), "reescritas": feitas}
 
 
 @app.get("/api/previa")
 async def api_previa(dia: str = ""):
+    """Os jogos do dia, cada um com a prévia se ela já existir.
+
+    A prévia gerada vem junto na resposta, e não atrás de uma segunda chamada.
+    O motivo é o que você pediu: uma vez escrita, ela é a mesma para quem
+    abrir — ninguém dispara geração nova só por olhar a tela.
+    """
     dia = (dia or "").strip() or _dia_de_brasilia()
+    prontas = {p.get("chave"): p for p in previas_do_dia(dia)}
+    jogos = await _jogos_para_previa(dia)
+    saida = []
+    for j in jogos:
+        p = prontas.get(_chave_da_previa(j["fixture_id"])) or {}
+        saida.append({**j, "gerada": bool(p),
+                      "texto": p.get("texto") or "",
+                      "escalacao": p.get("escalacao") or "",
+                      "suspeitos": p.get("suspeitos") or [],
+                      "gerado_em": p.get("gerado_em") or ""})
     return {"dia": dia, "hoje": _dia_de_brasilia(),
-            "amanha": _dia_de_brasilia(1),
-            "previas": previas_do_dia(dia), "dias": dias_com_previa(30)}
+            "jogos": saida, "dias": dias_com_previa(30)}
 
 
 @app.post("/api/previa/gerar")
 async def api_previa_gerar(request: Request):
-    """Gera agora, sem esperar o horário. `forcar` reescreve o que já existe."""
+    """Gera a prévia de UM jogo, quando você clica.
+
+    Um jogo por chamada de propósito. Gerar o dia inteiro de uma vez era o
+    desenho anterior e gastava relatório de jogo que ninguém ia ler.
+    """
     try:
         corpo = await request.json()
     except Exception:
-        corpo = {}
+        return JSONResponse({"erro": "corpo inválido"}, 400)
     dia = (corpo.get("dia") or "").strip() or _dia_de_brasilia()
-    return await gerar_previas(dia, forcar=bool(corpo.get("forcar")))
+    try:
+        fid = int(corpo.get("fixture_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"erro": "faltou dizer qual jogo"}, 400)
+
+    # Se já existe, devolvo a que está lá. Dois cliques seguidos, ou dois
+    # usuários na mesma tela, não podem virar duas chamadas de modelo.
+    if not corpo.get("forcar"):
+        for p in previas_do_dia(dia):
+            if p.get("chave") == _chave_da_previa(fid):
+                return {"ok": True, "ja_existia": True, "chave": p.get("chave")}
+
+    jogo = next((j for j in await _jogos_para_previa(dia)
+                 if j["fixture_id"] == fid), None)
+    if not jogo:
+        return JSONResponse({"erro": "não achei esse jogo nesta data"}, 404)
+    return await gerar_previa(jogo, dia, forcar=bool(corpo.get("forcar")))
 
 
 _PREVIA_CSS = """
@@ -13002,8 +13125,14 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
   border-color:var(--c-acento);font-weight:700}
 .jogo{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:18px;padding:0;margin-bottom:14px;overflow:hidden}
+/* Verde quer dizer "já existe, é só abrir". A cor é o estado, e por isso ela
+   está na borda e no topo do cartão, e não num texto que some na rolagem. */
+.jogo.pronta{border-color:var(--c-acento)}
+.jogo.pronta .topo{background:rgba(182,255,0,.07)}
 .jogo .topo{padding:14px 16px;display:flex;justify-content:space-between;
   align-items:flex-start;gap:12px;cursor:pointer}
+.jogo .acao{display:flex;gap:8px;align-items:center;flex:0 0 auto}
+.canais{font-size:.62rem;color:var(--c-muted-3);margin-top:5px}
 .jogo .conf{font-family:'Bebas Neue',sans-serif;font-size:1.35rem;
   letter-spacing:.03em;line-height:1.1}
 .jogo .meta{font-size:.68rem;color:var(--c-muted-3);margin-top:4px}
@@ -13043,13 +13172,13 @@ __PREVIA_CSS__
 __HDR__
 <div class="wrap">
   <h1>Prévia</h1>
-  <p class="sub">Sua preparação para o ar, só dos jogos marcados com transmissão
-     em Agendamentos. Sai na véspera com escalação provável e é reescrita
-     quando a liga publica a oficial.</p>
+  <p class="sub">Os jogos do dia. Clique em Gerar no que você vai comentar — o
+     relatório só custa quando alguém pede. Depois de gerado, o cartão fica verde
+     e abre no toque, igual para todo mundo. Se a escalação oficial sair, ele se
+     reescreve sozinho.</p>
   <div class="barra">
     <input type="date" id="dia" class="ctrl">
     <button class="ctrl" onclick="carregar()">↻ Atualizar</button>
-    <button class="ctrl forte" onclick="gerar()">Gerar agora</button>
   </div>
   <div id="conteudo" class="vazio">carregando…</div>
 </div>
@@ -13099,31 +13228,39 @@ async function carregar(){
 
 function desenhar(r){
   const alvo = document.getElementById('conteudo');
-  if (!r.previas || !r.previas.length) {
+  const jogos = r.jogos || [];
+  if (!jogos.length) {
     alvo.className = 'vazio';
-    alvo.innerHTML = 'Nenhuma prévia para ' + esc(r.dia) + '.<br><br>' +
-      'A prévia só é escrita para jogo marcado com transmissão na guia ' +
-      'Agendamentos. Se você já marcou, use “Gerar agora”.';
+    alvo.innerHTML = 'Nenhum jogo das nossas competições em ' + esc(r.dia) + '.';
     return;
   }
   alvo.className = '';
-  alvo.innerHTML = r.previas.map(function(p, i){
+  alvo.innerHTML = jogos.map(function(p, i){
     const oficial = p.escalacao === 'oficial';
     const aviso = (p.suspeitos && p.suspeitos.length)
       ? '<div class="aviso"><b>' + p.suspeitos.length +
         ' número(s) que não achei nos dados</b>' + esc(p.suspeitos.join(', ')) +
         ' — confira antes de falar no ar.</div>'
       : '';
-    return '<div class="jogo">' +
-      '<div class="topo" onclick="abrir(' + i + ')">' +
+    const canais = (p.canais && p.canais.length)
+      ? '<div class="canais">🖥️ ' + esc(p.canais.join(', ')) + '</div>' : '';
+    const acao = p.gerada
+      ? '<span class="selo ' + (oficial ? 'oficial' : 'provavel') + '">' +
+        (oficial ? 'escalação oficial' : 'escalação provável') + '</span>'
+      : '<button class="ctrl forte" onclick="gerar(event,' + p.fixture_id + ')">' +
+        'Gerar</button>';
+    return '<div class="jogo' + (p.gerada ? ' pronta' : '') + '" id="j' + p.fixture_id + '">' +
+      '<div class="topo" onclick="' + (p.gerada ? 'abrir(' + i + ')' : '') + '">' +
         '<div><div class="conf">' + esc(p.casa) + ' x ' + esc(p.fora) + '</div>' +
         '<div class="meta">' + esc(p.competicao || '') + ' · ' + hora(p.quando) +
-        ' · atualizada ' + hora(p.gerado_em) + '</div></div>' +
-        '<span class="selo ' + (oficial ? 'oficial' : 'provavel') + '">' +
-        (oficial ? 'escalação oficial' : 'escalação provável') + '</span>' +
+        (p.gerada ? ' · relatório de ' + hora(p.gerado_em) : '') + '</div>' +
+        canais + '</div>' +
+        '<div class="acao">' + acao + '</div>' +
       '</div>' +
-      '<div class="corpo' + (i === 0 ? ' aberto' : '') + '" id="c' + i + '">' +
-        aviso + md(p.texto) + '</div></div>';
+      (p.gerada
+        ? '<div class="corpo" id="c' + i + '">' + aviso + md(p.texto) + '</div>'
+        : '') +
+      '</div>';
   }).join('');
 }
 
@@ -13132,19 +13269,22 @@ function abrir(i){
   if (el) el.classList.toggle('aberto');
 }
 
-async function gerar(){
-  const alvo = document.getElementById('conteudo');
-  alvo.className = 'vazio';
-  alvo.innerHTML = 'montando… isso leva alguns segundos por jogo.';
-  const d = await (await fetch('/api/previa/gerar', {method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({dia: document.getElementById('dia').value})})).json();
-  if (!d.jogos) {
-    alvo.innerHTML = 'Nenhum jogo com transmissão marcada nesta data.<br><br>' +
-      'Marque o canal na guia Agendamentos e tente de novo.';
-    return;
+async function gerar(ev, fid){
+  ev.stopPropagation();
+  const b = ev.target;
+  b.disabled = true;
+  b.textContent = 'montando…';
+  try {
+    const d = await (await fetch('/api/previa/gerar', {method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dia: document.getElementById('dia').value,
+                            fixture_id: fid})})).json();
+    if (d.erro) { alert(d.erro); b.disabled = false; b.textContent = 'Gerar'; return; }
+    await carregar();
+  } catch (e) {
+    alert('não deu: ' + (e.message || e));
+    b.disabled = false; b.textContent = 'Gerar';
   }
-  await carregar();
 }
 
 (function(){
@@ -13166,3 +13306,82 @@ async def pagina_previa():
         .replace("__PREVIA_JS__", _PREVIA_JS)
         .replace("__HDR__", _header("/previa"))
     )
+
+
+@app.get("/api/convites")
+async def api_convites_listar():
+    """Os convites já criados. O código NÃO está aqui — nunca esteve no banco."""
+    return {"convites": listar_convites(50),
+            "papeis": [{"chave": p, "rotulo": contas.ROTULO_DO_PAPEL[p]}
+                       for p in contas.PAPEIS if p != "adm"],
+            "usuarios": listar_usuarios()}
+
+
+@app.post("/api/convites")
+async def api_convites_criar(request: Request):
+    """Cria um convite e devolve o código UMA vez.
+
+    Depois desta resposta o código não existe mais em lugar nenhum além de
+    onde você colar. Perdeu, gera outro — é de uso único e vence em uma
+    semana, então nada se perde de verdade.
+    """
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    papel = contas.papel_valido(corpo.get("papel"))
+    if papel == "adm":
+        # Promover a adm é decisão para a tela de usuários, com a conta já
+        # existindo. Um convite de adm circulando por e-mail é uma chave mestra
+        # dentro de um aplicativo de mensagem.
+        return JSONResponse({"erro": "convite de administrador não, por segurança"}, 400)
+    codigo, resumo = contas.novo_convite()
+    quem = _quem_esta_logado(request)
+    if not registrar_convite(resumo, papel, quem, contas.validade_do_convite()):
+        return JSONResponse({"erro": "não consegui guardar o convite"}, 500)
+    return {"ok": True, "codigo": codigo, "papel": papel,
+            "rotulo": contas.ROTULO_DO_PAPEL[papel],
+            "dias": contas.DIAS_DE_CONVITE,
+            "link": f"/cadastrar?convite={codigo}"}
+
+
+@app.post("/api/usuarios/papel")
+async def api_usuarios_papel(request: Request):
+    """Troca o papel de alguém.
+
+    Não deixo tirar o último adm. Um app sem administrador nenhum só se
+    conserta mexendo no banco à mão, e quem faria isso é justamente quem
+    perdeu o acesso.
+    """
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, 400)
+    email = contas.normalizar_email(corpo.get("email"))
+    papel = contas.papel_valido(corpo.get("papel"))
+    if not email:
+        return JSONResponse({"erro": "faltou o e-mail"}, 400)
+    if papel != "adm":
+        adms = [u for u in listar_usuarios() if (u.get("papel") or "") == "adm"]
+        if len(adms) <= 1 and any(u.get("email") == email for u in adms):
+            return JSONResponse(
+                {"erro": "este é o último administrador — promova outro antes"}, 409)
+    if not mudar_papel(email, papel):
+        return JSONResponse({"erro": "não achei essa conta"}, 404)
+    return {"ok": True, "papel": papel}
+
+
+@app.get("/api/meu-perfil")
+async def api_meu_perfil(request: Request):
+    """Quem sou eu e o que posso ver — a tela usa para esconder o que não pode.
+
+    Esconder é conforto, não proteção: quem chamar a rota direto continua
+    barrado pelo middleware. As duas coisas juntas, nunca só a de cima.
+    """
+    email = _quem_esta_logado(request)
+    papel = papel_do_usuario(email) if email else ""
+    return {"email": email, "papel": papel,
+            "rotulo": contas.ROTULO_DO_PAPEL.get(papel, ""),
+            "pode_configurar": bool(papel) and contas.pode_ver(papel, "/configuracoes"),
+            "pode_home": bool(papel) and contas.pode_ver(papel, "/"),
+            "casa": contas.CASA_DO_PAPEL.get(papel, "/noticias")}

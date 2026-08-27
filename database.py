@@ -2002,9 +2002,36 @@ def _cria_usuario(c) -> None:
             ultimo_acesso TIMESTAMPTZ
         )
     """)
+    # Papéis: adm (tudo), gerente (tudo menos Configurações), leitor (as guias,
+    # sem a home de aprovação). O padrão é o mais fraco de propósito — coluna
+    # nova em base antiga preenche com o padrão, e é melhor que um usuário
+    # antigo acorde com menos acesso do que com mais.
+    c.execute("ALTER TABLE usuario ADD COLUMN IF NOT EXISTS papel TEXT "
+              "NOT NULL DEFAULT 'leitor'")
 
 
-def criar_usuario(email: str, nome: str, senha_guardada: str) -> tuple[bool, str]:
+def _cria_convite(c) -> None:
+    """Convites de uso único.
+
+    O código é gerado por quem convida e nunca fica guardado em texto puro —
+    o banco tem só o resumo (hash). Um convite vazado no banco não vira acesso,
+    e eu não consigo ler o código de ninguém nem querendo.
+    """
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS convite (
+            resumo     TEXT PRIMARY KEY,
+            papel      TEXT NOT NULL DEFAULT 'leitor',
+            criado_por TEXT,
+            criado_em  TIMESTAMPTZ DEFAULT NOW(),
+            expira_em  TIMESTAMPTZ,
+            usado_em   TIMESTAMPTZ,
+            usado_por  TEXT
+        )
+    """)
+
+
+def criar_usuario(email: str, nome: str, senha_guardada: str,
+                  papel: str = "leitor") -> tuple[bool, str]:
     try:
         with get_conn() as conn:
             c = conn.cursor()
@@ -2012,11 +2039,116 @@ def criar_usuario(email: str, nome: str, senha_guardada: str) -> tuple[bool, str
             c.execute("SELECT 1 FROM usuario WHERE email = %s", [email])
             if c.fetchone():
                 return False, "já existe conta com esse e-mail"
-            c.execute("INSERT INTO usuario (email, nome, senha) VALUES (%s,%s,%s)",
-                      [email, nome or "", senha_guardada])
+            # O PRIMEIRO a se cadastrar é sempre adm. Sem isso, ligar o login
+            # numa base vazia criaria um app sem nenhum administrador — e a
+            # única saída seria mexer no banco à mão.
+            c.execute("SELECT COUNT(*) FROM usuario")
+            primeiro = (c.fetchone() or [0])[0] == 0
+            c.execute("INSERT INTO usuario (email, nome, senha, papel) "
+                      "VALUES (%s,%s,%s,%s)",
+                      [email, nome or "", senha_guardada,
+                       "adm" if primeiro else papel])
             return True, ""
     except Exception as e:
         return False, f"{type(e).__name__}: {e}"
+
+
+def registrar_convite(resumo: str, papel: str, criado_por: str,
+                      expira_em) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_convite(c)
+            c.execute("""INSERT INTO convite (resumo, papel, criado_por, expira_em)
+                         VALUES (%s,%s,%s,%s)""",
+                      [resumo, papel, criado_por, expira_em])
+        return True
+    except Exception as e:
+        print(f"⚠️ registrar_convite: {e}")
+        return False
+
+
+def convite_valido(resumo: str) -> dict | None:
+    """O convite, se existir, não tiver sido usado e não tiver vencido."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_convite(c)
+            c.execute("""SELECT * FROM convite WHERE resumo = %s
+                         AND usado_em IS NULL
+                         AND (expira_em IS NULL OR expira_em > NOW())""", [resumo])
+            linha = c.fetchone()
+            return dict(linha) if linha else None
+    except Exception as e:
+        print(f"⚠️ convite_valido: {e}")
+        return None
+
+
+def queimar_convite(resumo: str, email: str) -> bool:
+    """Marca como usado. O UPDATE só pega quem ainda não foi usado, então dois
+    cadastros simultâneos com o mesmo código não passam os dois."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""UPDATE convite SET usado_em = NOW(), usado_por = %s
+                         WHERE resumo = %s AND usado_em IS NULL""",
+                      [email, resumo])
+            return c.rowcount > 0
+    except Exception as e:
+        print(f"⚠️ queimar_convite: {e}")
+        return False
+
+
+def listar_convites(limite: int = 50) -> list[dict]:
+    """Nunca devolve o código — ele não existe aqui, só o resumo."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_convite(c)
+            c.execute("""SELECT papel, criado_por, criado_em, expira_em,
+                                usado_em, usado_por FROM convite
+                         ORDER BY criado_em DESC LIMIT %s""", [limite])
+            linhas = []
+            for r in c.fetchall():
+                d = dict(r)
+                for campo in ("criado_em", "expira_em", "usado_em"):
+                    if d.get(campo) is not None:
+                        d[campo] = d[campo].isoformat()
+                linhas.append(d)
+            return linhas
+    except Exception as e:
+        print(f"⚠️ listar_convites: {e}")
+        return []
+
+
+def papel_do_usuario(email: str) -> str:
+    """O papel de quem está logado. Na dúvida, o MENOS poderoso.
+
+    Erro de leitura aqui vira 'leitor', nunca 'adm'. Falhar para o lado de
+    menos acesso incomoda; falhar para o lado de mais acesso é incidente.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_usuario(c)
+            c.execute("SELECT papel FROM usuario WHERE email = %s", [email])
+            linha = c.fetchone()
+            return (linha[0] or "leitor") if linha else "leitor"
+    except Exception as e:
+        print(f"⚠️ papel_do_usuario: {e}")
+        return "leitor"
+
+
+def mudar_papel(email: str, papel: str) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("UPDATE usuario SET papel = %s WHERE email = %s",
+                      [papel, email])
+            return c.rowcount > 0
+    except Exception as e:
+        print(f"⚠️ mudar_papel: {e}")
+        return False
 
 
 def usuario_por_email(email: str) -> dict | None:
@@ -2061,7 +2193,8 @@ def listar_usuarios() -> list[dict]:
             _cria_usuario(c)
             # A senha NÃO sai daqui. Nem o hash: ele não serve para nada na
             # tela e só cria a chance de vazar num log ou numa resposta.
-            c.execute("""SELECT email, nome, temporaria, criado_em, ultimo_acesso
+            c.execute("""SELECT email, nome, papel, temporaria, criado_em,
+                                 ultimo_acesso
                            FROM usuario ORDER BY criado_em""")
             linhas = [dict(r) for r in c.fetchall()]
         for l in linhas:

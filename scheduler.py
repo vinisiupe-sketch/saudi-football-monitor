@@ -162,20 +162,10 @@ def create_scheduler() -> AsyncIOScheduler:
         id="fila_bola_rolando_diaria",
         replace_existing=True,
     )
-    # A prévia da véspera. 21h UTC = 18h de Brasília, uma hora depois de os
-    # BOLA ROLANDO de amanhã entrarem na fila (23h UTC do dia anterior já
-    # rodou) — então a transmissão que você marcou já está registrada.
-    scheduler.add_job(
-        run_previa_vespera,
-        trigger="cron",
-        hour=21,
-        minute=0,
-        id="previa_vespera",
-        replace_existing=True,
-    )
-    # A segunda entrega. Os jogos sauditas vão das 15h às 19h UTC e a
-    # escalação oficial sai perto de uma hora antes, então varro das 13h às
-    # 19h. Fora dessa janela seria consulta à toa.
+    # Não existe rotina que CRIA prévia: quem cria é o seu clique. Esta aqui
+    # só reescreve o que já foi criado, quando a escalação oficial sai. Os
+    # jogos sauditas vão das 15h às 19h UTC e a escalação sai perto de uma
+    # hora antes, então varro das 13h às 19h. Fora dessa janela seria à toa.
     scheduler.add_job(
         run_previa_oficial,
         trigger="cron",
@@ -254,31 +244,21 @@ async def run_varredura_competicoes():
         return {"erro": str(e)}
 
 
-async def run_previa_vespera():
-    """A prévia dos jogos de amanhã, com escalação provável."""
-    try:
-        from main import gerar_previas, _dia_de_brasilia
-        r = await gerar_previas(_dia_de_brasilia(1))
-        print(f"📋 Prévia da véspera ({r.get('dia')}): {r.get('gerados')} de "
-              f"{r.get('jogos')} jogos com transmissão")
-        return r
-    except Exception as e:
-        print(f"❌ Erro na prévia da véspera: {type(e).__name__}: {e}")
-        return {"erro": str(e)}
-
-
 async def run_previa_oficial():
-    """Reescreve a prévia de hoje quando a escalação oficial sai.
+    """Reescreve as prévias JÁ GERADAS de hoje quando a escalação oficial sai.
 
-    Roda de meia em meia hora na janela dos jogos. Quem já foi reescrito com a
-    oficial é pulado dentro do gerar_previa — sem isso, cada passada gastaria
-    uma chamada de modelo por jogo para chegar no mesmo texto.
+    Nunca cria prévia. Quem decide que um jogo merece relatório é o clique na
+    tela — esta rotina só atualiza o que você já mandou escrever, e só quando
+    há motivo: se a oficial ainda não saiu, ela nem chega a pedir texto ao
+    modelo. Sem essa guarda, varrer de meia em meia hora pagaria pelo mesmo
+    relatório doze vezes por dia.
     """
     try:
-        from main import gerar_previas, _dia_de_brasilia
-        r = await gerar_previas(_dia_de_brasilia())
-        if r.get("gerados"):
-            print(f"📋 Prévia de hoje reescrita: {r.get('gerados')} jogo(s)")
+        from main import reescrever_previas_com_oficial
+        r = await reescrever_previas_com_oficial()
+        if r.get("reescritas"):
+            print(f"📋 Prévia: {r.get('reescritas')} de {r.get('candidatas')} "
+                  f"reescritas com a escalação oficial")
         return r
     except Exception as e:
         print(f"❌ Erro ao reescrever a prévia de hoje: {type(e).__name__}: {e}")
