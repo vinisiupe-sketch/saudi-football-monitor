@@ -14501,6 +14501,76 @@ async def diag_elos(limite: int = 600):
     return PlainTextResponse("\n".join(linhas))
 
 
+@app.get("/api/diag/af-fora", response_class=PlainTextResponse)
+async def diag_af_fora(nomes: str = "Watkins,Martinelli,Doan,Bergwijn"):
+    """A API-Football alcança jogador que NÃO está na liga saudita?
+
+    A guia de mercado é metade sobre gente que ainda vai chegar — Watkins,
+    Martinelli, Doan. Esses não existem na tabela `jogador`, que é o elenco da
+    Roshn. Se a API-Football os alcança, o card de mercado nasce com rosto;
+    se não alcança, nasce sem.
+
+    Três coisas mudam a resposta e eu não sei nenhuma de cabeça: quais ligas o
+    plano cobre, se dá para buscar por nome SEM saber o clube, e se a busca
+    devolve data de nascimento — que é a chave que eu uso para ter certeza de
+    que é a pessoa certa.
+    """
+    linhas: list[str] = []
+
+    # 1. O plano: quantas requisições e, principalmente, qual cobertura.
+    dados, erro = await _af_get("status", {}, ttl=60)
+    if erro:
+        return PlainTextResponse(f"não deu para falar com a API-Football: {erro}")
+    r = (dados.get("response") or {})
+    sub = r.get("subscription") or {}
+    req = r.get("requests") or {}
+    linhas += ["O PLANO", "─" * 7,
+               f"  plano .............. {sub.get('plan')}",
+               f"  usadas hoje ........ {req.get('current')} de {req.get('limit_day')}"]
+
+    # 2. Quantas ligas o plano enxerga. Se forem só as sauditas, a resposta
+    #    acabou aqui.
+    ligas, erro = await _af_get("leagues", {}, ttl=3600)
+    if not erro:
+        todas = ligas.get("response") or []
+        paises = {}
+        for l in todas:
+            p = (l.get("country") or {}).get("name") or "?"
+            paises[p] = paises.get(p, 0) + 1
+        linhas.append(f"  ligas visíveis ..... {len(todas)} em {len(paises)} países")
+        grandes = [(p, n) for p, n in sorted(paises.items(), key=lambda x: -x[1])][:12]
+        linhas.append("  maiores: " + ", ".join(f"{p} ({n})" for p, n in grandes))
+        for alvo in ("England", "Spain", "Italy", "Germany", "France", "Brazil"):
+            linhas.append(f"    {alvo:10} {'sim' if alvo in paises else 'NÃO'}")
+
+    # 3. A busca por nome, sem saber o clube. É disso que eu preciso: a
+    #    notícia me dá 'Ollie Watkins' e mais nada.
+    linhas += ["", "BUSCA POR NOME, SEM SABER O CLUBE", "─" * 33]
+    for nome in [n.strip() for n in nomes.split(",") if n.strip()][:6]:
+        linhas.append(f"\n  '{nome}'")
+        # `profiles` é o endpoint que procura no cadastro inteiro. Se ele não
+        # existir no plano, a resposta diz.
+        for caminho, params in (("players/profiles", {"search": nome}),
+                                ("players", {"search": nome, "league": 39,
+                                             "season": _af_temporada_corrente() - 1})):
+            d, e = await _af_get(caminho, params, ttl=600)
+            if e:
+                linhas.append(f"    {caminho:18} → {e}")
+                continue
+            resp = d.get("response") or []
+            linhas.append(f"    {caminho:18} → {len(resp)} resultado(s)")
+            for item in resp[:3]:
+                p = item.get("player") or item
+                nasc = (p.get("birth") or {}).get("date")
+                est = (item.get("statistics") or [{}])[0]
+                time = (est.get("team") or {}).get("name") or ""
+                linhas.append(f"        {p.get('name'):28} {p.get('nationality') or '':16}"
+                              f" nasc={nasc or '—'}  {time}")
+                linhas.append(f"        foto: {'sim' if p.get('photo') else 'não'}"
+                              f"   altura: {p.get('height') or '—'}")
+    return PlainTextResponse("\n".join(linhas))
+
+
 @app.get("/api/diag/pontes", response_class=PlainTextResponse)
 async def diag_pontes():
     """Onde mora o que ainda não casa — e se a próxima chave prestaria.
