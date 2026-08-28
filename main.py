@@ -14392,6 +14392,144 @@ async def diag_congelado():
 # cada fonte publica de verdade. Já disse uma vez neste projeto que uma coisa
 # "não existia" olhando só o HTML cru, e estava errado.
 
+@app.get("/api/diag/pontes", response_class=PlainTextResponse)
+async def diag_pontes():
+    """Onde mora o que ainda não casa — e se a próxima chave prestaria.
+
+    Existe para eu parar de propor chave por intuição. A parte que importa é
+    a última: antes de usar uma chave nova, eu a testo contra os vínculos que
+    já confio. Se ela reproduz os 120 acertos do Transfermarkt, presta; se
+    contradiz algum, não presta, por melhor que a ideia pareça.
+    """
+    linhas: list[str] = []
+
+    def pega(sql, params=None):
+        try:
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute(sql, params or [])
+                return c.fetchall()
+        except Exception as e:
+            linhas.append(f"  (erro: {type(e).__name__}: {e})")
+            return []
+
+    def um(sql, params=None):
+        r = pega(sql, params)
+        return r[0][0] if r else 0
+
+    # ── API-FOOTBALL ───────────────────────────────────────────────────────
+    linhas += ["O QUE SOBROU NA API-FOOTBALL", "─" * 28]
+    linhas.append(f"  no cadastro deles .............. "
+                  f"{um('SELECT COUNT(*) FROM af_jogador')}")
+    linhas.append(f"    com data de nascimento ....... "
+                  f"{um('SELECT COUNT(*) FROM af_jogador WHERE nascimento IS NOT NULL')}")
+    sem = um("SELECT COUNT(*) FROM jogador WHERE af_id IS NULL")
+    linhas.append(f"  meus sem id da AF .............. {sem}")
+    linhas.append(f"    destes, sem data ............. "
+                  f"{um('SELECT COUNT(*) FROM jogador WHERE af_id IS NULL AND nascimento IS NULL')}")
+    # A pergunta que decide tudo: a data deles existe do outro lado?
+    linhas.append(f"    com data que NÃO existe lá ... " + str(um("""
+        SELECT COUNT(*) FROM jogador j
+         WHERE j.af_id IS NULL AND j.nascimento IS NOT NULL
+           AND NOT EXISTS (SELECT 1 FROM af_jogador a
+                            WHERE a.nascimento = j.nascimento)""")))
+    linhas.append(f"    com data que existe lá ....... " + str(um("""
+        SELECT COUNT(*) FROM jogador j
+         WHERE j.af_id IS NULL AND j.nascimento IS NOT NULL
+           AND EXISTS (SELECT 1 FROM af_jogador a
+                        WHERE a.nascimento = j.nascimento)""")))
+    linhas.append("")
+    linhas.append("  os que a data acha mas eu recusei (amostra):")
+    for meu, minha_nac, deles, nac2 in pega("""
+        SELECT j.nome, j.nacionalidade, a.nome, a.nacionalidade
+          FROM jogador j JOIN af_jogador a ON a.nascimento = j.nascimento
+         WHERE j.af_id IS NULL
+         ORDER BY j.nome LIMIT 15"""):
+        linhas.append(f"    {meu:32} ({minha_nac})")
+        linhas.append(f"      ~ AF {deles:26} ({nac2})")
+
+    # ── TRANSFERMARKT ──────────────────────────────────────────────────────
+    linhas += ["", "O QUE SOBROU NO TRANSFERMARKT", "─" * 29]
+    linhas.append("  A janela não publica data de nascimento, só idade — então")
+    linhas.append("  a chave que resolveu a API-Football não serve aqui.")
+    linhas.append("  Mas o elenco congelado tem idade, ALTURA e clube, e o id")
+    linhas.append("  do TM é a própria chave da tabela.")
+    linhas.append("")
+    linhas.append(f"  no elenco congelado ............ "
+                  f"{um('SELECT COUNT(*) FROM elenco_congelado')}")
+    linhas.append(f"    com altura ................... "
+                  f"{um('SELECT COUNT(*) FROM elenco_congelado WHERE altura IS NOT NULL')}")
+    linhas.append(f"  meus com altura e clube ........ " + str(um("""
+        SELECT COUNT(*) FROM jogador
+         WHERE altura IS NOT NULL AND clube <> ''""")))
+    linhas.append(f"  meus sem id do TM .............. "
+                  f"{um('SELECT COUNT(*) FROM jogador WHERE tm_id IS NULL')}")
+
+    # Pares únicos por (clube, altura). Uso o clube JÁ padronizado dos dois
+    # lados; o congelado passou pelo mesmo funil de nomes.
+    unicos = pega("""
+        WITH meu AS (
+          SELECT clube, altura, MIN(spl_id) AS spl, COUNT(*) AS n
+            FROM jogador WHERE altura IS NOT NULL AND clube <> ''
+           GROUP BY clube, altura),
+        seu AS (
+          SELECT clube, altura, MIN(jogador_id) AS tm, COUNT(*) AS n
+            FROM elenco_congelado WHERE altura IS NOT NULL AND clube <> ''
+           GROUP BY clube, altura)
+        SELECT COUNT(*) FROM meu JOIN seu USING (clube, altura)
+         WHERE meu.n = 1 AND seu.n = 1""")
+    linhas.append(f"  pares ÚNICOS por (clube+altura)  "
+                  f"{unicos[0][0] if unicos else '?'}")
+
+    # ── A PROVA ────────────────────────────────────────────────────────────
+    # Se a chave nova contradiz um vínculo que eu já tenho, ela está errada —
+    # e é melhor descobrir aqui do que depois de gravar quinhentas linhas.
+    linhas += ["", "  A PROVA: a chave nova bate com os que já casaram?"]
+    prova = pega("""
+        WITH meu AS (
+          SELECT clube, altura, MIN(spl_id) AS spl, COUNT(*) AS n
+            FROM jogador WHERE altura IS NOT NULL AND clube <> ''
+           GROUP BY clube, altura),
+        seu AS (
+          SELECT clube, altura, MIN(jogador_id) AS tm, COUNT(*) AS n
+            FROM elenco_congelado WHERE altura IS NOT NULL AND clube <> ''
+           GROUP BY clube, altura)
+        SELECT COUNT(*) FILTER (WHERE j.tm_id = seu.tm::text),
+               COUNT(*) FILTER (WHERE j.tm_id <> seu.tm::text),
+               COUNT(*)
+          FROM meu JOIN seu USING (clube, altura)
+          JOIN jogador j ON j.spl_id = meu.spl
+         WHERE meu.n = 1 AND seu.n = 1 AND j.tm_id IS NOT NULL""")
+    if prova:
+        concorda, discorda, total = prova[0]
+        linhas.append(f"    concorda ..... {concorda}")
+        linhas.append(f"    DISCORDA ..... {discorda}")
+        linhas.append(f"    testados ..... {total}")
+        if discorda:
+            linhas.append("    → a chave erra. NÃO usar.")
+        elif total < 20:
+            linhas.append("    → poucos casos para afirmar qualquer coisa.")
+        else:
+            linhas.append("    → não contradiz nenhum vínculo conhecido.")
+        for a, b, c_, d in pega("""
+            WITH meu AS (
+              SELECT clube, altura, MIN(spl_id) AS spl, COUNT(*) AS n
+                FROM jogador WHERE altura IS NOT NULL AND clube <> ''
+               GROUP BY clube, altura),
+            seu AS (
+              SELECT clube, altura, MIN(jogador_id) AS tm, MIN(nome) AS nome,
+                     COUNT(*) AS n
+                FROM elenco_congelado WHERE altura IS NOT NULL AND clube <> ''
+               GROUP BY clube, altura)
+            SELECT j.nome, j.clube, seu.nome, j.altura
+              FROM meu JOIN seu USING (clube, altura)
+              JOIN jogador j ON j.spl_id = meu.spl
+             WHERE meu.n = 1 AND seu.n = 1 AND j.tm_id IS NOT NULL
+               AND j.tm_id <> seu.tm::text LIMIT 10"""):
+            linhas.append(f"      liga '{a}' ({b}) ~ TM '{c_}'  [{d}cm]")
+    return PlainTextResponse("\n".join(linhas))
+
+
 @app.get("/api/diag/af-jogador", response_class=PlainTextResponse)
 async def diag_af_jogador(team: int = 0, season: int = 0):
     """O formato cru de UM jogador da API-Football, campo por campo."""
