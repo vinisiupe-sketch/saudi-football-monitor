@@ -2,10 +2,16 @@
 A varredura que monta a tabela de jogadores.
 
 NOTA SOBRE ESTE ARQUIVO
-    Existiam duas implementações deste passo no projeto ao mesmo tempo — a
-    minha e a de outra sessão trabalhando na mesma pasta. Ficamos com a outra,
-    que já traz a normalização do árabe. Este teste foi reescrito para valer
-    contra ela, e não contra a minha.
+    Existiram duas implementações deste passo ao mesmo tempo. A explicação é
+    banal: uma sessão anterior bateu no limite de uso e deixou trabalho no
+    diretório sem commit; a sessão seguinte não viu e escreveu a sua. O
+    resultado foi duas tabelas `jogador` com colunas diferentes e duas
+    `salvar_jogadores` — e o Postgres obedece o primeiro CREATE enquanto o
+    Python obedece a última função.
+
+    Ficou a versão com normalização de árabe. Os testes de "definida uma vez"
+    e "uma tabela jogador" mais abaixo existem para isso não voltar em
+    silêncio.
 
 O QUE MAIS ME PREOCUPA AQUI
     A varredura lê o MESMO jogo duas vezes, em dois idiomas. Se o cache não
@@ -165,12 +171,63 @@ def testar():
         ok("limite_de_jogos" in corpo,
            "não dá para rodar uma varredura curta antes de soltar a temporada")
 
+    # ── a normalização do árabe ─────────────────────────────────────────
+    # É o coração de tudo: é ela que vai fazer o nome que a imprensa saudita
+    # escreve casar com o que a liga registrou. Cada caso aqui é uma variação
+    # que muda a grafia sem mudar a pessoa.
+    import glossary
+    mesma = [
+        ("محمد الدوسري", "como a liga escreve"),
+        ("محمد الدَّوسري", "com harakat"),
+        ("محمد الدوســري", "com tatweel"),
+        ("محمد ٱلدوسري", "com alif wasla"),
+        ("محمد الدوسري.", "com pontuação"),
+    ]
+    chaves = {glossary.chave_arabe(n) for n, _ in mesma}
+    conferir(f"{len(mesma)} grafias de Al Dawsari viram uma chave",
+             len(chaves), 1)
+    ok("ال" not in next(iter(chaves)), "o artigo ال não foi removido")
+
+    # Pessoas DIFERENTES não podem colidir. Normalizar demais é tão ruim
+    # quanto normalizar de menos — só que o erro aparece bem mais tarde.
+    diferentes = ["محمد الدوسري", "محمد الشهري", "سالم الدوسري", "عبدالله الحمدان"]
+    conferir("nomes diferentes continuam diferentes",
+             len({glossary.chave_arabe(n) for n in diferentes}), len(diferentes))
+
+    # 'عبدالله' junto e 'عبد الله' separado é a divergência mais comum, e
+    # nenhuma regra de letra resolve — a diferença é só onde alguém apertou
+    # espaço. Por isso existe a segunda chave, colada.
+    junto = glossary.chave_arabe("عبدالله السالم")
+    separado = glossary.chave_arabe("عبد الله السالم")
+    ok(junto != separado,
+       "junto e separado colidiram na chave com espaço — a chave colada "
+       "perderia a razão de existir")
+    conferir("mas colam na chave sem espaço",
+             glossary.chave_colada(junto), glossary.chave_colada(separado))
+
+    conferir("árabe vazio vira vazio", glossary.chave_arabe(""), "")
+    conferir("árabe None vira vazio", glossary.chave_arabe(None), "")
+
+    # ── e a chave latina ────────────────────────────────────────────────
+    conferir("hífen, espaço e colado viram o mesmo",
+             len({glossary.chave_latina(n)
+                  for n in ["Al-Hilal", "Al Hilal", "AlHilal", "AL HILAL"]}), 1)
+    conferir("acento não separa pessoa",
+             glossary.chave_latina("Donovan Léon"),
+             glossary.chave_latina("Donovan Leon"))
+    conferir("latino vazio vira vazio", glossary.chave_latina(None), "")
+    # E aqui também: nomes diferentes não podem colidir.
+    ok(glossary.chave_latina("Al Ahmari") != glossary.chave_latina("Al Ghamdi"),
+       "dois sobrenomes diferentes viraram a mesma chave latina")
+
     if falhas:
         for f in falhas:
             print(f"  ✗ {f}")
         return False
     print("  ✓ jogadores: duas escritas na mesma linha, cache por idioma, "
           "uma tabela só")
+    print("  ✓ normalização: árabe e latim colapsam variação sem colar "
+          "pessoas diferentes")
     return True
 
 
