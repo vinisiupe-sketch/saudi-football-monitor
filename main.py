@@ -13944,6 +13944,41 @@ async def diag_nomes():
         for nome, ar, clube in amostra:
             linhas.append(f"    {nome:28} = {ar:24} ({clube})")
 
+    # ── O MAPA: onde mora identidade de jogador, e com que id ─────────────
+    bloco("MAPA DAS TABELAS DE JOGADOR")
+    linhas.append("  tabela              fonte             linhas   id próprio   "
+                  "casa com a liga")
+    linhas.append("  " + "─" * 76)
+
+    def _n(sql):
+        r = pega(sql)
+        return (r[0][0] if r else 0) or 0
+
+    n_liga = _n("SELECT COUNT(*) FROM jogador")
+    n_liga_tm = _n("SELECT COUNT(*) FROM jogador WHERE tm_id IS NOT NULL AND tm_id <> ''")
+    n_jan = _n("SELECT COUNT(DISTINCT player_id) FROM window_transfers "
+               "WHERE player_id IS NOT NULL AND player_id <> ''")
+    n_af = _n("SELECT COUNT(DISTINCT player_id) FROM stats_apuradas")
+    n_les = _n("SELECT COUNT(*) FROM injuries")
+    n_art = _n("SELECT COUNT(*) FROM articles")
+
+    # Quantos da API-Football casam com a liga, pelo nome normalizado?
+    liga_chaves = {glossary.chave_latina(n) for (n,) in
+                   pega("SELECT nome FROM jogador") if n}
+    af_nomes = [n for (n,) in pega("SELECT DISTINCT player_name FROM stats_apuradas") if n]
+    af_casam = sum(1 for n in af_nomes if glossary.chave_latina(n) in liga_chaves)
+    les_nomes = [n for (n,) in pega("SELECT DISTINCT player_name FROM injuries") if n]
+    les_casam = sum(1 for n in les_nomes if glossary.chave_latina(n) in liga_chaves)
+
+    for rot, fonte, total, tem_id, casa in [
+        ("jogador", "API da liga", n_liga, "spl_id", f"— é a base ({n_liga_tm} com id TM)"),
+        ("window_transfers", "Transfermarkt", n_jan, "id TM", f"{n_liga_tm} ligados"),
+        ("stats_apuradas", "API-Football", n_af, "id AF", f"{af_casam} de {len(af_nomes)} pelo nome"),
+        ("injuries", "notícia + modelo", n_les, "NENHUM", f"{les_casam} de {len(les_nomes)} pelo nome"),
+        ("articles", "raspagem", n_art, "NENHUM", "0 — não há jogador extraído"),
+    ]:
+        linhas.append(f"  {rot:19} {fonte:17} {total:6}   {tem_id:11}  {casa}")
+
     # ── Por que o cruzamento com o Transfermarkt para onde para ───────────
     # A pergunta não é "quantos casaram", é "os que não casaram são gente que
     # não transferiu, ou quase-acerto de grafia que eu recusei?". A segunda
