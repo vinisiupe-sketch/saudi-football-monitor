@@ -13934,6 +13934,7 @@ async def diag_nomes():
     linhas.append(f"  com nome em árabe .......... {n.get('com_arabe')}")
     linhas.append(f"  com foto ................... {n.get('com_foto')}")
     linhas.append(f"  com id do Transfermarkt .... {n.get('com_transfermarkt')}")
+    linhas.append(f"  com id da API-Football ..... {n.get('com_api_football')}")
     linhas.append(f"  clubes ..................... {n.get('clubes')}")
     faltando = pega("SELECT nome, clube FROM jogador "
                     "WHERE nome_ar IS NULL OR nome_ar = '' ORDER BY nome")
