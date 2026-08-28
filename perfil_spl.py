@@ -105,7 +105,13 @@ def desdobrar(html: str, arabe: bool = False) -> dict[str, dict]:
                 pessoa["nome"] = nome
             if clube:
                 pessoa["clube"] = clube
+            # A foto vem como CAMINHO em `imagery.playerImage_home_middle`, e
+            # como URL inteira em `playerImage`. Guardo o caminho, igual à
+            # varredura de escalação faz: se eles trocarem o servidor de
+            # imagem, é uma constante para mudar, não uma coluna para
+            # reescrever. Por isso não uso `playerImage` aqui.
             for chave, campo in (("slug", "playerSlug"),
+                                 ("foto", "playerImage_home_middle"),
                                  ("altura", "height"),
                                  ("nac_iso", "nationalityIsoCode"),
                                  ("nacionalidade", "nationality"),
@@ -140,6 +146,33 @@ def colher(slug: str, cliente, com_arabe: bool = True) -> dict[str, dict]:
             if pid in gente and arabe.get("nome_ar"):
                 gente[pid]["nome_ar"] = arabe["nome_ar"]
     return gente
+
+
+def sementes_para(faltam: list[dict], elenco_do_clube) -> tuple[list[dict], list[str]]:
+    """De quem PRECISA do dado para quem serve de PORTA.
+
+    As duas listas não são a mesma, e confundi-las custou nove jogadores do Al
+    Khaleej. A colheita chutava o slug pelo nome de quem estava incompleto; os
+    nomes deles são longos, o chute errava, e o colega de nome curto — que
+    abriria a página do clube inteiro de uma vez — já estava completo, logo
+    nunca era candidato. A página do clube não era aberta em rodada nenhuma e
+    eles ficavam parados para sempre, sem erro nenhum aparecendo.
+
+    Agora basta que o CLUBE tenha alguém incompleto: a semente pode ser
+    qualquer pessoa dele. Quem não tem clube continua só com o próprio nome,
+    porque aí não há elenco onde procurar uma porta.
+    """
+    clubes: list[str] = []
+    sementes: list[dict] = []
+    for p in faltam:
+        clube = (p.get("clube") or "").strip()
+        if not clube:
+            sementes.append(p)
+        elif clube not in clubes:
+            clubes.append(clube)
+    for clube in clubes:
+        sementes.extend(elenco_do_clube(clube))
+    return sementes, clubes
 
 
 def colher_a_partir_de(candidatos: list[dict], cliente,

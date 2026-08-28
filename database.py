@@ -473,10 +473,13 @@ def salvar_perfis(gente: dict) -> dict:
                                                               NULLIF(%s, '')),
                                         chave_ar_colada = COALESCE(NULLIF(jogador.chave_ar_colada, ''),
                                                               NULLIF(%s, '')),
+                                        foto       = COALESCE(NULLIF(jogador.foto, ''),
+                                                              NULLIF(%s, '')),
                                         atualizado_em = NOW()
                                   WHERE spl_id = %s""",
                               [nasc, alt, _clube(p.get("clube")), ar, ch,
-                               glossary.chave_colada(ch), pid])
+                               glossary.chave_colada(ch),
+                               p.get("foto") or "", pid])
                     completados += 1
                     continue
                 nome = " ".join((p.get("nome") or "").split())
@@ -487,13 +490,14 @@ def salvar_perfis(gente: dict) -> dict:
                 c.execute("""
                     INSERT INTO jogador (spl_id, nome, nome_ar, chave_lat,
                         chave_ar, chave_ar_colada, clube, posicao, camisa,
-                        nacionalidade, nascimento, altura, atualizado_em)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                        nacionalidade, nascimento, altura, foto, atualizado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     ON CONFLICT (spl_id) DO NOTHING
                 """, [pid, nome, nome_ar, glossary.chave_latina(nome), chave_ar,
                       glossary.chave_colada(chave_ar), _clube(p.get("clube")),
                       p.get("posicao") or "", str(p.get("camisa") or ""),
-                      p.get("nacionalidade") or "", nasc, alt])
+                      p.get("nacionalidade") or "", nasc, alt,
+                      p.get("foto") or ""])
                 novos += 1
     except Exception as e:
         print(f"⚠️ salvar_perfis: {e}")
@@ -528,6 +532,34 @@ def jogadores_a_completar(limite: int = 600) -> list[dict]:
             return [{"spl_id": a, "nome": b, "clube": c_} for a, b, c_ in c.fetchall()]
     except Exception as e:
         print(f"⚠️ jogadores_a_completar: {e}")
+        return []
+
+
+def elenco_para_semente(clube: str, limite: int = 12) -> list[dict]:
+    """Gente do clube que serve de porta de entrada para a página dele.
+
+    Existe por causa de um beco sem saída que só apareceu medindo: nove
+    jogadores do Al Khaleej ficaram sem nome em árabe e não saíam de lá. A
+    colheita chutava o slug pelo nome de quem estava INCOMPLETO, e os nomes
+    deles são longos ('Abdulmajeed Abdullah Fehaid Al Khathami') ou caem em
+    página vazia. O colega de elenco com nome curto abriria a página inteira
+    — mas ele já estava completo, então nunca era candidato, e a página do
+    clube nunca era aberta de novo.
+
+    Aqui a semente pode ser QUALQUER pessoa do clube. Quem precisa do dado e
+    quem serve de porta não têm que ser a mesma pessoa.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT spl_id, nome, clube FROM jogador
+                          WHERE clube = %s AND nome <> ''
+                       ORDER BY array_length(string_to_array(nome, ' '), 1),
+                                length(nome)
+                          LIMIT %s""", [_clube(clube), limite])
+            return [{"spl_id": a, "nome": b, "clube": c_} for a, b, c_ in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ elenco_para_semente: {e}")
         return []
 
 

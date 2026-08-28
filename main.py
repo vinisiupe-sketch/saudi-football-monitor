@@ -14181,19 +14181,26 @@ def colher_perfis(teto: int = 0) -> dict:
     """
     import httpx
     import perfil_spl
-    from database import jogadores_a_completar, salvar_perfis
+    from database import (jogadores_a_completar, elenco_para_semente,
+                          salvar_perfis)
 
     faltam = jogadores_a_completar()
     if not faltam:
         return {"nada_a_fazer": True, **contar_jogadores()}
+
+    # Quem PRECISA do dado e quem serve de PORTA não são a mesma lista — a
+    # regra mora no perfil_spl, onde dá para testá-la sem subir o app.
+    sementes, clubes = perfil_spl.sementes_para(faltam, elenco_para_semente)
+
     with httpx.Client() as cliente:
         gente, como_foi = perfil_spl.colher_a_partir_de(
-            faltam, cliente, teto or perfil_spl.TETO_DE_PAGINAS)
+            sementes, cliente, teto or perfil_spl.TETO_DE_PAGINAS)
     if not gente:
         return {"erro": "nenhuma página rendeu dado — o formato do site mudou?",
                 **como_foi}
     r = salvar_perfis(gente)
-    resumo = {"faltavam": len(faltam), **como_foi, **r, **contar_jogadores()}
+    resumo = {"faltavam": len(faltam), "clubes_visitados": len(clubes),
+              **como_foi, **r, **contar_jogadores()}
     print(f"[PERFIS] {resumo}", flush=True)
     return resumo
 

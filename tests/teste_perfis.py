@@ -58,6 +58,9 @@ BIO = (
     r'\"nationality\":\"Senegal\",\"nationalityIsoCode\":\"SEN\",'
     r'\"dateOfBirth\":\"1996-05-04T00:00:00Z\",'
     r'\"playerStatus\":\"Active\",\"bibNumber\":\"22\",'
+    # A seção de biografia traz a URL INTEIRA. A da lista curta traz o
+    # caminho. As duas convivem na mesma página, e só uma serve para a coluna.
+    r'\"playerImage\":\"https://media-sdp.spl.com.sa/playerImages/c5dc_middle.webp\",'
     r'\"team\":{\"teamSlug\":\"abha\",\"officialName\":\"Abha\",'
     r'\"mediaShortName\":\"Abha\",\"shortName\":\"Abha\",\"height\":\"999\"},'
 )
@@ -149,6 +152,14 @@ def testar():
     conferir("slug", diallo.get("slug"), "abdou-diallo")
     conferir("nacionalidade", diallo.get("nac_iso"), "SEN")
     conferir("camisa", diallo.get("camisa"), "22")
+    # A foto é o CAMINHO de `imagery`, não a URL inteira de `playerImage`.
+    # A coluna guarda caminho desde a varredura de escalação; misturar os dois
+    # formatos na mesma coluna quebraria a montagem do endereço na tela.
+    conferir("foto é o caminho de imagery",
+             (gente.get("spl::Football_Player::b49f") or {}).get("foto"),
+             "playerImages/b49f_middle.webp")
+    ok(not (diallo.get("foto") or "").startswith("http"),
+       "guardei a URL inteira em vez do caminho")
 
     # ── 2. E NÃO lê o que NÃO está lá ──────────────────────────────────────
     # Este é o teste que justifica o arquivo. O segundo jogador aparece duas
@@ -249,6 +260,45 @@ def testar():
         [{"spl_id": "spl::Football_Player::c5dc", "nome": "Abdou Diallo"}], cli4)
     conferir("página certa rende o elenco inteiro", len(colhido), 3)
     conferir("uma página lida", como.get("paginas_lidas"), 1)
+
+    # ── 7b. a porta pode ser um colega que já está completo ────────────────
+    # O caso real: nove do Al Khaleej sem nome em árabe. O slug deles é longo
+    # e o chute erra. Quem abriria a página do clube é o 'Raed Al Shanqiti',
+    # de nome curto — mas ele já estava completo, e por isso ficava de fora
+    # da lista de candidatos. Resultado: a página do Al Khaleej nunca era
+    # aberta de novo e os nove não saíam do lugar em rodada nenhuma.
+    elencos = {
+        "Al Khaleej": [
+            {"spl_id": "porta", "nome": "Raed Al Shanqiti", "clube": "Al Khaleej"},
+            {"spl_id": "preso", "nome": "Abdulmajeed Abdullah Fehaid Al Khathami",
+             "clube": "Al Khaleej"},
+        ],
+    }
+    faltam = [{"spl_id": "preso",
+               "nome": "Abdulmajeed Abdullah Fehaid Al Khathami",
+               "clube": "Al Khaleej"}]
+    sementes, clubes = perfil_spl.sementes_para(
+        faltam, lambda c: elencos.get(c, []))
+    conferir("o clube de quem falta é visitado", clubes, ["Al Khaleej"])
+    ok(any(s["spl_id"] == "porta" for s in sementes),
+       "o colega já completo não entrou como porta — os presos continuam presos")
+    ok(sementes[0]["spl_id"] == "porta",
+       "a porta de nome curto tem que ser tentada antes da de nome longo")
+
+    # Um clube com alguém incompleto aparece UMA vez, não uma por pessoa.
+    muitos = [{"spl_id": f"p{i}", "nome": f"Fulano {i}", "clube": "Al Khaleej"}
+              for i in range(30)]
+    _, clubes = perfil_spl.sementes_para(muitos, lambda c: elencos.get(c, []))
+    conferir("clube repetido conta uma vez", clubes, ["Al Khaleej"])
+
+    # Quem não tem clube não some: aí não há elenco onde procurar uma porta,
+    # e o próprio nome é a única tentativa possível.
+    sementes, clubes = perfil_spl.sementes_para(
+        [{"spl_id": "solto", "nome": "Sem Clube", "clube": ""}],
+        lambda c: elencos.get(c, []))
+    conferir("sem clube, nenhum clube visitado", clubes, [])
+    conferir("mas ele mesmo é tentado",
+             [s["spl_id"] for s in sementes], ["solto"])
 
     # ── 8. o teto existe ───────────────────────────────────────────────────
     cli5 = ClienteFalso({})
