@@ -194,6 +194,36 @@ def testar():
         for chutar in ("SequenceMatcher", "ratio(", "difflib"):
             ok(chutar not in corpo, f"usa {chutar} — semelhança aqui vira gente trocada")
 
+    # ── a abreviação da API-Football ────────────────────────────────────
+    # "A. Al Hussain" e "Ali Al Hussain" são a mesma pessoa, e a diferença é
+    # formato, não grafia. Resolver por regra é seguro; resolver por
+    # semelhança seria adivinhar qual "A." é qual.
+    import glossary as _g2
+    pares = [("A. Al Hussain", "Ali Al Hussain"),
+             ("S. Milinkovic-Savic", "Sergej Milinkovic-Savic"),
+             ("T. Hernandez", "Théo Hernández"),
+             ("L. Maximiano", "Luís Maximiano"),
+             ("J. Brownhill", "Josh Brownhill")]
+    for abreviado, inteiro in pares:
+        conferir(f"{abreviado} casa com {inteiro}",
+                 _g2.partir_por_inicial(abreviado), _g2.inicial_e_resto(inteiro))
+    # Nome inteiro NÃO entra pelo caminho da abreviação — senão as duas formas
+    # do mesmo nome seriam comparadas como se fossem coisas diferentes.
+    conferir("nome completo não é abreviação",
+             _g2.partir_por_inicial("Ali Al Hussain"), ("", ""))
+    conferir("uma palavra só não tem resto",
+             _g2.inicial_e_resto("Ronaldinho"), ("", ""))
+    # E a inicial tem que ser respeitada: "A." não pode virar "Saad".
+    ok(_g2.partir_por_inicial("A. Al Sharfa") != _g2.inicial_e_resto("Saad Al Sharfa"),
+       "a inicial não está sendo conferida — qualquer primeiro nome casaria")
+
+    if fn:
+        corpo = ast.unparse(fn)
+        ok("por_inicial" in corpo,
+           "o cruzamento não usa o índice de inicial — 142 quase-acertos ficam na mesa")
+        ok("len(iguais) == 1" in corpo,
+           "com dois candidatos de mesma inicial, não exige que o clube desempate")
+
     # A coluna precisa existir, senão o UPDATE falha calado dentro do except.
     ok("ADD COLUMN IF NOT EXISTS af_id" in fonte,
        "a coluna af_id não é criada na migração")

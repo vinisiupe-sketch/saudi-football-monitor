@@ -450,14 +450,21 @@ def cruzar_api_football() -> dict:
     """
     import glossary
     from collections import defaultdict
-    casados = ambiguos = ja_tinha = clube_briga = 0
+    casados = ambiguos = ja_tinha = clube_briga = por_inicial_usado = 0
     try:
         with get_conn() as conn:
             c = conn.cursor()
             c.execute("SELECT spl_id, nome, clube, af_id FROM jogador")
             por_chave = defaultdict(list)
+            # Segundo índice, por (inicial, resto). É ele que casa o
+            # "A. Al Hussain" da API-Football com o "Ali Al Hussain" da liga —
+            # a diferença ali não é grafia, é abreviação sistemática.
+            por_inicial = defaultdict(list)
             for spl, nome, clube, af in c.fetchall():
                 por_chave[glossary.chave_latina(nome)].append((spl, clube, af))
+                ini = glossary.inicial_e_resto(nome)
+                if ini[0]:
+                    por_inicial[ini].append((spl, clube, af))
 
             # Só a temporada mais recente: linha de 2023 é de gente que pode
             # nem estar mais no país, e casar por nome com quem está aqui hoje
@@ -471,13 +478,33 @@ def cruzar_api_football() -> dict:
                            FROM stats_apuradas WHERE season = %s""", [temporada])
             af = defaultdict(set)
             nomes_af = {}
+            nomes_brutos = {}
             for pid, nome, time in c.fetchall():
                 ch = glossary.chave_latina(nome or "")
                 af[ch].add(pid)
                 nomes_af[(ch, pid)] = time or ""
+                nomes_brutos.setdefault(ch, nome or "")
 
             for chave, ids in af.items():
                 candidatos = por_chave.get(chave) or []
+                if not candidatos:
+                    # Nome abreviado: procuro pelo par (inicial, resto).
+                    bruto = nomes_brutos.get(chave, "")
+                    ini = glossary.partir_por_inicial(bruto)
+                    if ini[0]:
+                        candidatos = por_inicial.get(ini) or []
+                        # Dois "A. Al Hassan" no mesmo sobrenome viram duas
+                        # pessoas possíveis. Aí o clube decide — e se ele não
+                        # decidir, eu não decido no lugar dele.
+                        if len(candidatos) > 1 and len(ids) == 1:
+                            pid_unico = next(iter(ids))
+                            alvo = _clube(nomes_af.get((chave, pid_unico), ""))
+                            iguais = [k for k in candidatos if k[1] and k[1] == alvo]
+                            candidatos = iguais if len(iguais) == 1 else candidatos
+                            if len(candidatos) == 1:
+                                por_inicial_usado += 1
+                        elif len(candidatos) == 1:
+                            por_inicial_usado += 1
                 if len(ids) != 1 or len(candidatos) != 1:
                     if candidatos:
                         ambiguos += 1
@@ -502,7 +529,8 @@ def cruzar_api_football() -> dict:
         print(f"⚠️ cruzar_api_football: {e}")
         return {"erro": str(e)}
     r = {"temporada": temporada, "casados": casados, "ja_tinham": ja_tinha,
-         "ambiguos": ambiguos, "recusados_pelo_clube": clube_briga}
+         "ambiguos": ambiguos, "recusados_pelo_clube": clube_briga,
+         "casados_por_inicial": por_inicial_usado}
     print(f"[API-FOOTBALL] {r}", flush=True)
     return r
 

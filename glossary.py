@@ -1,6 +1,7 @@
 """
 Glossário de termos do futebol saudita para padronizar traduções.
 """
+import re
 
 # Mapeamento canônico: qualquer variação → forma correta
 CLUB_NAMES = {
@@ -281,6 +282,39 @@ GRITO_DE_GOL = "\U0001D46E" + "\U0001D476" * 14 + "\U0001D473"
 # ══════════════════════════════════════════════════════════════════════════
 # O QUE VAI PARA O BANCO
 # ══════════════════════════════════════════════════════════════════════════
+
+# A API-Football escreve "A. Al Hussain" onde a liga escreve "Ali Al Hussain".
+# Não é outra transliteração — é abreviação sistemática do primeiro nome. Isso
+# tem conserto por regra, e regra não é chute: a inicial ou bate ou não bate.
+_SO_INICIAL = re.compile(r"^\s*([A-Za-zÀ-ÿ])\.?\s+(.+)$")
+
+
+def partir_por_inicial(nome: str) -> tuple[str, str]:
+    """('a', 'al hussain') para 'A. Al Hussain'. ('', '') se não for abreviado.
+
+    Só considero abreviação quando a primeira palavra tem UMA letra. "Ali Al
+    Hussain" não entra aqui — ele já é o nome inteiro, e tratar as duas formas
+    do mesmo jeito faria a busca comparar coisas diferentes.
+    """
+    m = _SO_INICIAL.match(nome or "")
+    if not m:
+        return "", ""
+    inicial = chave_latina(m.group(1))[:1]
+    return inicial, chave_latina(m.group(2))
+
+
+def inicial_e_resto(nome: str) -> tuple[str, str]:
+    """O mesmo formato, para um nome COMPLETO: ('a', 'al hussain').
+
+    É o outro lado da comparação. 'Ali Al Hussain' vira ('a', 'al hussain') e
+    bate com o que veio abreviado — sem que eu precise adivinhar que o "A." é
+    "Ali".
+    """
+    partes = chave_latina(nome).split()
+    if len(partes) < 2:
+        return "", ""
+    return partes[0][:1], " ".join(partes[1:])
+
 
 def clube_para_guardar(nome: str) -> str:
     """O nome do clube como ele deve ser GRAVADO.
