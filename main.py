@@ -14398,13 +14398,19 @@ async def diag_congelado():
 # "não existia" olhando só o HTML cru, e estava errado.
 
 @app.get("/api/diag/elos", response_class=PlainTextResponse)
-async def diag_elos(limite: int = 400):
+async def diag_elos(limite: int = 600):
     """Roda o reconhecimento sobre as notícias SEM GRAVAR NADA.
 
     Existe para eu olhar os falsos positivos antes de criar tabela. Uma foto
     errada num card é barata de ver e cara de explicar; se a regra estiver
     colando gente errada, é aqui que isso aparece — num relatório que dá para
     ler, e não num banco que dá para reescrever.
+
+    A primeira versão juntava título e corpo num texto só, e o relatório
+    mostrou o estrago: uma notícia com o título 'النصر يبحث عن الرابع' saía
+    citando os DEZOITO clubes da liga, porque o corpo raspado carrega tabela,
+    rodada e menu do site. Nome no título é o assunto da notícia; nome no
+    corpo pode ser rodapé. São coisas diferentes e eu tratei igual.
     """
     import elos
     from database import listar_jogadores
@@ -14421,6 +14427,7 @@ async def diag_elos(limite: int = 400):
             return []
 
     gente = listar_jogadores(limite=2000)
+    nomes = {j["spl_id"]: j["nome"] for j in gente}
     indice, ambiguas = elos.indice_de_jogadores(gente)
     ind_clubes = elos.indice_de_clubes()
 
@@ -14429,58 +14436,68 @@ async def diag_elos(limite: int = 400):
                f"  chaves utilizáveis ......... {len(indice['chave'])}",
                f"  chaves JOGADAS FORA ........ {len(ambiguas)} (caem em mais de uma pessoa)",
                f"  grafias de clube ........... {len(ind_clubes)}"]
-    if ambiguas:
-        linhas.append("\n  as descartadas (amostra):")
-        for k, v in list(ambiguas.items())[:8]:
-            linhas.append(f"    '{k}' → {len(v)} pessoas")
-
-    sem_chave = [j["nome"] for j in gente
-                 if not elos._chaves_do_jogador(j)]
-    if sem_chave:
-        linhas.append(f"\n  sem chave nenhuma ({len(sem_chave)}): "
-                      + ", ".join(sem_chave[:10]))
 
     artigos = pega("""SELECT id, title_orig, title_pt, body_orig, body_pt
                         FROM articles
                        WHERE is_duplicate = 0
-                    ORDER BY collected_at DESC LIMIT %s""", [max(1, min(limite, 3000))])
-    com_gente = com_clube = total_elos = 0
-    por_escrita: dict[str, int] = {}
-    amostra: list[str] = []
-    demais: list[str] = []
-    for aid, t_ar, t_pt, b_ar, b_pt in artigos:
-        ar = " ".join(x for x in (t_ar, b_ar) if x)
-        pt = " ".join(x for x in (t_pt, b_pt) if x)
-        achados = elos.jogadores_no_texto(ar, pt, indice)
-        clubes = elos.clubes_no_texto(ar, pt, ind_clubes)
-        if achados:
-            com_gente += 1
-            total_elos += len(achados)
-            for v in achados.values():
-                por_escrita[v] = por_escrita.get(v, 0) + 1
-        if clubes:
-            com_clube += 1
-        if achados and len(amostra) < 60:
-            nomes = {j["spl_id"]: j["nome"] for j in gente}
-            quem = ", ".join(f"{nomes.get(s, s)} [{v}]" for s, v in achados.items())
-            titulo = (t_pt or t_ar or "")[:78]
-            amostra.append(f"    {titulo}")
-            amostra.append(f"      → {quem}")
-            amostra.append(f"      clubes: {', '.join(clubes) or '—'}")
-        elif clubes and len(demais) < 20:
-            demais.append(f"    {(t_pt or t_ar or '')[:78]}"
-                          f"  [clubes: {', '.join(clubes)}]")
+                    ORDER BY collected_at DESC LIMIT %s""",
+                   [max(1, min(limite, 3000))])
 
-    linhas += ["", "O QUE A REGRA ACHOU", "─" * 19,
+    no_titulo = so_no_corpo = 0
+    elos_titulo = elos_corpo = 0
+    faixas_clube_t = {}
+    faixas_clube_c = {}
+    tamanho_corpo = []
+    amostra_titulo: list[str] = []
+    amostra_corpo: list[str] = []
+
+    def faixa(n):
+        return ("0" if n == 0 else "1" if n == 1 else "2" if n == 2
+                else "3 a 5" if n <= 5 else "6 a 10" if n <= 10 else "11 ou +")
+
+    for aid, t_ar, t_pt, b_ar, b_pt in artigos:
+        jt = elos.jogadores_no_texto(t_ar or "", t_pt or "", indice)
+        jc = elos.jogadores_no_texto(b_ar or "", b_pt or "", indice)
+        ct = elos.clubes_no_texto(t_ar or "", t_pt or "", ind_clubes)
+        cc = elos.clubes_no_texto(b_ar or "", b_pt or "", ind_clubes)
+        corpo = len((b_ar or "") + (b_pt or ""))
+        tamanho_corpo.append(corpo)
+        elos_titulo += len(jt)
+        elos_corpo += len(jc)
+        if jt:
+            no_titulo += 1
+        elif jc:
+            so_no_corpo += 1
+        faixas_clube_t[faixa(len(ct))] = faixas_clube_t.get(faixa(len(ct)), 0) + 1
+        faixas_clube_c[faixa(len(cc))] = faixas_clube_c.get(faixa(len(cc)), 0) + 1
+        if jt and len(amostra_titulo) < 40:
+            amostra_titulo.append(f"    {(t_pt or t_ar or '')[:76]}")
+            amostra_titulo.append(
+                "      → " + ", ".join(f"{nomes.get(s, s)} [{v}]" for s, v in jt.items())
+                + f"   clubes no título: {', '.join(ct) or '—'}")
+        elif (not jt) and jc and len(amostra_corpo) < 25:
+            amostra_corpo.append(f"    {(t_pt or t_ar or '')[:76]}   (corpo: {corpo} car.)")
+            amostra_corpo.append(
+                "      → " + ", ".join(f"{nomes.get(s, s)}" for s in list(jc)[:8])
+                + (f"  (+{len(jc) - 8})" if len(jc) > 8 else "")
+                + f"   clubes no corpo: {len(cc)}")
+
+    medio = sum(tamanho_corpo) // max(1, len(tamanho_corpo))
+    linhas += ["", "TÍTULO CONTRA CORPO", "─" * 19,
                f"  notícias olhadas ........... {len(artigos)}",
-               f"  com pelo menos um jogador .. {com_gente}",
-               f"  com pelo menos um clube .... {com_clube}",
-               f"  elos de jogador no total ... {total_elos}",
-               f"  por escrita ................ {por_escrita or '—'}"]
-    linhas += ["", "  OLHE ESTES COM DESCONFIANÇA — é para isso que existem:"]
-    linhas += amostra or ["    (nenhum)"]
-    linhas += ["", "  achou clube mas nenhum jogador (amostra):"]
-    linhas += demais or ["    (nenhum)"]
+               f"  corpo médio ................ {medio} caracteres",
+               f"  com jogador NO TÍTULO ...... {no_titulo}",
+               f"  com jogador SÓ NO CORPO .... {so_no_corpo}",
+               f"  elos vindos do título ...... {elos_titulo}",
+               f"  elos vindos do corpo ....... {elos_corpo}",
+               "",
+               "  quantos CLUBES cada notícia cita:",
+               f"    pelo título ... {dict(sorted(faixas_clube_t.items()))}",
+               f"    pelo corpo .... {dict(sorted(faixas_clube_c.items()))}"]
+    linhas += ["", "  JOGADOR NO TÍTULO (é o que eu pretendo gravar como assunto):"]
+    linhas += amostra_titulo or ["    (nenhum)"]
+    linhas += ["", "  SÓ NO CORPO (é aqui que mora o rodapé — olhe com desconfiança):"]
+    linhas += amostra_corpo or ["    (nenhum)"]
     return PlainTextResponse("\n".join(linhas))
 
 
