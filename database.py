@@ -284,6 +284,34 @@ def init_db():
         """)
         for col in ("chave_lat", "chave_ar", "chave_ar_colada", "clube"):
             c.execute(f"CREATE INDEX IF NOT EXISTS idx_jogador_{col} ON jogador({col})")
+        # Cópia congelada dos elencos do Transfermarkt.
+        #
+        # A guia /elencos buscava no TM a cada abertura, com cache só na
+        # memória — nada no banco. Desligar o TM não deixaria o campinho mais
+        # pobre: deixaria a guia vazia.
+        #
+        # Esta tabela é o retrato do último dia em que a fonte ainda existia.
+        # Não é para ser mantida atualizada: é para a guia continuar de pé
+        # enquanto a posição detalhada não tiver substituto, e para você poder
+        # se arrepender.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS elenco_congelado (
+                clube_id   INTEGER NOT NULL,
+                clube      TEXT,
+                jogador_id INTEGER NOT NULL,
+                nome       TEXT NOT NULL,
+                numero     INTEGER,
+                posicao    TEXT,
+                idade      INTEGER,
+                altura     INTEGER,
+                pe         TEXT,
+                nacionalidades TEXT,
+                foto       TEXT,
+                valor      TEXT,
+                congelado_em TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (clube_id, jogador_id)
+            )
+        """)
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
@@ -468,6 +496,88 @@ def cruzar_transfermarkt() -> dict:
          "na_janela_sem_par_na_liga": len(sem_par)}
     print(f"[TRANSFERMARKT] {r}", flush=True)
     return r
+
+
+def congelar_elenco(clube_id: int, clube: str, jogadores: list[dict]) -> int:
+    """Guarda o elenco de um clube como ele está hoje.
+
+    Escrito para rodar UMA vez, antes de a fonte sair do ar. Por isso não
+    apaga quem não veio na lista nova: se a raspagem trouxer meio elenco por
+    causa de uma falha, o meio que já estava guardado continua lá.
+    """
+    import json as _json
+    if not jogadores:
+        return 0
+    n = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for j in jogadores:
+                jid = j.get("id")
+                nome = " ".join((j.get("nome") or "").split())
+                if not jid or not nome:
+                    continue
+                c.execute("""
+                    INSERT INTO elenco_congelado (clube_id, clube, jogador_id, nome,
+                        numero, posicao, idade, altura, pe, nacionalidades, foto,
+                        valor, congelado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (clube_id, jogador_id) DO UPDATE SET
+                        clube = EXCLUDED.clube, nome = EXCLUDED.nome,
+                        numero = EXCLUDED.numero, posicao = EXCLUDED.posicao,
+                        idade = EXCLUDED.idade, altura = EXCLUDED.altura,
+                        pe = EXCLUDED.pe, nacionalidades = EXCLUDED.nacionalidades,
+                        foto = EXCLUDED.foto, valor = EXCLUDED.valor,
+                        congelado_em = NOW()
+                """, [int(clube_id), _clube(clube), int(jid), nome,
+                      j.get("numero"), j.get("posicao"), j.get("idade"),
+                      j.get("altura"), j.get("pe"),
+                      _json.dumps(j.get("nacionalidades") or [], ensure_ascii=False),
+                      j.get("foto_tm") or j.get("foto") or "", j.get("valor")])
+                n += 1
+    except Exception as e:
+        print(f"⚠️ congelar_elenco({clube}): {e}")
+        return 0
+    return n
+
+
+def elenco_congelado(clube_id: int | None = None) -> list[dict]:
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if clube_id:
+                c.execute("SELECT * FROM elenco_congelado WHERE clube_id = %s "
+                          "ORDER BY numero NULLS LAST, nome", [int(clube_id)])
+            else:
+                c.execute("SELECT * FROM elenco_congelado ORDER BY clube, numero "
+                          "NULLS LAST, nome")
+            linhas = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ elenco_congelado: {e}")
+        return []
+    for l in linhas:
+        try:
+            l["nacionalidades"] = _json.loads(l.get("nacionalidades") or "[]")
+        except Exception:
+            l["nacionalidades"] = []
+        if l.get("congelado_em") is not None:
+            l["congelado_em"] = l["congelado_em"].isoformat()
+    return linhas
+
+
+def resumo_do_congelamento() -> dict:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT COUNT(*), COUNT(DISTINCT clube_id),
+                                COUNT(*) FILTER (WHERE pe IS NOT NULL AND pe <> ''),
+                                MAX(congelado_em) FROM elenco_congelado""")
+            t, clubes, com_pe, quando = c.fetchone()
+            return {"jogadores": t, "clubes": clubes, "com_pe": com_pe,
+                    "quando": quando.isoformat() if quando else None}
+    except Exception as e:
+        return {"erro": str(e)}
 
 
 def padronizar_clubes_gravados() -> dict:

@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, congelar_elenco, elenco_congelado, resumo_do_congelamento, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -151,6 +151,10 @@ async def lifespan(app: FastAPI):
         scheduler = create_scheduler()
         scheduler.start()
         asyncio.create_task(run_pipeline())
+        # Em segundo plano, e não na fila de cima, porque é async e porque
+        # raspar 18 elencos leva tempo — o app não pode ficar esperando isso
+        # para começar a responder. Roda uma vez só; ver congelar_elencos_do_tm.
+        asyncio.create_task(congelar_elencos_do_tm())
     except Exception as e:
         _FALHA_NA_SUBIDA.append(f"agendador: {type(e).__name__}: {str(e)[:300]}")
         print(f"[SUBIDA] agendador falhou: {type(e).__name__}: {e}", flush=True)
@@ -14112,3 +14116,73 @@ async def api_jogadores(clube: str = "", limite: int = 600):
         limite = 600
     return {"resumo": contar_jogadores(),
             "jogadores": listar_jogadores(clube, limite) if limite else []}
+
+
+async def congelar_elencos_do_tm() -> dict:
+    """Guarda no banco os elencos que hoje vêm do Transfermarkt ao vivo.
+
+    Isto é o ponto de retorno. A guia /elencos nunca teve cópia no banco —
+    ela raspava o TM a cada abertura, com cache só na memória. Desligar a
+    fonte sem isto não deixaria o campinho mais pobre, deixaria a guia vazia,
+    e não haveria de onde voltar.
+
+    Roda sozinha na primeira subida depois deste deploy, ENQUANTO o TM ainda
+    está no projeto. Uma vez só: o objetivo é um retrato, não um espelho.
+    """
+    if get_state("elencos_congelados") == "sim":
+        return {"pulado": True}
+    import elenco_tm
+    times, aviso = await elenco_tm.clubes()
+    if not times:
+        # Sem clube nenhum não marco como feito: a próxima subida tenta de
+        # novo. Marcar aqui congelaria o vazio para sempre.
+        print(f"[CONGELAR] não achei clube nenhum no TM ({aviso})", flush=True)
+        return {"erro": aviso or "sem clubes"}
+    total = 0
+    falhas = []
+    for t in times:
+        try:
+            plantel, av = await elenco_tm.elenco(t["id"])
+        except Exception as e:
+            falhas.append(f"{t['nome']}: {type(e).__name__}: {e}")
+            continue
+        if not plantel:
+            falhas.append(f"{t['nome']}: elenco vazio ({av})")
+            continue
+        total += congelar_elenco(t["id"], t["nome"], plantel)
+    # Só considero feito se a maioria dos clubes veio. Um congelamento pela
+    # metade marcado como pronto seria pior que nenhum: some o aviso e fica o
+    # buraco.
+    if len(falhas) <= len(times) // 3:
+        set_state("elencos_congelados", "sim")
+    print(f"[CONGELAR] {total} jogadores de {len(times) - len(falhas)} clubes; "
+          f"{len(falhas)} falhas", flush=True)
+    for f in falhas[:5]:
+        print(f"[CONGELAR] {f}", flush=True)
+    return {"jogadores": total, "clubes": len(times) - len(falhas),
+            "falhas": falhas, **resumo_do_congelamento()}
+
+
+@app.post("/api/elencos/congelar")
+async def api_elencos_congelar():
+    """Refaz o retrato à mão, se precisar antes de o TM sair."""
+    set_state("elencos_congelados", "")
+    return await congelar_elencos_do_tm()
+
+
+@app.get("/api/diag/congelado", response_class=PlainTextResponse)
+async def diag_congelado():
+    """O que está guardado do Transfermarkt — a rede antes do salto."""
+    r = resumo_do_congelamento()
+    linhas = [f"jogadores guardados .... {r.get('jogadores')}",
+              f"clubes ................. {r.get('clubes')}",
+              f"com pé preferido ....... {r.get('com_pe')}",
+              f"congelado em ........... {r.get('quando')}"]
+    porc = {}
+    for j in elenco_congelado():
+        porc.setdefault(j.get("clube") or "?", 0)
+        porc[j["clube"]] += 1
+    linhas.append("")
+    for clube, n in sorted(porc.items()):
+        linhas.append(f"  {clube:22} {n}")
+    return PlainTextResponse("\n".join(linhas))
