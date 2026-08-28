@@ -240,6 +240,16 @@ def _indice_de_variantes() -> dict:
 _POR_VARIANTE = _indice_de_variantes()
 
 
+def variantes_de_clube() -> dict:
+    """Cada jeito conhecido de escrever um clube -> o nome de exibição.
+
+    Existe para quem precisa PROCURAR clubes num texto, e não só padronizar um
+    nome que já veio isolado. Devolvo uma cópia: o índice é montado uma vez na
+    subida e quem mexer nele por engano quebra a tela de gol.
+    """
+    return dict(_POR_VARIANTE)
+
+
 def padronizar_clube(nome: str) -> str:
     """O nome do clube na grafia da tabela, ou "" se eu não reconhecer.
 
@@ -374,8 +384,18 @@ _MESMA_LETRA = {
 _ARTIGO = "ال"
 
 
-def chave_arabe(nome: str) -> str:
+def chave_arabe(nome: str, manter_artigo: bool = False) -> str:
     """A forma do nome árabe usada para comparar.
+
+    `manter_artigo` existe para PROCURAR CLUBE dentro de um texto corrido, e
+    o motivo é concreto: sem o artigo, 'النصر' vira 'نصر', que é a palavra
+    comum "vitória". 'الفتح' vira 'فتح' ("abertura") e 'الحزم' vira 'حزم'
+    ("firmeza"). Numa notícia de futebol, procurar por essas três palavras
+    soltas acha o clube e acha também toda frase que fala em vitória.
+
+    Com o artigo preservado dos DOIS lados, 'النصر' só casa com 'النصر'. O
+    artigo, que num nome de pessoa é ruído de grafia, num nome de clube é
+    justamente o que separa o time da palavra.
 
     O que ela apaga é exatamente o que varia de fonte para fonte sem mudar a
     pessoa: harakat, tatweel, alif com e sem hamza, tá-marbuta contra há, o
@@ -393,7 +413,7 @@ def chave_arabe(nome: str) -> str:
                 else " " for c in t)
     palavras = []
     for p in t.split():
-        if p.startswith(_ARTIGO) and len(p) > 4:
+        if not manter_artigo and p.startswith(_ARTIGO) and len(p) > 4:
             p = p[2:]
         if p:
             palavras.append(p)

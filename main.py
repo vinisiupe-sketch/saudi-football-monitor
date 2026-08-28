@@ -14397,6 +14397,93 @@ async def diag_congelado():
 # cada fonte publica de verdade. Já disse uma vez neste projeto que uma coisa
 # "não existia" olhando só o HTML cru, e estava errado.
 
+@app.get("/api/diag/elos", response_class=PlainTextResponse)
+async def diag_elos(limite: int = 400):
+    """Roda o reconhecimento sobre as notícias SEM GRAVAR NADA.
+
+    Existe para eu olhar os falsos positivos antes de criar tabela. Uma foto
+    errada num card é barata de ver e cara de explicar; se a regra estiver
+    colando gente errada, é aqui que isso aparece — num relatório que dá para
+    ler, e não num banco que dá para reescrever.
+    """
+    import elos
+    from database import listar_jogadores
+    linhas: list[str] = []
+
+    def pega(sql, params=None):
+        try:
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute(sql, params or [])
+                return c.fetchall()
+        except Exception as e:
+            linhas.append(f"  (erro: {type(e).__name__}: {e})")
+            return []
+
+    gente = listar_jogadores(limite=2000)
+    indice, ambiguas = elos.indice_de_jogadores(gente)
+    ind_clubes = elos.indice_de_clubes()
+
+    linhas += ["O ÍNDICE", "─" * 8,
+               f"  jogadores na tabela ........ {len(gente)}",
+               f"  chaves utilizáveis ......... {len(indice['chave'])}",
+               f"  chaves JOGADAS FORA ........ {len(ambiguas)} (caem em mais de uma pessoa)",
+               f"  grafias de clube ........... {len(ind_clubes)}"]
+    if ambiguas:
+        linhas.append("\n  as descartadas (amostra):")
+        for k, v in list(ambiguas.items())[:8]:
+            linhas.append(f"    '{k}' → {len(v)} pessoas")
+
+    sem_chave = [j["nome"] for j in gente
+                 if not elos._chaves_do_jogador(j)]
+    if sem_chave:
+        linhas.append(f"\n  sem chave nenhuma ({len(sem_chave)}): "
+                      + ", ".join(sem_chave[:10]))
+
+    artigos = pega("""SELECT id, title_orig, title_pt, body_orig, body_pt
+                        FROM articles
+                       WHERE is_duplicate = 0
+                    ORDER BY collected_at DESC LIMIT %s""", [max(1, min(limite, 3000))])
+    com_gente = com_clube = total_elos = 0
+    por_escrita: dict[str, int] = {}
+    amostra: list[str] = []
+    demais: list[str] = []
+    for aid, t_ar, t_pt, b_ar, b_pt in artigos:
+        ar = " ".join(x for x in (t_ar, b_ar) if x)
+        pt = " ".join(x for x in (t_pt, b_pt) if x)
+        achados = elos.jogadores_no_texto(ar, pt, indice)
+        clubes = elos.clubes_no_texto(ar, pt, ind_clubes)
+        if achados:
+            com_gente += 1
+            total_elos += len(achados)
+            for v in achados.values():
+                por_escrita[v] = por_escrita.get(v, 0) + 1
+        if clubes:
+            com_clube += 1
+        if achados and len(amostra) < 60:
+            nomes = {j["spl_id"]: j["nome"] for j in gente}
+            quem = ", ".join(f"{nomes.get(s, s)} [{v}]" for s, v in achados.items())
+            titulo = (t_pt or t_ar or "")[:78]
+            amostra.append(f"    {titulo}")
+            amostra.append(f"      → {quem}")
+            amostra.append(f"      clubes: {', '.join(clubes) or '—'}")
+        elif clubes and len(demais) < 20:
+            demais.append(f"    {(t_pt or t_ar or '')[:78]}"
+                          f"  [clubes: {', '.join(clubes)}]")
+
+    linhas += ["", "O QUE A REGRA ACHOU", "─" * 19,
+               f"  notícias olhadas ........... {len(artigos)}",
+               f"  com pelo menos um jogador .. {com_gente}",
+               f"  com pelo menos um clube .... {com_clube}",
+               f"  elos de jogador no total ... {total_elos}",
+               f"  por escrita ................ {por_escrita or '—'}"]
+    linhas += ["", "  OLHE ESTES COM DESCONFIANÇA — é para isso que existem:"]
+    linhas += amostra or ["    (nenhum)"]
+    linhas += ["", "  achou clube mas nenhum jogador (amostra):"]
+    linhas += demais or ["    (nenhum)"]
+    return PlainTextResponse("\n".join(linhas))
+
+
 @app.get("/api/diag/pontes", response_class=PlainTextResponse)
 async def diag_pontes():
     """Onde mora o que ainda não casa — e se a próxima chave prestaria.
