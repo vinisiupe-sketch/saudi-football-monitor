@@ -343,6 +343,14 @@ def init_db():
         # Transfermarkt. Nome vira confirmação; a data é o critério.
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS nascimento DATE")
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS altura INTEGER")
+        # Quando a página de elenco falou desta pessoa pela última vez.
+        #
+        # Sem isto a colheita não tem fim: nem todo jogador tem altura ou foto
+        # na fonte (a página traz altura de 18 dos 29), então "ainda falta
+        # alguma coisa" seria verdade para sempre, e cada clique reabriria as
+        # mesmas dezoito páginas atrás de um dado que não existe. A marca
+        # separa "ainda não perguntei" de "perguntei e a fonte não tem".
+        c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS perfil_em TIMESTAMPTZ")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jogador_nascimento "
                   "ON jogador(nascimento)")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
@@ -475,6 +483,7 @@ def salvar_perfis(gente: dict) -> dict:
                                                               NULLIF(%s, '')),
                                         foto       = COALESCE(NULLIF(jogador.foto, ''),
                                                               NULLIF(%s, '')),
+                                        perfil_em  = NOW(),
                                         atualizado_em = NOW()
                                   WHERE spl_id = %s""",
                               [nasc, alt, _clube(p.get("clube")), ar, ch,
@@ -490,8 +499,9 @@ def salvar_perfis(gente: dict) -> dict:
                 c.execute("""
                     INSERT INTO jogador (spl_id, nome, nome_ar, chave_lat,
                         chave_ar, chave_ar_colada, clube, posicao, camisa,
-                        nacionalidade, nascimento, altura, foto, atualizado_em)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                        nacionalidade, nascimento, altura, foto,
+                        perfil_em, atualizado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                     ON CONFLICT (spl_id) DO NOTHING
                 """, [pid, nome, nome_ar, glossary.chave_latina(nome), chave_ar,
                       glossary.chave_colada(chave_ar), _clube(p.get("clube")),
@@ -504,6 +514,32 @@ def salvar_perfis(gente: dict) -> dict:
         return {"completados": completados, "novos": novos, "erro": str(e)}
     return {"completados": completados, "novos": novos,
             "vieram_sem_data": sem_data}
+
+
+# O que a página de elenco sabe preencher, e o tipo de cada campo.
+#
+# Esta lista existe porque eu errei a mesma coisa duas vezes: acrescentei o
+# CLUBE ao que a colheita grava e esqueci de acrescentá-lo ao critério de quem
+# ainda vale a pena visitar; depois fiz idêntico com a FOTO, e a colheita
+# passou a não visitar quase ninguém — 452 fotos de 573, parado.
+#
+# Enquanto "o que eu preencho" e "quem eu procuro" forem duas listas escritas
+# à mão em lugares diferentes, elas vão se separar de novo. Aqui é uma só.
+CAMPOS_DA_COLHEITA = (("nascimento", "data"), ("altura", "data"),
+                      ("clube", "texto"), ("nome_ar", "texto"),
+                      ("foto", "texto"))
+
+# Quanto tempo uma visita vale antes de valer a pena perguntar de novo.
+DIAS_DE_PERFIL = 7
+
+
+def _falta_alguma_coisa() -> str:
+    """O pedaço de SQL que diz 'esta pessoa ainda tem campo vazio'."""
+    partes = []
+    for campo, tipo in CAMPOS_DA_COLHEITA:
+        partes.append(f"{campo} IS NULL" if tipo == "data"
+                      else f"{campo} IS NULL OR {campo} = ''")
+    return " OR ".join(partes)
 
 
 def jogadores_a_completar(limite: int = 600) -> list[dict]:
@@ -521,11 +557,11 @@ def jogadores_a_completar(limite: int = 600) -> list[dict]:
     try:
         with get_conn() as conn:
             c = conn.cursor()
-            c.execute("""SELECT spl_id, nome, clube FROM jogador
+            c.execute(f"""SELECT spl_id, nome, clube FROM jogador
                           WHERE nome <> ''
-                            AND (nascimento IS NULL
-                                 OR clube IS NULL OR clube = ''
-                                 OR nome_ar IS NULL OR nome_ar = '')
+                            AND ({_falta_alguma_coisa()})
+                            AND (perfil_em IS NULL
+                                 OR perfil_em < NOW() - INTERVAL '{DIAS_DE_PERFIL} days')
                        ORDER BY array_length(string_to_array(nome, ' '), 1),
                                 length(nome)
                           LIMIT %s""", [limite])

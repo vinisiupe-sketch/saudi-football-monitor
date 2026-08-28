@@ -223,6 +223,65 @@ def testar():
     conferir("uma tabela af_jogador só",
              fonte.count("CREATE TABLE IF NOT EXISTS af_jogador"), 1)
 
+    # ── 10. o que a colheita PREENCHE e quem ela PROCURA têm que casar ─────
+    # Errei isto duas vezes seguidas, do mesmo jeito: acrescentei um campo ao
+    # que a colheita grava (primeiro o clube, depois a foto) e esqueci de
+    # acrescentá-lo ao critério de quem ainda vale a pena visitar. Nos dois
+    # casos o número simplesmente parava de subir, sem erro nenhum: a coluna
+    # existia, a gravação funcionava, e ninguém era visitado para gravá-la.
+    #
+    # Enquanto as duas listas forem escritas à mão em lugares diferentes, elas
+    # vão se separar de novo. Este teste é o que impede a terceira vez.
+    import ast as _ast
+    import database
+    fonte = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+    fn = next((n for n in _ast.walk(_ast.parse(fonte))
+               if isinstance(n, _ast.FunctionDef) and n.name == "salvar_perfis"), None)
+    ok(fn is not None, "não achei salvar_perfis")
+    if fn:
+        # O texto ORIGINAL da função, não o `ast.unparse`: o unparse devolve a
+        # string SQL como literal escapado, e aí `\s` não casa mais com as
+        # quebras de linha de dentro dela.
+        corpo = "\n".join(fonte.split("\n")[fn.lineno - 1:fn.end_lineno])
+        # O WHERE tem que ser procurado DEPOIS do UPDATE: a função também tem
+        # um `SELECT 1 ... WHERE spl_id` antes, e recortar até a primeira
+        # ocorrência devolvia um pedaço vazio — que passaria como "nenhum
+        # campo escrito", exatamente o contrário do que este teste quer ver.
+        i = corpo.find("UPDATE jogador")
+        trecho = corpo[i:corpo.find("WHERE spl_id", i)]
+        import re
+        escritos = {m.group(1) for m in
+                    re.finditer(r"(?:SET|,)\s*(\w+)\s*=", trecho)}
+        # Colunas de controle: não são dado colhido, são carimbo.
+        escritos -= {"atualizado_em", "perfil_em"}
+        # chave_ar e chave_ar_colada são derivadas de nome_ar, não campos
+        # próprios da fonte.
+        escritos -= {"chave_ar", "chave_ar_colada"}
+        procurados = {c for c, _ in database.CAMPOS_DA_COLHEITA}
+        sobrando = escritos - procurados
+        ok(not sobrando,
+           f"a colheita preenche {sorted(sobrando)}, mas não procura quem está "
+           f"sem — o número vai travar sem dar erro")
+        faltando = procurados - escritos
+        ok(not faltando,
+           f"a colheita procura quem está sem {sorted(faltando)}, mas não "
+           f"preenche esse campo — visita à toa, para sempre")
+
+    # ── 11. e a colheita precisa ter fim ───────────────────────────────────
+    # Nem todo jogador tem altura ou foto na fonte. Sem a marca de visita,
+    # esses ficariam candidatos eternos e cada clique reabriria as mesmas
+    # dezoito páginas atrás de um dado que não existe.
+    alvo = next((n for n in _ast.walk(_ast.parse(fonte))
+                 if isinstance(n, _ast.FunctionDef)
+                 and n.name == "jogadores_a_completar"), None)
+    ok(alvo is not None, "não achei jogadores_a_completar")
+    if alvo:
+        c = _ast.unparse(alvo)
+        ok("perfil_em IS NULL" in c,
+           "a busca de candidatos não olha a marca de visita — nunca termina")
+        ok("_falta_alguma_coisa()" in c,
+           "o critério voltou a ser escrito à mão em vez de sair da lista")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
