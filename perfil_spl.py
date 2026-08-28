@@ -41,6 +41,26 @@ UA = "Mozilla/5.0 (compatible; IARABAO/1.0)"
 TETO_DE_PAGINAS = 40
 
 _MARCA = re.compile(r'"playerId":"(spl::Football_Player::[0-9a-f]+)"')
+_TIME = re.compile(r'"teamSlug":"([^"]*)"[\s\S]{0,400}?"officialName":"([^"]*)"')
+
+
+def clube_da_pagina(texto: str) -> str:
+    """O clube que a página inteira descreve, ou "" se houver mais de um.
+
+    Conferi antes de confiar: a página do Diallo tem 29 jogadores e um só
+    teamSlug ('abha'); a do Salem tem 29 e um só ('al-hilal'); e não há uma
+    pessoa em comum entre as duas. Ou seja, a lista é o elenco do clube, e o
+    clube pode ser atribuído a todo mundo da página.
+
+    Se um dia aparecerem dois clubes na mesma página, essa premissa deixou de
+    valer — e aí eu devolvo vazio em vez de escolher um.
+    """
+    achados = {}
+    for slug, nome in _TIME.findall(texto):
+        achados[slug] = nome
+    if len(achados) != 1:
+        return ""
+    return next(iter(achados.values()))
 
 
 def slug_de(nome: str) -> str:
@@ -64,6 +84,7 @@ def desdobrar(html: str, arabe: bool = False) -> dict[str, dict]:
     """Todo mundo que a página descreve, por playerId."""
     texto = (html or "").replace('\\"', '"')
     marcas = list(_MARCA.finditer(texto))
+    clube = clube_da_pagina(texto)
     gente: dict[str, dict] = {}
     for i, m in enumerate(marcas):
         fim = marcas[i + 1].start() if i + 1 < len(marcas) else len(texto)
@@ -82,6 +103,8 @@ def desdobrar(html: str, arabe: bool = False) -> dict[str, dict]:
         else:
             if nome:
                 pessoa["nome"] = nome
+            if clube:
+                pessoa["clube"] = clube
             for chave, campo in (("slug", "playerSlug"),
                                  ("altura", "height"),
                                  ("nac_iso", "nationalityIsoCode"),

@@ -176,6 +176,24 @@ def testar():
     conferir("e a altura também",
              (gente.get("spl::Football_Player::b49f") or {}).get("altura"), "180")
 
+    # ── 3b. o clube da página vale para todo mundo da página ───────────────
+    # Isso não é palpite: conferi que a página do Diallo tem 29 jogadores e um
+    # único teamSlug, a do Salem tem 29 e outro único, e não há uma pessoa em
+    # comum entre as duas. A lista é o elenco do clube.
+    conferir("o clube chega em quem só aparece na lista curta",
+             (gente.get("spl::Football_Player::b49f") or {}).get("clube"), "Abha")
+    conferir("e no dono da página também", diallo.get("clube"), "Abha")
+    # Mas se a premissa cair — dois clubes na mesma página — eu não escolho.
+    dois = perfil_spl.desdobrar(
+        PAGINA + BIO.replace(r'\"abha\"', r'\"al-hilal\"')
+                    .replace(r'\"officialName\":\"Abha\"',
+                             r'\"officialName\":\"Al Hilal\"'))
+    ok(not any(p.get("clube") for p in dois.values()),
+       "com dois clubes na mesma página eu escolhi um em vez de deixar vazio")
+    conferir("e o resto continua sendo lido",
+             (dois.get("spl::Football_Player::3c97") or {}).get("nascimento"),
+             "2003-04-18")
+
     # ── 4. o `team` aninhado não contamina a pessoa ────────────────────────
     # O objeto do clube vem DEPOIS dos campos da pessoa e tem chaves com o
     # mesmo nome. Se a leitura pegasse a última ocorrência em vez da primeira,

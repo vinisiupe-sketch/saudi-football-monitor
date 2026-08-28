@@ -456,11 +456,18 @@ def salvar_perfis(gente: dict) -> dict:
                     sem_data += 1
                 c.execute("SELECT 1 FROM jogador WHERE spl_id = %s", [pid])
                 if c.fetchone():
+                    # O clube só ENTRA onde está vazio. A escalação é uma
+                    # fonte melhor que a página de elenco — ela diz onde a
+                    # pessoa jogou, e com data. Sobrescrever com o elenco de
+                    # hoje apagaria isso em quem trocou de time.
                     c.execute("""UPDATE jogador
                                     SET nascimento = COALESCE(%s, nascimento),
                                         altura     = COALESCE(%s, altura),
+                                        clube      = COALESCE(NULLIF(jogador.clube, ''),
+                                                              NULLIF(%s, '')),
                                         atualizado_em = NOW()
-                                  WHERE spl_id = %s""", [nasc, alt, pid])
+                                  WHERE spl_id = %s""",
+                              [nasc, alt, _clube(p.get("clube")), pid])
                     completados += 1
                     continue
                 nome = " ".join((p.get("nome") or "").split())
