@@ -14182,8 +14182,12 @@ def colher_perfis(teto: int = 0) -> dict:
     import httpx
     import perfil_spl
     from database import (jogadores_a_completar, elenco_para_semente,
-                          salvar_perfis)
+                          salvar_perfis, limpar_campos_em_arabe)
 
+    # Antes de procurar quem falta, tirar da frente o que está preenchido de
+    # um jeito que não serve. Campo em árabe onde deveria haver latim conta
+    # como vazio: ele não compara com fonte nenhuma.
+    arabe_fora = limpar_campos_em_arabe()
     faltam = jogadores_a_completar()
     if not faltam:
         return {"nada_a_fazer": True, **contar_jogadores()}
@@ -14200,6 +14204,7 @@ def colher_perfis(teto: int = 0) -> dict:
                 **como_foi}
     r = salvar_perfis(gente)
     resumo = {"faltavam": len(faltam), "clubes_visitados": len(clubes),
+              "arabe_fora_de_lugar": arabe_fora,
               **como_foi, **r, **contar_jogadores()}
     print(f"[PERFIS] {resumo}", flush=True)
     return resumo

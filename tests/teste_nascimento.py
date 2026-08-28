@@ -16,10 +16,15 @@ O QUE A DATA NÃO RESOLVE
     identidade silenciosa — e o sintoma apareceria meses depois, numa
     estatística que ninguém sabe explicar.
 
-    Então a regra é: data única dos dois lados, casa. Data repetida, a
-    NACIONALIDADE precisa desempatar sozinha. Se não desempatar, ninguém casa.
-    Continuo preferindo o vazio ao acerto plausível.
+    Então a regra é: data única dos dois lados, casa. Data repetida, o CLUBE
+    ou a NACIONALIDADE precisam desempatar sozinhos. Se nenhum desempatar,
+    ninguém casa. Continuo preferindo o vazio ao acerto plausível.
+
+    O clube entrou depois, medindo: ele é o único sinal aqui que é fato e não
+    grafia. Duas fontes discordam sobre como se escreve 'Hamdallah'; nenhuma
+    discorda sobre em que time o sujeito joga.
 """
+import ast as _ast_mod
 import os
 import sys
 import types
@@ -56,8 +61,8 @@ class CursorFalso:
     """Responde às consultas de `cruzar_por_nascimento` e anota os UPDATEs."""
 
     def __init__(self, liga, deles, ligados):
-        self.liga = liga          # (spl_id, nome, nacionalidade, af_id, nascimento)
-        self.deles = deles        # (af_id, nome, primeiro, ultimo, nac, nascimento)
+        self.liga = liga          # (spl, nome, nac, af_id, nascimento, clube)
+        self.deles = deles        # (af, nome, pri, ult, nac, nascimento, clube)
         self.ligados = ligados    # af_id -> spl_id já gravados
         self.gravados = {}
         self._resposta = []
@@ -115,39 +120,64 @@ def rodar(liga, deles, ligados=None):
 def testar():
     falhas.clear()
 
+    # Atalhos: as tuplas vêm do banco na ordem do SELECT, e escrever isso
+    # dezoito vezes esconde o que cada caso quer dizer.
+    def meu(spl, nome, nac, nasc, clube="", af=None):
+        return (spl, nome, nac, af, nasc, clube)
+
+    def seu(af, nome, pri, ult, nac, nasc, clube=""):
+        return (af, nome, pri, ult, nac, nasc, clube)
+
     # ── 1. o caso simples: data única dos dois lados ───────────────────────
     # O nome está escrito diferente de propósito. É exatamente o que a data
     # resolve e o casamento por nome não resolvia.
     r, gravados = rodar(
-        liga=[("spl1", "Ali Al Hussain", "Saudi Arabia", None, "1997-04-30")],
-        deles=[(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
-                "1997-04-30")])
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30")],
+        deles=[seu(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
+                   "1997-04-30")])
     conferir("casou apesar da grafia diferente", r.get("casados"), 1)
     conferir("e ligou o id certo", gravados, {101: "spl1"})
 
     # ── 2. dois nascidos no mesmo dia, nacionalidade diferente ─────────────
     r, gravados = rodar(
-        liga=[("spl1", "Ali Al Hussain", "Saudi Arabia", None, "1997-04-30"),
-              ("spl2", "Marco Silva", "Brazil", None, "1997-04-30")],
-        deles=[(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
-                "1997-04-30"),
-               (102, "M. Silva", "Marco", "Silva", "Brazil", "1997-04-30")])
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30"),
+              meu("spl2", "Marco Silva", "Brazil", "1997-04-30")],
+        deles=[seu(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
+                   "1997-04-30"),
+               seu(102, "M. Silva", "Marco", "Silva", "Brazil", "1997-04-30")])
     conferir("a nacionalidade desempatou os dois", r.get("casados"), 2)
     conferir("cada um com o seu", gravados, {101: "spl1", 102: "spl2"})
-    conferir("e isso foi contado como desempate",
-             r.get("desempatados_pela_nacionalidade"), 2)
+    conferir("e isso foi contado como desempate", r.get("desempatados"), 2)
 
-    # ── 3. mesmo dia E mesma nacionalidade: ninguém casa ───────────────────
-    # É aqui que mora o erro que eu não quero cometer. Dois sauditas nascidos
-    # no mesmo dia são indistinguíveis por esta chave. Escolher um seria
-    # acertar por sorte metade das vezes — e errar calado a outra metade.
+    # ── 2b. mesma data, mesma nacionalidade, CLUBES diferentes ─────────────
+    # O clube é o desempate mais forte que existe aqui, e por um motivo que
+    # não é opinião: ele é fato, não grafia. Duas fontes discordam sobre como
+    # se escreve 'Hamdallah', mas não sobre em que time o sujeito joga.
     r, gravados = rodar(
-        liga=[("spl1", "Ali Al Hussain", "Saudi Arabia", None, "1997-04-30"),
-              ("spl2", "Fahad Al Otaibi", "Saudi Arabia", None, "1997-04-30")],
-        deles=[(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
-                "1997-04-30"),
-               (102, "F. Al-Otaibi", "Fahad", "Al Otaibi", "Saudi Arabia",
-                "1997-04-30")])
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30",
+                  "Al Hilal"),
+              meu("spl2", "Fahad Al Otaibi", "Saudi Arabia", "1997-04-30",
+                  "Al Nassr")],
+        deles=[seu(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
+                   "1997-04-30", "Al Hilal"),
+               seu(102, "F. Al-Otaibi", "Fahad", "Al Otaibi", "Saudi Arabia",
+                   "1997-04-30", "Al Nassr")])
+    conferir("o clube desempatou onde a nacionalidade não desempataria",
+             r.get("casados"), 2)
+    conferir("e cada um foi para o seu", gravados, {101: "spl1", 102: "spl2"})
+
+    # ── 3. mesmo dia, mesma nacionalidade, sem clube: ninguém casa ─────────
+    # É aqui que mora o erro que eu não quero cometer. Dois sauditas nascidos
+    # no mesmo dia, sem clube em nenhum dos lados, são indistinguíveis por
+    # esta chave. Escolher um seria acertar por sorte metade das vezes — e
+    # errar calado a outra metade.
+    r, gravados = rodar(
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30"),
+              meu("spl2", "Fahad Al Otaibi", "Saudi Arabia", "1997-04-30")],
+        deles=[seu(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
+                   "1997-04-30"),
+               seu(102, "F. Al-Otaibi", "Fahad", "Al Otaibi", "Saudi Arabia",
+                   "1997-04-30")])
     conferir("empate sem desempate não casa ninguém", r.get("casados"), 0)
     conferir("nada foi gravado", gravados, {})
     ok(r.get("ambiguos", 0) >= 1, "o empate não foi nem contado")
@@ -159,37 +189,67 @@ def testar():
     # e o par sairia por sorteio, decidido pela ordem em que o banco devolveu
     # as linhas. Por isso a unicidade é exigida nos dois lados.
     r, gravados = rodar(
-        liga=[("spl1", "Ali Al Hussain", "Saudi Arabia", None, "1997-04-30"),
-              ("spl2", "Fahad Al Otaibi", "Saudi Arabia", None, "1997-04-30")],
-        deles=[(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
-                "1997-04-30")])
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30"),
+              meu("spl2", "Fahad Al Otaibi", "Saudi Arabia", "1997-04-30")],
+        deles=[seu(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
+                   "1997-04-30")])
     conferir("dois meus para um deles não casa ninguém", r.get("casados"), 0)
     conferir("nada gravado no sorteio", gravados, {})
 
-    # ── 4. o nome não escolhe, mas veta ────────────────────────────────────
-    # Mesma data, uma pessoa de cada lado — e nenhuma palavra em comum no
-    # nome. É muito mais provável que sejam duas pessoas que fazem aniversário
-    # no mesmo dia do que a mesma pessoa com o nome inteiro trocado.
+    # ── 4. o nome veta quando o clube não sabe ─────────────────────────────
+    # Mesma data, uma pessoa de cada lado, sem clube — e nenhuma palavra em
+    # comum no nome. É muito mais provável que sejam duas pessoas que fazem
+    # aniversário no mesmo dia do que a mesma pessoa com o nome inteiro
+    # trocado.
     r, gravados = rodar(
-        liga=[("spl1", "Ali Al Hussain", "Saudi Arabia", None, "1997-04-30")],
-        deles=[(101, "Cristiano Ronaldo", "Cristiano", "Ronaldo", "Portugal",
-                "1997-04-30")])
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30")],
+        deles=[seu(101, "Cristiano Ronaldo", "Cristiano", "Ronaldo", "Portugal",
+                   "1997-04-30")])
     conferir("nome sem nada em comum é recusado", r.get("casados"), 0)
     conferir("e o motivo é registrado", r.get("recusados_pelo_nome"), 1)
     conferir("nada gravado", gravados, {})
 
-    # ── 5. uma palavra em comum basta ──────────────────────────────────────
+    # ── 4b. mas o clube manda mais que o nome ──────────────────────────────
+    # Caso real, tirado do diagnóstico: 'Abderrazak Hamdallah' e
+    # 'A. Hamed Allah' são a mesma pessoa e não têm UMA palavra em comum
+    # depois de normalizados. O veto por nome recusava esse par. O clube
+    # concorda — e clube que concorda vale mais que grafia que discorda.
+    r, gravados = rodar(
+        liga=[meu("spl1", "Abderrazak Hamdallah", "Morocco", "1990-12-17",
+                  "Al Ittihad")],
+        deles=[seu(101, "A. Hamed Allah", "Abderrazak", "Hamed Allah",
+                   "Morocco", "1990-12-17", "Al Ittihad")])
+    conferir("clube que concorda passa por cima da grafia", r.get("casados"), 1)
+    conferir("e fica registrado que foi o clube",
+             r.get("confirmados_pelo_clube"), 1)
+    conferir("ligou certo", gravados, {101: "spl1"})
+
+    # ── 4c. e o clube que DISCORDA veta, mesmo com o nome igual ────────────
+    # O outro lado da mesma regra. Nome idêntico e data idêntica não superam
+    # clubes diferentes: é o caso clássico de dois homônimos, e o diagnóstico
+    # mostrou que ele existe de verdade nesta liga.
+    r, gravados = rodar(
+        liga=[meu("spl1", "Ali Majrashi", "Saudi Arabia", "1999-03-03",
+                  "Al Ahli")],
+        deles=[seu(101, "Ali Majrashi", "Ali", "Majrashi", "Saudi Arabia",
+                   "1999-03-03", "Al Wehda")])
+    conferir("clube que discorda veta mesmo com nome igual",
+             r.get("casados"), 0)
+    conferir("e o motivo é o clube", r.get("recusados_pelo_clube"), 1)
+    conferir("nada gravado", gravados, {})
+
+    # ── 5. uma palavra em comum basta, quando não há clube ─────────────────
     r, _ = rodar(
-        liga=[("spl1", "Mohammed Al Dawsari", "Saudi Arabia", None, "1991-08-19")],
-        deles=[(101, "S. Al-Dawsari", "Salem", "Al Dawsari", "Saudi Arabia",
-                "1991-08-19")])
+        liga=[meu("spl1", "Mohammed Al Dawsari", "Saudi Arabia", "1991-08-19")],
+        deles=[seu(101, "S. Al-Dawsari", "Salem", "Al Dawsari", "Saudi Arabia",
+                   "1991-08-19")])
     conferir("sobrenome em comum passa", r.get("casados"), 1)
 
     # ── 6. um id da API-Football não serve a duas pessoas ──────────────────
     r, gravados = rodar(
-        liga=[("spl2", "Outro Sujeito", "Saudi Arabia", None, "1997-04-30")],
-        deles=[(101, "O. Sujeito", "Outro", "Sujeito", "Saudi Arabia",
-                "1997-04-30")],
+        liga=[meu("spl2", "Outro Sujeito", "Saudi Arabia", "1997-04-30")],
+        deles=[seu(101, "O. Sujeito", "Outro", "Sujeito", "Saudi Arabia",
+                   "1997-04-30")],
         ligados={101: "spl1"})
     conferir("id já usado por outra pessoa não é reaproveitado",
              r.get("casados"), 0)
@@ -197,16 +257,17 @@ def testar():
 
     # ── 7. quem já tem id não é mexido ─────────────────────────────────────
     r, gravados = rodar(
-        liga=[("spl1", "Ali Al Hussain", "Saudi Arabia", 999, "1997-04-30")],
-        deles=[(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
-                "1997-04-30")])
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30",
+                  af=999)],
+        deles=[seu(101, "A. Al-Hussain", "Ali", "Al Hussain", "Saudi Arabia",
+                   "1997-04-30")])
     conferir("quem já tinha id fica como está", r.get("casados"), 0)
     conferir("contado como já tinha", r.get("ja_tinham"), 1)
     conferir("nada gravado", gravados, {})
 
     # ── 8. sem data dos dois lados, sem cruzamento ─────────────────────────
     r, gravados = rodar(
-        liga=[("spl1", "Ali Al Hussain", "Saudi Arabia", None, "1997-04-30")],
+        liga=[meu("spl1", "Ali Al Hussain", "Saudi Arabia", "1997-04-30")],
         deles=[])
     conferir("lado de lá vazio não inventa par", r.get("casados"), 0)
     conferir("nada gravado", gravados, {})
@@ -218,11 +279,32 @@ def testar():
     fonte = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
     for pedaco in ("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS nascimento",
                    "ALTER TABLE jogador ADD COLUMN IF NOT EXISTS altura",
+                   "ALTER TABLE jogador ADD COLUMN IF NOT EXISTS perfil_em",
                    "CREATE TABLE IF NOT EXISTS af_jogador"):
         ok(pedaco in fonte, f"faltou no banco: {pedaco}")
     conferir("uma tabela af_jogador só",
              fonte.count("CREATE TABLE IF NOT EXISTS af_jogador"), 1)
 
+    # ── 9b. nacionalidade em árabe não serve para desempatar ───────────────
+    # Foi o defeito que o diagnóstico revelou: a varredura lia o jogo em dois
+    # idiomas e gravava a nacionalidade nas duas passadas. A árabe rodava
+    # depois e vencia. Aí o desempate comparava 'السعودية' com 'Saudi Arabia',
+    # nunca batia, e empates que tinham solução eram recusados como se não
+    # tivessem. A limpeza tem que existir, e a leitura não pode reintroduzir.
+    ok("def limpar_campos_em_arabe" in fonte,
+       "sumiu a limpeza dos campos gravados em árabe")
+    liga_fonte = open(os.path.join(RAIZ, "liga_spl.py"), encoding="utf-8").read()
+    pessoa = next((n for n in _ast_mod.walk(_ast_mod.parse(liga_fonte))
+                   if isinstance(n, _ast_mod.FunctionDef) and n.name == "_pessoa"),
+                  None)
+    ok(pessoa is not None, "não achei _pessoa no liga_spl")
+    if pessoa:
+        corpo = "\n".join(liga_fonte.split("\n")[pessoa.lineno - 1:pessoa.end_lineno])
+        comum = corpo[corpo.find("base = {"):corpo.find("if arabe:")]
+        for campo in ("nacionalidade", "posicao"):
+            ok(f'"{campo}"' not in comum,
+               f"{campo} voltou para o bloco comum das duas passadas — "
+               f"a versão em árabe vai sobrescrever a latina de novo")
     # ── 10. o que a colheita PREENCHE e quem ela PROCURA têm que casar ─────
     # Errei isto duas vezes seguidas, do mesmo jeito: acrescentei um campo ao
     # que a colheita grava (primeiro o clube, depois a foto) e esqueci de

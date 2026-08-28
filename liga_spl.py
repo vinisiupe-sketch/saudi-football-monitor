@@ -235,17 +235,30 @@ def _pessoa(j: dict, time: dict, quando: str, arabe: bool) -> dict:
     foto = (imagens.get("playerImage_home_middle")
             or imagens.get("playerImage_home_left")
             or imagens.get("playerImage_home_celeb") or "")
+    # Só o que NÃO muda com o idioma fica aqui.
+    #
+    # `nacionalidade` e `posicao` moravam neste bloco, e isso era um defeito
+    # de verdade: a passada em árabe devolve 'السعودية' e 'مدافع' nesses mesmos
+    # campos, roda DEPOIS da latina, e a gravação deixa o último valor não
+    # vazio vencer. Resultado: a nacionalidade de quase todo mundo ficou em
+    # árabe — e o cruzamento por data, que usa a nacionalidade para desempatar
+    # dois nascidos no mesmo dia, comparava 'السعودية' com 'Saudi Arabia' e
+    # nunca desempatava nada. O empate era recusado, calado, como se fosse
+    # ambiguidade real.
+    #
+    # O clube escapou por sorte: ele só é atualizado quando a data do jogo é
+    # mais nova, e as duas passadas têm a mesma data.
     base = {"spl_id": j.get("playerId") or "", "visto_em": quando,
             "clube": time.get("shortName") or time.get("officialName") or "",
-            "posicao": j.get("roleLabel") or "",
             "camisa": j.get("bibNumber") or "",
-            "nacionalidade": j.get("nationality") or "",
             "foto": foto}
     if arabe:
         base["nome_ar"] = nome
     else:
         base["nome"] = nome
         base["nome_curto"] = j.get("shortName") or ""
+        base["posicao"] = j.get("roleLabel") or ""
+        base["nacionalidade"] = j.get("nationality") or ""
     return base
 
 

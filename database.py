@@ -483,12 +483,18 @@ def salvar_perfis(gente: dict) -> dict:
                                                               NULLIF(%s, '')),
                                         foto       = COALESCE(NULLIF(jogador.foto, ''),
                                                               NULLIF(%s, '')),
+                                        nacionalidade = COALESCE(NULLIF(jogador.nacionalidade, ''),
+                                                              NULLIF(%s, '')),
+                                        posicao    = COALESCE(NULLIF(jogador.posicao, ''),
+                                                              NULLIF(%s, '')),
                                         perfil_em  = NOW(),
                                         atualizado_em = NOW()
                                   WHERE spl_id = %s""",
                               [nasc, alt, _clube(p.get("clube")), ar, ch,
                                glossary.chave_colada(ch),
-                               p.get("foto") or "", pid])
+                               p.get("foto") or "",
+                               p.get("nacionalidade") or "",
+                               p.get("posicao") or "", pid])
                     completados += 1
                     continue
                 nome = " ".join((p.get("nome") or "").split())
@@ -527,7 +533,8 @@ def salvar_perfis(gente: dict) -> dict:
 # à mão em lugares diferentes, elas vão se separar de novo. Aqui é uma só.
 CAMPOS_DA_COLHEITA = (("nascimento", "data"), ("altura", "data"),
                       ("clube", "texto"), ("nome_ar", "texto"),
-                      ("foto", "texto"))
+                      ("foto", "texto"), ("nacionalidade", "texto"),
+                      ("posicao", "texto"))
 
 # Quanto tempo uma visita vale antes de valer a pena perguntar de novo.
 DIAS_DE_PERFIL = 7
@@ -569,6 +576,46 @@ def jogadores_a_completar(limite: int = 600) -> list[dict]:
     except Exception as e:
         print(f"⚠️ jogadores_a_completar: {e}")
         return []
+
+
+# O intervalo do alfabeto árabe em Unicode. Uso para achar o que foi gravado
+# na escrita errada — não para julgar o conteúdo, só para saber que ele veio
+# da passada em árabe e não serve para comparar com fonte nenhuma.
+_ARABE = "[؀-ۿ]"
+
+
+def limpar_campos_em_arabe() -> dict:
+    """Esvazia nacionalidade e posição que ficaram gravadas em árabe.
+
+    A varredura lia o mesmo jogo em dois idiomas e escrevia esses dois campos
+    nas duas passadas. A árabe rodava depois e vencia. A coluna ficava cheia,
+    com o conteúdo certo em alfabeto errado, sem erro nenhum aparecendo — e o
+    cruzamento por data, que usa a nacionalidade para desempatar quem nasceu
+    no mesmo dia, comparava 'السعودية' com 'Saudi Arabia' e nunca desempatava.
+    Empates reais eram recusados como se fossem ambiguidade.
+
+    Esvaziar é o certo, não traduzir: vazio faz a pessoa voltar para a fila da
+    colheita, que repõe o valor em latim a partir da mesma fonte. Um valor
+    inventado por mim ficaria parecendo dado.
+
+    Roda toda vez. É barata, é idempotente, e se o defeito voltar ela conserta
+    sozinha em vez de esperar alguém notar.
+    """
+    limpos = {}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for campo in ("nacionalidade", "posicao"):
+                c.execute(f"UPDATE jogador SET {campo} = '' "
+                          f"WHERE {campo} ~ %s", [_ARABE])
+                if c.rowcount:
+                    limpos[campo] = c.rowcount
+    except Exception as e:
+        print(f"⚠️ limpar_campos_em_arabe: {e}")
+        return {"erro": str(e)}
+    if limpos:
+        print(f"[ÁRABE FORA DE LUGAR] {limpos}", flush=True)
+    return limpos
 
 
 def elenco_para_semente(clube: str, limite: int = 12) -> list[dict]:
@@ -649,30 +696,45 @@ def cruzar_por_nascimento() -> dict:
     O risco desta chave não é a grafia, é a coincidência: dois jogadores
     nascidos no mesmo dia. Acontece — com ~500 pessoas e 365 dias, é esperado.
     Então quando uma data tem mais de um candidato de algum lado eu não
-    escolho: exijo que a NACIONALIDADE desempate, e se ela não desempatar, o
-    par fica de fora. Continuo preferindo um vazio a um acerto plausível.
+    escolho: exijo que CLUBE ou NACIONALIDADE desempatem, e se nenhum dos dois
+    desempatar, o par fica de fora. Continuo preferindo um vazio a um acerto
+    plausível.
+
+    O CLUBE entrou aqui depois de eu medir o que estava sobrando. Ele é o
+    melhor sinal que existe para este caso, e por um motivo simples: é fato,
+    não grafia. Duas fontes podem escrever 'Hamdallah' e 'Hamed Allah' para a
+    mesma pessoa — e escrevem —, mas as duas sabem em que clube ela joga.
+
+    Por isso o clube também serve de CONFIRMAÇÃO no lugar do nome. O veto por
+    nome estava recusando pares certos: 'Abderrazak Hamdallah' e
+    'A. Hamed Allah' não têm uma palavra em comum depois de normalizados, e
+    são a mesma pessoa. Quando o clube concorda, o nome não precisa concordar.
+    Quando o clube DISCORDA, nada salva o par.
     """
     import glossary
     from collections import defaultdict
     casados = ja_tinha = ambiguos = desempatados = nome_briga = 0
+    clube_briga = confirmado_pelo_clube = 0
     try:
         with get_conn() as conn:
             c = conn.cursor()
-            c.execute("""SELECT spl_id, nome, nacionalidade, af_id, nascimento
-                           FROM jogador WHERE nascimento IS NOT NULL""")
+            c.execute("""SELECT spl_id, nome, nacionalidade, af_id, nascimento,
+                                clube FROM jogador WHERE nascimento IS NOT NULL""")
             liga = defaultdict(list)
-            for spl, nome, nac, af, nasc in c.fetchall():
+            for spl, nome, nac, af, nasc, clube in c.fetchall():
                 liga[nasc].append({"spl": spl, "nome": nome or "",
-                                   "nac": (nac or "").lower(), "af": af})
+                                   "nac": (nac or "").lower(), "af": af,
+                                   "clube": _clube(clube)})
 
             c.execute("""SELECT af_id, nome, primeiro, ultimo, nacionalidade,
-                                nascimento FROM af_jogador
+                                nascimento, clube FROM af_jogador
                           WHERE nascimento IS NOT NULL""")
             deles = defaultdict(list)
-            for af, nome, pri, ult, nac, nasc in c.fetchall():
+            for af, nome, pri, ult, nac, nasc, clube in c.fetchall():
                 deles[nasc].append({"af": af, "nome": nome or "",
                                     "cheio": " ".join(x for x in (pri, ult) if x),
-                                    "nac": (nac or "").lower()})
+                                    "nac": (nac or "").lower(),
+                                    "clube": _clube(clube)})
 
             for nasc, aqui in liga.items():
                 la = deles.get(nasc) or []
@@ -686,16 +748,21 @@ def cruzar_por_nascimento() -> dict:
                 if len(aqui) == 1 and len(la) == 1:
                     pares.append((aqui[0], la[0]))
                 else:
-                    # Mesma data, mais de uma pessoa. A nacionalidade decide,
-                    # ou ninguém decide.
-                    for a in aqui:
-                        if not a["nac"]:
-                            continue
-                        iguais = [b for b in la if b["nac"] == a["nac"]]
-                        meus = [x for x in aqui if x["nac"] == a["nac"]]
-                        if len(iguais) == 1 and len(meus) == 1:
-                            pares.append((a, iguais[0]))
-                            desempatados += 1
+                    # Mesma data, mais de uma pessoa. O clube decide; se ele
+                    # não souber, a nacionalidade; se nenhum souber, ninguém
+                    # decide. A unicidade é exigida dos DOIS lados: um só do
+                    # lado deles com "um só" do meu lado é par; um só do lado
+                    # deles com dois do meu lado é sorteio.
+                    for campo in ("clube", "nac"):
+                        for a in aqui:
+                            if not a[campo] or any(p[0] is a for p in pares):
+                                continue
+                            iguais = [b for b in la if b[campo] == a[campo]
+                                      and not any(p[1] is b for p in pares)]
+                            meus = [x for x in aqui if x[campo] == a[campo]]
+                            if len(iguais) == 1 and len(meus) == 1:
+                                pares.append((a, iguais[0]))
+                                desempatados += 1
                     if not pares:
                         ambiguos += 1
                         continue
@@ -703,14 +770,23 @@ def cruzar_por_nascimento() -> dict:
                     if a["af"]:
                         ja_tinha += 1
                         continue
-                    # O nome não escolhe, mas pode VETAR: sem UMA palavra em
-                    # comum, é mais provável que a data seja coincidência do
-                    # que que as duas fontes falem da mesma pessoa.
-                    meu = set(glossary.chave_latina(a["nome"]).split())
-                    seu = set(glossary.chave_latina(b["cheio"] or b["nome"]).split())
-                    if meu and seu and not (meu & seu):
-                        nome_briga += 1
-                        continue
+                    # Confirmação. O clube fala primeiro porque é fato; o
+                    # nome só é ouvido quando o clube não sabe.
+                    if a["clube"] and b["clube"]:
+                        if a["clube"] != b["clube"]:
+                            clube_briga += 1
+                            continue
+                        confirmado_pelo_clube += 1
+                    else:
+                        # Sem clube dos dois lados, o nome VETA: sem UMA
+                        # palavra em comum, é mais provável que a data seja
+                        # coincidência do que que as duas fontes falem da
+                        # mesma pessoa.
+                        meu = set(glossary.chave_latina(a["nome"]).split())
+                        seu = set(glossary.chave_latina(b["cheio"] or b["nome"]).split())
+                        if meu and seu and not (meu & seu):
+                            nome_briga += 1
+                            continue
                     c.execute("SELECT 1 FROM jogador WHERE af_id = %s AND spl_id <> %s",
                               [b["af"], a["spl"]])
                     if c.fetchone():
@@ -723,7 +799,9 @@ def cruzar_por_nascimento() -> dict:
         print(f"⚠️ cruzar_por_nascimento: {e}")
         return {"erro": str(e)}
     r = {"casados": casados, "ja_tinham": ja_tinha, "ambiguos": ambiguos,
-         "desempatados_pela_nacionalidade": desempatados,
+         "desempatados": desempatados,
+         "confirmados_pelo_clube": confirmado_pelo_clube,
+         "recusados_pelo_clube": clube_briga,
          "recusados_pelo_nome": nome_briga}
     print(f"[NASCIMENTO] {r}", flush=True)
     return r
