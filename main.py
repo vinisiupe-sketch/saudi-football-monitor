@@ -13944,6 +13944,42 @@ async def diag_nomes():
         for nome, ar, clube in amostra:
             linhas.append(f"    {nome:28} = {ar:24} ({clube})")
 
+    # ── Por que o cruzamento com o Transfermarkt para onde para ───────────
+    # A pergunta não é "quantos casaram", é "os que não casaram são gente que
+    # não transferiu, ou quase-acerto de grafia que eu recusei?". A segunda
+    # categoria é matéria-prima do índice de apelidos; a primeira não é nada.
+    bloco("O QUE FALTA CASAR COM O TRANSFERMARKT")
+    from difflib import SequenceMatcher as _SM
+    liga = pega("SELECT nome, clube FROM jogador")
+    jan = pega("SELECT DISTINCT player_name FROM window_transfers "
+               "WHERE player_id IS NOT NULL AND player_id <> ''")
+    por_chave_liga = {}
+    for nome, clube in liga:
+        por_chave_liga.setdefault(glossary.chave_latina(nome), (nome, clube))
+    sem_par, quase = [], []
+    for (nome,) in jan:
+        ch = glossary.chave_latina(nome)
+        if ch in por_chave_liga:
+            continue
+        melhor, escore = None, 0.0
+        for ch2, (n2, c2) in por_chave_liga.items():
+            r = _SM(None, ch, ch2).ratio()
+            if r > escore:
+                escore, melhor = r, (n2, c2)
+        if melhor and escore >= 0.80:
+            quase.append((round(escore, 2), nome, melhor[0], melhor[1]))
+        else:
+            sem_par.append(nome)
+    linhas.append(f"  nomes distintos na janela .......... {len(jan)}")
+    linhas.append(f"  já casados (chave exata) .......... {len(jan) - len(quase) - len(sem_par)}")
+    linhas.append(f"  QUASE (>= 0,80, recusados) ........ {len(quase)}")
+    linhas.append(f"  sem nada parecido na liga ......... {len(sem_par)}")
+    if quase:
+        linhas.append("\n  os quase-acertos — é aqui que o apelido resolve:")
+        for r, a1, b1, c1 in sorted(quase, reverse=True)[:25]:
+            linhas.append(f"    {r}  janela {a1!r}")
+            linhas.append(f"          liga   {b1!r}  ({c1})")
+
     # ── NOTÍCIAS: quanto do material bruto é árabe ─────────────────────────
     bloco("NOTÍCIAS")
     art = pega("SELECT language, COUNT(*) FROM articles GROUP BY language "
