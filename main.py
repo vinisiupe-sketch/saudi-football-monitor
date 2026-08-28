@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, congelar_elenco, elenco_congelado, resumo_do_congelamento, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, cruzar_api_football, congelar_elenco, elenco_congelado, resumo_do_congelamento, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -13983,6 +13983,44 @@ async def diag_nomes():
     ]:
         linhas.append(f"  {rot:19} {fonte:17} {total:6}   {tem_id:11}  {casa}")
 
+    # ── O que falta casar com a API-Football ──────────────────────────────
+    bloco("O QUE FALTA CASAR COM A API-FOOTBALL")
+    from difflib import SequenceMatcher as _SM2
+    liga2 = {}
+    for nome, clube in pega("SELECT nome, clube FROM jogador"):
+        liga2.setdefault(glossary.chave_latina(nome), (nome, clube))
+    ult = pega("SELECT MAX(season) FROM stats_apuradas")
+    temporada = ult[0][0] if ult and ult[0][0] else None
+    af_linhas = pega("SELECT DISTINCT player_name, team_name FROM stats_apuradas "
+                     "WHERE season = %s", [temporada]) if temporada else []
+    quase2, sem2, batem2 = [], [], 0
+    for nome, time in af_linhas:
+        ch = glossary.chave_latina(nome or "")
+        if ch in liga2:
+            batem2 += 1
+            continue
+        melhor, escore = None, 0.0
+        for ch2, (n2, c2) in liga2.items():
+            r2 = _SM2(None, ch, ch2).ratio()
+            if r2 > escore:
+                escore, melhor = r2, (n2, c2)
+        if melhor and escore >= 0.80:
+            quase2.append((round(escore, 2), nome or "", time or "", melhor[0], melhor[1]))
+        else:
+            sem2.append(nome or "")
+    linhas.append(f"  temporada olhada .................. {temporada}")
+    linhas.append(f"  nomes distintos na API-Football ... {len(af_linhas)}")
+    linhas.append(f"  casam exato ...................... {batem2}")
+    linhas.append(f"  QUASE (>= 0,80, recusados) ....... {len(quase2)}")
+    linhas.append(f"  sem nada parecido ................ {len(sem2)}")
+    if quase2:
+        linhas.append("\n  os quase-acertos:")
+        for r2, a2, t2, b2, c2 in sorted(quase2, reverse=True)[:20]:
+            linhas.append(f"    {r2}  AF   {a2!r} ({t2})")
+            linhas.append(f"          liga {b2!r} ({c2})")
+    if sem2:
+        linhas.append(f"\n  sem par (amostra): {', '.join(sem2[:12])}")
+
     # ── Por que o cruzamento com o Transfermarkt para onde para ───────────
     # A pergunta não é "quantos casaram", é "os que não casaram são gente que
     # não transferiu, ou quase-acerto de grafia que eu recusei?". A segunda
@@ -14074,10 +14112,18 @@ def varrer_jogadores(limite_de_jogos: int = 0) -> dict:
     # mesma tarefa, e separar em dois botões só criaria a chance de alguém
     # rodar um e esquecer o outro.
     tm = cruzar_transfermarkt()
+    af = cruzar_api_football()
     resumo = {"jogos_lidos": len(jogos), "pessoas": len(pessoas),
-              **r, "transfermarkt": tm, **contar_jogadores()}
+              **r, "transfermarkt": tm, "api_football": af, **contar_jogadores()}
     print(f"[JOGADORES] {resumo}", flush=True)
     return resumo
+
+
+@app.post("/api/jogadores/api-football")
+async def api_jogadores_af():
+    """Liga a tabela de jogadores aos ids da API-Football da estatística."""
+    import asyncio as _a
+    return await _a.to_thread(cruzar_api_football)
 
 
 @app.post("/api/jogadores/transfermarkt")

@@ -171,6 +171,35 @@ def testar():
         ok("limite_de_jogos" in corpo,
            "não dá para rodar uma varredura curta antes de soltar a temporada")
 
+    # ── o cruzamento com a API-Football ─────────────────────────────────
+    # Mesmo cuidado do Transfermarkt, mais um sinal que lá não existia: a
+    # linha de estatística traz o CLUBE. Quando ele discorda, recuso mesmo com
+    # o nome batendo — nome igual em clubes diferentes é o caso clássico de
+    # duas pessoas, e o erro aqui não aparece na tela, aparece na estatística.
+    fn = next((n for n in ast.walk(arvore)
+               if isinstance(n, ast.FunctionDef) and n.name == "cruzar_api_football"),
+              None)
+    ok(fn is not None, "não achei cruzar_api_football")
+    if fn:
+        corpo = ast.unparse(fn)
+        ok("chave_latina" in corpo, "não normaliza o nome antes de comparar")
+        ok("len(ids) != 1 or len(candidatos) != 1" in corpo,
+           "casa mesmo com mais de um candidato")
+        ok("clube_liga != time_af" in corpo,
+           "não usa o clube para desempatar — o sinal está lá e não é usado")
+        ok("MAX(season)" in corpo,
+           "olha temporadas antigas: jogador de 2023 casando com elenco de hoje")
+        ok("WHERE af_id = %s AND spl_id <> %s" in corpo,
+           "o mesmo id da API-Football pode ir para duas pessoas")
+        for chutar in ("SequenceMatcher", "ratio(", "difflib"):
+            ok(chutar not in corpo, f"usa {chutar} — semelhança aqui vira gente trocada")
+
+    # A coluna precisa existir, senão o UPDATE falha calado dentro do except.
+    ok("ADD COLUMN IF NOT EXISTS af_id" in fonte,
+       "a coluna af_id não é criada na migração")
+    ok("com_api_football" in fonte,
+       "o resumo não conta quantos já têm id da API-Football")
+
     # ── a normalização do árabe ─────────────────────────────────────────
     # É o coração de tudo: é ela que vai fazer o nome que a imprensa saudita
     # escreve casar com o que a liga registrou. Cada caso aqui é uma variação

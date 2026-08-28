@@ -313,6 +313,7 @@ def init_db():
             )
         """)
         # Migrações
+        c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS af_id INTEGER")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
@@ -402,11 +403,13 @@ def contar_jogadores() -> dict:
                                 COUNT(*) FILTER (WHERE nome_ar <> ''),
                                 COUNT(*) FILTER (WHERE foto <> ''),
                                 COUNT(*) FILTER (WHERE tm_id IS NOT NULL),
+                                COUNT(*) FILTER (WHERE af_id IS NOT NULL),
                                 COUNT(DISTINCT clube)
                            FROM jogador""")
-            t, ar, foto, tm, clubes = c.fetchone()
+            t, ar, foto, tm, af, clubes = c.fetchone()
             return {"total": t, "com_arabe": ar, "com_foto": foto,
-                    "com_transfermarkt": tm, "clubes": clubes}
+                    "com_transfermarkt": tm, "com_api_football": af,
+                    "clubes": clubes}
     except Exception as e:
         return {"erro": str(e)}
 
@@ -430,6 +433,78 @@ def listar_jogadores(clube: str = "", limite: int = 600) -> list[dict]:
             if l.get(campo) is not None:
                 l[campo] = l[campo].isoformat()
     return linhas
+
+
+def cruzar_api_football() -> dict:
+    """Liga o jogador da liga ao id da API-Football que a estatística já usa.
+
+    Aqui existe um sinal que o cruzamento com o Transfermarkt não tinha: a
+    linha de estatística carrega o CLUBE. Quando dois nomes parecidos aparecem,
+    o clube desempata — e quando ele discorda, eu recuso mesmo que o nome
+    bata, porque nome igual em clubes diferentes é justamente o caso de duas
+    pessoas homônimas.
+
+    Continua sendo casamento exato por chave latina. A API-Football não
+    publica o nome em árabe, então a segunda chave, que salvou tanta coisa no
+    passo anterior, não existe deste lado.
+    """
+    import glossary
+    from collections import defaultdict
+    casados = ambiguos = ja_tinha = clube_briga = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT spl_id, nome, clube, af_id FROM jogador")
+            por_chave = defaultdict(list)
+            for spl, nome, clube, af in c.fetchall():
+                por_chave[glossary.chave_latina(nome)].append((spl, clube, af))
+
+            # Só a temporada mais recente: linha de 2023 é de gente que pode
+            # nem estar mais no país, e casar por nome com quem está aqui hoje
+            # seria o pior tipo de acerto — plausível e errado.
+            c.execute("SELECT MAX(season) FROM stats_apuradas")
+            linha = c.fetchone()
+            temporada = linha[0] if linha and linha[0] else None
+            if temporada is None:
+                return {"erro": "stats_apuradas está vazia"}
+            c.execute("""SELECT player_id, player_name, team_name
+                           FROM stats_apuradas WHERE season = %s""", [temporada])
+            af = defaultdict(set)
+            nomes_af = {}
+            for pid, nome, time in c.fetchall():
+                ch = glossary.chave_latina(nome or "")
+                af[ch].add(pid)
+                nomes_af[(ch, pid)] = time or ""
+
+            for chave, ids in af.items():
+                candidatos = por_chave.get(chave) or []
+                if len(ids) != 1 or len(candidatos) != 1:
+                    if candidatos:
+                        ambiguos += 1
+                    continue
+                spl, clube_liga, af_atual = candidatos[0]
+                pid = next(iter(ids))
+                if af_atual:
+                    ja_tinha += 1
+                    continue
+                time_af = _clube(nomes_af.get((chave, pid), ""))
+                if clube_liga and time_af and clube_liga != time_af:
+                    clube_briga += 1
+                    continue
+                c.execute("SELECT 1 FROM jogador WHERE af_id = %s AND spl_id <> %s",
+                          [pid, spl])
+                if c.fetchone():
+                    ambiguos += 1
+                    continue
+                c.execute("UPDATE jogador SET af_id = %s WHERE spl_id = %s", [pid, spl])
+                casados += 1
+    except Exception as e:
+        print(f"⚠️ cruzar_api_football: {e}")
+        return {"erro": str(e)}
+    r = {"temporada": temporada, "casados": casados, "ja_tinham": ja_tinha,
+         "ambiguos": ambiguos, "recusados_pelo_clube": clube_briga}
+    print(f"[API-FOOTBALL] {r}", flush=True)
+    return r
 
 
 def cruzar_transfermarkt() -> dict:
