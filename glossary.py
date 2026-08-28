@@ -311,3 +311,92 @@ def clube_para_guardar(nome: str) -> str:
 def clubes_do_texto(*nomes) -> list[str]:
     """Vários de uma vez, na mesma regra."""
     return [clube_para_guardar(n) for n in nomes]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# CHAVES DE COMPARAÇÃO DE NOME
+#
+# Não são nomes para mostrar. São a forma reduzida usada para dizer "isto e
+# aquilo são a mesma pessoa". Ninguém lê uma chave; ela só é comparada.
+# ══════════════════════════════════════════════════════════════════════════
+
+# Sinais que a escrita árabe usa e que a imprensa aplica de forma inconsistente.
+# Nenhum deles muda quem é a pessoa.
+_HARAKAT = "".join(chr(c) for c in list(range(0x064B, 0x0653)) + [0x0670, 0x0640])
+
+# Letras que são a mesma consoante escrita de jeitos diferentes. أ إ آ ٱ são
+# todas alif; ة e ه se confundem no fim da palavra; ى e ي idem.
+_MESMA_LETRA = {
+    "أ": "ا", "إ": "ا", "آ": "ا",
+    "ٱ": "ا",
+    "ى": "ي", "ئ": "ي",
+    "ة": "ه",
+    "ؤ": "و",
+}
+
+# O artigo definido. "الاتحاد" e "اتحاد" são o mesmo clube, e a imprensa usa os
+# dois. Tiro do começo de cada palavra — mas só quando sobra palavra: sem essa
+# guarda, "الله" viraria "له", que não é nada.
+_ARTIGO = "ال"
+
+
+def chave_arabe(nome: str) -> str:
+    """A forma do nome árabe usada para comparar.
+
+    O que ela apaga é exatamente o que varia de fonte para fonte sem mudar a
+    pessoa: harakat, tatweel, alif com e sem hamza, tá-marbuta contra há, o
+    artigo ال grudado.
+
+    O que ela NÃO faz é adivinhar. Duas grafias que sobrarem diferentes
+    continuam diferentes — quem decide se são a mesma pessoa é o índice de
+    apelidos, não esta função.
+    """
+    t = (nome or "")
+    t = "".join(c for c in t if c not in _HARAKAT)
+    t = "".join(_MESMA_LETRA.get(c, c) for c in t)
+    # Fora letra árabe, dígito e espaço, nada mais importa para comparar.
+    t = "".join(c if ("ء" <= c <= "ي" or c.isdigit() or c.isspace())
+                else " " for c in t)
+    palavras = []
+    for p in t.split():
+        if p.startswith(_ARTIGO) and len(p) > 4:
+            p = p[2:]
+        if p:
+            palavras.append(p)
+    return " ".join(palavras)
+
+
+def chave_latina(nome: str) -> str:
+    """A mesma ideia, para nome em alfabeto latino.
+
+    'Al-Hilal', 'Al Hilal' e 'AlHilal' viram a mesma coisa. Acento sai, caixa
+    sai, pontuação sai. É a chave que casa o que o Transfermarkt escreve com o
+    que a liga escreve.
+    """
+    import unicodedata
+    t = unicodedata.normalize("NFKD", (nome or "")).encode("ascii", "ignore").decode()
+    t = "".join(c if (c.isalnum() or c.isspace()) else " " for c in t).lower()
+    palavras = []
+    for p in t.split():
+        # 'alhilal' e 'al hilal' precisam colidir, então o prefixo colado é
+        # separado — mas só quando o resto continua sendo uma palavra.
+        if p.startswith("al") and len(p) > 4 and p not in ("also", "alan"):
+            palavras.append("al")
+            palavras.append(p[2:])
+        else:
+            palavras.append(p)
+    return " ".join(x for x in palavras if x)
+
+
+def chave_colada(chave: str) -> str:
+    """A chave sem espaço nenhum.
+
+    Existe por causa de 'عبدالله' contra 'عبد الله' — Abdullah escrito junto ou
+    separado. É a divergência mais comum em nome árabe e nenhuma regra de
+    letra resolve, porque a diferença é só onde alguém apertou espaço.
+
+    Guardo as duas formas em vez de usar só esta: colar tudo aumenta a chance
+    de dois nomes diferentes colidirem, então a busca tenta primeiro a chave
+    com espaço e só depois esta.
+    """
+    return "".join((chave or "").split())

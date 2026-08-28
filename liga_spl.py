@@ -30,6 +30,8 @@ import time
 from urllib.parse import quote
 
 API = "https://api-sdp.spl.com.sa/v1/spl/football"
+# As imagens vêm como caminho relativo; a base é outro domínio.
+MEDIA = "https://media-sdp.spl.com.sa/"
 TEMPO_LIMITE = 25.0
 UA = "Mozilla/5.0 (compatible; IARABAO/1.0)"
 
@@ -137,13 +139,17 @@ def jogos_ate(sid: str, dia: str, cliente) -> list[dict]:
 
 
 # ── Os dados de um jogo ─────────────────────────────────────────────────────
-def _do_jogo(sid: str, mid: str, recurso: str, segmento: str, prazo: float, cliente):
-    chave = f"{recurso}:{mid}"
+def _do_jogo(sid: str, mid: str, recurso: str, segmento: str, prazo: float,
+             cliente, locale: str = "en-GB"):
+    # O idioma entra na CHAVE do cache. Sem isso, pedir a escalação em árabe
+    # depois de já ter pedido em inglês devolveria a inglesa, e a varredura
+    # gravaria o nome latino nas duas colunas sem reclamar de nada.
+    chave = f"{recurso}:{locale}:{mid}"
     guardado = _guardado(chave, prazo)
     if guardado is not None:
         return guardado
     dados = buscar_json(
-        f"seasons/{_id(sid)}/{segmento}/{_id(mid)}/{recurso}?locale=en-GB", cliente)
+        f"seasons/{_id(sid)}/{segmento}/{_id(mid)}/{recurso}?locale={locale}", cliente)
     return _guardar(chave, dados)
 
 
@@ -152,10 +158,11 @@ def previa_do_jogo(sid: str, mid: str, cliente) -> dict:
     return _do_jogo(sid, mid, "matchPreview", "match", PRAZOS["previa"], cliente)
 
 
-def escala_do_jogo(sid: str, mid: str, cliente) -> dict:
+def escala_do_jogo(sid: str, mid: str, cliente, locale: str = "en-GB") -> dict:
     """A escalação OFICIAL. Antes de sair, vem com as listas vazias — e é assim
     que se sabe que ainda não saiu."""
-    return _do_jogo(sid, mid, "lineups", "matches", PRAZOS["escala"], cliente)
+    return _do_jogo(sid, mid, "lineups", "matches", PRAZOS["escala"], cliente,
+                    locale)
 
 
 def arbitros_do_jogo(sid: str, mid: str, cliente) -> dict:
@@ -208,3 +215,92 @@ def linha_da_tabela(linhas: list[dict], clube: str) -> dict:
         if (glossary.padronizar_clube(c) or c).lower() == alvo:
             return l
     return {}
+
+
+# ── Quem jogou ──────────────────────────────────────────────────────────────
+#
+# A mesma escalação, pedida em `en-GB` e em `ar-SA`, volta com o MESMO
+# playerId e o nome nas duas escritas. É essa coincidência — que não é
+# coincidência, é o id ser de verdade — que dispensa Wikidata, transliteração
+# e casamento por string para montar a identidade dos jogadores.
+IDIOMAS = ("en-GB", "ar-SA")
+
+
+def _pessoa(j: dict, time: dict, quando: str, arabe: bool) -> dict:
+    nome = " ".join(x for x in (j.get("mediaFirstName"),
+                                j.get("mediaLastName")) if x).strip()
+    imagens = j.get("imagery") or {}
+    # Guardo o CAMINHO, não a URL montada: se eles trocarem o servidor de
+    # imagem, é uma constante para mudar, não uma coluna para reescrever.
+    foto = (imagens.get("playerImage_home_middle")
+            or imagens.get("playerImage_home_left")
+            or imagens.get("playerImage_home_celeb") or "")
+    base = {"spl_id": j.get("playerId") or "", "visto_em": quando,
+            "clube": time.get("shortName") or time.get("officialName") or "",
+            "posicao": j.get("roleLabel") or "",
+            "camisa": j.get("bibNumber") or "",
+            "nacionalidade": j.get("nationality") or "",
+            "foto": foto}
+    if arabe:
+        base["nome_ar"] = nome
+    else:
+        base["nome"] = nome
+        base["nome_curto"] = j.get("shortName") or ""
+    return base
+
+
+def jogadores_dos_jogos(sid: str, jogos: list[dict], cliente) -> list[dict]:
+    """Todo mundo relacionado nestes jogos, nas duas escritas.
+
+    Junta pelo playerId. Uma pessoa que aparece em cinco jogos vira uma linha
+    só, com a data mais recente em que foi vista.
+    """
+    juntos: dict[str, dict] = {}
+    for j in jogos:
+        mid = j.get("matchId")
+        quando = (j.get("matchDateLocal") or j.get("matchDateUtc") or "")[:10]
+        if not mid:
+            continue
+        for idioma in IDIOMAS:
+            chave = f"escala:{idioma}:{mid}"
+            escala = _guardado(chave, PRAZOS["escala"])
+            if escala is None:
+                try:
+                    escala = buscar_json(
+                        f"seasons/{_id(sid)}/matches/{_id(mid)}/lineups"
+                        f"?locale={idioma}", cliente)
+                except Exception:
+                    continue
+                _guardar(chave, escala)
+            arabe = idioma.startswith("ar")
+            for lado in ("home", "away"):
+                time = escala.get(lado) or {}
+                for grupo in ("fielded", "benched"):
+                    for p in (time.get(grupo) or []):
+                        pid = p.get("playerId") or ""
+                        if not pid:
+                            continue
+                        pessoa = _pessoa(p, time, quando, arabe)
+                        antigo = juntos.setdefault(pid, {})
+                        # A comparação tem que acontecer ANTES da junção.
+                        # Como `_pessoa` já devolve visto_em preenchido, o
+                        # laço abaixo sobrescrevia a data com a do jogo atual,
+                        # e o teste seguinte comparava a data consigo mesma —
+                        # sempre falso. Resultado: a pessoa ficava com o clube
+                        # do jogo MAIS ANTIGO, e quem trocou de time no meio
+                        # da temporada aparecia no clube errado, calado.
+                        mais_novo = quando > (antigo.get("visto_em") or "")
+                        for k, v in pessoa.items():
+                            if k in ("visto_em", "clube"):
+                                continue
+                            # Campo vazio não apaga o que a outra passada
+                            # trouxe. A passada em árabe não tem nome latino,
+                            # e vice-versa.
+                            if v or k not in antigo:
+                                antigo[k] = v
+                        # A data mais recente é a que vale: ela diz em que
+                        # clube a pessoa estava por último.
+                        if mais_novo:
+                            antigo["visto_em"] = quando
+                            antigo["clube"] = pessoa["clube"]
+    return list(juntos.values())

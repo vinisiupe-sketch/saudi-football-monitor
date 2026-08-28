@@ -252,6 +252,38 @@ def init_db():
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_previa_dia ON previa(dia)")
+        # Quem é quem, uma linha por pessoa.
+        #
+        # A âncora é o id da liga saudita, e não um id inventado por mim: ele é
+        # estável, é oficial, e vem acompanhado do nome nas DUAS escritas. Foi
+        # a descoberta que encolheu este projeto — o mesmo endpoint em `en-GB`
+        # e `ar-SA` devolve o mesmo playerId com o nome em latim e em árabe.
+        #
+        # `chave_ar` e `chave_lat` são formas reduzidas para comparação, não
+        # nomes para mostrar. Guardo o caminho da foto, não a URL: a base do
+        # servidor de imagem muda num lugar só se eles trocarem.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS jogador (
+                id            SERIAL PRIMARY KEY,
+                spl_id        TEXT UNIQUE NOT NULL,
+                nome          TEXT NOT NULL,
+                nome_curto    TEXT,
+                nome_ar       TEXT,
+                chave_lat     TEXT,
+                chave_ar      TEXT,
+                chave_ar_colada TEXT,
+                clube         TEXT,
+                posicao       TEXT,
+                camisa        TEXT,
+                nacionalidade TEXT,
+                foto          TEXT,
+                tm_id         TEXT,
+                visto_em      DATE,
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        for col in ("chave_lat", "chave_ar", "chave_ar_colada", "clube"):
+            c.execute(f"CREATE INDEX IF NOT EXISTS idx_jogador_{col} ON jogador({col})")
         # Migrações
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
@@ -274,6 +306,102 @@ def _clube(nome) -> str:
     except Exception:
         # Glossário quebrado não pode impedir a gravação — o nome cru serve.
         return " ".join(str(nome or "").split())
+
+
+def salvar_jogadores(pessoas: list[dict]) -> dict:
+    """Grava ou atualiza pelo id da liga.
+
+    Campo que vier vazio NÃO apaga o que já está lá. A varredura em árabe e a
+    em latim são duas passadas sobre a mesma pessoa; se a segunda sobrescrevesse
+    com vazio, ela apagaria o que a primeira acabou de trazer.
+    """
+    import glossary
+    if not pessoas:
+        return {"novos": 0, "atualizados": 0}
+    novos = atualizados = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for p in pessoas:
+                spl = (p.get("spl_id") or "").strip()
+                if not spl:
+                    continue
+                nome = " ".join((p.get("nome") or "").split())
+                nome_ar = " ".join((p.get("nome_ar") or "").split())
+                chave_ar = glossary.chave_arabe(nome_ar) if nome_ar else ""
+                c.execute("SELECT 1 FROM jogador WHERE spl_id = %s", [spl])
+                existia = c.fetchone() is not None
+                c.execute("""
+                    INSERT INTO jogador (spl_id, nome, nome_curto, nome_ar,
+                        chave_lat, chave_ar, chave_ar_colada, clube, posicao,
+                        camisa, nacionalidade, foto, visto_em, atualizado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (spl_id) DO UPDATE SET
+                        nome          = COALESCE(NULLIF(EXCLUDED.nome, ''), jogador.nome),
+                        nome_curto    = COALESCE(NULLIF(EXCLUDED.nome_curto, ''), jogador.nome_curto),
+                        nome_ar       = COALESCE(NULLIF(EXCLUDED.nome_ar, ''), jogador.nome_ar),
+                        chave_lat     = COALESCE(NULLIF(EXCLUDED.chave_lat, ''), jogador.chave_lat),
+                        chave_ar      = COALESCE(NULLIF(EXCLUDED.chave_ar, ''), jogador.chave_ar),
+                        chave_ar_colada = COALESCE(NULLIF(EXCLUDED.chave_ar_colada, ''), jogador.chave_ar_colada),
+                        clube         = COALESCE(NULLIF(EXCLUDED.clube, ''), jogador.clube),
+                        posicao       = COALESCE(NULLIF(EXCLUDED.posicao, ''), jogador.posicao),
+                        camisa        = COALESCE(NULLIF(EXCLUDED.camisa, ''), jogador.camisa),
+                        nacionalidade = COALESCE(NULLIF(EXCLUDED.nacionalidade, ''), jogador.nacionalidade),
+                        foto          = COALESCE(NULLIF(EXCLUDED.foto, ''), jogador.foto),
+                        visto_em      = GREATEST(EXCLUDED.visto_em, jogador.visto_em),
+                        atualizado_em = NOW()
+                """, [spl, nome, p.get("nome_curto") or "", nome_ar,
+                      glossary.chave_latina(nome), chave_ar,
+                      glossary.chave_colada(chave_ar),
+                      _clube(p.get("clube")), p.get("posicao") or "",
+                      str(p.get("camisa") or ""), p.get("nacionalidade") or "",
+                      p.get("foto") or "", p.get("visto_em")])
+                if existia:
+                    atualizados += 1
+                else:
+                    novos += 1
+    except Exception as e:
+        print(f"⚠️ salvar_jogadores: {e}")
+        return {"novos": novos, "atualizados": atualizados, "erro": str(e)}
+    return {"novos": novos, "atualizados": atualizados}
+
+
+def contar_jogadores() -> dict:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT COUNT(*),
+                                COUNT(*) FILTER (WHERE nome_ar <> ''),
+                                COUNT(*) FILTER (WHERE foto <> ''),
+                                COUNT(*) FILTER (WHERE tm_id IS NOT NULL),
+                                COUNT(DISTINCT clube)
+                           FROM jogador""")
+            t, ar, foto, tm, clubes = c.fetchone()
+            return {"total": t, "com_arabe": ar, "com_foto": foto,
+                    "com_transfermarkt": tm, "clubes": clubes}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def listar_jogadores(clube: str = "", limite: int = 600) -> list[dict]:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if clube:
+                c.execute("SELECT * FROM jogador WHERE clube = %s "
+                          "ORDER BY nome LIMIT %s", [_clube(clube), limite])
+            else:
+                c.execute("SELECT * FROM jogador ORDER BY clube, nome LIMIT %s",
+                          [limite])
+            linhas = [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ listar_jogadores: {e}")
+        return []
+    for l in linhas:
+        for campo in ("visto_em", "atualizado_em"):
+            if l.get(campo) is not None:
+                l[campo] = l[campo].isoformat()
+    return linhas
 
 
 def padronizar_clubes_gravados() -> dict:

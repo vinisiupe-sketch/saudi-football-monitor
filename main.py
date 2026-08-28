@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_jogadores, listar_jogadores, contar_jogadores, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -13848,3 +13848,67 @@ async def diag_nomes():
         linhas.append(f"  com corpo original guardado: {guardados[0][0]}")
 
     return PlainTextResponse("\n".join(linhas))
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# QUEM JOGA NA LIGA
+#
+# A varredura que preenche a tabela `jogador`. Lê a escalação de cada partida
+# disputada nos DOIS idiomas — o mesmo playerId responde em inglês e em árabe,
+# e é essa coincidência de id que vira a ponte entre a grafia da imprensa
+# saudita e a nossa. Sem transliteração, sem palpite.
+# ══════════════════════════════════════════════════════════════════════════
+
+def varrer_jogadores(limite_de_jogos: int = 0) -> dict:
+    """Percorre as partidas já disputadas e guarda quem foi relacionado.
+
+    Do mais recente para o mais antigo, de propósito: se a varredura for
+    interrompida no meio, o que ficou pronto é o elenco atual, não o de
+    agosto. `limite_de_jogos` existe para a primeira execução poder ser curta
+    e conferível antes de soltar a temporada inteira.
+
+    A leitura em si mora no liga_spl (jogadores_dos_jogos), que já junta as
+    duas escritas pelo playerId. Aqui fica só a decisão de QUAIS jogos ler e
+    o que contar depois.
+    """
+    import httpx
+    import liga_spl
+
+    dia = _dia_de_brasilia()
+    with httpx.Client() as cliente:
+        sid = liga_spl.temporada(dia, cliente)
+        if not sid:
+            return {"erro": "não achei a temporada corrente na API da liga"}
+        jogos = liga_spl.jogos_ate(sid, dia, cliente)
+        if limite_de_jogos:
+            jogos = jogos[:limite_de_jogos]
+        try:
+            pessoas = liga_spl.jogadores_dos_jogos(sid, jogos, cliente)
+        except Exception as e:
+            return {"erro": f"{type(e).__name__}: {e}"}
+
+    r = salvar_jogadores(pessoas)
+    resumo = {"jogos_lidos": len(jogos), "pessoas": len(pessoas),
+              **r, **contar_jogadores()}
+    print(f"[JOGADORES] {resumo}", flush=True)
+    return resumo
+
+
+@app.post("/api/jogadores/varrer")
+async def api_jogadores_varrer(request: Request):
+    """Roda a varredura. `jogos` limita, para conferir antes de soltar tudo."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    try:
+        limite = int(corpo.get("jogos") or 0)
+    except (TypeError, ValueError):
+        limite = 0
+    import asyncio as _a
+    return await _a.to_thread(varrer_jogadores, limite)
+
+
+@app.get("/api/jogadores")
+async def api_jogadores(clube: str = ""):
+    return {"resumo": contar_jogadores(), "jogadores": listar_jogadores(clube)}
