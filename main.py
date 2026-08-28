@@ -14501,6 +14501,166 @@ async def diag_elos(limite: int = 600):
     return PlainTextResponse("\n".join(linhas))
 
 
+async def _achar_de_fora(nome: str, clube_origem: str) -> dict | None:
+    """O jogador que não está na liga, pela API-Football.
+
+    Duas chamadas, e a ordem importa. Primeiro acho o CLUBE de origem que a
+    notícia citou; depois procuro o jogador DENTRO dele. É o contrário de
+    buscar o nome solto — que devolve 28 'Martinelli' com o Gabriel em quarto.
+    """
+    if not nome or not clube_origem:
+        return None
+    times, erro = await _af_get("teams", {"search": clube_origem[:30]}, ttl=86400)
+    if erro:
+        return None
+    achados = times.get("response") or []
+    if len(achados) != 1:
+        # Dois clubes com nome parecido: não escolho. 'Al Ahli' existe em
+        # meio mundo árabe, e pegar o primeiro traria o elenco errado.
+        return None
+    tid = ((achados[0].get("team") or {}).get("id"))
+    if not tid:
+        return None
+    temporada = _af_temporada_corrente()
+    for ano in (temporada, temporada - 1):
+        d, erro = await _af_get("players", {"search": nome.split()[-1][:20],
+                                            "team": tid, "season": ano}, ttl=86400)
+        if erro:
+            continue
+        candidatos = []
+        for item in (d.get("response") or []):
+            p = item.get("player") or {}
+            est = (item.get("statistics") or [{}])[0]
+            candidatos.append({
+                "af_id": p.get("id"), "nome": p.get("name") or "",
+                "clube": (est.get("team") or {}).get("name") or clube_origem,
+                "nascimento": (p.get("birth") or {}).get("date") or "",
+                "foto": p.get("photo") or "",
+                "nacionalidade": p.get("nationality") or "",
+                "altura": (p.get("height") or "").replace("cm", "").strip(),
+            })
+        import mercado as _m
+        escolhido = _m.escolher_de_fora(nome, candidatos, clube_origem)
+        if escolhido:
+            return escolhido
+    return None
+
+
+@app.get("/api/diag/mercado", response_class=PlainTextResponse)
+async def diag_mercado(dias: int = 30, limite: int = 120):
+    """O que a guia de Mercado viraria — SEM GRAVAR NADA.
+
+    Roda a extração sobre as notícias de mercado dos últimos `dias`, monta as
+    negociações e mostra o passo a passo de cada uma. É o relatório que o Vini
+    olha antes de eu criar tabela: se a extração estiver confundindo jogador,
+    clube ou status, aparece aqui, numa lista que dá para ler.
+    """
+    import httpx
+    import mercado
+    import elos
+    from database import listar_jogadores
+    linhas: list[str] = []
+
+    def pega(sql, params=None):
+        try:
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute(sql, params or [])
+                return c.fetchall()
+        except Exception as e:
+            linhas.append(f"  (erro: {type(e).__name__}: {e})")
+            return []
+
+    total_mercado = pega("""SELECT COUNT(*) FROM articles
+                             WHERE category = 'mercado' AND is_duplicate = 0""")
+    linhas += ["A CONTA ANTES DE GASTAR", "─" * 23,
+               f"  notícias de mercado no banco .... "
+               f"{total_mercado[0][0] if total_mercado else '?'}"]
+
+    artigos = pega(f"""SELECT id, source_name, url, published_at, collected_at,
+                              title_orig, title_pt, body_orig, body_pt
+                         FROM articles
+                        WHERE category = 'mercado' AND is_duplicate = 0
+                          AND collected_at >= %s
+                     ORDER BY collected_at DESC LIMIT %s""",
+                   [(datetime.now(timezone.utc) - timedelta(days=max(1, dias))
+                     ).strftime("%Y-%m-%d"), max(1, min(limite, 400))])
+    linhas.append(f"  nos últimos {dias} dias ............... {len(artigos)}")
+    linhas.append(f"  custo desta rodada com Haiku .... "
+                  f"US$ {len(artigos) * 0.0013:.2f}")
+    if not artigos:
+        return PlainTextResponse("\n".join(linhas + ["", "nada para olhar."]))
+
+    gente = listar_jogadores(limite=2000)
+    indice, _ = elos.indice_de_jogadores(gente)
+    por_id = {j["spl_id"]: j for j in gente}
+
+    negociacoes: dict[str, dict] = {}
+    nao_era = 0
+    async with httpx.AsyncClient(timeout=60.0) as cliente:
+        for i in range(0, len(artigos), 5):
+            lote = artigos[i:i + 5]
+            saidas = await asyncio.gather(*[
+                mercado.extrair({"title_pt": a[6], "title_orig": a[5],
+                                 "body_pt": a[8], "body_orig": a[7]}, cliente)
+                for a in lote], return_exceptions=True)
+            for a, d in zip(lote, saidas):
+                if isinstance(d, Exception) or not d:
+                    nao_era += 1
+                    continue
+                chave = mercado.chave_da_negociacao(d["jogador"], d["clube_destino"])
+                n = negociacoes.setdefault(chave, {**d, "passos": []})
+                n["passos"].append({
+                    "quando": (a[3] or a[4] or "")[:10],
+                    "fonte": a[1] or "?", "status": d["status"],
+                    "titulo": (a[6] or a[5] or "")[:70],
+                })
+            await asyncio.sleep(0.3)
+
+    # Quem é quem: liga primeiro (de graça), depois a API-Football.
+    da_liga = de_fora = sem_rosto = 0
+    for n in negociacoes.values():
+        spl = mercado.procurar_na_liga(n["jogador"], indice)
+        if spl:
+            j = por_id.get(spl) or {}
+            n["quem"] = f"liga · {j.get('nome')} ({j.get('clube')})"
+            n["rosto"] = bool(j.get("foto"))
+            da_liga += 1
+            continue
+        achado = await _achar_de_fora(n["jogador"], n["clube_origem"])
+        if achado:
+            n["quem"] = (f"API-Football · {achado['nome']} "
+                         f"({achado['clube']}, nasc {achado['nascimento'] or '—'})")
+            n["rosto"] = bool(achado.get("foto"))
+            de_fora += 1
+        else:
+            n["quem"] = "— não identificado"
+            n["rosto"] = False
+            sem_rosto += 1
+
+    linhas += ["", "O QUE SAIRIA NA GUIA", "─" * 20,
+               f"  notícias lidas ................. {len(artigos)}",
+               f"  não eram negociação ............ {nao_era}",
+               f"  NEGOCIAÇÕES distintas .......... {len(negociacoes)}",
+               f"    identificadas pela liga ...... {da_liga}",
+               f"    pela API-Football ............ {de_fora}",
+               f"    sem rosto .................... {sem_rosto}"]
+
+    ordenadas = sorted(negociacoes.values(),
+                       key=lambda n: (-len(n["passos"]), n["jogador"]))
+    linhas.append("\n  OS CARDS (os de mais passos primeiro):")
+    for n in ordenadas[:30]:
+        rosto = "🖼" if n["rosto"] else "○"
+        linhas.append(f"\n  {rosto} {n['jogador']}  →  {n['clube_destino']}"
+                      f"   [{n['status']}]"
+                      + (f"   {n['valor']}" if n["valor"] else ""))
+        linhas.append(f"      de: {n['clube_origem'] or '—'}   |   {n['quem']}")
+        for p in sorted(n["passos"], key=lambda x: x["quando"]):
+            linhas.append(f"      {p['quando']}  {p['status']:12} {p['fonte'][:18]:18} "
+                          f"{p['titulo']}")
+    return PlainTextResponse("\n".join(linhas))
+
+
 @app.get("/api/diag/af-fora", response_class=PlainTextResponse)
 async def diag_af_fora(nomes: str = "Watkins,Martinelli,Doan,Bergwijn"):
     """A API-Football alcança jogador que NÃO está na liga saudita?
