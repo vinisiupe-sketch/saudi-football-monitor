@@ -404,6 +404,72 @@ def listar_jogadores(clube: str = "", limite: int = 600) -> list[dict]:
     return linhas
 
 
+def cruzar_transfermarkt() -> dict:
+    """Liga o jogador da liga ao id do Transfermarkt que a janela já traz.
+
+    As 481 linhas da janela têm id do TM; a tabela `jogador` tem o id da liga.
+    Casar as duas dá, de graça, um segundo identificador — e é ele que abre
+    valor de mercado, idade e histórico de transferência.
+
+    O casamento é por chave latina EXATA, e só quando é único dos dois lados.
+    Dois jogadores com o mesmo sobrenome não podem virar a mesma pessoa por eu
+    ter escolhido o "mais parecido": aqui um erro não aparece na tela, ele
+    aparece meses depois numa estatística que ninguém sabe explicar.
+    """
+    import glossary
+    from collections import defaultdict
+    casados = ambiguos = ja_tinha = 0
+    sem_par: list[str] = []
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT spl_id, nome, tm_id FROM jogador")
+            por_chave = defaultdict(list)
+            for spl, nome, tm in c.fetchall():
+                por_chave[glossary.chave_latina(nome)].append((spl, tm))
+
+            c.execute("""SELECT DISTINCT player_id, player_name
+                           FROM window_transfers
+                          WHERE player_id IS NOT NULL AND player_id <> ''""")
+            janela = defaultdict(set)
+            for pid, nome in c.fetchall():
+                janela[glossary.chave_latina(nome)].add(pid)
+
+            for chave, ids in janela.items():
+                candidatos = por_chave.get(chave) or []
+                # Ambíguo dos dois lados conta como ambíguo: dois Al Ahmari na
+                # liga, ou o mesmo nome com dois ids no TM.
+                if len(ids) != 1 or len(candidatos) != 1:
+                    if candidatos:
+                        ambiguos += 1
+                    continue
+                spl, tm_atual = candidatos[0]
+                tm = next(iter(ids))
+                if tm_atual:
+                    ja_tinha += 1
+                    continue
+                # Um id do TM não pode ser dado a duas pessoas da liga.
+                c.execute("SELECT 1 FROM jogador WHERE tm_id = %s AND spl_id <> %s",
+                          [tm, spl])
+                if c.fetchone():
+                    ambiguos += 1
+                    continue
+                c.execute("UPDATE jogador SET tm_id = %s WHERE spl_id = %s",
+                          [tm, spl])
+                casados += 1
+
+            for chave in janela:
+                if chave not in por_chave:
+                    sem_par.append(chave)
+    except Exception as e:
+        print(f"⚠️ cruzar_transfermarkt: {e}")
+        return {"erro": str(e)}
+    r = {"casados": casados, "ja_tinham": ja_tinha, "ambiguos": ambiguos,
+         "na_janela_sem_par_na_liga": len(sem_par)}
+    print(f"[TRANSFERMARKT] {r}", flush=True)
+    return r
+
+
 def padronizar_clubes_gravados() -> dict:
     """Passa o glossário no que já está no banco.
 

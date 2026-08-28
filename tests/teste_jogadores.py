@@ -220,6 +220,36 @@ def testar():
     ok(glossary.chave_latina("Al Ahmari") != glossary.chave_latina("Al Ghamdi"),
        "dois sobrenomes diferentes viraram a mesma chave latina")
 
+    # ── o cruzamento com o Transfermarkt ────────────────────────────────
+    # Aqui um erro não aparece na tela: aparece meses depois, numa estatística
+    # que ninguém sabe explicar. Por isso o casamento é exato e único, e as
+    # regras estão escritas no código — este bloco cobra que continuem lá.
+    fn = next((n for n in ast.walk(arvore)
+               if isinstance(n, ast.FunctionDef) and n.name == "cruzar_transfermarkt"),
+              None)
+    ok(fn is not None, "não achei cruzar_transfermarkt")
+    if fn:
+        corpo = ast.unparse(fn)
+        ok("chave_latina" in corpo,
+           "o cruzamento não normaliza o nome antes de comparar")
+        ok("len(ids) != 1 or len(candidatos) != 1" in corpo,
+           "o cruzamento casa mesmo quando há mais de um candidato")
+        ok("WHERE tm_id = %s AND spl_id <> %s" in corpo,
+           "o mesmo id do Transfermarkt pode ser dado a duas pessoas")
+        for chutar in ("SequenceMatcher", "ratio(", "difflib", "levenshtein"):
+            ok(chutar not in corpo,
+               f"o cruzamento usa {chutar} — semelhança aqui vira gente trocada")
+
+    # E a normalização tem que servir para casar as duas fontes de verdade:
+    # a liga escreve 'Mohammed Al Dawsari', o Transfermarkt 'Mohammed Al-Dawsari'.
+    import glossary as _g
+    conferir("liga e Transfermarkt casam pela chave",
+             _g.chave_latina("Mohammed Al Dawsari"),
+             _g.chave_latina("Mohammed Al-Dawsari"))
+    # Mas dois jogadores diferentes do mesmo clã, não.
+    ok(_g.chave_latina("Hamed Al Ahmari") != _g.chave_latina("Khaled Al Ahmari"),
+       "dois Al Ahmari viraram a mesma chave")
+
     if falhas:
         for f in falhas:
             print(f"  ✗ {f}")

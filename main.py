@@ -29,7 +29,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_jogadores, listar_jogadores, contar_jogadores, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -13923,6 +13923,27 @@ async def diag_nomes():
     linhas.append(f"  nomes de lesão que existem na janela: "
                   f"{len(nomes_jan & nomes_les)} de {len(nomes_les)}")
 
+    # ── A TABELA DE JOGADORES ──────────────────────────────────────────────
+    bloco("JOGADORES DA LIGA (tabela nova)")
+    n = contar_jogadores()
+    linhas.append(f"  total ...................... {n.get('total')}")
+    linhas.append(f"  com nome em árabe .......... {n.get('com_arabe')}")
+    linhas.append(f"  com foto ................... {n.get('com_foto')}")
+    linhas.append(f"  com id do Transfermarkt .... {n.get('com_transfermarkt')}")
+    linhas.append(f"  clubes ..................... {n.get('clubes')}")
+    faltando = pega("SELECT nome, clube FROM jogador "
+                    "WHERE nome_ar IS NULL OR nome_ar = '' ORDER BY nome")
+    if faltando:
+        linhas.append(f"\n  sem nome em árabe ({len(faltando)}):")
+        for nome, clube in faltando[:20]:
+            linhas.append(f"    {nome}  ({clube})")
+    amostra = pega("SELECT nome, nome_ar, clube FROM jogador "
+                   "WHERE nome_ar <> '' ORDER BY random() LIMIT 8")
+    if amostra:
+        linhas.append("\n  amostra das duas escritas:")
+        for nome, ar, clube in amostra:
+            linhas.append(f"    {nome:28} = {ar:24} ({clube})")
+
     # ── NOTÍCIAS: quanto do material bruto é árabe ─────────────────────────
     bloco("NOTÍCIAS")
     art = pega("SELECT language, COUNT(*) FROM articles GROUP BY language "
@@ -13974,10 +13995,21 @@ def varrer_jogadores(limite_de_jogos: int = 0) -> dict:
             return {"erro": f"{type(e).__name__}: {e}"}
 
     r = salvar_jogadores(pessoas)
+    # Cruzar com o Transfermarkt logo em seguida: do seu ponto de vista é a
+    # mesma tarefa, e separar em dois botões só criaria a chance de alguém
+    # rodar um e esquecer o outro.
+    tm = cruzar_transfermarkt()
     resumo = {"jogos_lidos": len(jogos), "pessoas": len(pessoas),
-              **r, **contar_jogadores()}
+              **r, "transfermarkt": tm, **contar_jogadores()}
     print(f"[JOGADORES] {resumo}", flush=True)
     return resumo
+
+
+@app.post("/api/jogadores/transfermarkt")
+async def api_jogadores_tm():
+    """Liga a tabela de jogadores aos ids do Transfermarkt que a janela traz."""
+    import asyncio as _a
+    return await _a.to_thread(cruzar_transfermarkt)
 
 
 @app.post("/api/jogadores/varrer")
