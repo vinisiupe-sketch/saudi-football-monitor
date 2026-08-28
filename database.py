@@ -314,6 +314,14 @@ def init_db():
         """)
         # Migrações
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS af_id INTEGER")
+        # Nascimento e altura não vêm na escalação da liga — só na página do
+        # jogador. Existem aqui porque data de nascimento é a única chave que
+        # não sofre transliteração: 1985-02-05 é igual em árabe, em latim e no
+        # Transfermarkt. Nome vira confirmação; a data é o critério.
+        c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS nascimento DATE")
+        c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS altura INTEGER")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_jogador_nascimento "
+                  "ON jogador(nascimento)")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
@@ -404,11 +412,14 @@ def contar_jogadores() -> dict:
                                 COUNT(*) FILTER (WHERE foto <> ''),
                                 COUNT(*) FILTER (WHERE tm_id IS NOT NULL),
                                 COUNT(*) FILTER (WHERE af_id IS NOT NULL),
+                                COUNT(*) FILTER (WHERE nascimento IS NOT NULL),
+                                COUNT(*) FILTER (WHERE altura IS NOT NULL),
                                 COUNT(DISTINCT clube)
                            FROM jogador""")
-            t, ar, foto, tm, af, clubes = c.fetchone()
+            t, ar, foto, tm, af, nasc, alt, clubes = c.fetchone()
             return {"total": t, "com_arabe": ar, "com_foto": foto,
                     "com_transfermarkt": tm, "com_api_football": af,
+                    "com_nascimento": nasc, "com_altura": alt,
                     "clubes": clubes}
     except Exception as e:
         return {"erro": str(e)}

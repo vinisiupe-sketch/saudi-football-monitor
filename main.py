@@ -8538,7 +8538,9 @@ async function carregarElenco() {
   a.className = 'ajuda';
   a.textContent = (n.com_arabe || 0) + ' com nome em arabe, '
     + (n.com_foto || 0) + ' com foto, '
-    + (n.com_transfermarkt || 0) + ' com id do Transfermarkt. '
+    + (n.com_transfermarkt || 0) + ' com id do Transfermarkt, '
+    + (n.com_api_football || 0) + ' com id da API-Football, '
+    + (n.com_nascimento || 0) + ' com data de nascimento. '
     + 'O nome nas duas escritas vem da propria liga, com o mesmo id — '
     + 'e a ponte que vai casar a noticia arabe com o jogador.';
   item.appendChild(a);
@@ -13935,6 +13937,8 @@ async def diag_nomes():
     linhas.append(f"  com foto ................... {n.get('com_foto')}")
     linhas.append(f"  com id do Transfermarkt .... {n.get('com_transfermarkt')}")
     linhas.append(f"  com id da API-Football ..... {n.get('com_api_football')}")
+    linhas.append(f"  com data de nascimento ..... {n.get('com_nascimento')}")
+    linhas.append(f"  com altura ................. {n.get('com_altura')}")
     linhas.append(f"  clubes ..................... {n.get('clubes')}")
     faltando = pega("SELECT nome, clube FROM jogador "
                     "WHERE nome_ar IS NULL OR nome_ar = '' ORDER BY nome")
@@ -14232,4 +14236,113 @@ async def diag_congelado():
     linhas.append("")
     for clube, n in sorted(porc.items()):
         linhas.append(f"  {clube:22} {n}")
+    return PlainTextResponse("\n".join(linhas))
+
+
+# ── Sondagens: onde mora a data de nascimento ───────────────────────────────
+#
+# A escalação da liga traz nacionalidade e mais nada — nem nascimento, nem
+# altura. Antes de escrever a colheita eu preciso ver, com os olhos, o que
+# cada fonte publica de verdade. Já disse uma vez neste projeto que uma coisa
+# "não existia" olhando só o HTML cru, e estava errado.
+
+@app.get("/api/diag/af-jogador", response_class=PlainTextResponse)
+async def diag_af_jogador(team: int = 0, season: int = 0):
+    """O formato cru de UM jogador da API-Football, campo por campo."""
+    season = season or _af_temporada_corrente()
+    params = {"league": AF_LEAGUE_SPL, "season": season, "page": 1}
+    if team:
+        params["team"] = team
+    dados, erro = await _af_get("players", params, ttl=60)
+    if erro:
+        return PlainTextResponse(f"não deu: {erro}")
+    resp = dados.get("response") or []
+    paginas = (dados.get("paging") or {}).get("total", 1)
+    linhas = [f"temporada .......... {season}",
+              f"resultados ......... {dados.get('results')}",
+              f"páginas ............ {paginas}",
+              f"custo da liga ...... ~{paginas} chamadas por clube-filtro", ""]
+    if not resp:
+        linhas.append("veio vazio — sem jogador nenhum nesta consulta.")
+        return PlainTextResponse("\n".join(linhas))
+    p = (resp[0].get("player") or {})
+    linhas.append("campos do objeto `player`:")
+    for k in sorted(p):
+        v = p[k]
+        linhas.append(f"  {k:16} = {json.dumps(v, ensure_ascii=False)[:90]}")
+    nasc = (p.get("birth") or {}).get("date")
+    linhas += ["",
+               f"tem nascimento ..... {bool(nasc)}  ({nasc})",
+               f"tem altura ......... {bool(p.get('height'))}  ({p.get('height')})",
+               f"tem nacionalidade .. {bool(p.get('nationality'))}  ({p.get('nationality')})"]
+    return PlainTextResponse("\n".join(linhas))
+
+
+# Caminhos que PODEM existir na API da liga para um jogador. Não sei qual
+# funciona; a sondagem serve exatamente para descobrir sem chutar no código.
+_CAMINHOS_DE_JOGADOR = (
+    "players/{pid}?locale=en-GB",
+    "seasons/{sid}/players/{pid}?locale=en-GB",
+    "seasons/{sid}/player/{pid}?locale=en-GB",
+    "seasons/{sid}/players/{pid}/profile?locale=en-GB",
+    "seasons/{sid}/teams/{tid}/squad?locale=en-GB",
+    "seasons/{sid}/teams/{tid}/players?locale=en-GB",
+    "seasons/{sid}/squads/{tid}?locale=en-GB",
+)
+
+
+@app.get("/api/diag/spl-jogador", response_class=PlainTextResponse)
+async def diag_spl_jogador():
+    """Procura, na API da liga, algum endereço que devolva o perfil do jogador.
+
+    Se algum devolver nascimento e altura, a colheita é uma chamada por clube
+    e acabou. Se nenhum devolver, aí sim vale raspar a página do site.
+    """
+    import httpx
+    import liga_spl
+    linhas = []
+    try:
+        gente = [j for j in listar_jogadores() if j.get("spl_id")]
+    except Exception as e:
+        return PlainTextResponse(f"não consegui ler a tabela jogador: {e}")
+    if not gente:
+        return PlainTextResponse("a tabela jogador está vazia — rode a varredura antes.")
+    alvo = gente[0]
+    pid = alvo["spl_id"]
+    linhas.append(f"cobaia ............. {alvo.get('nome')} ({pid})")
+    hoje = _dia_de_brasilia()
+    with httpx.Client(timeout=25.0, follow_redirects=True) as cli:
+        sid = liga_spl.temporada(hoje, cli)
+        linhas.append(f"temporada .......... {sid or '(não achei)'}")
+        tid = ""
+        try:
+            tabela = liga_spl.tabela(sid, cli) if sid else []
+            tid = (tabela[0].get("time_id") or "") if tabela else ""
+        except Exception as e:
+            linhas.append(f"tabela ............. falhou: {e}")
+        linhas.append(f"clube de teste ..... {tid or '(não achei)'}")
+        linhas.append("")
+        for molde in _CAMINHOS_DE_JOGADOR:
+            caminho = (molde.replace("{pid}", liga_spl._id(pid))
+                            .replace("{sid}", liga_spl._id(sid))
+                            .replace("{tid}", liga_spl._id(tid)))
+            try:
+                r = cli.get(f"{liga_spl.API}/{caminho}",
+                            headers={"Accept": "application/json",
+                                     "User-Agent": liga_spl.UA})
+                marca = str(r.status_code)
+                corpo = ""
+                if r.status_code == 200:
+                    try:
+                        j = r.json()
+                        corpo = " | chaves: " + ", ".join(list(j)[:12])
+                        cru = json.dumps(j, ensure_ascii=False)
+                        for campo in ("dateOfBirth", "birthDate", "height", "weight"):
+                            if f'"{campo}"' in cru:
+                                corpo += f"  ✓{campo}"
+                    except Exception:
+                        corpo = " | não era JSON"
+            except Exception as e:
+                marca, corpo = "erro", f" | {type(e).__name__}"
+            linhas.append(f"  {marca:5} {molde}{corpo}")
     return PlainTextResponse("\n".join(linhas))
