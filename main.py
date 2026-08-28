@@ -8532,6 +8532,15 @@ async function carregarElenco() {
     varrer(0, item, tudo);
   };
   linha.appendChild(tudo);
+
+  // Data de nascimento e altura. Nao vem na escalacao — vem da pagina de
+  // jogador do site da liga e do cadastro da API-Football. E a chave que nao
+  // depende de como cada fonte escreve o nome.
+  const perfis = document.createElement('button');
+  perfis.className = 'padrao';
+  perfis.textContent = 'buscar nascimentos';
+  perfis.onclick = function () { colherPerfis(item, perfis); };
+  linha.appendChild(perfis);
   item.appendChild(linha);
 
   const a = document.createElement('p');
@@ -8563,6 +8572,37 @@ async function varrer(jogos, onde, botao) {
     p.style.color = 'var(--c-acento)';
     p.textContent = j.jogos_lidos + ' jogo(s) lido(s), ' + j.pessoas
       + ' pessoa(s), ' + j.novos + ' nova(s) e ' + j.atualizados + ' atualizada(s).';
+    onde.appendChild(p);
+    setTimeout(carregarElenco, 1200);
+  } catch (e) {
+    alert('nao deu: ' + (e.message || e));
+  }
+  botao.disabled = false;
+  botao.textContent = antes;
+}
+
+async function colherPerfis(onde, botao) {
+  const antes = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'buscando...';
+  try {
+    const r = await fetch('/api/jogadores/perfis', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({})
+    });
+    const j = await r.json();
+    if (!r.ok || j.erro) throw new Error(j.erro || ('HTTP ' + r.status));
+    const liga = j.liga || {}, af = j.api_football || {}, cr = j.cruzamento || {};
+    const p = document.createElement('p');
+    p.className = 'ajuda';
+    p.style.color = 'var(--c-acento)';
+    p.textContent = 'Liga: ' + (liga.paginas_lidas || 0) + ' pagina(s), '
+      + (liga.completados || 0) + ' completada(s) e ' + (liga.novos || 0) + ' nova(s). '
+      + 'API-Football: ' + (af.total || 0) + ' no cadastro, '
+      + (af.com_nascimento || 0) + ' com data. '
+      + 'Cruzamento pela data: ' + (cr.casados || 0) + ' casado(s), '
+      + (cr.ambiguos || 0) + ' recusado(s) por ambiguidade, '
+      + (cr.recusados_pelo_nome || 0) + ' por nome incompativel.';
     onde.appendChild(p);
     setTimeout(carregarElenco, 1200);
   } catch (e) {
@@ -14122,6 +14162,101 @@ def varrer_jogadores(limite_de_jogos: int = 0) -> dict:
               **r, "transfermarkt": tm, "api_football": af, **contar_jogadores()}
     print(f"[JOGADORES] {resumo}", flush=True)
     return resumo
+
+
+def colher_perfis(teto: int = 0) -> dict:
+    """Nascimento e altura, das páginas de jogador do site da liga.
+
+    A API da liga não tem isso — sondei sete endereços, todos 404. O site tem,
+    e cada página traz o elenco INTEIRO do clube daquela pessoa. Então isto
+    não é uma requisição por jogador: são cerca de vinte, uma por clube, e a
+    lista de quem falta encolhe trinta de cada vez.
+
+    É também por onde entra gente que a escalação nunca relacionou — quem não
+    jogou ainda não existe na varredura, mas existe no elenco.
+    """
+    import httpx
+    import perfil_spl
+    from database import jogadores_sem_nascimento, salvar_perfis
+
+    faltam = jogadores_sem_nascimento()
+    if not faltam:
+        return {"nada_a_fazer": True, **contar_jogadores()}
+    with httpx.Client() as cliente:
+        gente, como_foi = perfil_spl.colher_a_partir_de(
+            faltam, cliente, teto or perfil_spl.TETO_DE_PAGINAS)
+    if not gente:
+        return {"erro": "nenhuma página rendeu dado — o formato do site mudou?",
+                **como_foi}
+    r = salvar_perfis(gente)
+    resumo = {"faltavam": len(faltam), **como_foi, **r, **contar_jogadores()}
+    print(f"[PERFIS] {resumo}", flush=True)
+    return resumo
+
+
+async def colher_af_jogadores(temporada: int = 0) -> dict:
+    """O cadastro da API-Football: nascimento, altura e nacionalidade.
+
+    `stats_apuradas` guarda gol e cartão, não identidade — não tem nascimento,
+    nem nacionalidade, nem altura. Sem isso, o único jeito de casar com a liga
+    era pelo nome, e a API-Football abrevia o primeiro nome. Este endpoint
+    resolve os dois problemas: traz a data E traz `firstname`/`lastname` por
+    extenso, sem abreviação.
+
+    São ~21 páginas de 20 para a liga toda. Uma vez.
+    """
+    from database import salvar_af_jogadores, contar_af_jogadores
+    temporada = temporada or _af_temporada_corrente()
+    linhas: list[dict] = []
+    pagina, total = 1, 1
+    while pagina <= total and pagina <= 40:
+        dados, erro = await _af_get(
+            "players", {"league": AF_LEAGUE_SPL, "season": temporada,
+                        "page": pagina}, ttl=3600)
+        if erro:
+            # Parar e contar o que veio é melhor que devolver metade calado.
+            return {"erro": erro, "paginas_lidas": pagina - 1,
+                    "pessoas": len(linhas)}
+        total = (dados.get("paging") or {}).get("total", 1)
+        for item in (dados.get("response") or []):
+            p = item.get("player") or {}
+            if not p.get("id"):
+                continue
+            estat = (item.get("statistics") or [{}])[0]
+            linhas.append({
+                "af_id": p["id"], "nome": p.get("name") or "",
+                "primeiro": p.get("firstname") or "",
+                "ultimo": p.get("lastname") or "",
+                "nascimento": (p.get("birth") or {}).get("date") or "",
+                "altura": (p.get("height") or "").replace("cm", "").strip(),
+                "nacionalidade": p.get("nationality") or "",
+                "clube": (estat.get("team") or {}).get("name") or "",
+                "foto": p.get("photo") or "",
+            })
+        pagina += 1
+    r = salvar_af_jogadores(linhas, temporada)
+    resumo = {"temporada": temporada, "paginas": total, **r,
+              **contar_af_jogadores()}
+    print(f"[AF-CADASTRO] {resumo}", flush=True)
+    return resumo
+
+
+@app.post("/api/jogadores/perfis")
+async def api_jogadores_perfis(request: Request):
+    """Colhe nascimento e altura, e em seguida cruza pela data."""
+    import asyncio as _a
+    from database import cruzar_por_nascimento
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    teto = int(corpo.get("paginas") or 0)
+    liga = await _a.to_thread(colher_perfis, teto)
+    af = await colher_af_jogadores()
+    # Só faz sentido cruzar depois que os DOIS lados têm data.
+    cruz = await _a.to_thread(cruzar_por_nascimento)
+    return {"liga": liga, "api_football": af, "cruzamento": cruz,
+            **contar_jogadores()}
 
 
 @app.post("/api/jogadores/api-football")

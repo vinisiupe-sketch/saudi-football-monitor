@@ -1,0 +1,160 @@
+"""
+Nascimento e altura, colhidos da página de jogador do site da liga.
+
+POR QUE ISTO EXISTE
+    A escalação da API da liga traz nacionalidade e mais nada. Nem data de
+    nascimento, nem altura. Sondei sete endereços possíveis na API — todos
+    404. Não existe endpoint de perfil de jogador.
+
+    O site tem. `spl.com.sa/en/players/{slug}/` traz dateOfBirth, height,
+    weight, nationalityIsoCode e bibNumber. E traz de TODO o elenco do clube
+    daquele jogador, não só dele: uma página rende 29 pessoas.
+
+POR QUE VALE A PENA
+    Data de nascimento é a única chave que não sofre transliteração.
+    1996-05-04 é igual em árabe, em latim, no Transfermarkt e na
+    API-Football. Nome é grafia; data é fato. A partir daqui o nome vira
+    confirmação, e não critério.
+
+COMO EU EVITO CASAR A PESSOA ERRADA AO LER
+    O HTML é dado de RSC do Next, com as aspas escapadas, e cada objeto de
+    jogador vem colado no seguinte. Se eu pegasse "o dateOfBirth mais próximo
+    do playerId" sem limite, um objeto sem data herdaria a data do vizinho —
+    e ficaria plausível. Então corto o texto no PRÓXIMO playerId: o que
+    estiver depois disso não é desta pessoa, e quem não tem data dentro da
+    própria fatia simplesmente fica sem data.
+
+SOBRE RASPAR
+    O robots.txt do site permite /en/players/. São ~40 páginas, uma vez, sem
+    laço automático. Não é um coletor: é uma colheita.
+"""
+import re
+import unicodedata
+
+SITE = "https://www.spl.com.sa"
+TEMPO_LIMITE = 30.0
+UA = "Mozilla/5.0 (compatible; IARABAO/1.0)"
+
+# Quantas páginas eu me permito puxar numa colheita. Cada uma rende ~29
+# pessoas, então 40 cobre a liga inteira com folga — e o teto existe para o
+# dia em que a página mudar de formato e nenhuma leitura render nada.
+TETO_DE_PAGINAS = 40
+
+_MARCA = re.compile(r'"playerId":"(spl::Football_Player::[0-9a-f]+)"')
+
+
+def slug_de(nome: str) -> str:
+    """'Abdou Diallo' -> 'abdou-diallo'. O mesmo que o site usa nos nomes curtos.
+
+    Para quem tem nome do meio o site põe tudo no slug e este palpite erra —
+    e é por isso que quem chama CONFERE o id da página antes de acreditar.
+    """
+    limpo = unicodedata.normalize("NFKD", nome or "")
+    limpo = "".join(c for c in limpo if not unicodedata.combining(c))
+    limpo = re.sub(r"[^A-Za-z0-9]+", "-", limpo.lower()).strip("-")
+    return limpo
+
+
+def _campo(trecho: str, nome: str) -> str:
+    achado = re.search(f'"{nome}":"([^"]*)"', trecho)
+    return achado.group(1) if achado else ""
+
+
+def desdobrar(html: str, arabe: bool = False) -> dict[str, dict]:
+    """Todo mundo que a página descreve, por playerId."""
+    texto = (html or "").replace('\\"', '"')
+    marcas = list(_MARCA.finditer(texto))
+    gente: dict[str, dict] = {}
+    for i, m in enumerate(marcas):
+        fim = marcas[i + 1].start() if i + 1 < len(marcas) else len(texto)
+        fatia = texto[m.start():fim]
+        nasc = _campo(fatia, "dateOfBirth")[:10]
+        nome = " ".join(x for x in (_campo(fatia, "mediaFirstName"),
+                                    _campo(fatia, "mediaLastName")) if x).strip()
+        if not nasc and not nome:
+            continue
+        pessoa = gente.setdefault(m.group(1), {"spl_id": m.group(1)})
+        if nasc:
+            pessoa["nascimento"] = nasc
+        if arabe:
+            if nome:
+                pessoa["nome_ar"] = nome
+        else:
+            if nome:
+                pessoa["nome"] = nome
+            for chave, campo in (("slug", "playerSlug"),
+                                 ("altura", "height"),
+                                 ("nac_iso", "nationalityIsoCode"),
+                                 ("nacionalidade", "nationality"),
+                                 ("posicao", "roleLabel"),
+                                 ("camisa", "bibNumber")):
+                valor = _campo(fatia, campo)
+                if valor:
+                    pessoa[chave] = valor
+    return gente
+
+
+def _pagina(slug: str, idioma: str, cliente) -> str:
+    r = cliente.get(f"{SITE}/{idioma}/players/{slug}/", timeout=TEMPO_LIMITE,
+                    follow_redirects=True, headers={"User-Agent": UA})
+    if r.status_code != 200:
+        return ""
+    return r.text
+
+
+def colher(slug: str, cliente, com_arabe: bool = True) -> dict[str, dict]:
+    """Uma página, nas duas escritas, já juntas por id.
+
+    A versão árabe é a MESMA página noutro idioma, com os mesmos playerId. É
+    de graça: uma requisição a mais por elenco, e o nome árabe de gente que a
+    escalação nunca relacionou.
+    """
+    gente = desdobrar(_pagina(slug, "en", cliente))
+    if not gente:
+        return {}
+    if com_arabe:
+        for pid, arabe in desdobrar(_pagina(slug, "ar", cliente), arabe=True).items():
+            if pid in gente and arabe.get("nome_ar"):
+                gente[pid]["nome_ar"] = arabe["nome_ar"]
+    return gente
+
+
+def colher_a_partir_de(candidatos: list[dict], cliente,
+                       teto: int = TETO_DE_PAGINAS) -> tuple[dict[str, dict], dict]:
+    """Colhe elencos inteiros partindo de uma lista de gente sem nascimento.
+
+    `candidatos` são linhas com spl_id e nome. Para cada uma eu chuto o slug e
+    confiro: se a página não falar do id que eu esperava, o chute errou e eu
+    sigo — nunca aceito a página "parecida".
+
+    Como cada página rende o elenco todo, a lista encolhe rápido: em geral uma
+    página por clube resolve trinta pessoas.
+    """
+    colhido: dict[str, dict] = {}
+    tentadas = acertos = erros = 0
+    for linha in candidatos:
+        if tentadas >= teto:
+            break
+        pid = linha.get("spl_id") or ""
+        if not pid or pid in colhido:
+            continue
+        slug = slug_de(linha.get("nome") or "")
+        if not slug:
+            continue
+        tentadas += 1
+        try:
+            gente = colher(slug, cliente)
+        except Exception:
+            erros += 1
+            continue
+        # A conferência: a página TEM que falar da pessoa que eu procurava.
+        # Sem isso, um slug parecido traria o elenco de outro clube e eu
+        # gravaria dados certos na pessoa errada.
+        if pid not in gente:
+            erros += 1
+            continue
+        acertos += 1
+        for k, v in gente.items():
+            colhido.setdefault(k, v)
+    return colhido, {"paginas_tentadas": tentadas, "paginas_lidas": acertos,
+                     "paginas_sem_serventia": erros, "pessoas": len(colhido)}

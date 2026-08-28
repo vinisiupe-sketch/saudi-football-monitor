@@ -223,7 +223,11 @@ def validade_do_convite(dias: int = DIAS_DE_CONVITE):
 # primeiro e a regra não pegava nada — o teste passava porque testava a MINHA
 # escrita, não a rota de verdade. Por isso as duas estão aqui, e há um teste
 # que confere esta lista contra as rotas registradas no main.
-CONFIG = ("/config", "/configuracoes", "/api/ajustes")
+# /api/jogadores mora aqui porque é o motor do painel de Configurações e de
+# mais nenhuma tela. Passou a importar de verdade quando a colheita começou a
+# gastar requisição paga da API-Football: sem esta linha, quem tem o link
+# dispara vinte e uma chamadas sem nem conseguir abrir a tela que as pede.
+CONFIG = ("/config", "/configuracoes", "/api/ajustes", "/api/jogadores")
 CONTAS = ("/usuarios", "/api/usuarios", "/api/convites")
 
 PROIBIDO = {

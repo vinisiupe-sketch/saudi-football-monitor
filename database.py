@@ -312,6 +312,29 @@ def init_db():
                 PRIMARY KEY (clube_id, jogador_id)
             )
         """)
+        # O cadastro da API-Football, do jeito que ELES publicam.
+        #
+        # `stats_apuradas` tem player_id e gol — serve para contar, não para
+        # identificar. Aqui ficam nascimento, altura e nacionalidade, que é o
+        # que permite casar sem depender de como cada fonte escreve o nome.
+        # Uma linha por pessoa; ~420 na liga inteira.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS af_jogador (
+                af_id         INTEGER PRIMARY KEY,
+                nome          TEXT,
+                primeiro      TEXT,
+                ultimo        TEXT,
+                nascimento    DATE,
+                altura        INTEGER,
+                nacionalidade TEXT,
+                clube         TEXT,
+                foto          TEXT,
+                temporada     INTEGER,
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_af_jogador_nascimento "
+                  "ON af_jogador(nascimento)")
         # Migrações
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS af_id INTEGER")
         # Nascimento e altura não vêm na escalação da liga — só na página do
@@ -401,6 +424,233 @@ def salvar_jogadores(pessoas: list[dict]) -> dict:
         print(f"⚠️ salvar_jogadores: {e}")
         return {"novos": novos, "atualizados": atualizados, "erro": str(e)}
     return {"novos": novos, "atualizados": atualizados}
+
+
+def _inteiro(valor):
+    """Altura vem como '187' de uma fonte e 187 de outra. Lixo vira None."""
+    try:
+        n = int(str(valor).strip())
+    except (TypeError, ValueError):
+        return None
+    return n if 120 <= n <= 230 else None
+
+
+def salvar_perfis(gente: dict) -> dict:
+    """Nascimento e altura, colhidos da página da liga, por spl_id.
+
+    Quem já existe é COMPLETADO — não reescrito. Quem não existe entra: a
+    página traz o elenco inteiro, e não só quem foi relacionado em jogo, então
+    ela cobre gente que a varredura de escalação nunca viu.
+    """
+    import glossary
+    if not gente:
+        return {"completados": 0, "novos": 0}
+    completados = novos = sem_data = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for pid, p in gente.items():
+                nasc = (p.get("nascimento") or "")[:10] or None
+                alt = _inteiro(p.get("altura"))
+                if not nasc:
+                    sem_data += 1
+                c.execute("SELECT 1 FROM jogador WHERE spl_id = %s", [pid])
+                if c.fetchone():
+                    c.execute("""UPDATE jogador
+                                    SET nascimento = COALESCE(%s, nascimento),
+                                        altura     = COALESCE(%s, altura),
+                                        atualizado_em = NOW()
+                                  WHERE spl_id = %s""", [nasc, alt, pid])
+                    completados += 1
+                    continue
+                nome = " ".join((p.get("nome") or "").split())
+                if not nome:
+                    continue
+                nome_ar = " ".join((p.get("nome_ar") or "").split())
+                chave_ar = glossary.chave_arabe(nome_ar) if nome_ar else ""
+                c.execute("""
+                    INSERT INTO jogador (spl_id, nome, nome_ar, chave_lat,
+                        chave_ar, chave_ar_colada, clube, posicao, camisa,
+                        nacionalidade, nascimento, altura, atualizado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (spl_id) DO NOTHING
+                """, [pid, nome, nome_ar, glossary.chave_latina(nome), chave_ar,
+                      glossary.chave_colada(chave_ar), _clube(p.get("clube")),
+                      p.get("posicao") or "", str(p.get("camisa") or ""),
+                      p.get("nacionalidade") or "", nasc, alt])
+                novos += 1
+    except Exception as e:
+        print(f"⚠️ salvar_perfis: {e}")
+        return {"completados": completados, "novos": novos, "erro": str(e)}
+    return {"completados": completados, "novos": novos,
+            "vieram_sem_data": sem_data}
+
+
+def jogadores_sem_nascimento(limite: int = 600) -> list[dict]:
+    """Quem ainda não tem data, com o nome mais curto primeiro.
+
+    A ordem importa: o slug da página é chutado a partir do nome, e nome de
+    duas palavras acerta o chute muito mais que nome de cinco. Como uma página
+    rende o elenco todo, começar pelos fáceis reduz o número de tentativas.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT spl_id, nome, clube FROM jogador
+                          WHERE nascimento IS NULL AND nome <> ''
+                       ORDER BY array_length(string_to_array(nome, ' '), 1),
+                                length(nome)
+                          LIMIT %s""", [limite])
+            return [{"spl_id": a, "nome": b, "clube": c_} for a, b, c_ in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ jogadores_sem_nascimento: {e}")
+        return []
+
+
+def salvar_af_jogadores(linhas: list[dict], temporada: int) -> dict:
+    """O cadastro da API-Football. Uma linha por pessoa."""
+    if not linhas:
+        return {"gravados": 0}
+    gravados = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for p in linhas:
+                if not p.get("af_id"):
+                    continue
+                c.execute("""
+                    INSERT INTO af_jogador (af_id, nome, primeiro, ultimo,
+                        nascimento, altura, nacionalidade, clube, foto,
+                        temporada, atualizado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (af_id) DO UPDATE SET
+                        nome          = COALESCE(NULLIF(EXCLUDED.nome, ''), af_jogador.nome),
+                        primeiro      = COALESCE(NULLIF(EXCLUDED.primeiro, ''), af_jogador.primeiro),
+                        ultimo        = COALESCE(NULLIF(EXCLUDED.ultimo, ''), af_jogador.ultimo),
+                        nascimento    = COALESCE(EXCLUDED.nascimento, af_jogador.nascimento),
+                        altura        = COALESCE(EXCLUDED.altura, af_jogador.altura),
+                        nacionalidade = COALESCE(NULLIF(EXCLUDED.nacionalidade, ''), af_jogador.nacionalidade),
+                        clube         = COALESCE(NULLIF(EXCLUDED.clube, ''), af_jogador.clube),
+                        foto          = COALESCE(NULLIF(EXCLUDED.foto, ''), af_jogador.foto),
+                        temporada     = GREATEST(EXCLUDED.temporada, af_jogador.temporada),
+                        atualizado_em = NOW()
+                """, [p["af_id"], p.get("nome") or "", p.get("primeiro") or "",
+                      p.get("ultimo") or "", (p.get("nascimento") or "")[:10] or None,
+                      _inteiro(p.get("altura")), p.get("nacionalidade") or "",
+                      _clube(p.get("clube")), p.get("foto") or "", temporada])
+                gravados += 1
+    except Exception as e:
+        print(f"⚠️ salvar_af_jogadores: {e}")
+        return {"gravados": gravados, "erro": str(e)}
+    return {"gravados": gravados}
+
+
+def cruzar_por_nascimento() -> dict:
+    """Liga o jogador da liga ao da API-Football pela DATA DE NASCIMENTO.
+
+    A diferença para o cruzamento por nome é de natureza, não de grau. Nome é
+    grafia: 'Al Hussain', 'Al-Hussain' e 'A. Al Hussain' são a mesma pessoa
+    escrita por três redações. Data é fato: 1996-05-04 é 1996-05-04 em
+    qualquer alfabeto. Por isso aqui a data é o CRITÉRIO e o nome é só
+    confirmação.
+
+    O risco desta chave não é a grafia, é a coincidência: dois jogadores
+    nascidos no mesmo dia. Acontece — com ~500 pessoas e 365 dias, é esperado.
+    Então quando uma data tem mais de um candidato de algum lado eu não
+    escolho: exijo que a NACIONALIDADE desempate, e se ela não desempatar, o
+    par fica de fora. Continuo preferindo um vazio a um acerto plausível.
+    """
+    import glossary
+    from collections import defaultdict
+    casados = ja_tinha = ambiguos = desempatados = nome_briga = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT spl_id, nome, nacionalidade, af_id, nascimento
+                           FROM jogador WHERE nascimento IS NOT NULL""")
+            liga = defaultdict(list)
+            for spl, nome, nac, af, nasc in c.fetchall():
+                liga[nasc].append({"spl": spl, "nome": nome or "",
+                                   "nac": (nac or "").lower(), "af": af})
+
+            c.execute("""SELECT af_id, nome, primeiro, ultimo, nacionalidade,
+                                nascimento FROM af_jogador
+                          WHERE nascimento IS NOT NULL""")
+            deles = defaultdict(list)
+            for af, nome, pri, ult, nac, nasc in c.fetchall():
+                deles[nasc].append({"af": af, "nome": nome or "",
+                                    "cheio": " ".join(x for x in (pri, ult) if x),
+                                    "nac": (nac or "").lower()})
+
+            for nasc, aqui in liga.items():
+                la = deles.get(nasc) or []
+                if not la:
+                    continue
+                # Um par por pessoa, e não um par por data: com dois nascidos
+                # no mesmo dia, resolver só o primeiro deixaria o segundo
+                # eternamente de fora, porque a próxima rodada pararia no
+                # mesmo lugar.
+                pares = []
+                if len(aqui) == 1 and len(la) == 1:
+                    pares.append((aqui[0], la[0]))
+                else:
+                    # Mesma data, mais de uma pessoa. A nacionalidade decide,
+                    # ou ninguém decide.
+                    for a in aqui:
+                        if not a["nac"]:
+                            continue
+                        iguais = [b for b in la if b["nac"] == a["nac"]]
+                        meus = [x for x in aqui if x["nac"] == a["nac"]]
+                        if len(iguais) == 1 and len(meus) == 1:
+                            pares.append((a, iguais[0]))
+                            desempatados += 1
+                    if not pares:
+                        ambiguos += 1
+                        continue
+                for a, b in pares:
+                    if a["af"]:
+                        ja_tinha += 1
+                        continue
+                    # O nome não escolhe, mas pode VETAR: sem UMA palavra em
+                    # comum, é mais provável que a data seja coincidência do
+                    # que que as duas fontes falem da mesma pessoa.
+                    meu = set(glossary.chave_latina(a["nome"]).split())
+                    seu = set(glossary.chave_latina(b["cheio"] or b["nome"]).split())
+                    if meu and seu and not (meu & seu):
+                        nome_briga += 1
+                        continue
+                    c.execute("SELECT 1 FROM jogador WHERE af_id = %s AND spl_id <> %s",
+                              [b["af"], a["spl"]])
+                    if c.fetchone():
+                        ambiguos += 1
+                        continue
+                    c.execute("UPDATE jogador SET af_id = %s WHERE spl_id = %s",
+                              [b["af"], a["spl"]])
+                    casados += 1
+    except Exception as e:
+        print(f"⚠️ cruzar_por_nascimento: {e}")
+        return {"erro": str(e)}
+    r = {"casados": casados, "ja_tinham": ja_tinha, "ambiguos": ambiguos,
+         "desempatados_pela_nacionalidade": desempatados,
+         "recusados_pelo_nome": nome_briga}
+    print(f"[NASCIMENTO] {r}", flush=True)
+    return r
+
+
+def contar_af_jogadores() -> dict:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT COUNT(*),
+                                COUNT(*) FILTER (WHERE nascimento IS NOT NULL),
+                                COUNT(*) FILTER (WHERE altura IS NOT NULL),
+                                MAX(temporada)
+                           FROM af_jogador""")
+            t, nasc, alt, temp = c.fetchone()
+            return {"total": t, "com_nascimento": nasc, "com_altura": alt,
+                    "temporada": temp}
+    except Exception as e:
+        return {"erro": str(e)}
 
 
 def contar_jogadores() -> dict:
