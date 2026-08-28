@@ -13980,6 +13980,10 @@ async def diag_nomes():
     linhas.append(f"  com data de nascimento ..... {n.get('com_nascimento')}")
     linhas.append(f"  com altura ................. {n.get('com_altura')}")
     linhas.append(f"  clubes ..................... {n.get('clubes')}")
+    sem_clube = pega("SELECT COUNT(*) FROM jogador "
+                     "WHERE clube IS NULL OR clube = ''")
+    linhas.append(f"  SEM clube .................. "
+                  f"{sem_clube[0][0] if sem_clube else '?'}")
     faltando = pega("SELECT nome, clube FROM jogador "
                     "WHERE nome_ar IS NULL OR nome_ar = '' ORDER BY nome")
     if faltando:
@@ -14177,9 +14181,9 @@ def colher_perfis(teto: int = 0) -> dict:
     """
     import httpx
     import perfil_spl
-    from database import jogadores_sem_nascimento, salvar_perfis
+    from database import jogadores_a_completar, salvar_perfis
 
-    faltam = jogadores_sem_nascimento()
+    faltam = jogadores_a_completar()
     if not faltam:
         return {"nada_a_fazer": True, **contar_jogadores()}
     with httpx.Client() as cliente:

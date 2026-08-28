@@ -95,6 +95,43 @@ def conferir_ordem(caminho):
     return problemas
 
 
+def conferir_ordem_interna(caminho):
+    """A mesma regra, mas DENTRO de cada função.
+
+    O verificador acima só olha o nível do módulo, e por isso não via um
+    defeito que eu acabei de escrever: uma rota que chamava um `def` auxiliar
+    declarado vinte linhas mais abaixo, dentro dela mesma. Compila, importa,
+    passa em tudo — e estoura com NameError na primeira vez que alguém abre a
+    página. Como a rota em questão é pública, o sintoma seria um 500 para
+    quem entrasse, sem nada nos testes apontando para a causa.
+
+    Chamada de um aninhado DENTRO de outro aninhado não conta: essa só
+    executa depois, e recursão mútua entre auxiliares é legítima.
+    """
+    arvore = ast.parse(open(caminho, encoding="utf-8").read())
+    problemas = []
+    for f in ast.walk(arvore):
+        if not isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        # onde cada auxiliar passa a existir
+        nasce = {}
+        for s in f.body:
+            if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                nasce.setdefault(s.name, s.lineno)
+        if not nasce:
+            continue
+        for s in f.body:
+            if isinstance(s, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for n in ast.walk(s):
+                if (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                        and n.id in nasce and n.lineno < nasce[n.id]):
+                    problemas.append(
+                        f"{f.name}() usa {n.id}() na linha {n.lineno}, "
+                        f"mas ele só é definido na {nasce[n.id]}")
+    return problemas
+
+
 os.chdir(RAIZ)
 ARQUIVOS = ["main.py", "database.py", "scheduler.py", "gravador.py",
             "ajustes.py", "glossary.py", "fim_sportmonks.py", "x_client.py",
@@ -117,6 +154,15 @@ for a in ("main.py", "database.py", "gravador.py", "scheduler.py",
     p = conferir_ordem(a)
     ok(not p, f"{a}: nome usado antes de existir: {p[:4]}")
 print("  nenhum nome usado antes de existir")
+
+# ── 2b. e a mesma regra dentro das funções ─────────────────────────────────
+# Escrevi, na rota de diagnóstico, uma chamada a um auxiliar declarado mais
+# abaixo dentro dela mesma. Compilava, importava, e ia dar NameError na
+# primeira visita — numa rota pública, sem login.
+for a in ARQUIVOS + ["perfil_spl.py", "previa.py", "liga_spl.py"]:
+    p = conferir_ordem_interna(a)
+    ok(not p, f"{a}: {p[:3]}")
+print("  nem auxiliar chamado antes da própria definição")
 
 # ── 3. o que os outros importam de main tem que existir ────────────────────
 principal = _nomes_do_modulo(ast.parse(open("main.py", encoding="utf-8").read()))

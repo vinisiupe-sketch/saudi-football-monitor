@@ -456,18 +456,27 @@ def salvar_perfis(gente: dict) -> dict:
                     sem_data += 1
                 c.execute("SELECT 1 FROM jogador WHERE spl_id = %s", [pid])
                 if c.fetchone():
-                    # O clube só ENTRA onde está vazio. A escalação é uma
-                    # fonte melhor que a página de elenco — ela diz onde a
-                    # pessoa jogou, e com data. Sobrescrever com o elenco de
+                    # Clube e nome árabe só ENTRAM onde está vazio. A escalação
+                    # é uma fonte melhor que a página de elenco — ela diz onde
+                    # a pessoa jogou, e com data. Sobrescrever com o elenco de
                     # hoje apagaria isso em quem trocou de time.
+                    ar = " ".join((p.get("nome_ar") or "").split())
+                    ch = glossary.chave_arabe(ar) if ar else ""
                     c.execute("""UPDATE jogador
                                     SET nascimento = COALESCE(%s, nascimento),
                                         altura     = COALESCE(%s, altura),
                                         clube      = COALESCE(NULLIF(jogador.clube, ''),
                                                               NULLIF(%s, '')),
+                                        nome_ar    = COALESCE(NULLIF(jogador.nome_ar, ''),
+                                                              NULLIF(%s, '')),
+                                        chave_ar   = COALESCE(NULLIF(jogador.chave_ar, ''),
+                                                              NULLIF(%s, '')),
+                                        chave_ar_colada = COALESCE(NULLIF(jogador.chave_ar_colada, ''),
+                                                              NULLIF(%s, '')),
                                         atualizado_em = NOW()
                                   WHERE spl_id = %s""",
-                              [nasc, alt, _clube(p.get("clube")), pid])
+                              [nasc, alt, _clube(p.get("clube")), ar, ch,
+                               glossary.chave_colada(ch), pid])
                     completados += 1
                     continue
                 nome = " ".join((p.get("nome") or "").split())
@@ -493,24 +502,32 @@ def salvar_perfis(gente: dict) -> dict:
             "vieram_sem_data": sem_data}
 
 
-def jogadores_sem_nascimento(limite: int = 600) -> list[dict]:
-    """Quem ainda não tem data, com o nome mais curto primeiro.
+def jogadores_a_completar(limite: int = 600) -> list[dict]:
+    """Quem a página de elenco ainda tem o que dar, com o nome curto primeiro.
 
     A ordem importa: o slug da página é chutado a partir do nome, e nome de
     duas palavras acerta o chute muito mais que nome de cinco. Como uma página
     rende o elenco todo, começar pelos fáceis reduz o número de tentativas.
+
+    O critério já foi só "sem data", e isso deixou um buraco: quando a colheita
+    passou a preencher o CLUBE, quem já tinha ganhado a data na rodada anterior
+    não era mais candidato, e ficou sem clube para sempre. Uma correção que só
+    vale para quem ainda não foi visitado não corrige nada.
     """
     try:
         with get_conn() as conn:
             c = conn.cursor()
             c.execute("""SELECT spl_id, nome, clube FROM jogador
-                          WHERE nascimento IS NULL AND nome <> ''
+                          WHERE nome <> ''
+                            AND (nascimento IS NULL
+                                 OR clube IS NULL OR clube = ''
+                                 OR nome_ar IS NULL OR nome_ar = '')
                        ORDER BY array_length(string_to_array(nome, ' '), 1),
                                 length(nome)
                           LIMIT %s""", [limite])
             return [{"spl_id": a, "nome": b, "clube": c_} for a, b, c_ in c.fetchall()]
     except Exception as e:
-        print(f"⚠️ jogadores_sem_nascimento: {e}")
+        print(f"⚠️ jogadores_a_completar: {e}")
         return []
 
 
