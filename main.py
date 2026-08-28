@@ -8121,6 +8121,9 @@ __HDR__
     na pr&oacute;xima consulta.</p>
   <div id="lista">carregando...</div>
 
+  <div class="grupo">Jogadores</div>
+  <div id="elenco">carregando...</div>
+
   <div class="grupo">Convidar</div>
   <div id="convites">carregando...</div>
 
@@ -8260,6 +8263,7 @@ async function salvar(a, entrada, estado, padrao) {
 carregar();
 carregarContas();
 carregarConvites();
+carregarElenco();
 
 async function carregarContas() {
   const alvo = document.getElementById('contas');
@@ -8478,6 +8482,88 @@ async function gerarConvite(papel, onde, botao) {
     alert('nao deu: ' + (e.message || e));
   }
   botao.disabled = false;
+}
+
+// ── Quem joga na liga ─────────────────────────────────────────────────────
+// A varredura le a escalacao de cada partida ja disputada nos dois idiomas.
+// Sao ~600 requisicoes numa API aberta, entao ela nao roda sozinha em toda
+// subida: roda no agendamento semanal, ou aqui quando voce mandar.
+async function carregarElenco() {
+  const alvo = document.getElementById('elenco');
+  if (!alvo) return;
+  let d;
+  try {
+    const r = await fetch('/api/jogadores?limite=1');
+    d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+  } catch (e) {
+    alvo.innerHTML = '<p class="ajuda" style="color:#FD5D5D">' + esc(e.message) + '</p>';
+    return;
+  }
+  const n = d.resumo || {};
+  alvo.innerHTML = '';
+
+  const item = document.createElement('div');
+  item.className = 'item';
+  const linha = document.createElement('div');
+  linha.className = 'linha';
+  const rot = document.createElement('div');
+  rot.className = 'rotulo';
+  rot.textContent = (n.total || 0) + ' jogador(es) em ' + (n.clubes || 0) + ' clube(s)';
+  linha.appendChild(rot);
+
+  const curto = document.createElement('button');
+  curto.className = 'padrao';
+  curto.textContent = 'varrer 5 jogos';
+  curto.onclick = function () { varrer(5, item, curto); };
+  linha.appendChild(curto);
+
+  const tudo = document.createElement('button');
+  tudo.className = 'padrao';
+  tudo.textContent = 'varrer a temporada';
+  tudo.onclick = function () {
+    if (!confirm('Isso le a escalacao de TODAS as partidas ja disputadas, em '
+               + 'dois idiomas. Sao centenas de requisicoes e leva alguns '
+               + 'minutos. Seguir?')) return;
+    varrer(0, item, tudo);
+  };
+  linha.appendChild(tudo);
+  item.appendChild(linha);
+
+  const a = document.createElement('p');
+  a.className = 'ajuda';
+  a.textContent = (n.com_arabe || 0) + ' com nome em arabe, '
+    + (n.com_foto || 0) + ' com foto, '
+    + (n.com_transfermarkt || 0) + ' com id do Transfermarkt. '
+    + 'O nome nas duas escritas vem da propria liga, com o mesmo id — '
+    + 'e a ponte que vai casar a noticia arabe com o jogador.';
+  item.appendChild(a);
+  alvo.appendChild(item);
+}
+
+async function varrer(jogos, onde, botao) {
+  const antes = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'varrendo...';
+  try {
+    const r = await fetch('/api/jogadores/varrer', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({jogos: jogos})
+    });
+    const j = await r.json();
+    if (!r.ok || j.erro) throw new Error(j.erro || ('HTTP ' + r.status));
+    const p = document.createElement('p');
+    p.className = 'ajuda';
+    p.style.color = 'var(--c-acento)';
+    p.textContent = j.jogos_lidos + ' jogo(s) lido(s), ' + j.pessoas
+      + ' pessoa(s), ' + j.novos + ' nova(s) e ' + j.atualizados + ' atualizada(s).';
+    onde.appendChild(p);
+    setTimeout(carregarElenco, 1200);
+  } catch (e) {
+    alert('nao deu: ' + (e.message || e));
+  }
+  botao.disabled = false;
+  botao.textContent = antes;
 }
 """
 
@@ -13910,5 +13996,16 @@ async def api_jogadores_varrer(request: Request):
 
 
 @app.get("/api/jogadores")
-async def api_jogadores(clube: str = ""):
-    return {"resumo": contar_jogadores(), "jogadores": listar_jogadores(clube)}
+async def api_jogadores(clube: str = "", limite: int = 600):
+    """O resumo sempre; a lista só se você pedir.
+
+    A tela de Configurações quer os números, não as 450 linhas — puxar tudo
+    para mostrar uma contagem é o tipo de peso que ninguém percebe até a
+    página começar a demorar.
+    """
+    try:
+        limite = max(0, min(int(limite), 2000))
+    except (TypeError, ValueError):
+        limite = 600
+    return {"resumo": contar_jogadores(),
+            "jogadores": listar_jogadores(clube, limite) if limite else []}

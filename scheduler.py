@@ -174,6 +174,18 @@ def create_scheduler() -> AsyncIOScheduler:
         id="previa_oficial",
         replace_existing=True,
     )
+    # Segunda-feira de manhã, depois de a rodada ter acabado. Um dia de atraso
+    # na tabela de jogadores não custa nada; centenas de requisições diárias
+    # numa API aberta, sim.
+    scheduler.add_job(
+        run_varrer_jogadores,
+        trigger="cron",
+        day_of_week="mon",
+        hour=4,
+        minute=30,
+        id="varrer_jogadores_semanal",
+        replace_existing=True,
+    )
     # 8h de Brasília = 11h UTC. A escala de arbitragem do SAFF sai no dia, em
     # horário que eles não anunciam. Uma passada só, como combinado; se o SAFF
     # atrasar, o botão "Buscar no SAFF agora" na guia resolve na hora.
@@ -241,6 +253,25 @@ async def run_varredura_competicoes():
         return r
     except Exception as e:
         print(f"❌ Erro na varredura de competições: {e}")
+        return {"erro": str(e)}
+
+
+async def run_varrer_jogadores():
+    """Atualiza a tabela de jogadores com quem foi relacionado nos jogos novos.
+
+    Semanal, e não diária: o elenco muda de rodada em rodada, não de hora em
+    hora. E a varredura fala com uma API aberta, sem chave — bater nela todo
+    dia por um ganho de um dia seria abusar de quem deixou a porta destrancada.
+    """
+    try:
+        from main import varrer_jogadores
+        r = await asyncio.to_thread(varrer_jogadores)
+        print(f"👤 Jogadores: {r.get('pessoas')} pessoas em "
+              f"{r.get('jogos_lidos')} jogos — {r.get('novos')} novas, "
+              f"{r.get('atualizados')} atualizadas")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao varrer jogadores: {type(e).__name__}: {e}")
         return {"erro": str(e)}
 
 
