@@ -94,6 +94,103 @@ def testar():
     d = mercado.chave_da_negociacao("Gabriel Martinelli", "Al Hilal SFC")
     conferir("apelido do clube, mesma negociação", d, a)
 
+    # ── 4b. a mesma negociação escrita de dois jeitos ──────────────────────
+    # Caso real do primeiro relatório: 'Ollie Watkins → Al Hilal' com 21
+    # fontes e 'Watkins → Al Hilal' com 6 — a mesma transferência partida em
+    # dois cards, porque minha chave usava o nome inteiro. A imprensa alterna
+    # nome completo e sobrenome na mesma cobertura; isso é o normal dela.
+    ok(mercado.mesma_pessoa("Ollie Watkins", "Watkins"),
+       "'Watkins' e 'Ollie Watkins' continuam sendo duas pessoas")
+    ok(mercado.mesma_pessoa("Moussa Diaby", "Diaby"), "Diaby não juntou")
+    ok(mercado.mesma_pessoa("Franck Kessié", "Frank Kessie"),
+       "Franck e Frank Kessié continuam separados — é variação de grafia")
+    conferir("a chave junta os dois",
+             mercado.chave_da_negociacao("Watkins", "Al Hilal"),
+             mercado.chave_da_negociacao("Ollie Watkins", "Al Hilal"))
+
+    # E o conserto NÃO pode colar duas pessoas de verdade. Salem e Mohammed Al
+    # Dawsari existem os dois, e o sobrenome é o mesmo.
+    ok(not mercado.mesma_pessoa("Salem Al Dawsari", "Mohammed Al Dawsari"),
+       "colei dois Al Dawsari — o conserto do Watkins criou um problema pior")
+    ok(not mercado.mesma_pessoa("Ali Al Hassan", "Fahad Al Hassan"),
+       "colei dois Al Hassan")
+    # 'Al' é partícula, não sobrenome — e a imprensa cita 'Al Bulayhi' sozinho.
+    conferir("o sobrenome ignora o 'Al'",
+             mercado.sobrenome("Ali Al Bulayhi"), "bulayhi")
+    ok(mercado.mesma_pessoa("Ali Al Bulayhi", "Al Bulayhi"),
+       "o sobrenome com artigo, sozinho, virou outra pessoa")
+
+    # ── 4c. agrupar de verdade ─────────────────────────────────────────────
+    def passo(quando, status, fonte="x"):
+        return {"quando": quando, "status": status, "fonte": fonte, "titulo": ""}
+
+    extracoes = [
+        (dict(BOM, jogador="Watkins", clube_destino="Al Hilal",
+              clube_origem="", valor="", status="Encaminhado"),
+         passo("2026-08-25", "Encaminhado")),
+        (dict(BOM, jogador="Ollie Watkins", clube_destino="Al Hilal",
+              clube_origem="Aston Villa", valor="58 milhões", status="Acerto"),
+         passo("2026-08-26", "Acerto")),
+        (dict(BOM, jogador="Watkins", clube_destino="Al Hilal",
+              clube_origem="", valor="", status="Anunciado"),
+         passo("2026-08-27", "Anunciado")),
+        # Outro clube pelo mesmo jogador: negociação DIFERENTE.
+        (dict(BOM, jogador="Ollie Watkins", clube_destino="Al Nassr",
+              clube_origem="Aston Villa", status="Sondagem"),
+         passo("2026-08-24", "Sondagem")),
+    ]
+    grupos = mercado.agrupar(extracoes)
+    conferir("três notícias do Watkins viraram um card só, e o Al Nassr outro",
+             len(grupos), 2)
+    hilal = next(g for g in grupos if "Hilal" in g["clube_destino"])
+    conferir("o card juntou os três passos", len(hilal["passos"]), 3)
+    conferir("ficou com o nome mais completo", hilal["jogador"], "Ollie Watkins")
+    conferir("o status é o do passo mais recente", hilal["status"], "Anunciado")
+    conferir("os passos ficam em ordem",
+             [p["quando"] for p in hilal["passos"]],
+             ["2026-08-25", "2026-08-26", "2026-08-27"])
+    # A nota curta não diz de onde ele sai; a longa diz. Vazio não apaga.
+    conferir("a origem veio da notícia que tinha", hilal["clube_origem"],
+             "Aston Villa")
+    conferir("o valor também", hilal["valor"], "58 milhões")
+
+    # ── 4d. só o mercado daqui ─────────────────────────────────────────────
+    # O coletor traz Julián Álvarez para o Barcelona e Igor Paixão para o
+    # Sunderland. É notícia de verdade e não é a guia dele.
+    ok(mercado.toca_a_liga("Aston Villa", "Al Hilal"), "chegada não passou")
+    ok(mercado.toca_a_liga("Al Qadsiah", "Kalamata"),
+       "saída de clube saudita não passou — e é notícia dele")
+    ok(not mercado.toca_a_liga("Atletico Madrid", "Barcelona"),
+       "Álvarez para o Barcelona entrou na guia do futebol saudita")
+    ok(not mercado.toca_a_liga("", ""), "negociação sem clube nenhum passou")
+
+    # ── 4e. qual clube a busca devolveu ────────────────────────────────────
+    # Eu exigia UM resultado só, e isso derrubou quase todos os rostos:
+    # 'Arsenal' devolve o Arsenal, o feminino e o de Sarandí.
+    arsenais = [{"id": 42, "nome": "Arsenal"},
+                {"id": 500, "nome": "Arsenal W"},
+                {"id": 900, "nome": "Arsenal de Sarandí"}]
+    conferir("o exato ganha dos parecidos",
+             (mercado.escolher_clube("Arsenal", arsenais) or {}).get("id"), 42)
+    conferir("resultado único sem exato ainda serve",
+             (mercado.escolher_clube("Aston Villa",
+                                     [{"id": 66, "nome": "Aston Villa FC"}])
+              or {}).get("id"), 66)
+    # Dois exatos: aí eu desisto mesmo. 'Al Ahli' existe em meio mundo árabe.
+    dois_ahli = [{"id": 1, "nome": "Al Ahli"}, {"id": 2, "nome": "Al-Ahli"}]
+    conferir("dois clubes com o mesmo nome não decidem",
+             mercado.escolher_clube("Al Ahli", dois_ahli), None)
+    # O caso que mais importa aqui, e que eu quase não testei: a notícia diz
+    # só 'Manchester'. Nenhum resultado bate exato e são dois clubes de
+    # verdade. Pegar o primeiro escolheria entre United e City no cara ou
+    # coroa — e o card sairia com o escudo errado, parecendo certo.
+    manchesters = [{"id": 33, "nome": "Manchester United"},
+                   {"id": 50, "nome": "Manchester City"}]
+    conferir("'Manchester' não decide entre United e City",
+             mercado.escolher_clube("Manchester", manchesters), None)
+    conferir("busca vazia", mercado.escolher_clube("Arsenal", []), None)
+    conferir("sem nome procurado", mercado.escolher_clube("", arsenais), None)
+
     # ── 5. o rosto: quem está na liga sai de graça ─────────────────────────
     import elos
     gente = [

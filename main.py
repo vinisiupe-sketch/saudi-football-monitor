@@ -14509,19 +14509,23 @@ async def _achar_de_fora(nome: str, clube_origem: str) -> dict | None:
     buscar o nome solto — que devolve 28 'Martinelli' com o Gabriel em quarto.
     """
     if not nome or not clube_origem:
-        return None
+        return None, "notícia não disse de que clube ele sai"
+    import mercado as _m
     times, erro = await _af_get("teams", {"search": clube_origem[:30]}, ttl=86400)
     if erro:
-        return None
-    achados = times.get("response") or []
-    if len(achados) != 1:
-        # Dois clubes com nome parecido: não escolho. 'Al Ahli' existe em
-        # meio mundo árabe, e pegar o primeiro traria o elenco errado.
-        return None
-    tid = ((achados[0].get("team") or {}).get("id"))
+        return None, f"erro na busca do clube: {erro}"
+    achados = [{"id": (t.get("team") or {}).get("id"),
+                "nome": (t.get("team") or {}).get("name") or ""}
+               for t in (times.get("response") or [])]
+    clube = _m.escolher_clube(clube_origem, achados)
+    if not clube:
+        return None, (f"clube '{clube_origem}' deu {len(achados)} resultado(s), "
+                      f"nenhum exato")
+    tid = clube.get("id")
     if not tid:
-        return None
+        return None, "clube achado sem id"
     temporada = _af_temporada_corrente()
+    visto = 0
     for ano in (temporada, temporada - 1):
         d, erro = await _af_get("players", {"search": nome.split()[-1][:20],
                                             "team": tid, "season": ano}, ttl=86400)
@@ -14539,11 +14543,12 @@ async def _achar_de_fora(nome: str, clube_origem: str) -> dict | None:
                 "nacionalidade": p.get("nationality") or "",
                 "altura": (p.get("height") or "").replace("cm", "").strip(),
             })
-        import mercado as _m
+        visto = max(visto, len(candidatos))
         escolhido = _m.escolher_de_fora(nome, candidatos, clube_origem)
         if escolhido:
-            return escolhido
-    return None
+            return escolhido, ""
+    return None, (f"'{nome}' não achado no elenco do {clube.get('nome')} "
+                  f"({visto} jogador(es) olhado(s))")
 
 
 @app.get("/api/diag/mercado", response_class=PlainTextResponse)
@@ -14595,8 +14600,8 @@ async def diag_mercado(dias: int = 30, limite: int = 120):
     indice, _ = elos.indice_de_jogadores(gente)
     por_id = {j["spl_id"]: j for j in gente}
 
-    negociacoes: dict[str, dict] = {}
-    nao_era = 0
+    extracoes: list[tuple] = []
+    nao_era = fora_da_liga = 0
     async with httpx.AsyncClient(timeout=60.0) as cliente:
         for i in range(0, len(artigos), 5):
             lote = artigos[i:i + 5]
@@ -14608,46 +14613,61 @@ async def diag_mercado(dias: int = 30, limite: int = 120):
                 if isinstance(d, Exception) or not d:
                     nao_era += 1
                     continue
-                chave = mercado.chave_da_negociacao(d["jogador"], d["clube_destino"])
-                n = negociacoes.setdefault(chave, {**d, "passos": []})
-                n["passos"].append({
+                # O coletor traz o mercado do mundo inteiro; a guia é sobre o
+                # daqui. Basta um dos dois lados ser clube da liga.
+                if not mercado.toca_a_liga(d["clube_origem"], d["clube_destino"]):
+                    fora_da_liga += 1
+                    continue
+                extracoes.append((d, {
                     "quando": (a[3] or a[4] or "")[:10],
                     "fonte": a[1] or "?", "status": d["status"],
                     "titulo": (a[6] or a[5] or "")[:70],
-                })
+                }))
             await asyncio.sleep(0.3)
+
+    ordenadas = mercado.agrupar(extracoes)
 
     # Quem é quem: liga primeiro (de graça), depois a API-Football.
     da_liga = de_fora = sem_rosto = 0
-    for n in negociacoes.values():
+    motivos: dict[str, int] = {}
+    for n in ordenadas:
         spl = mercado.procurar_na_liga(n["jogador"], indice)
         if spl:
             j = por_id.get(spl) or {}
             n["quem"] = f"liga · {j.get('nome')} ({j.get('clube')})"
             n["rosto"] = bool(j.get("foto"))
+            # A notícia curta muitas vezes não diz de onde ele sai. Se eu já
+            # sei quem é, sei o clube dele — e é dado, não chute.
+            if not n["clube_origem"] and j.get("clube"):
+                n["clube_origem"] = j["clube"]
             da_liga += 1
             continue
-        achado = await _achar_de_fora(n["jogador"], n["clube_origem"])
+        achado, porque = await _achar_de_fora(n["jogador"], n["clube_origem"])
         if achado:
             n["quem"] = (f"API-Football · {achado['nome']} "
                          f"({achado['clube']}, nasc {achado['nascimento'] or '—'})")
             n["rosto"] = bool(achado.get("foto"))
             de_fora += 1
         else:
-            n["quem"] = "— não identificado"
+            n["quem"] = f"— {porque}"
             n["rosto"] = False
             sem_rosto += 1
+            chave = porque.split("'")[0].strip() or porque[:40]
+            motivos[chave] = motivos.get(chave, 0) + 1
 
     linhas += ["", "O QUE SAIRIA NA GUIA", "─" * 20,
                f"  notícias lidas ................. {len(artigos)}",
                f"  não eram negociação ............ {nao_era}",
-               f"  NEGOCIAÇÕES distintas .......... {len(negociacoes)}",
+               f"  sem clube saudita (descartadas)  {fora_da_liga}",
+               f"  NEGOCIAÇÕES distintas .......... {len(ordenadas)}",
                f"    identificadas pela liga ...... {da_liga}",
                f"    pela API-Football ............ {de_fora}",
                f"    sem rosto .................... {sem_rosto}"]
+    if motivos:
+        linhas.append("\n  por que ficaram sem rosto:")
+        for m, n_ in sorted(motivos.items(), key=lambda x: -x[1]):
+            linhas.append(f"    {n_:3}  {m}")
 
-    ordenadas = sorted(negociacoes.values(),
-                       key=lambda n: (-len(n["passos"]), n["jogador"]))
     linhas.append("\n  OS CARDS (os de mais passos primeiro):")
     for n in ordenadas[:30]:
         rosto = "🖼" if n["rosto"] else "○"

@@ -151,15 +151,150 @@ async def extrair(artigo: dict, cliente) -> dict | None:
 
 # ── A identidade da negociação ──────────────────────────────────────────────
 def chave_da_negociacao(jogador: str, destino: str) -> str:
-    """Jogador + clube de destino, normalizados.
+    """Sobrenome + clube de destino.
 
-    A escolha é do Vini e ela é a certa: se o Al Hilal e o Al Nassr disputam o
-    mesmo jogador, são DUAS negociações com histórias separadas. Um 'Melou' de
-    uma não pode aparecer na linha do tempo da outra.
+    O destino separa: se o Al Hilal e o Al Nassr disputam o mesmo jogador, são
+    DUAS negociações com histórias separadas, e um 'Melou' de uma não pode
+    aparecer na linha do tempo da outra. Isso foi decisão do Vini e está certo.
+
+    O SOBRENOME junta, e essa parte eu errei na primeira versão. Usei o nome
+    inteiro, e o relatório mostrou o estrago: 'Ollie Watkins → Al Hilal' com 21
+    fontes e 'Watkins → Al Hilal' com 6, a mesma transferência partida em dois
+    cards. O mesmo com Diaby e com Kessié. A imprensa alterna nome completo e
+    sobrenome na mesma cobertura — é o normal dela, não a exceção.
+
+    O destino é o que torna o sobrenome seguro. Dois jogadores de mesmo
+    sobrenome negociando com o MESMO clube ao mesmo tempo é raro; o mesmo
+    jogador escrito de dois jeitos é constante.
     """
     import glossary
     clube = glossary.padronizar_clube(destino) or destino
-    return f"{glossary.chave_latina(jogador)}|{glossary.chave_latina(clube)}"
+    return f"{sobrenome(jogador)}|{glossary.chave_latina(clube)}"
+
+
+def sobrenome(nome: str) -> str:
+    """A última palavra do nome, já normalizada.
+
+    A lista de partículas é DEFESA, não regra testada: tentei quebrar o filtro
+    de propósito e a suíte continuou passando, porque nos nomes reais desta
+    liga a partícula nunca é a última palavra. Deixo porque custa nada e
+    porque 'Nasser Al' truncado é o tipo de coisa que chega de uma fonte
+    qualquer um dia — mas registro aqui que ela não está coberta, para
+    ninguém confiar nela achando que está.
+    """
+    import glossary
+    partes = [p for p in glossary.chave_latina(nome).split()
+              if p not in ("al", "bin", "ibn", "el", "da", "de", "do", "dos")]
+    return partes[-1] if partes else glossary.chave_latina(nome)
+
+
+def _mesmo_comeco(a: str, b: str) -> bool:
+    """'Franck' e 'Frank' são a mesma pessoa; 'Salem' e 'Mohammed' não.
+
+    Quatro letras é o corte, e ele não é arbitrário: é o que separa variação
+    de transliteração de nomes de fato diferentes nos casos que apareceram.
+    """
+    if not a or not b:
+        return True
+    if a.startswith(b) or b.startswith(a):
+        return True
+    return a[:4] == b[:4]
+
+
+def mesma_pessoa(a: str, b: str) -> bool:
+    """Dois nomes na mesma negociação são a mesma pessoa?
+
+    Regra: o sobrenome tem que bater. Aí:
+    - se um dos dois é só o sobrenome ('Watkins'), é a mesma pessoa;
+    - se os dois têm primeiro nome, ele também tem que começar igual.
+
+    A segunda parte existe para não colar Salem Al Dawsari em Mohammed Al
+    Dawsari, que são duas pessoas de verdade no mesmo clube. Sem ela, o
+    conserto do Watkins criaria um problema pior do que o que resolveu.
+    """
+    import glossary
+    if sobrenome(a) != sobrenome(b):
+        return False
+    pa = [p for p in glossary.chave_latina(a).split() if p not in ("al", "bin")]
+    pb = [p for p in glossary.chave_latina(b).split() if p not in ("al", "bin")]
+    if len(pa) < 2 or len(pb) < 2:
+        return True
+    return _mesmo_comeco(pa[0], pb[0])
+
+
+def melhor_nome(a: str, b: str) -> str:
+    """Entre duas grafias da mesma pessoa, a mais completa manda.
+
+    'Ollie Watkins' é melhor que 'Watkins' para mostrar no card, e melhor
+    também para procurar o rosto na API-Football.
+    """
+    return a if len(a.split()) >= len(b.split()) else b
+
+
+def toca_a_liga(origem: str, destino: str) -> bool:
+    """A negociação envolve algum clube da liga saudita?
+
+    O coletor traz o mercado mundial que as fontes publicam — Julián Álvarez
+    para o Barcelona, Igor Paixão para o Sunderland. É notícia de verdade e
+    não é a guia dele. Basta UM lado ser da liga: 'Aarón Martín → Kalamata'
+    fica, porque ele está saindo do Al Qadsiah.
+
+    Uso o glossário, que devolve "" para clube que não reconhece — e é
+    exatamente esse "" que aqui significa "não é da liga".
+    """
+    import glossary
+    return bool(glossary.padronizar_clube(origem or "")
+                or glossary.padronizar_clube(destino or ""))
+
+
+def agrupar(extracoes: list[dict]) -> list[dict]:
+    """As negociações, com as grafias do mesmo nome já reunidas.
+
+    `extracoes` são pares (dados_da_extracao, passo). Devolve uma lista de
+    negociações, cada uma com o melhor nome, o status mais recente e todos os
+    passos em ordem.
+
+    Junto por sobrenome+destino e depois confiro com `mesma_pessoa`, em vez de
+    confiar só na chave: a chave agrupa barato, a conferência é que impede
+    dois Al Dawsari de virarem um.
+    """
+    grupos: list[dict] = []
+    for dados, passo in extracoes:
+        alvo = None
+        for g in grupos:
+            if g["chave"] != chave_da_negociacao(dados["jogador"],
+                                                 dados["clube_destino"]):
+                continue
+            if mesma_pessoa(g["jogador"], dados["jogador"]):
+                alvo = g
+                break
+        if alvo is None:
+            grupos.append({
+                "chave": chave_da_negociacao(dados["jogador"],
+                                             dados["clube_destino"]),
+                "jogador": dados["jogador"],
+                "clube_origem": dados["clube_origem"],
+                "clube_destino": dados["clube_destino"],
+                "valor": dados["valor"],
+                "passos": [passo],
+            })
+            continue
+        alvo["jogador"] = melhor_nome(alvo["jogador"], dados["jogador"])
+        # Campo vazio nunca apaga o que outra notícia trouxe. A cobertura é
+        # feita de notas curtas; quem tem a informação é quem manda.
+        if not alvo["clube_origem"]:
+            alvo["clube_origem"] = dados["clube_origem"]
+        if not alvo["valor"]:
+            alvo["valor"] = dados["valor"]
+        alvo["passos"].append(passo)
+    for g in grupos:
+        g["passos"].sort(key=lambda p: p.get("quando") or "")
+        # O status do card é o do passo MAIS RECENTE, e os anteriores ficam.
+        # A negociação anda para trás — 'Acerto' vira 'Melou' — e apagar o
+        # caminho tiraria justamente o que ele quer narrar.
+        g["status"] = g["passos"][-1].get("status") if g["passos"] else ""
+    grupos.sort(key=lambda g: (-len(g["passos"]), g["jogador"]))
+    return grupos
 
 
 def procurar_na_liga(nome: str, indice: dict) -> str:
@@ -175,6 +310,33 @@ def procurar_na_liga(nome: str, indice: dict) -> str:
     if not achados:
         achados = elos.jogadores_no_texto(nome, "", indice)
     return next(iter(achados)) if len(achados) == 1 else ""
+
+
+def escolher_clube(procurado: str, achados: list[dict]) -> dict | None:
+    """Qual dos clubes que a busca devolveu é o da notícia.
+
+    Eu exigia UM resultado só, e essa regra derrubou quase todos os rostos:
+    procurar 'Arsenal' devolve o Arsenal, o Arsenal feminino e o Arsenal de
+    Sarandí. Três resultados, eu desistia — e o card do Martinelli ficava sem
+    cara por excesso de zelo, não por falta de dado.
+
+    A correção não é aceitar o primeiro. É procurar o que bate EXATO com o
+    nome pedido. Se um só bate exato, é ele. Se nenhum bate ou vários batem,
+    aí sim eu desisto: 'Al Ahli' existe em meio mundo árabe e escolher um
+    traria o elenco errado.
+    """
+    import glossary
+    alvo = glossary.chave_latina(procurado or "")
+    if not alvo or not achados:
+        return None
+    exatos = [c for c in achados
+              if glossary.chave_latina(c.get("nome") or "") == alvo]
+    if len(exatos) == 1:
+        return exatos[0]
+    if len(exatos) > 1:
+        return None
+    # Ninguém exato: só aceito se a busca tiver devolvido um resultado único.
+    return achados[0] if len(achados) == 1 else None
 
 
 def escolher_de_fora(nome: str, candidatos: list[dict], clube_origem: str) -> dict | None:
