@@ -7036,6 +7036,18 @@ async def api_diag_banco():
         return "DATABASE_URL não está configurada no Railway."
     seguro = re.sub(r"//[^@]+@", "//***:***@", url)
     linhas.append(f"endereço : {seguro}")
+    # QUAL CÓDIGO ESTÁ NO AR.
+    #
+    # Passei uma hora sem conseguir responder isso quando um deploy falhou. O
+    # app respondia normalmente — mas o Railway mantém a versão anterior de
+    # pé quando a nova não sobe, e por fora as duas são idênticas. Sem saber
+    # se eu estava olhando o código novo ou o velho, qualquer diagnóstico
+    # meu era chute.
+    #
+    # O Railway injeta estas variáveis sozinho; não precisa configurar nada.
+    sha = (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "")[:7]
+    msg = (os.environ.get("RAILWAY_GIT_COMMIT_MESSAGE") or "").split("\n")[0][:70]
+    linhas.append(f"código   : {sha or '?'}  {msg}")
     ff = _tem_ffmpeg()
     linhas.append(f"ffmpeg   : {ff or 'AUSENTE — a fita de corte não funciona'}")
     if _FALHA_NA_SUBIDA:
