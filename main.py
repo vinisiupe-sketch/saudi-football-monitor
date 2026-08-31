@@ -15101,7 +15101,50 @@ async def diag_coletor(contas: str = "", quantas: int = 6):
                     linhas.append(f"      {quem:44} ❌ {type(e).__name__}")
             linhas.append("")
 
-    linhas += ["RESUMO", "─" * 6]
+    # ── O QUE DE FATO ENTROU NO BANCO ──────────────────────────────────────
+    #
+    # Esta parte é a que importa, e eu só a escrevi depois de errar feio.
+    # Testei os provedores à mão com `?limit=5`, achei canal vazio, e disse a
+    # ele com todas as letras que a credencial do X tinha caducado. Ele
+    # perguntou por que o @lequipe continuava coletando — e o @lequipe
+    # continuava coletando porque nada tinha caducado. Com `limit=50`, que é
+    # o que o app usa de verdade, o mesmo Fabrizio Romano devolve 50 itens.
+    #
+    # Ou seja: eu diagnostiquei a fonte olhando um teste que não reproduzia o
+    # app. A contagem abaixo não tem essa fragilidade — ela lê o que chegou.
+    linhas += ["", "O QUE ENTROU NO BANCO", "─" * 21]
+    try:
+        with get_conn() as conn:
+            cx = conn.cursor()
+            cx.execute("""SELECT substr(collected_at,1,10) AS dia, COUNT(*)
+                            FROM articles
+                           WHERE collected_at >= %s
+                        GROUP BY 1 ORDER BY 1 DESC""",
+                       [(datetime.now(timezone.utc)
+                         - timedelta(days=10)).strftime("%Y-%m-%d")])
+            porta = cx.fetchall()
+            if porta:
+                for dia, n in porta:
+                    linhas.append(f"  {dia}   {n:4}  " + "▪" * min(n // 3, 40))
+            else:
+                linhas.append("  nada nos últimos 10 dias — a coleta parou mesmo.")
+            cx.execute("""SELECT source_name, MAX(collected_at)
+                            FROM articles GROUP BY 1 ORDER BY 2 DESC""")
+            fontes = cx.fetchall()
+            velhas = [(f, q) for f, q in fontes
+                      if (q or "") < (datetime.now(timezone.utc)
+                                      - timedelta(days=3)).strftime("%Y-%m-%d")]
+            linhas.append(f"\n  fontes que trouxeram algo alguma vez: {len(fontes)}")
+            if velhas:
+                linhas.append(f"  SEM TRAZER NADA HÁ MAIS DE 3 DIAS ({len(velhas)}):")
+                for f, q in velhas[:25]:
+                    linhas.append(f"    {str(f)[:28]:28} última em {str(q)[:10]}")
+            else:
+                linhas.append("  todas trouxeram algo nos últimos 3 dias.")
+    except Exception as e:
+        linhas.append(f"  (erro ao contar: {type(e).__name__}: {e})")
+
+    linhas += ["", "RESUMO DOS PROVEDORES", "─" * 21]
     for quem, s in saude.items():
         linhas.append(f"  {quem:44} {s['ok']} com tweets · "
                       f"{s['vazio']} vazios · {s['erro']} com erro")
@@ -15110,7 +15153,9 @@ async def diag_coletor(contas: str = "", quantas: int = 6):
     linhas.append("")
     if s.get("ok"):
         linhas.append("  O provedor principal está trazendo tweets. Se ainda falta")
-        linhas.append("  notícia, o problema é depois daqui — filtro ou tradução.")
+        linhas.append("  notícia, o problema NÃO é a fonte — é o que vem depois:")
+        linhas.append("  o filtro de palavra-chave, a triagem de categoria, a")
+        linhas.append("  tradução, ou a janela de 48h que descarta o que é velho.")
     elif s.get("vazio"):
         linhas.append("  O PRINCIPAL RESPONDE MAS NÃO TRAZ TWEET.")
         linhas.append("  É credencial do X vencida no serviço do RSSHub — no projeto")
