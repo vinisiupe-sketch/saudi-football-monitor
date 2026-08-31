@@ -14563,6 +14563,116 @@ async def _achar_de_fora(nome: str, clube_origem: str) -> dict | None:
                   f"({visto} jogador(es) olhado(s))")
 
 
+async def processar_mercado(dias: int = 30, limite: int = 200,
+                            so_novos: bool = True) -> dict:
+    """Lê as notícias de mercado, monta as negociações e GRAVA.
+
+    A diferença para o `/api/diag/mercado` é uma só: aquele mostra e este
+    escreve. O relatório existiu primeiro de propósito — eu queria que ele
+    olhasse os cards antes de existir tabela, porque foto errada num card é
+    barata de ver e cara de explicar.
+
+    Marco TODAS as notícias como lidas, inclusive as que não eram negociação.
+    Se eu marcasse só as que deram card, as outras voltariam para a fila em
+    toda rodada e ele pagaria de novo, para sempre, pela mesma resposta.
+    """
+    import httpx
+    import mercado
+    import elos
+    from database import (artigos_de_mercado, marcar_mercado_lido,
+                          salvar_negociacao, contar_negociacoes,
+                          listar_jogadores)
+
+    artigos = artigos_de_mercado(dias=dias, limite=limite, so_novos=so_novos)
+    if not artigos:
+        return {"nada_a_fazer": True, **contar_negociacoes()}
+
+    extracoes: list[tuple] = []
+    lidos: list[str] = []
+    nao_era = fora_da_liga = 0
+    async with httpx.AsyncClient(timeout=60.0) as cliente:
+        for i in range(0, len(artigos), 5):
+            lote = artigos[i:i + 5]
+            saidas = await asyncio.gather(
+                *[mercado.extrair(a, cliente) for a in lote],
+                return_exceptions=True)
+            for a, d in zip(lote, saidas):
+                # Erro de rede NÃO conta como lido: eu não perguntei, eu
+                # falhei em perguntar. Marcar aqui perderia a notícia calado.
+                if isinstance(d, Exception):
+                    continue
+                lidos.append(a["id"])
+                if not d:
+                    nao_era += 1
+                    continue
+                if not mercado.toca_a_liga(d["clube_origem"], d["clube_destino"]):
+                    fora_da_liga += 1
+                    continue
+                extracoes.append((d, {
+                    "article_id": a["id"],
+                    "quando": (a.get("published_at") or a.get("collected_at") or "")[:10],
+                    "fonte": a.get("source_name") or "?",
+                    "status": d["status"],
+                    "titulo": (a.get("title_pt") or a.get("title_orig") or "")[:200],
+                    "url": a.get("url") or "",
+                }))
+            await asyncio.sleep(0.3)
+
+    cards = mercado.agrupar(extracoes)
+    gente = listar_jogadores(limite=2000)
+    indice, _ = elos.indice_de_jogadores(gente)
+    por_id = {j["spl_id"]: j for j in gente}
+
+    novas = atualizadas = 0
+    for n in cards:
+        spl = mercado.procurar_na_liga(n["jogador"], indice)
+        if spl:
+            j = por_id.get(spl) or {}
+            n["spl_id"] = spl
+            n["foto"] = j.get("foto") or ""
+            if not n["clube_origem"] and j.get("clube"):
+                n["clube_origem"] = j["clube"]
+        else:
+            achado, _porque = await _achar_de_fora(n["jogador"], n["clube_origem"])
+            if achado:
+                n["af_id"] = achado.get("af_id")
+                n["foto"] = achado.get("foto") or ""
+        r = salvar_negociacao(n)
+        if r == "nova":
+            novas += 1
+        elif r == "atualizada":
+            atualizadas += 1
+
+    marcados = marcar_mercado_lido(lidos)
+    resumo = {"noticias_lidas": len(lidos), "nao_eram_negociacao": nao_era,
+              "sem_clube_saudita": fora_da_liga, "cards_novos": novas,
+              "cards_atualizados": atualizadas, "marcadas": marcados,
+              **contar_negociacoes()}
+    print(f"[MERCADO] {resumo}", flush=True)
+    return resumo
+
+
+@app.post("/api/mercado/processar")
+async def api_mercado_processar(request: Request):
+    """Roda o extrator e grava. `dias` limita; `tudo` reprocessa o já lido."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        corpo = {}
+    return await processar_mercado(
+        dias=int(corpo.get("dias") or 30),
+        limite=int(corpo.get("limite") or 200),
+        so_novos=not corpo.get("tudo"))
+
+
+@app.get("/api/mercado")
+async def api_mercado(dias: int = 45, limite: int = 60):
+    """Os cards prontos para a tela."""
+    from database import negociacoes, contar_negociacoes
+    return {"cards": negociacoes(limite=limite, dias=dias),
+            "resumo": contar_negociacoes()}
+
+
 @app.get("/api/diag/mercado", response_class=PlainTextResponse)
 async def diag_mercado(dias: int = 30, limite: int = 120):
     """O que a guia de Mercado viraria — SEM GRAVAR NADA.

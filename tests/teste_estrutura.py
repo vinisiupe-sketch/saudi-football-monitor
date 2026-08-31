@@ -95,6 +95,65 @@ def conferir_ordem(caminho):
     return problemas
 
 
+def _nomes_definidos(no, saco):
+    """Tudo que passa a existir dentro deste nó: argumentos, atribuições,
+    imports, alvos de for/with/except, e nomes de funções e classes."""
+    if isinstance(no, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        a = no.args
+        for arg in (a.posonlyargs + a.args + a.kwonlyargs):
+            saco.add(arg.arg)
+        for extra in (a.vararg, a.kwarg):
+            if extra:
+                saco.add(extra.arg)
+    for n in ast.walk(no):
+        if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del)):
+            saco.add(n.id)
+        elif isinstance(n, (ast.Import, ast.ImportFrom)):
+            for al in n.names:
+                saco.add((al.asname or al.name).split(".")[0])
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            saco.add(n.name)
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            saco.add(n.name)
+        elif isinstance(n, (ast.Global, ast.Nonlocal)):
+            saco.update(n.names)
+        elif isinstance(n, ast.arg):
+            saco.add(n.arg)
+    return saco
+
+
+def conferir_nomes(caminho):
+    """Nome usado dentro de uma função que não existe em lugar nenhum.
+
+    Escrevi `timedelta` em duas funções do database.py sem ter importado.
+    Compila, importa, passa em tudo — e explode com NameError na primeira vez
+    que a função roda, em produção. Já era a segunda vez hoje que essa mesma
+    classe de defeito passava por todos os testes.
+
+    Um pyflakes resolveria, mas não há rede aqui para instalar. Então é isto,
+    de propósito CONSERVADOR: junto tudo que passa a existir dentro da função
+    (argumentos, atribuições, imports locais, alvos de for/with/except) com
+    tudo que existe no módulo, e só reclamo do que não está em nenhum dos
+    dois. Não confiro ORDEM — disso já cuida `conferir_ordem_interna`. Aqui a
+    pergunta é mais simples e mais grave: este nome existe?
+    """
+    arvore = ast.parse(open(caminho, encoding="utf-8").read())
+    do_modulo = set(dir(builtins)) | {"__name__", "__file__", "__doc__", "self", "cls"}
+    _nomes_definidos(arvore, do_modulo)
+    problemas = []
+    for f in arvore.body:
+        if not isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        dentro = _nomes_definidos(f, set())
+        conhecidos = do_modulo | dentro
+        for n in ast.walk(f):
+            if (isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
+                    and n.id not in conhecidos):
+                problemas.append(f"{getattr(f, 'name', '?')}() usa "
+                                 f"'{n.id}' na linha {n.lineno}, que não existe")
+    return problemas
+
+
 def conferir_ordem_interna(caminho):
     """A mesma regra, mas DENTRO de cada função.
 
@@ -159,10 +218,26 @@ print("  nenhum nome usado antes de existir")
 # Escrevi, na rota de diagnóstico, uma chamada a um auxiliar declarado mais
 # abaixo dentro dela mesma. Compilava, importava, e ia dar NameError na
 # primeira visita — numa rota pública, sem login.
-for a in ARQUIVOS + ["perfil_spl.py", "previa.py", "liga_spl.py"]:
+TODOS = ARQUIVOS + ["perfil_spl.py", "previa.py", "liga_spl.py", "elos.py",
+                    "mercado.py", "processor.py", "collector.py", "clubs.py",
+                    "aspas.py", "injury_processor.py", "janela_scraper.py"]
+for a in TODOS:
     p = conferir_ordem_interna(a)
     ok(not p, f"{a}: {p[:3]}")
 print("  nem auxiliar chamado antes da própria definição")
+
+# ── 2c. e nenhum nome que simplesmente não existe ──────────────────────────
+# Escrevi `timedelta` em duas funções do database.py sem ter importado.
+# Compila, importa, passa em tudo, e explode com NameError na primeira vez que
+# a função roda — em produção, dentro de um try/except que devolve lista
+# vazia. Ou seja: nem erro na tela, só um número que vem zerado.
+#
+# Foi a segunda vez no mesmo dia que essa classe de defeito atravessou a
+# suíte inteira. Um pyflakes resolveria; não há rede aqui para instalar.
+for a in TODOS:
+    p = conferir_nomes(a)
+    ok(not p, f"{a}: {p[:3]}")
+print("  nem nome que não existe em lugar nenhum")
 
 # ── 3. o que os outros importam de main tem que existir ────────────────────
 principal = _nomes_do_modulo(ast.parse(open("main.py", encoding="utf-8").read()))

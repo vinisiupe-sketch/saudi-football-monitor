@@ -7,7 +7,7 @@ import time
 import hashlib
 import json
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import psycopg2
 import psycopg2.extras
 
@@ -335,6 +335,60 @@ def init_db():
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_af_jogador_nascimento "
                   "ON af_jogador(nascimento)")
+        # ── O card de mercado ──────────────────────────────────────────────
+        #
+        # Duas tabelas, e não uma, porque são duas coisas de naturezas
+        # diferentes: a NEGOCIAÇÃO é o estado de hoje (quem, para onde, em que
+        # pé), e as FONTES são o histórico que não se reescreve.
+        #
+        # A chave é sobrenome+destino, e não o id do jogador, por um motivo
+        # prático: metade das negociações é sobre gente que ainda não está na
+        # liga e pode nunca chegar. Se a chave dependesse de identificar a
+        # pessoa, o card do Watkins não existiria até a API-Football me dizer
+        # quem ele é — e o card tem que existir mesmo sem rosto.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS negociacao (
+                chave         TEXT PRIMARY KEY,
+                jogador       TEXT NOT NULL,
+                spl_id        TEXT,
+                af_id         INTEGER,
+                foto          TEXT,
+                clube_origem  TEXT,
+                clube_destino TEXT NOT NULL,
+                status        TEXT,
+                valor         TEXT,
+                primeira_em   DATE,
+                ultima_em     DATE,
+                atualizado_em TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_negociacao_ultima "
+                  "ON negociacao(ultima_em DESC)")
+        # Um passo por NOTÍCIA. A mesma notícia lida duas vezes não vira dois
+        # passos — é a chave primária composta que garante isso, e não a
+        # esperança de que ninguém rode o processamento de novo.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS negociacao_fonte (
+                chave      TEXT NOT NULL,
+                article_id TEXT NOT NULL,
+                quando     DATE,
+                fonte      TEXT,
+                status     TEXT,
+                titulo     TEXT,
+                url        TEXT,
+                PRIMARY KEY (chave, article_id)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_negociacao_fonte_chave "
+                  "ON negociacao_fonte(chave)")
+        # Quando esta notícia foi lida pelo extrator de mercado.
+        #
+        # Mesma ideia do `perfil_em` na tabela de jogador, e pelo mesmo motivo:
+        # sem a marca, toda rodada relê as mesmas notícias e paga de novo por
+        # respostas que eu já tenho. E a marca precisa existir também para a
+        # notícia que NÃO era negociação — senão são justamente essas que
+        # ficam sendo repagas para sempre.
+        c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS mercado_em TIMESTAMPTZ")
         # Migrações
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS af_id INTEGER")
         # Nascimento e altura não vêm na escalação da liga — só na página do
@@ -805,6 +859,158 @@ def cruzar_por_nascimento() -> dict:
          "recusados_pelo_nome": nome_briga}
     print(f"[NASCIMENTO] {r}", flush=True)
     return r
+
+
+def artigos_de_mercado(dias: int = 30, limite: int = 200,
+                       so_novos: bool = True) -> list[dict]:
+    """As notícias de mercado que ainda não passaram pelo extrator.
+
+    `so_novos` existe para eu conseguir reprocessar de propósito quando o
+    prompt mudar — mas o padrão é não repagar. Cada chamada ao modelo custa
+    dinheiro dele, e a resposta para a mesma notícia não muda sozinha.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            filtro = "AND mercado_em IS NULL" if so_novos else ""
+            c.execute(f"""SELECT id, source_name, url, published_at, collected_at,
+                                 title_orig, title_pt, body_orig, body_pt
+                            FROM articles
+                           WHERE category = 'mercado' AND is_duplicate = 0
+                             AND collected_at >= %s {filtro}
+                        ORDER BY collected_at DESC LIMIT %s""",
+                      [(datetime.now(timezone.utc)
+                        - timedelta(days=max(1, dias))).strftime("%Y-%m-%d"),
+                       limite])
+            return [dict(r) for r in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ artigos_de_mercado: {e}")
+        return []
+
+
+def marcar_mercado_lido(ids: list[str]) -> int:
+    """Estes já foram ao modelo. Inclusive os que não eram negociação."""
+    if not ids:
+        return 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("UPDATE articles SET mercado_em = NOW() WHERE id = ANY(%s)",
+                      [list(ids)])
+            return c.rowcount
+    except Exception as e:
+        print(f"⚠️ marcar_mercado_lido: {e}")
+        return 0
+
+
+def salvar_negociacao(n: dict) -> str:
+    """Grava o card e os passos dele. Devolve 'nova' ou 'atualizada'.
+
+    O card é reescrito a cada rodada (status, valor, rosto), mas os PASSOS só
+    entram — nunca somem. Uma negociação que foi de 'Acerto' para 'Melou' tem
+    que continuar mostrando que um dia foi Acerto: é isso que ele narra.
+    """
+    chave = (n.get("chave") or "").strip()
+    if not chave or not n.get("jogador") or not n.get("clube_destino"):
+        return "descartada"
+    passos = n.get("passos") or []
+    datas = sorted(p.get("quando") for p in passos if p.get("quando"))
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT 1 FROM negociacao WHERE chave = %s", [chave])
+            existia = c.fetchone() is not None
+            c.execute("""
+                INSERT INTO negociacao (chave, jogador, spl_id, af_id, foto,
+                    clube_origem, clube_destino, status, valor,
+                    primeira_em, ultima_em, atualizado_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                ON CONFLICT (chave) DO UPDATE SET
+                    jogador       = EXCLUDED.jogador,
+                    spl_id        = COALESCE(EXCLUDED.spl_id, negociacao.spl_id),
+                    af_id         = COALESCE(EXCLUDED.af_id, negociacao.af_id),
+                    foto          = COALESCE(NULLIF(EXCLUDED.foto, ''), negociacao.foto),
+                    clube_origem  = COALESCE(NULLIF(EXCLUDED.clube_origem, ''),
+                                             negociacao.clube_origem),
+                    clube_destino = EXCLUDED.clube_destino,
+                    status        = EXCLUDED.status,
+                    valor         = COALESCE(NULLIF(EXCLUDED.valor, ''), negociacao.valor),
+                    primeira_em   = LEAST(EXCLUDED.primeira_em, negociacao.primeira_em),
+                    ultima_em     = GREATEST(EXCLUDED.ultima_em, negociacao.ultima_em),
+                    atualizado_em = NOW()
+            """, [chave, n["jogador"], n.get("spl_id") or None,
+                  n.get("af_id") or None, n.get("foto") or "",
+                  _clube(n.get("clube_origem")), _clube(n.get("clube_destino")),
+                  n.get("status") or "", n.get("valor") or "",
+                  datas[0] if datas else None, datas[-1] if datas else None])
+            for p in passos:
+                if not p.get("article_id"):
+                    continue
+                c.execute("""
+                    INSERT INTO negociacao_fonte (chave, article_id, quando,
+                        fonte, status, titulo, url)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (chave, article_id) DO NOTHING
+                """, [chave, p["article_id"], p.get("quando") or None,
+                      p.get("fonte") or "", p.get("status") or "",
+                      (p.get("titulo") or "")[:200], p.get("url") or ""])
+    except Exception as e:
+        print(f"⚠️ salvar_negociacao: {e}")
+        return f"erro: {e}"
+    return "atualizada" if existia else "nova"
+
+
+def negociacoes(limite: int = 60, dias: int = 45) -> list[dict]:
+    """Os cards, do mais recente para o mais antigo, com os passos dentro."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""SELECT * FROM negociacao
+                          WHERE ultima_em >= %s
+                       ORDER BY ultima_em DESC, jogador LIMIT %s""",
+                      [(datetime.now(timezone.utc)
+                        - timedelta(days=max(1, dias))).date(), limite])
+            cards = [dict(r) for r in c.fetchall()]
+            if not cards:
+                return []
+            c.execute("""SELECT * FROM negociacao_fonte
+                          WHERE chave = ANY(%s)
+                       ORDER BY quando, fonte""",
+                      [[x["chave"] for x in cards]])
+            passos = {}
+            for r in c.fetchall():
+                passos.setdefault(r["chave"], []).append(dict(r))
+            for card in cards:
+                card["passos"] = passos.get(card["chave"], [])
+            return cards
+    except Exception as e:
+        print(f"⚠️ negociacoes: {e}")
+        return []
+
+
+def contar_negociacoes() -> dict:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT COUNT(*),
+                                COUNT(*) FILTER (WHERE foto <> ''),
+                                COUNT(*) FILTER (WHERE spl_id IS NOT NULL),
+                                COUNT(*) FILTER (WHERE af_id IS NOT NULL),
+                                MAX(ultima_em)
+                           FROM negociacao""")
+            t, foto, spl, af, ultima = c.fetchone()
+            c.execute("SELECT COUNT(*) FROM negociacao_fonte")
+            passos = c.fetchone()[0]
+            c.execute("""SELECT COUNT(*) FROM articles
+                          WHERE category = 'mercado' AND is_duplicate = 0
+                            AND mercado_em IS NULL""")
+            a_ler = c.fetchone()[0]
+            return {"cards": t, "com_foto": foto, "da_liga": spl,
+                    "da_api_football": af, "passos": passos,
+                    "ultima": str(ultima) if ultima else "",
+                    "noticias_a_ler": a_ler}
+    except Exception as e:
+        return {"erro": str(e)}
 
 
 def contar_af_jogadores() -> dict:
