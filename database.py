@@ -988,6 +988,35 @@ def negociacoes(limite: int = 60, dias: int = 45) -> list[dict]:
         return []
 
 
+def escudos_por_clube() -> dict:
+    """Nome canônico do clube -> URL de um escudo que já temos.
+
+    Não busco escudo em lugar nenhum: a tabela da janela já guarda a URL do
+    logo de quem entrou e de quem saiu, de dezenas de clubes, inclusive os
+    europeus. É de graça e já está pago.
+
+    Cobre o que cobrir. Card sem escudo mostra o nome do clube, que é o que
+    ele já mostraria de qualquer jeito.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT team_in_name, team_in_logo FROM window_transfers
+                          WHERE team_in_logo <> ''
+                          UNION
+                         SELECT team_out_name, team_out_logo FROM window_transfers
+                          WHERE team_out_logo <> ''""")
+            saida = {}
+            for nome, logo in c.fetchall():
+                if not nome or not logo:
+                    continue
+                saida.setdefault(_clube(nome) or nome, logo)
+            return saida
+    except Exception as e:
+        print(f"⚠️ escudos_por_clube: {e}")
+        return {}
+
+
 def contar_negociacoes() -> dict:
     try:
         with get_conn() as conn:

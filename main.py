@@ -1480,8 +1480,23 @@ async def pagina_noticias():
 
 @app.get("/mercado", response_class=HTMLResponse)
 async def pagina_mercado():
-    """Só transferências: sondagens, negociações, renovações, saídas."""
-    return await _pagina_de_noticias("mercado", "/mercado")
+    """Uma negociação por card, com o passo a passo dentro.
+
+    Era uma lista de notícias soltas — a mesma coisa que a timeline do Twitter
+    já mostra. O que ela não mostrava é o que ele precisa no ar: em que pé
+    está aquele negócio, desde quando, e quem disse o quê pelo caminho.
+
+    A lista antiga não foi jogada fora: ela vive em /mercado/noticias, e o
+    botão para ela está aqui na tela.
+    """
+    return HTMLResponse(
+        _MERCADO_HTML
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__MERCADO_CSS__", _MERCADO_CSS)
+        .replace("__MERCADO_JS__", _MERCADO_JS)
+        .replace("__HDR__", _header("/mercado"))
+    )
 
 
 
@@ -13777,6 +13792,204 @@ carregar();
 """
 
 
+_MERCADO_CSS = """
+body{background:var(--c-bg);color:var(--c-text);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
+.wrap{max-width:820px;margin:0 auto;padding:6px 16px 90px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
+  margin:10px 0 4px}
+.sub{font-size:.76rem;color:var(--c-muted-3);line-height:1.55;margin:0 0 14px}
+.barra{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.ctrl{background:var(--c-bg-card);color:var(--c-text);border:1px solid var(--c-border);
+  border-radius:12px;padding:8px 13px;font-size:.78rem;font-family:inherit;
+  cursor:pointer;text-decoration:none;display:inline-block}
+.ctrl:hover{border-color:var(--c-acento)}
+.card{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:18px;margin-bottom:12px;overflow:hidden}
+.topo{padding:13px 15px;display:flex;gap:13px;align-items:center;cursor:pointer}
+/* O rosto. Quando não existe, um círculo com as iniciais — e não uma foto
+   parecida. Card sem rosto é honesto; rosto errado não é. */
+.rosto{width:52px;height:52px;border-radius:50%;object-fit:cover;flex:0 0 auto;
+  background:var(--c-bg);border:1px solid var(--c-border)}
+.semrosto{width:52px;height:52px;border-radius:50%;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;
+  background:var(--c-bg);border:1px dashed var(--c-border);
+  font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:var(--c-muted-3)}
+.quem{flex:1;min-width:0}
+.nome{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:.03em;
+  line-height:1.1}
+.rota{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:.72rem;
+  color:var(--c-muted-3);flex-wrap:wrap}
+.rota img{width:16px;height:16px;object-fit:contain;vertical-align:middle}
+.seta{color:var(--c-acento);font-weight:700}
+.valor{font-size:.68rem;color:var(--c-muted-3);margin-top:3px}
+.selo{font-size:.62rem;padding:3px 9px;border-radius:20px;white-space:nowrap;
+  letter-spacing:.03em;flex:0 0 auto;font-weight:700}
+/* A cor é o estado. Verde é negócio feito, vermelho é negócio morto, âmbar é
+   negócio andando — dá para ler a guia inteira sem ler uma palavra. */
+.s-feito{background:var(--c-acento);color:var(--c-acento-texto)}
+.s-morto{background:rgba(253,93,93,.16);color:#FD5D5D;border:1px solid #FD5D5D}
+.s-andando{background:rgba(255,190,93,.14);color:var(--c-alerta);
+  border:1px solid var(--c-alerta)}
+.passos{padding:0 15px 14px;display:none}
+.passos.aberto{display:block}
+.passo{display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--c-border);
+  font-size:.74rem;line-height:1.5}
+.passo .dia{color:var(--c-muted-3);flex:0 0 74px;font-variant-numeric:tabular-nums}
+.passo .st{flex:0 0 92px;font-weight:700;font-size:.68rem}
+.passo .tx{flex:1;min-width:0}
+.passo .fonte{color:var(--c-muted-3);font-size:.66rem}
+.passo a{color:inherit;text-decoration:none}
+.passo a:hover{text-decoration:underline}
+.vazio{text-align:center;color:var(--c-muted-3);font-size:.8rem;padding:34px 12px;
+  line-height:1.6}
+"""
+
+_MERCADO_JS = """
+const FEITO = ['Acerto','Anunciado','Oficial'];
+const MORTO = ['Melou'];
+
+function selo(s){
+  if (FEITO.includes(s)) return 's-feito';
+  if (MORTO.includes(s)) return 's-morto';
+  return 's-andando';
+}
+function esc(t){const d=document.createElement('div');d.textContent=t==null?'':t;
+  return d.innerHTML;}
+function iniciais(nome){
+  return (nome||'?').split(/\\s+/).filter(Boolean).slice(0,2)
+    .map(p=>p[0]).join('').toUpperCase();
+}
+function clube(nome, logo){
+  if(!nome) return '<span>—</span>';
+  const img = logo ? '<img src="'+esc(logo)+'" alt="" loading="lazy">' : '';
+  return img + '<span>' + esc(nome) + '</span>';
+}
+
+async function carregar(){
+  const alvo = document.getElementById('lista');
+  alvo.innerHTML = '<p class="vazio">carregando...</p>';
+  let d;
+  try{
+    const r = await fetch('/api/mercado');
+    d = await r.json();
+    if(!r.ok) throw new Error(d.erro || ('HTTP '+r.status));
+  }catch(e){
+    alvo.innerHTML = '<p class="vazio">nao deu: '+esc(e.message||e)+'</p>';
+    return;
+  }
+  const cards = d.cards || [];
+  const res = d.resumo || {};
+  document.getElementById('resumo').textContent =
+    (res.cards||0) + ' negociacao(oes), ' + (res.passos||0) + ' fonte(s). '
+    + (res.com_foto||0) + ' com rosto. '
+    + (res.noticias_a_ler||0) + ' noticia(s) de mercado ainda nao lida(s).';
+  if(!cards.length){
+    alvo.innerHTML = '<p class="vazio">Nenhuma negociacao ainda.<br>'
+      + 'Clique em <b>Ler as noticias</b> para montar os cards.</p>';
+    return;
+  }
+  alvo.innerHTML = '';
+  cards.forEach(function(c){
+    const div = document.createElement('div');
+    div.className = 'card';
+    const rosto = c.foto_url
+      ? '<img class="rosto" src="'+esc(c.foto_url)+'" alt="" loading="lazy">'
+      : '<div class="semrosto">'+esc(iniciais(c.jogador))+'</div>';
+    const passos = (c.passos||[]).slice().reverse().map(function(p){
+      const t = p.url
+        ? '<a href="'+esc(p.url)+'" target="_blank" rel="noopener">'+esc(p.titulo)+'</a>'
+        : esc(p.titulo);
+      return '<div class="passo"><div class="dia">'+esc(p.quando||'')+'</div>'
+        + '<div class="st">'+esc(p.status||'')+'</div>'
+        + '<div class="tx">'+t+'<div class="fonte">'+esc(p.fonte||'')+'</div></div></div>';
+    }).join('');
+    div.innerHTML =
+      '<div class="topo">'+rosto
+      + '<div class="quem"><div class="nome">'+esc(c.jogador)+'</div>'
+      + '<div class="rota">'+clube(c.clube_origem, c.escudo_origem)
+      + '<span class="seta">&rarr;</span>'
+      + clube(c.clube_destino, c.escudo_destino)+'</div>'
+      + (c.valor ? '<div class="valor">'+esc(c.valor)+'</div>' : '')
+      + '</div>'
+      + '<span class="selo '+selo(c.status)+'">'+esc(c.status||'')+'</span></div>'
+      + '<div class="passos">'+passos+'</div>';
+    div.querySelector('.topo').onclick = function(){
+      div.querySelector('.passos').classList.toggle('aberto');
+    };
+    alvo.appendChild(div);
+  });
+}
+
+async function ler(botao){
+  const antes = botao.textContent;
+  botao.disabled = true; botao.textContent = 'lendo...';
+  try{
+    const r = await fetch('/api/mercado/processar', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dias: 30})});
+    const j = await r.json();
+    if(!r.ok || j.erro) throw new Error(j.erro || ('HTTP '+r.status));
+    alert(j.nada_a_fazer
+      ? 'Nenhuma noticia nova de mercado para ler.'
+      : (j.noticias_lidas + ' noticia(s) lida(s), ' + j.cards_novos
+         + ' card(s) novo(s) e ' + j.cards_atualizados + ' atualizado(s).'));
+    carregar();
+  }catch(e){ alert('nao deu: '+(e.message||e)); }
+  botao.disabled = false; botao.textContent = antes;
+}
+
+carregar();
+"""
+
+_MERCADO_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mercado · IARABÃO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__MERCADO_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Mercado</h1>
+  <p class="sub">Uma negociação por card, não uma notícia por card. Toque para
+     abrir o passo a passo: quem publicou, quando, e em que pé estava. O que
+     ficou para trás não se apaga — se um dia foi Acerto e depois melou, os
+     dois continuam ali.</p>
+  <div class="barra">
+    <button class="ctrl" onclick="ler(this)">Ler as notícias</button>
+    <a class="ctrl" href="/mercado/noticias">Ver as notícias soltas</a>
+  </div>
+  <p class="sub" id="resumo"></p>
+  <div id="lista"></div>
+</div>
+<script>
+__MERCADO_JS__
+</script>
+</body>
+</html>
+"""
+
+
+@app.get("/mercado/noticias", response_class=HTMLResponse)
+async def pagina_mercado_noticias():
+    """A lista antiga, uma notícia por card.
+
+    Continua existindo porque a guia nova depende de o extrator já ter rodado.
+    Enquanto ele não rodou — ou quando o coletor está seco, como ficou nestes
+    dias — o card não tem o que compilar, e ficar sem a lista crua seria
+    trocar uma tela útil por uma tela vazia.
+    """
+    return await _pagina_de_noticias("mercado", "/mercado")
+
+
 @app.get("/previa", response_class=HTMLResponse)
 async def pagina_previa():
     return HTMLResponse(
@@ -14667,10 +14880,23 @@ async def api_mercado_processar(request: Request):
 
 @app.get("/api/mercado")
 async def api_mercado(dias: int = 45, limite: int = 60):
-    """Os cards prontos para a tela."""
-    from database import negociacoes, contar_negociacoes
-    return {"cards": negociacoes(limite=limite, dias=dias),
-            "resumo": contar_negociacoes()}
+    """Os cards prontos para a tela, já com as imagens resolvidas aqui.
+
+    A tela não deveria precisar saber que a foto da liga vem como CAMINHO e a
+    da API-Football vem como URL inteira. Se ela soubesse, o dia em que a liga
+    trocar de servidor de imagem seria um dia de mexer em JavaScript.
+    """
+    import liga_spl
+    from database import negociacoes, contar_negociacoes, escudos_por_clube
+    cards = negociacoes(limite=limite, dias=dias)
+    escudos = escudos_por_clube()
+    for c in cards:
+        foto = c.get("foto") or ""
+        c["foto_url"] = (foto if foto.startswith("http")
+                         else (liga_spl.MEDIA + foto) if foto else "")
+        c["escudo_origem"] = escudos.get(c.get("clube_origem") or "", "")
+        c["escudo_destino"] = escudos.get(c.get("clube_destino") or "", "")
+    return {"cards": cards, "resumo": contar_negociacoes()}
 
 
 @app.get("/api/diag/mercado", response_class=PlainTextResponse)
@@ -14800,6 +15026,99 @@ async def diag_mercado(dias: int = 30, limite: int = 120):
         for p in sorted(n["passos"], key=lambda x: x["quando"]):
             linhas.append(f"      {p['quando']}  {p['status']:12} {p['fonte'][:18]:18} "
                           f"{p['titulo']}")
+    return PlainTextResponse("\n".join(linhas))
+
+
+@app.get("/api/diag/coletor", response_class=PlainTextResponse)
+async def diag_coletor(contas: str = "", quantas: int = 6):
+    """A saúde de cada provedor de RSS do Twitter, conta por conta.
+
+    Existe por causa de dois dias perdidos. O coletor parou de trazer notícia
+    e o único sinal era a linha 'feed OK mas sem entradas' impressa num log
+    que ninguém abre. Por fora, o app continuava com cara de saudável: as
+    guias abriam, as notícias antigas estavam lá, e nada dizia que a torneira
+    tinha fechado.
+
+    O sintoma daquela vez foi específico e vale reconhecer de novo: a
+    instância própria de RSSHub respondia PERFEITAMENTE — nome da conta, bio,
+    avatar, data de agora — e devolvia zero itens. Perfil ele lia; timeline,
+    não. Isso é credencial do X vencida no serviço do RSSHub, e não defeito
+    aqui.
+    """
+    import httpx
+    import feedparser
+    from sources import TWITTER_RSS_PROVIDERS
+    from database import get_effective_sources
+
+    linhas: list[str] = []
+    if contas.strip():
+        alvos = [c.strip().lstrip("@") for c in contas.split(",") if c.strip()]
+    else:
+        # `get_effective_sources` devolve LISTA de dicionários com 'handle' —
+        # não um dicionário de listas. Escrevi errado na primeira tentativa e
+        # só descobri lendo a função. Nenhum teste meu pegaria isso: não é
+        # nome inexistente, é forma de dado presumida.
+        try:
+            alvos = [str(f.get("handle") or "").lstrip("@")
+                     for f in (get_effective_sources() or [])
+                     if isinstance(f, dict) and f.get("handle")]
+        except Exception as e:
+            linhas.append(f"  (não consegui ler as fontes: {e})")
+            alvos = []
+        alvos = alvos or ["FabrizioRomano", "aawsat_spt"]
+    alvos = alvos[:max(1, min(quantas, 12))]
+
+    linhas += ["PROVEDORES DE TWITTER", "─" * 21,
+               f"  contas testadas: {', '.join(alvos)}", ""]
+    saude: dict[str, dict] = {}
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as cli:
+        for conta in alvos:
+            linhas.append(f"  @{conta}")
+            for molde in TWITTER_RSS_PROVIDERS:
+                url = molde.format(username=conta)
+                quem = url.split("/")[2]
+                s = saude.setdefault(quem, {"ok": 0, "vazio": 0, "erro": 0})
+                try:
+                    r = await cli.get(url, headers={"Accept": "application/rss+xml"})
+                    if r.status_code >= 400:
+                        s["erro"] += 1
+                        linhas.append(f"      {quem:44} HTTP {r.status_code}")
+                        continue
+                    feed = feedparser.parse(r.text)
+                    n = len(feed.entries or [])
+                    titulo = getattr(getattr(feed, "feed", None), "title", "") or ""
+                    if n:
+                        s["ok"] += 1
+                        linhas.append(f"      {quem:44} ✅ {n} itens")
+                    else:
+                        s["vazio"] += 1
+                        # A distinção que importa: respondeu e conhece a conta,
+                        # mas não trouxe tweet nenhum.
+                        marca = "perfil OK, SEM TWEETS" if titulo else "vazio"
+                        linhas.append(f"      {quem:44} ⚠️  {marca}")
+                except Exception as e:
+                    s["erro"] += 1
+                    linhas.append(f"      {quem:44} ❌ {type(e).__name__}")
+            linhas.append("")
+
+    linhas += ["RESUMO", "─" * 6]
+    for quem, s in saude.items():
+        linhas.append(f"  {quem:44} {s['ok']} com tweets · "
+                      f"{s['vazio']} vazios · {s['erro']} com erro")
+    principal = TWITTER_RSS_PROVIDERS[0].split("/")[2] if TWITTER_RSS_PROVIDERS else ""
+    s = saude.get(principal) or {}
+    linhas.append("")
+    if s.get("ok"):
+        linhas.append("  O provedor principal está trazendo tweets. Se ainda falta")
+        linhas.append("  notícia, o problema é depois daqui — filtro ou tradução.")
+    elif s.get("vazio"):
+        linhas.append("  O PRINCIPAL RESPONDE MAS NÃO TRAZ TWEET.")
+        linhas.append("  É credencial do X vencida no serviço do RSSHub — no projeto")
+        linhas.append("  dele no Railway, não neste app. Os logs daquele serviço")
+        linhas.append("  dizem qual das variáveis caiu.")
+    elif s.get("erro"):
+        linhas.append("  O PRINCIPAL ESTÁ FORA DO AR. Confira se o serviço do")
+        linhas.append("  RSSHub está de pé no Railway.")
     return PlainTextResponse("\n".join(linhas))
 
 

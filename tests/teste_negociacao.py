@@ -167,6 +167,21 @@ def testar():
            "erro de rede está sendo marcado como lido — a notícia se perde "
            "calada, porque eu não perguntei, eu falhei em perguntar")
 
+    # ── 9. a lista antiga não pode desaparecer ─────────────────────────────
+    # A guia nova só tem o que mostrar depois que o extrator rodou. Enquanto
+    # isso não acontece — ou quando o coletor está seco, como ficou por dois
+    # dias — o card não tem o que compilar. Trocar a lista crua por uma tela
+    # vazia seria piorar a guia em nome de melhorá-la.
+    for rota in ('@app.get("/mercado", response_class=HTMLResponse)',
+                 '@app.get("/mercado/noticias", response_class=HTMLResponse)',
+                 '@app.get("/api/mercado")',
+                 '@app.post("/api/mercado/processar")'):
+        ok(rota in fonte, f"sumiu a rota: {rota}")
+    ok("_pagina_de_noticias(\"mercado\", \"/mercado\")" in fonte,
+       "a lista de notícias soltas de mercado deixou de existir")
+    ok('href="/mercado/noticias"' in fonte,
+       "a lista antiga existe mas não há como chegar nela pela tela")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
