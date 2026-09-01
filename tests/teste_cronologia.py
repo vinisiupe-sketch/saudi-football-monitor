@@ -12,15 +12,22 @@ O DEFEITO QUE ESTE ARQUIVO EXISTE PARA IMPEDIR
     backfill) pulava pro topo mesmo sendo velha.
 
     Enquanto investigava isso, apareceu um segundo defeito, mais sério: o
-    `limit=80` da consulta é sobre TODAS as categorias juntas, não só
-    Mercado. Num dia de muito volume — dia de fechamento de janela, 231
-    artigos coletados até o meio da tarde num caso real — os 80 mais
-    recentes do SITE INTEIRO podem ser todos de outra categoria, e uma
-    notícia de mercado real, dentro das 48h, nunca chega a ser vista pelo
-    filtro de categoria: ela é cortada ANTES disso, pelo limite. Foi
+    `limit` da consulta valia sobre TODAS as categorias juntas, não só
+    Mercado, porque o filtro de categoria rodava DEPOIS, em Python — a
+    consulta nem sabia que categoria a guia ia pedir. Num dia de muito
+    volume (dia de fechamento de janela, 231 artigos coletados até o meio da
+    tarde num caso real), os mais recentes do SITE INTEIRO podiam ser todos
+    de outra categoria, e uma notícia de mercado real, dentro das 48h, nunca
+    chegava a ser vista: cortada ANTES do filtro de categoria rodar. Foi
     exatamente esse tipo de dia (deadline day) que expôs o problema — um
     tweet do Fabrizio Romano sobre o Al Ittihad, publicado havia menos de
     duas horas, não apareceu na guia.
+
+    Primeiro subi o `limit` compartilhado (remendo). Você pediu o remendo
+    certo: o limite tem que ser individual por guia, então `categoria` e
+    `excluir_categorias` entraram na própria consulta SQL — cada guia agora
+    tem o seu teto, aplicado DEPOIS do filtro de categoria, não antes. Ver
+    `database.get_recent_articles`.
 
     De quebra, o pedido de trocar o fuso para horário do Brasil: os cards
     mostravam hora saudita (UTC+3). Você narra do Brasil.
@@ -82,24 +89,26 @@ def testar():
                f"do sort — ficou {chave!r}")
     print("  ordem: por published_at nas duas guias que reordenam em Python")
 
-    # ── 2. o limite não pode cortar antes do filtro de categoria ───────────
-    # /mercado/noticias, /aspas e /noticias saem da mesma busca. Um limite
-    # baixo é seguro quando a busca já filtra por categoria — aqui ela NÃO
-    # filtra (get_recent_articles não recebe categoria), e um dia de muito
-    # volume em QUALQUER categoria pode expulsar uma notícia de mercado real
-    # antes mesmo do filtro de categoria rodar.
+    # ── 2. o limite é individual por guia, aplicado DENTRO da consulta ─────
+    # /mercado/noticias, /aspas e /noticias saem da mesma função Python, mas
+    # cada uma tem que pedir a SUA categoria na consulta — não buscar tudo e
+    # filtrar depois. Só assim o limite deixa de ser um teto compartilhado
+    # que um dia de volume alto em QUALQUER categoria consegue encher.
     corpo_guias = _corpo("_pagina_de_noticias")
-    m_limit = re.search(r"get_recent_articles\(hours=HORAS_DE_NOTICIA, limit=(\d+)\)", corpo_guias)
-    ok(m_limit is not None, "não achei a chamada a get_recent_articles nas guias de notícia")
-    if m_limit:
-        limite = int(m_limit.group(1))
-        ok(limite >= 300,
-           f"limit={limite} nas guias de notícia — um dia de deadline (231 "
-           "artigos até o meio da tarde, caso real) enche isso com outras "
-           "categorias antes do filtro de Mercado/Aspas ver qualquer coisa. "
-           "Precisa de folga bem acima do volume normal de um dia cheio.")
-    print(f"  limite: {m_limit.group(1) if m_limit else '?'} artigos antes do "
-          "filtro de categoria — folga para um dia de volume alto")
+    ok("categoria=categoria or None" in corpo_guias,
+       "a guia parou de passar a categoria para dentro da consulta — o "
+       "limite volta a ser sobre todas as categorias juntas")
+    ok('excluir_categorias=None if categoria else ["mercado", "entrevista"]' in corpo_guias,
+       "a guia de Notícias (categoria vazia) parou de excluir mercado/"
+       "entrevista dentro da consulta")
+    # O filtro de categoria em Python tem que ter SUMIDO — se ele voltar,
+    # ele não quebra nada sozinho, mas é o sinal de que alguém desfez a
+    # mudança e voltou a buscar tudo, dependendo só do limite pra não
+    # explodir a página.
+    ok('a.get("category") == categoria if categoria' not in corpo_guias,
+       "voltou o filtro de categoria em Python — a consulta deveria estar "
+       "fazendo esse trabalho agora, dentro do banco")
+    print("  limite: dentro da consulta, por categoria — cada guia com o seu teto")
 
     # ── 3. o horário mostrado é o do Brasil, não o da Arábia Saudita ───────
     # Quatro cards diferentes (notícias/aspas/mercado, seleção, lixeira,

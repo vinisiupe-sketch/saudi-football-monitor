@@ -1497,36 +1497,51 @@ def update_article_meta(article_id: str, category: str = None, relevance_score: 
         pass
 
 
-def get_recent_articles(hours: int = 24, limit: int = 100, tier: str = None) -> list[dict]:
+def get_recent_articles(hours: int = 24, limit: int = 100, tier: str = None,
+                         categoria: str = None,
+                         excluir_categorias: list[str] = None) -> list[dict]:
     """Retorna artigos recentes ordenados por published_at DESC.
 
     Exige title_pt: artigos guardados sem tradução (fora das categorias ativas)
-    ficam no banco mas não vão pra tela."""
+    ficam no banco mas não vão pra tela.
+
+    `categoria`/`excluir_categorias` filtram DENTRO da consulta, ANTES do
+    LIMIT — de propósito. Quando o filtro de categoria rodava depois, em
+    Python, sobre um `limit` único compartilhado por todas as categorias, um
+    dia de muito volume em QUALQUER categoria enchia esse limite antes do
+    filtro de Mercado (ou de qualquer outra categoria de menor volume) ver
+    artigo nenhum — caso real: 231 artigos coletados até o meio da tarde
+    num dia de fechamento de janela, e uma notícia de mercado real, dentro
+    das 48h, nunca chegava a ser vista. Ver tests/teste_cronologia.py."""
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        condicoes = [
+            "is_duplicate = 0",
+            "title_pt IS NOT NULL",
+            "published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))",
+        ]
+        params: list = [hours]
         if tier:
-            c.execute(
-                """
-                SELECT * FROM articles
-                WHERE is_duplicate = 0
-                  AND title_pt IS NOT NULL
-                  AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
-                  AND source_tier = %s
-                ORDER BY published_at DESC
-                LIMIT %s
-                """, (hours, tier, limit)
-            )
-        else:
-            c.execute(
-                """
-                SELECT * FROM articles
-                WHERE is_duplicate = 0
-                  AND title_pt IS NOT NULL
-                  AND published_at::TIMESTAMPTZ >= (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
-                ORDER BY published_at DESC
-                LIMIT %s
-                """, (hours, limit)
-            )
+            condicoes.append("source_tier = %s")
+            params.append(tier)
+        if categoria:
+            condicoes.append("category = %s")
+            params.append(categoria)
+        elif excluir_categorias:
+            # IN(...) e não = ANY(%s): a versão com array é só do Postgres, e a
+            # suíte de teste roda essa mesma consulta em cima de SQLite.
+            marcadores = ", ".join(["%s"] * len(excluir_categorias))
+            condicoes.append(f"(category IS NULL OR category NOT IN ({marcadores}))")
+            params.extend(excluir_categorias)
+        params.append(limit)
+        c.execute(
+            f"""
+            SELECT * FROM articles
+            WHERE {' AND '.join(condicoes)}
+            ORDER BY published_at DESC
+            LIMIT %s
+            """, params
+        )
         return [dict(r) for r in c.fetchall()]
 
 

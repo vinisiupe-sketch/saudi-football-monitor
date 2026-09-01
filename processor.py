@@ -46,14 +46,31 @@ def titles_are_similar(t1: str, t2: str) -> bool:
 
 
 def deduplicate(articles: list[dict]) -> list[dict]:
+    """Remove títulos quase idênticos vindos da MESMA fonte — não entre fontes.
+
+    Existia para colapsar o mesmo tweet reaparecendo com o título cortado de
+    jeito diferente entre dois ciclos (RSSHub trunca em pontos variáveis).
+    Mas a comparação não olhava a fonte, só o título — e duas fontes
+    DIFERENTES noticiando a mesma negociação com palavras parecidas
+    ("Al Ittihad agree deal to sign Richard Rios") perdiam uma pro corte,
+    escolhido só por ter relevance_score levemente maior.
+
+    Isso é o oposto do que a guia de Mercado precisa: ela existe para juntar
+    VÁRIAS fontes cobrindo a MESMA negociação numa linha do tempo (ver
+    mercado.py) — cortar aqui, antes mesmo da tradução, tira a fonte do jogo
+    antes dela ter a chance de aparecer como uma entrada a mais na mesma
+    negociação. Corroboração de fontes diferentes é sinal, não ruído."""
     sorted_arts = sorted(articles, key=lambda x: -x.get("relevance_score", 0))
     kept = []
     for art in sorted_arts:
-        if not any(titles_are_similar(art.get("title_orig") or "", e.get("title_orig") or "") for e in kept):
+        fonte = art.get("source_name")
+        if not any(e.get("source_name") == fonte
+                   and titles_are_similar(art.get("title_orig") or "", e.get("title_orig") or "")
+                   for e in kept):
             kept.append(art)
     removed = len(articles) - len(kept)
     if removed:
-        print(f"   🔁 {removed} duplicatas semânticas removidas")
+        print(f"   🔁 {removed} duplicatas semânticas removidas (mesma fonte)")
     return kept
 
 

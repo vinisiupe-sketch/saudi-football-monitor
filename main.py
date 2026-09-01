@@ -754,16 +754,18 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
 
     categoria vazia significa "tudo que não é mercado nem entrevista".
     """
-    # O limite é sobre TODAS as categorias juntas — a consulta nem sabe que
-    # categoria esta guia vai pedir, ela só devolve os mais recentes por
-    # published_at. Num dia de muito volume (dia de fechamento de janela,
-    # 231 artigos coletados até o meio da tarde num caso real), os 80 mais
-    # recentes do site inteiro podem ser todos de OUTRA categoria, e uma
-    # notícia de mercado real e dentro das 48h nunca chega a ser filtrada —
-    # ela é cortada antes disso, pelo limite. 500 cobre um dia cheio com
-    # folga; é o mesmo número já usado noutro lugar do app para essa mesma
-    # janela de 48h (ver o badge de notificações).
-    articles = get_recent_articles(hours=HORAS_DE_NOTICIA, limit=500)
+    # O limite agora é DENTRO da consulta, por categoria — cada guia tem o
+    # seu próprio teto de 150, em vez de todas dividirem um teto só. Antes o
+    # filtro de categoria rodava depois, em Python, sobre um `limit`
+    # compartilhado: um dia de muito volume em QUALQUER categoria enchia
+    # esse limite antes do filtro de Mercado (ou de qualquer categoria de
+    # menor volume) ver artigo nenhum — caso real: 231 artigos coletados até
+    # o meio da tarde num dia de fechamento de janela, e uma notícia de
+    # mercado real, dentro das 48h, nunca chegava a ser vista.
+    articles = get_recent_articles(
+        hours=HORAS_DE_NOTICIA, limit=150,
+        categoria=categoria or None,
+        excluir_categorias=None if categoria else ["mercado", "entrevista"])
     _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
     articles = [
         a for a in articles
@@ -771,8 +773,6 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
         and a.get("source_name", "").lstrip("@").upper() not in _deleted_sources
         and not _is_selecao_article(a)
         and _is_actually_saudi_football(a)
-        and (a.get("category") == categoria if categoria
-             else a.get("category") not in ("mercado", "entrevista"))
     ]
     # Por published_at (quando a notícia SAIU), não por collected_at (quando o
     # NOSSO coletor passou por ela). A consulta já vem nessa ordem do banco —

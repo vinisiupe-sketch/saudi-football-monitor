@@ -58,9 +58,22 @@ def _instrucoes_de_criacao(tabelas):
 
 def _para_sqlite(sql: str) -> str:
     sql = sql.replace("%s", "?")
+    # A janela "artigo dos últimos N horas" é escrita em Postgres com
+    # INTERVAL e AT TIME ZONE, que o SQLite não tem. Vira uma chamada a
+    # datetime() com modificador de horas — texto puro, comparável de
+    # verdade com o que os testes semeiam no mesmo formato (sem 'T', sem
+    # fuso: ver o comentário sobre isso nos testes que usam esta função).
+    sql = re.sub(
+        r"NOW\(\) AT TIME ZONE 'UTC' - \(INTERVAL '1 hour' \* \?\)",
+        "datetime('now', '-' || ? || ' hours')",
+        sql)
     sql = re.sub(r"\bNOW\(\)", "CURRENT_TIMESTAMP", sql)
     sql = re.sub(r"\bLEAST\(", "MIN(", sql)
     sql = re.sub(r"\bGREATEST\(", "MAX(", sql)
+    # O cast `coluna::TIPO` é sintaxe do Postgres; SQLite não entende os dois
+    # pontos. Some primeiro (na comparação de datas), e só depois trata o
+    # `TIMESTAMPTZ` que sobra sozinho, como parte de um CREATE TABLE.
+    sql = re.sub(r"::\w+", "", sql)
     sql = re.sub(r"\bTIMESTAMPTZ\b", "TEXT", sql)
     sql = re.sub(r"\bSERIAL\b", "INTEGER", sql)
     return sql
