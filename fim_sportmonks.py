@@ -40,12 +40,33 @@ TTL_AO_VIVO = 15          # segundos; jogo ao vivo muda rápido
 TTL_PARADO = 600
 
 
+# A Sportmonks está DESLIGADA.
+#
+# Ela entrou como segunda fonte para medir quem publica gol e escalação
+# primeiro. A medição foi feita, a API-Football deu conta, e manter duas
+# fontes para a mesma informação custa uma chave, um token para vazar e um
+# lugar a mais para as coisas discordarem.
+#
+# Desligo aqui, e não apagando as chamadas: `configurado()` é a porta por onde
+# todo o resto já pergunta se ela existe, e todos os caminhos que dependem
+# dela já sabem se virar sem. Uma linha desliga, uma linha religa — e o
+# arquivo fica no projeto caso um dia a comparação volte a fazer falta.
+LIGADA = False
+
+
 def configurado() -> bool:
+    if not LIGADA:
+        return False
     return bool(os.environ.get("SPORTMONKS_TOKEN", "").strip())
 
 
 async def _get(caminho: str, ttl: int = TTL_AO_VIVO, **params):
     """Devolve (dado, erro). Nunca levanta, nunca devolve o token no erro."""
+    # Desligada é desligada: sem esta guarda, uma chamada esquecida em algum
+    # caminho continuaria batendo na API deles com o token que ainda está no
+    # Railway. Desconectar tem que valer para o tráfego, não só para a tela.
+    if not LIGADA:
+        return None, "Sportmonks desligada"
     token = os.environ.get("SPORTMONKS_TOKEN", "").strip()
     if not token:
         return None, "SPORTMONKS_TOKEN não configurada no servidor."

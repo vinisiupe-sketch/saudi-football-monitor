@@ -69,6 +69,29 @@ def testar():
         ok(bool(escopo["filtros"]) == deve_ter,
            f"categoria={cat!r}: chips {'deveriam' if deve_ter else 'não deveriam'} existir")
 
+    # ── 1b. guia de categoria única não mostra o que não tem escolha ──────
+    # Título no topo, Coletar no canto, e mais nada. Sem selo de categoria
+    # repetindo em todo card o que o título já diz, e sem a engrenagem — que
+    # é o controle mais perigoso da tela: ele decide o que o app INTEIRO
+    # traduz. Mexer nela de dentro da guia de Entrevistas seca as outras
+    # guias, e foi exatamente assim que ficamos quatro dias com só 'mercado'
+    # ligado sem ninguém entender por quê.
+    ok('selo_de_categoria = ("" if categoria else' in corpo,
+       "o selo de categoria voltou a aparecer nas guias de categoria única")
+    ok('"entrevista": "Entrevistas"' in corpo,
+       "a guia de categoria única perdeu o título no topo")
+    ok('painel_de_coleta = ""' in corpo,
+       "a engrenagem voltou para a guia de categoria única — de lá ela mexe "
+       "no que o app inteiro traduz")
+    ok('barra_de_coleta = ""' in corpo,
+       "a barra fixa de baixo voltou para a guia de categoria única")
+    ok("coleta-topo" in corpo and "titulo-guia" in corpo,
+       "sumiu o Coletar do canto superior")
+    # O botão continua sendo o mesmo id, senão o JS de progresso para de achá-lo.
+    ok(corpo.count('id="cbtn"') >= 1 and "_COLETA_MIOLO" in corpo,
+       "o Coletar do topo e o de baixo deixaram de ser o mesmo pedaço — "
+       "duas cópias divergem na primeira correção")
+
     # ── 2. a barra de coleta não pode ficar atrás do menu ──────────────────
     barra = re.search(r"\.collect-bar \{\{(.*?)\}\}", corpo, re.S)
     ok(barra is not None, "não achei a regra .collect-bar")

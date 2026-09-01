@@ -752,6 +752,13 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
         category      = a.get("category") or "geral"
         category_text = CATEGORY_TEXT.get(category, "Geral")
         cat_emoji     = CATEGORY_EMOJI.get(category, ("📰", "", ""))[0]
+        # Numa guia de categoria única o selo repetiria, em todo card, a
+        # única coisa que o título da página já diz. Montado aqui DENTRO do
+        # laço, e não como um pedaço solto lá embaixo: f-string não interpola
+        # duas vezes, e um selo montado fora sairia com as chaves literais.
+        selo_de_categoria = ("" if categoria else
+                             f'<span class="cat-badge cat-{category}">'
+                             f'{cat_emoji} {category_text}</span>')
         copy_text     = body_raw + "\n\n🗞️ @" + handle + " " + moon
         copy_safe     = copy_text.replace("&", "&amp;").replace('"', "&quot;")
         post_text_full = copy_text
@@ -779,7 +786,7 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
                 <span class="tag">{moon}</span>
                 <span class="card-date">{date_display}</span>
               </div>
-              <span class="cat-badge cat-{category}">{cat_emoji} {category_text}</span>
+              {selo_de_categoria}
             </div>
             <p class="card-text" data-url="{article_url}" onclick="if(!window._dragHappened&&this.dataset.url&&this.dataset.url!='#')window.open(this.dataset.url,'_blank')" style="cursor:pointer">{body_full}</p>
             <div class="card-bottom">
@@ -791,6 +798,61 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
             </div>
           </div>
         </div>"""
+
+    # ── O que muda entre as três guias ─────────────────────────────────
+    #
+    # Notícias tem sete categorias, e por isso tem chips, engrenagem e a
+    # barra de coleta fixa embaixo. Entrevistas e Mercado têm UMA — e ali
+    # cada um desses controles ou não faz nada ou faz a coisa errada:
+    #
+    #   · o selo de categoria repete, em todo card, a única coisa que a guia
+    #     inteira já diz no título;
+    #   · a engrenagem escolhe quais categorias são traduzidas, e mexer nela
+    #     de dentro da guia de Entrevistas afeta o app inteiro — foi assim
+    #     que ficamos quatro dias com só 'mercado' ligado e as outras guias
+    #     secas, sem ninguém entender por quê;
+    #   · o filtro não filtra nada.
+    #
+    # Então a guia de categoria única fica com título, os cards, e o Coletar
+    # no canto de cima. Nada mais.
+    _NOME_DA_GUIA = {"entrevista": "Entrevistas", "mercado": "Mercado",
+                     "lesao": "Lesões", "competicao": "Competição",
+                     "treino": "Treino", "financas": "Finanças",
+                     "geral": "Geral"}
+    _COLETA_MIOLO = (
+        '<button class="collect-btn" id="cbtn" onclick="startCollect()">Coletar</button>'
+        '<span class="last-collect" id="last-collect"></span>'
+        '<div class="progress-wrap">'
+        '<div class="progress-track" id="ptrack"><div class="progress-bar" id="pbar"></div></div>'
+        '<span class="progress-msg" id="pmsg"></span></div>')
+    if categoria:
+        rotulo = _NOME_DA_GUIA.get(categoria, categoria.capitalize())
+        cabecalho_da_guia = (
+            '<div class="topbar guia-unica">'
+            f'<div><h1 class="titulo-guia">{rotulo}</h1>'
+            f'<span class="count">{len(articles)} notícias · 48h</span></div>'
+            f'<div class="coleta-topo">{_COLETA_MIOLO}</div>'
+            '</div></div>')
+        painel_de_coleta = ""
+        barra_de_coleta = ""
+    else:
+        cabecalho_da_guia = (
+            '<div class="topbar">'
+            f'<span class="count">{len(articles)} notícias · 48h</span>'
+            '<button class="coleta-btn" onclick="toggleColetaPainel()" '
+            'title="Escolher quais categorias são traduzidas">⚙️ Coleta</button>'
+            '</div></div>')
+        painel_de_coleta = (
+            '<div id="coletaPainel" class="coleta-painel">'
+            '<div class="coleta-titulo">Categorias que são traduzidas</div>'
+            '<div class="coleta-aviso">O que ficar desmarcado é guardado sem '
+            'tradução e não aparece aqui. Economiza tokens — reversível a '
+            'qualquer momento.</div>'
+            '<div id="coletaItens" class="coleta-itens"></div>'
+            '<div class="coleta-acoes">'
+            '<button class="coleta-salvar" onclick="salvarColeta()">Salvar</button>'
+            '<span id="coletaStatus" class="coleta-status"></span></div></div>')
+        barra_de_coleta = f'<div class="collect-bar">{_COLETA_MIOLO}</div>'
 
     # Os chips de categoria só existem na guia que TEM mais de uma categoria.
     # Aspas é só entrevista e Notícias do Mercado é só mercado: ali o filtro
@@ -976,6 +1038,18 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
       padding: 3px 9px; text-transform: uppercase; letter-spacing: 0.05em;
     }}
 
+    /* ── GUIA DE CATEGORIA ÚNICA ── */
+    /* Entrevistas e Mercado não têm o que filtrar, então o topo delas é só
+       título e o Coletar no canto. A barra fixa de baixo não existe nessas
+       telas: um botão que some atrás do menu no celular ja custou caro uma
+       vez, e aqui ele nao precisa estar la. */
+    .topbar.guia-unica {{ align-items: flex-start; gap: 12px; }}
+    .titulo-guia {{ font-family: 'Bebas Neue', sans-serif; font-size: 1.9rem;
+      letter-spacing: .02em; line-height: 1; margin: 0 0 4px; }}
+    .coleta-topo {{ display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap; justify-content: flex-end; }}
+    .coleta-topo .progress-wrap {{ flex: 0 1 180px; }}
+
     /* ── COLLECT BAR ── */
     /* A barra subiu, entao o corpo precisa de mais folga embaixo: sem isso os
        ultimos cards ficam presos atras dela e da barra de menu. O 88px que a
@@ -1159,32 +1233,13 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
 </head>
 <body>
   {_header(rota)}
-  <div class="topbar">
-    <span class="count">{len(articles)} notícias · 48h</span>
-    <button class="coleta-btn" onclick="toggleColetaPainel()" title="Escolher quais categorias são traduzidas">⚙️ Coleta</button>
-  </div>
-  </div>
-  <div id="coletaPainel" class="coleta-painel">
-    <div class="coleta-titulo">Categorias que são traduzidas</div>
-    <div class="coleta-aviso">O que ficar desmarcado é guardado sem tradução e não aparece aqui. Economiza tokens — reversível a qualquer momento.</div>
-    <div id="coletaItens" class="coleta-itens"></div>
-    <div class="coleta-acoes">
-      <button class="coleta-salvar" onclick="salvarColeta()">Salvar</button>
-      <span id="coletaStatus" class="coleta-status"></span>
-    </div>
-  </div>
+  {cabecalho_da_guia}
+  {painel_de_coleta}
   {filtros_de_categoria}
   <div class="grid">
     {cards}
   </div>
-  <div class="collect-bar">
-    <button class="collect-btn" id="cbtn" onclick="startCollect()">Coletar</button>
-    <span class="last-collect" id="last-collect"></span>
-    <div class="progress-wrap">
-      <div class="progress-track" id="ptrack"><div class="progress-bar" id="pbar"></div></div>
-      <span class="progress-msg" id="pmsg"></span>
-    </div>
-  </div>
+  {barra_de_coleta}
 
 <div id="gerar-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;align-items:center;justify-content:center;" onclick="if(event.target===this)fecharGerarModal()">
   <div style="background:var(--c-bg-card);border-radius:14px;padding:22px 24px;max-width:560px;width:92%;max-height:78vh;display:flex;flex-direction:column;gap:14px;border:1px solid var(--c-border);box-shadow:0 20px 60px rgba(0,0,0,.4);">
@@ -5674,11 +5729,7 @@ async function carregarGols() {
       + esc(e.message || String(e)) + '</pre></div>';
     return;
   }
-  if (!d.sportmonks_configurada) {
-    alvo.innerHTML = '<div class="result-card"><div class="loading-state">'
-      + 'Falta a SPORTMONKS_TOKEN no Railway para a comparação funcionar.</div></div>';
-    return;
-  }
+
   if (!(d.gols || []).length) {
     marcarGols(0);
     // Não basta dizer "nenhum": preciso saber SE o coletor rodou e o que viu.
@@ -5717,8 +5768,9 @@ async function carregarGols() {
     linha.appendChild(cab);
     const duas = document.createElement('div');
     duas.className = 'duas';
-    [['API-Football', g.api_football, '#B6FF00'],
-     ['Sportmonks', g.sportmonks, '#B6FF00']].forEach(function (par) {
+    // Uma fonte só: a Sportmonks foi desligada. A caixa continua sendo uma
+    // lista para o dia em que voltar a haver com quem comparar.
+    [['API-Football', g.api_football, '#B6FF00']].forEach(function (par) {
       const c = document.createElement('div');
       c.className = 'fonte';
       const quando = par[1] ? new Date(par[1].visto_em)
@@ -5851,7 +5903,7 @@ async function carregarEscalacoes() {
       + (g.sm_com || 0) + ' com escalação'
       + ' · API-Football: ' + (g.af_jogos || 0) + ' jogo(s), '
       + (g.af_com || 0) + ' com escalação.';
-    if (!d.sportmonks_configurada) txt += '\n⚠️ SPORTMONKS_TOKEN não configurada.';
+
     if ((g.erros || []).length) txt += '\n⚠️ ' + g.erros.join(' | ');
     alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
       + 'style="font-size:.76rem">' + esc(txt) + '</pre></div>';
@@ -5896,8 +5948,7 @@ function cartaoEscalacao(j) {
 
   const duas = document.createElement('div');
   duas.className = 'duas';
-  [['API-Football', j.api_football, '#B6FF00', null],
-   ['Sportmonks', j.sportmonks, '#B6FF00', j.sportmonks_oficial]].forEach(function (par) {
+  [['API-Football', j.api_football, '#B6FF00', null]].forEach(function (par) {
     const c = document.createElement('div');
     c.className = 'fonte';
     // Etiqueta do que está ali. A Sportmonks manda uma escalação PROVÁVEL
