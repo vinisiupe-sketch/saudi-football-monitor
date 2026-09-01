@@ -3420,6 +3420,11 @@ def _cria_clipe(c) -> None:
     # de verdade acontece só quando o vídeo vai sair — publicar ou baixar.
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS corte_ini REAL")
     c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS corte_fim REAL")
+    # Pedido que a própria máquina que grava fez sozinha, ao notar o placar do
+    # vídeo mudar — sem ninguém apertar o botão. Só para diferenciar na tela;
+    # não muda em nada como o clipe é cortado ou publicado.
+    c.execute("ALTER TABLE clipe ADD COLUMN IF NOT EXISTS automatico BOOLEAN "
+              "NOT NULL DEFAULT FALSE")
 
 
 # Colunas de listagem. O BYTEA fica de fora de propósito: um clipe tem alguns
@@ -3427,21 +3432,23 @@ def _cria_clipe(c) -> None:
 # megabytes para desenhar uma tela que só precisa do tamanho.
 _COLS_CLIPE = ("id, pedido_em, alvo_em, antes_seg, depois_seg, estado, tamanho, "
                "texto, gol_id, media_id, post_id, erro, atualizado_em, "
-               "live_id, tipo, guardado, corte_ini, corte_fim")
+               "live_id, tipo, guardado, corte_ini, corte_fim, automatico")
 
 
 def criar_pedido_clipe(alvo_em, antes_seg: int = 20, depois_seg: int = 8,
-                       live_id: str = "", tipo: str = "gol") -> int:
+                       live_id: str = "", tipo: str = "gol",
+                       automatico: bool = False) -> int:
     """Registra um pedido de corte. Devolve o id, ou 0 se falhou."""
     try:
         with get_conn() as conn:
             c = conn.cursor()
             _cria_clipe(c)
             c.execute("""INSERT INTO clipe (alvo_em, antes_seg, depois_seg,
-                                            live_id, tipo)
-                         VALUES (%s,%s,%s,%s,%s) RETURNING id""",
+                                            live_id, tipo, automatico)
+                         VALUES (%s,%s,%s,%s,%s,%s) RETURNING id""",
                       [alvo_em, max(0, int(antes_seg)), max(1, int(depois_seg)),
-                       live_id or None, tipo if tipo in ("gol", "outro") else "gol"])
+                       live_id or None, tipo if tipo in ("gol", "outro") else "gol",
+                       bool(automatico)])
             return int(c.fetchone()[0])
     except Exception:
         return 0

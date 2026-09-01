@@ -16,6 +16,12 @@ O QUE ELE FAZ
     1. Olha o canal do parceiro e conta ao app quais transmissões estão no ar.
     2. Grava as que foram escolhidas — até quatro ao mesmo tempo.
     3. Quando alguém aperta GOL AGORA, recorta o trecho e devolve.
+    4. (em teste, desde 01/09/26) De tempos em tempos, lê o gráfico do
+       placar direto do vídeo que já está gravando e, se o número mudar,
+       pede um clipe sozinho — sem esperar ninguém apertar nada. O botão
+       continua funcionando do mesmo jeito; isto roda ao lado dele, e dá
+       para desligar na guia Configurações do app sem tocar em código.
+       Veja a seção "LEITURA DO PLACAR" mais abaixo.
 
 POR QUE ELE, E NÃO O SERVIDOR, OLHA O CANAL
     O Railway é IP de datacenter, e o YouTube barra esses com verificação de
@@ -41,6 +47,7 @@ SOBRE QUEDAS
     perdido fica registrado: se pedirem um corte que caia nesse buraco, ele
     avisa em vez de mandar vídeo errado.
 """
+import io
 import json
 import os
 import shutil
@@ -52,6 +59,12 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
+
+try:
+    from PIL import Image
+    _PIL_OK = True
+except Exception:
+    _PIL_OK = False
 
 PASTA = os.path.dirname(os.path.abspath(__file__))
 GRAVACOES = os.path.join(PASTA, "gravacoes")
@@ -76,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-08-26a"
+VERSAO = "2026-09-01a"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
@@ -90,7 +103,163 @@ AJUSTES = {
     "gravador_decodifica_antes": 30,
     "gravador_intervalo_canal": 90,
     "gravador_horas_gravacao": 12,
+    "gravador_placar_ativo": "ligado",
+    "gravador_atraso_placar_seg": 8,
 }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# LEITURA DO PLACAR — clipe automático, em teste desde 01/09/26
+#
+# A ideia: em vez de esperar uma API contar que saiu gol (o que já rodou
+# outras vezes com 30-45s de atraso, e é o próprio motivo deste bloco existir
+# — ver conversa de 01/09/26), esta máquina lê o GRÁFICO DO PLACAR direto da
+# gravação que ela já está fazendo. Ela não pergunta nada a ninguém: o vídeo
+# já está aqui.
+#
+# COMO
+#     De poucos em poucos segundos, tiro o quadro mais recente já gravado e
+#     olho só a caixinha onde cada time mostra o número. Não preciso SABER
+#     qual algarismo é — só preciso notar que a caixinha mudou de figura. Uma
+#     "impressão digital" pequena (a região reduzida a 8x10 e convertida em
+#     preto-e-branco) resolve isso sem OCR, sem fonte para calibrar, sem
+#     Tesseract para instalar na máquina de quem está gravando.
+#
+# ONDE FICA O PLACAR
+#     As caixas abaixo são FRAÇÃO da largura/altura do quadro, não pixel
+#     fixo — assim continuam certas em qualquer "gravador_altura_max". Medi
+#     em cima da gravação real de Al Hilal x Al Ahli de 01/09/26, no overlay
+#     do canal parceiro (GOAT): uma caixa de cada lado do escudo da liga, uma
+#     para cada time. SE A PRODUÇÃO DO CANAL TROCAR O LAYOUT DO PLACAR, isto
+#     para de bater — não tem como eu saber daqui, e precisa ser medido de
+#     novo numa gravação nova.
+#
+# O ATRASO DO GRÁFICO
+#     O número na tela não muda no instante do gol — a produção leva alguns
+#     segundos para atualizar o gráfico. Isso é DIFERENTE do atraso da
+#     transmissão (que é sobre você assistindo); é um atraso de dentro do
+#     próprio vídeo, e por isso o desconto de "gravador_atraso_placar_seg"
+#     acontece aqui, não no servidor.
+#
+# O QUE ISTO NÃO FAZ
+#     Não substitui o botão GOL AGORA — os dois convivem. Não sabe o
+#     placar (só que ele mudou), então a legenda do clipe continua vindo do
+#     alerta de gol da API-Football, como já acontecia. E se o gráfico sumir
+#     da tela (replay, intervalo, revisão do VAR), eu simplesmente não
+#     atualizo nada — silêncio aqui é seguro; inventar um placar não é.
+CAIXA_PLACAR = {
+    "esquerdo": (0.1211, 0.0500, 0.1445, 0.1056),
+    "direito": (0.1859, 0.0500, 0.2156, 0.1056),
+}
+INTERVALO_PLACAR = 2.5        # de quantos em quantos segundos eu olho
+LEITURAS_PARA_CONFIRMAR = 2   # leituras "parecidas" seguidas antes de disparar
+FRACAO_CLARA_MINIMA = 0.03    # abaixo disso, o gráfico não parece estar na tela
+
+# Quantos dos 80 pontos da assinatura (8x10) podem diferir e ainda ser "o
+# mesmo algarismo" — existe por causa de um caso real: medindo contra dois
+# quadros de verdade da gravação de 01/09/26, o placar do Al Ahli (que NÃO
+# balançou a rede) ainda assim variou uns 10 pontos de um quadro para o
+# outro, só por ruído de compressão. Uma troca de algarismo de verdade
+# (o Al Hilal marcando, no mesmo par de quadros) variou 42. A margem entre
+# os dois é grande, e 24 fica no meio — mas é medido numa amostra de UM
+# jogo só, e pode precisar de ajuste depois de ver mais partidas.
+LIMIAR_MUDANCA = 24
+
+
+def _tirar_quadro(caminho: str, ffmpeg: str):
+    """O quadro mais recente já escrito no arquivo, sem reler tudo.
+
+    -sseof busca a partir do FIM do arquivo — rápido mesmo num .ts de
+    gigabytes, porque não decodifica desde o começo.
+    """
+    if not _PIL_OK:
+        return None
+    try:
+        r = subprocess.run(
+            [ffmpeg, "-y", "-loglevel", "error", "-sseof", "-2", "-i", caminho,
+             "-frames:v", "1", "-f", "image2pipe", "-vcodec", "mjpeg", "-"],
+            capture_output=True, timeout=20)
+        if r.returncode != 0 or not r.stdout:
+            return None
+        return Image.open(io.BytesIO(r.stdout)).convert("RGB")
+    except Exception:
+        return None
+
+
+def _assinatura(regiao) -> tuple:
+    """Impressão digital pequena da região — não diz QUAL algarismo é, só
+    dá para comparar duas leituras e saber se mudou."""
+    cinza = regiao.convert("L").resize((8, 10))
+    px = list(cinza.getdata())
+    limiar = sorted(px)[len(px) // 2]
+    return tuple(1 if v > limiar else 0 for v in px)
+
+
+def _parecidas(leitura_a, leitura_b) -> bool:
+    """Duas leituras do placar (uma assinatura por time) são o MESMO
+    algarismo, dentro do ruído de compressão — ou são algarismos diferentes?
+
+    Comparar com "==" direto foi a primeira versão, e quebrou contra
+    gravação real: o lado que não balançou a rede ainda variava alguns
+    pontos de um quadro para o outro. LIMIAR_MUDANCA existe por causa
+    disso — ver o comentário ao lado dele.
+    """
+    for parte_a, parte_b in zip(leitura_a, leitura_b):
+        dif = sum(1 for x, y in zip(parte_a, parte_b) if x != y)
+        if dif > LIMIAR_MUDANCA:
+            return False
+    return True
+
+
+def _ler_placar(quadro):
+    """As duas assinaturas do placar, ou None se o gráfico não parece estar
+    na tela agora (replay, intervalo, revisão do VAR)."""
+    larg, alt = quadro.size
+    partes = []
+    for fx1, fy1, fx2, fy2 in CAIXA_PLACAR.values():
+        caixa = quadro.crop((int(fx1 * larg), int(fy1 * alt),
+                             int(fx2 * larg), int(fy2 * alt)))
+        px = list(caixa.convert("L").getdata())
+        claros = sum(1 for v in px if v > 170)
+        if not px or claros / len(px) < FRACAO_CLARA_MINIMA:
+            return None
+        partes.append(_assinatura(caixa))
+    return tuple(partes)
+
+
+class Placar:
+    """Acompanha a leitura do placar de UM jogo, quadro a quadro.
+
+    Só confirma uma mudança depois de vê-la se repetir — a transição
+    animada de um número para outro passa por figuras intermediárias que eu
+    não quero disparar em cima.
+    """
+    def __init__(self):
+        self.atual = None
+        self.candidato = None
+        self.vezes = 0
+        self.instante_candidato = None
+
+    def observar(self, leitura, quando):
+        """Se uma mudança acabou de ser CONFIRMADA, devolve o instante em
+        que o placar novo apareceu pela PRIMEIRA vez (mais perto do gol de
+        verdade que o instante da confirmação). Senão, devolve None."""
+        if self.atual is None:
+            self.atual = leitura
+            return None
+        if _parecidas(leitura, self.atual):
+            self.candidato, self.vezes = None, 0
+            return None
+        if self.candidato is not None and _parecidas(leitura, self.candidato):
+            self.vezes += 1
+        else:
+            self.candidato, self.vezes, self.instante_candidato = leitura, 1, quando
+        if self.vezes >= LEITURAS_PARA_CONFIRMAR:
+            self.atual = self.candidato
+            instante = self.instante_candidato
+            self.candidato, self.vezes = None, 0
+            return instante
+        return None
 
 # O que a janela mostrou por último. O programa da bandeja lê daqui, e o
 # último erro sobe para o app para você ver do celular.
@@ -247,6 +416,7 @@ class Jogo:
     def __init__(self, live_id: str, url: str, titulo: str = ""):
         self.id, self.url, self.titulo = live_id, url, titulo
         self.pedacos: list[Gravacao] = []
+        self.placar = Placar()
 
     def gravando(self) -> bool:
         return bool(self.pedacos) and self.pedacos[-1].vivo()
@@ -270,6 +440,8 @@ class Gravador:
         self.falando_com_o_app = True
         self.ja_tentei_atualizar = False
         self.ultima_faxina = 0.0
+        self.ultimo_placar = 0.0
+        self.avisei_placar = False
         # A última lista de transmissões do canal. Guardo porque é dela que
         # sai o nome do jogo para o botão — sem isso, _nomear procurava numa
         # lista que nunca era preenchida e o botão ficava com o id do vídeo.
@@ -683,6 +855,46 @@ class Gravador:
         self._http(f"/api/clipe/{cid}/falhou",
                    json.dumps({"erro": motivo}).encode())
 
+    # ── ler o placar e pedir o clipe sozinho ────────────────────────────────
+    def checar_placares(self) -> None:
+        if str(AJUSTES.get("gravador_placar_ativo", "ligado")) != "ligado":
+            return
+        if not _PIL_OK:
+            if not self.avisei_placar:
+                diz("    clipe automático desligado: falta a biblioteca "
+                    "Pillow nesta máquina (py -3 -m pip install pillow). "
+                    "O botão GOL AGORA não é afetado.")
+                self.avisei_placar = True
+            return
+        for jogo in self.jogos.values():
+            if not jogo.gravando():
+                continue
+            pedaco = jogo.pedacos[-1]
+            agora = datetime.now(timezone.utc)
+            if pedaco.posicao(agora) < 6:
+                continue      # ainda não há quadro suficiente gravado
+            quadro = _tirar_quadro(pedaco.caminho, self.ffmpeg)
+            if quadro is None:
+                continue
+            leitura = _ler_placar(quadro)
+            if leitura is None:
+                continue      # gráfico não está na tela agora — não mexo em nada
+            instante = jogo.placar.observar(leitura, agora)
+            if instante is not None:
+                self._pedir_clipe_automatico(jogo, instante)
+
+    def _pedir_clipe_automatico(self, jogo: "Jogo", instante_mudanca) -> None:
+        atraso = float(AJUSTES.get("gravador_atraso_placar_seg", 8))
+        alvo = instante_mudanca - timedelta(seconds=atraso)
+        diz(f"    [{jogo.nome()[:30]}] o placar mudou no vídeo — pedindo "
+            f"clipe automático (gol estimado {atraso:.0f}s antes da "
+            "mudança no gráfico)")
+        corpo = json.dumps({"live_id": jogo.id,
+                            "alvo_em": alvo.isoformat()}).encode()
+        _, err = self._http("/api/clipe/gol-automatico", corpo)
+        if err:
+            diz(f"    não consegui pedir o clipe automático: {err}", erro=True)
+
     # ── laço principal ────────────────────────────────────────────────────
     def _relatar(self) -> tuple:
         """Uma chamada só: conto o que sei, recebo o que preciso fazer."""
@@ -767,6 +979,9 @@ class Gravador:
             self._nomear(lives)
             self.cuidar_das_gravacoes()
             self.conferir_sincronia()
+            if time.time() - self.ultimo_placar >= INTERVALO_PLACAR:
+                self.ultimo_placar = time.time()
+                self.checar_placares()
             gravando = sum(1 for j in self.jogos.values() if j.gravando())
             ESTADO["gravando"] = gravando
             nao_durma(gravando > 0)

@@ -139,6 +139,35 @@ AJUSTES = [
         "ajuda": "De quanto em quanto tempo a máquina que grava pergunta ao "
                  "YouTube o que está no ar no canal do parceiro.",
     },
+
+    # ── Clipe automático (lê o placar do vídeo) ─────────────────────────────
+    # Em teste desde 01/09/26: a máquina que grava lê o gráfico do placar
+    # direto do vídeo, sem depender de nenhuma API, e pede um clipe sozinha
+    # quando o número muda. O botão GOL AGORA continua funcionando igual —
+    # isto roda em paralelo, não substitui.
+    {
+        "chave": "gravador_placar_ativo",
+        "grupo": "Clipe automático (lê o placar do vídeo)",
+        "rotulo": "Detectar gol pelo placar do vídeo",
+        "tipo": "escolha",
+        "opcoes": ["ligado", "desligado"],
+        "padrao": "ligado",
+        "ajuda": "Enquanto estiver em teste, dá para desligar aqui sem mexer "
+                 "em código — o botão GOL AGORA não é afetado de nenhum jeito.",
+    },
+    {
+        "chave": "gravador_atraso_placar_seg",
+        "grupo": "Clipe automático (lê o placar do vídeo)",
+        "rotulo": "Atraso do gráfico do placar",
+        "unidade": "s",
+        "tipo": "int", "min": 0, "max": 30, "padrao": 8,
+        "ajuda": "Quantos segundos o número do placar demora para mudar na "
+                 "tela DEPOIS do gol de verdade — é um atraso da produção do "
+                 "gráfico, medido dentro do próprio vídeo, e não tem relação "
+                 "com o atraso da transmissão até você. Descontado do instante "
+                 "do clipe, do mesmo jeito que o tempo de reação é descontado "
+                 "no botão manual.",
+    },
     # ── Arbitragem ────────────────────────────────────────────────────────
     {
         "chave": "arbitragem_cabecalho",

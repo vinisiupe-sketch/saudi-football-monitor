@@ -67,6 +67,13 @@ def _para_sqlite(sql: str) -> str:
         r"NOW\(\) AT TIME ZONE 'UTC' - \(INTERVAL '1 hour' \* \?\)",
         "datetime('now', '-' || ? || ' hours')",
         sql)
+    # A mesma janela de "N horas atrás", mas na ordem mais comum no resto do
+    # arquivo: NOW() - (? * INTERVAL '1 hour'). Usada em clipe, gol_visto e
+    # outras tabelas que expiram sozinhas depois de um tanto de horas.
+    sql = re.sub(
+        r"NOW\(\) ([-+]) \(\? \* INTERVAL '1 hour'\)",
+        lambda m: "datetime('now', '" + m.group(1) + "' || ? || ' hours')",
+        sql)
     sql = re.sub(r"\bNOW\(\)", "CURRENT_TIMESTAMP", sql)
     sql = re.sub(r"\bLEAST\(", "MIN(", sql)
     sql = re.sub(r"\bGREATEST\(", "MAX(", sql)
@@ -76,6 +83,13 @@ def _para_sqlite(sql: str) -> str:
     sql = re.sub(r"::\w+", "", sql)
     sql = re.sub(r"\bTIMESTAMPTZ\b", "TEXT", sql)
     sql = re.sub(r"\bSERIAL\b", "INTEGER", sql)
+    # SQLite não entende "ADD COLUMN IF NOT EXISTS" (só o Postgres tem essa
+    # cláusula). Tiro o "IF NOT EXISTS" daqui e, embaixo, engulo o erro de
+    # coluna duplicada quando ela roda de novo — é o mesmo efeito prático,
+    # e sem isso NENHUMA função que chame _cria_clipe/_cria_* duas vezes na
+    # mesma conexão (o normal: elas rodam a cada chamada, não só uma vez)
+    # conseguiria passar da segunda chamada.
+    sql = re.sub(r"(ALTER TABLE \w+ ADD COLUMN) IF NOT EXISTS", r"\1", sql)
     return sql
 
 
@@ -84,7 +98,16 @@ class _Cursor:
         self._c = cur
 
     def execute(self, sql, args=None):
-        return self._c.execute(_para_sqlite(sql), list(args or []))
+        sql_traduzido = _para_sqlite(sql)
+        try:
+            return self._c.execute(sql_traduzido, list(args or []))
+        except sqlite3.OperationalError as e:
+            # Emula o "IF NOT EXISTS": chamar ADD COLUMN de novo numa coluna
+            # que já existe é um no-op no Postgres de verdade, e precisa
+            # continuar sendo no-op aqui.
+            if "duplicate column name" in str(e):
+                return self._c
+            raise
 
     def fetchone(self):
         return self._c.fetchone()

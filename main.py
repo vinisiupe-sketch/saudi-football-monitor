@@ -6476,7 +6476,7 @@ CHAVE_GRAVADOR = "clipe_gravador"
 # Sem isso, um gravador antigo rodando na memória entrega clipes com defeitos
 # já corrigidos, e nada na tela denuncia. Aconteceu: três horas de clipes com
 # o áudio adiantado depois de o defeito estar consertado no arquivo.
-VERSAO_GRAVADOR = "2026-08-26a"
+VERSAO_GRAVADOR = "2026-09-01a"
 
 
 def _gravador_estado() -> dict:
@@ -6902,6 +6902,44 @@ async def api_clipe_pedir(request: Request):
         return JSONResponse({"erro": "não consegui registrar o pedido"}, 500)
     return {"id": cid, "alvo_em": alvo.isoformat(), "live_id": live_id,
             "tipo": tipo, "reacao_descontada": reacao, "atraso": atraso}
+
+
+@app.post("/api/clipe/gol-automatico")
+async def api_clipe_gol_automatico(request: Request):
+    """A própria máquina que grava pede o clipe, ao notar o placar mudar.
+
+    Em teste desde 01/09/26 — veja gravador.py, seção "leitura do placar".
+    Quem calcula o instante do lance é o gravador, na hora, com o relógio
+    dele mesmo: ele acabou de VER o gráfico mudar num pedaço de gravação que
+    só ele tem. Aqui eu só valido e boto na mesma fila que o botão usa — o
+    corte, a entrega e a legenda automática por alerta de gol são idênticos
+    ao clipe manual, e o botão continua funcionando exatamente como sempre.
+    """
+    if not _agente_autorizado(request):
+        return JSONResponse({"erro": "token do agente ausente ou errado"}, 403)
+    if ajuste("gravador_placar_ativo") != "ligado":
+        return JSONResponse({"erro": "detecção pelo placar está desligada "
+                                     "na guia Configurações"}, 409)
+    corpo = {}
+    try:
+        corpo = await request.json()
+    except Exception:
+        pass
+    live_id = (corpo.get("live_id") or "").strip()
+    if not live_id or not any(l.get("id") == live_id for l in listar_lives()):
+        return JSONResponse({"erro": "esse jogo não está sendo gravado"}, 400)
+    try:
+        alvo = datetime.fromisoformat(corpo.get("alvo_em") or "")
+    except Exception:
+        return JSONResponse({"erro": "não entendi o instante do clipe"}, 400)
+    if alvo.tzinfo is None:
+        alvo = alvo.replace(tzinfo=timezone.utc)
+    cid = criar_pedido_clipe(alvo, int(ajuste("clipe_antes_seg")),
+                             int(ajuste("clipe_depois_seg")), live_id, "gol",
+                             automatico=True)
+    if not cid:
+        return JSONResponse({"erro": "não consegui registrar o pedido"}, 500)
+    return {"id": cid, "alvo_em": alvo.isoformat(), "live_id": live_id}
 
 
 @app.get("/api/ajustes")
@@ -7731,6 +7769,7 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .atraso-nota{margin:9px 0 0;font-size:.7rem;line-height:1.6;color:var(--c-muted-3)}
 .acoes .guardar.on{border-color:#FFBE5D;color:#FFBE5D}
 .selo.s-guardado{background:#FFBE5D22;color:#FFBE5D}
+.selo.s-automatico{background:#4f9cf922;color:#4f9cf9}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .publicar:hover:not(:disabled){background:#1a8cd8;border-color:#1a8cd8}
 .acoes button:disabled{opacity:.45;cursor:default}
@@ -8214,6 +8253,7 @@ function montar(c, assin) {
   topo.innerHTML = '<span class="clipe-hora">' + esc(hora(c.alvo_em)) + '</span>'
     + '<span class="selo s-' + esc(c.estado) + '">' + esc(rotulo(c.estado)) + '</span>'
     + (c.tipo === 'outro' ? '<span class="selo">lance</span>' : '')
+    + (c.automatico ? '<span class="selo s-automatico">⚡ automático</span>' : '')
     + (c.guardado ? '<span class="selo s-guardado">★ salvo</span>' : '')
     + (c.tamanho ? '<span class="tam">' + (c.tamanho / 1048576).toFixed(1) + ' MB</span>' : '');
   d.appendChild(topo);
