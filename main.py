@@ -754,7 +754,16 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
 
     categoria vazia significa "tudo que não é mercado nem entrevista".
     """
-    articles = get_recent_articles(hours=HORAS_DE_NOTICIA, limit=80)
+    # O limite é sobre TODAS as categorias juntas — a consulta nem sabe que
+    # categoria esta guia vai pedir, ela só devolve os mais recentes por
+    # published_at. Num dia de muito volume (dia de fechamento de janela,
+    # 231 artigos coletados até o meio da tarde num caso real), os 80 mais
+    # recentes do site inteiro podem ser todos de OUTRA categoria, e uma
+    # notícia de mercado real e dentro das 48h nunca chega a ser filtrada —
+    # ela é cortada antes disso, pelo limite. 500 cobre um dia cheio com
+    # folga; é o mesmo número já usado noutro lugar do app para essa mesma
+    # janela de 48h (ver o badge de notificações).
+    articles = get_recent_articles(hours=HORAS_DE_NOTICIA, limit=500)
     _deleted_sources = {h.upper() for h, ov in load_source_overrides().items() if ov.get("deleted")}
     articles = [
         a for a in articles
@@ -765,7 +774,13 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
         and (a.get("category") == categoria if categoria
              else a.get("category") not in ("mercado", "entrevista"))
     ]
-    articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
+    # Por published_at (quando a notícia SAIU), não por collected_at (quando o
+    # NOSSO coletor passou por ela). A consulta já vem nessa ordem do banco —
+    # mas um reordenar aqui por collected_at desfazia isso: duas notícias
+    # publicadas na mesma hora podiam trocar de posição conforme a ordem em
+    # que o coletor visitou as fontes naquele ciclo, e uma notícia recuperada
+    # tarde (re-tentativa, backfill) pulava pro topo mesmo sendo velha.
+    articles.sort(key=lambda a: a.get("published_at") or a.get("collected_at") or "", reverse=True)
 
     CATEGORY_EMOJI = {
         "mercado":       ("🔀", "#dbeafe", "#1d4ed8"),
@@ -815,13 +830,16 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
         news_safe     = body_raw.replace("&", "&amp;").replace('"', "&quot;")
         art_id        = a['id']
         article_url   = (a.get('url') or '#').replace('"', '&quot;')
-        # Date from published_at in Saudi time (UTC+3)
+        # Data mostrada no horário do Brasil (Brasília, UTC-3 — sem horário de
+        # verão desde 2019, então o deslocamento fixo não erra). Antes estava
+        # em horário saudita (UTC+3): certo para quem está aí, seis horas
+        # adiantado para quem está narrando daqui.
         date_display = ""
         pub_raw = a.get("published_at") or a.get("collected_at") or ""
         if pub_raw:
             try:
                 dt = datetime.fromisoformat(pub_raw.replace("Z", "+00:00"))
-                dt_local = dt.astimezone(timezone(timedelta(hours=3)))
+                dt_local = dt.astimezone(timezone(timedelta(hours=-3)))
                 date_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
             except Exception:
                 pass
@@ -1645,7 +1663,10 @@ async def selecao_page():
         # com a Arábia citada só no corpo. _is_selecao_article() já é o filtro
         # dedicado e correto pra esse caso.
     ]
-    articles.sort(key=lambda a: a.get("collected_at") or "", reverse=True)
+    # Mesmo motivo do /mercado/noticias: published_at é QUANDO SAIU, não
+    # quando o coletor passou por ela — reordenar por collected_at desfazia a
+    # ordem cronológica que a consulta já trazia do banco.
+    articles.sort(key=lambda a: a.get("published_at") or a.get("collected_at") or "", reverse=True)
 
     CATEGORY_EMOJI = {
         "mercado":       ("🔀", "#dbeafe", "#1d4ed8"),
@@ -1692,7 +1713,7 @@ async def selecao_page():
         if pub_raw:
             try:
                 dt = datetime.fromisoformat(pub_raw.replace("Z", "+00:00"))
-                dt_local = dt.astimezone(timezone(timedelta(hours=3)))
+                dt_local = dt.astimezone(timezone(timedelta(hours=-3)))
                 date_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
             except Exception:
                 pass
@@ -3569,7 +3590,7 @@ async def lixeira_page():
         if pub_raw:
             try:
                 dt = datetime.fromisoformat(pub_raw.replace("Z","+00:00").replace(" ","T").split("+")[0]+"+00:00")
-                dt_local = dt.astimezone(timezone(timedelta(hours=3)))
+                dt_local = dt.astimezone(timezone(timedelta(hours=-3)))
                 date_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
             except Exception:
                 pass
@@ -3709,7 +3730,7 @@ async def analise_page():
         if pub_raw:
             try:
                 dt = datetime.fromisoformat(str(pub_raw).replace(" ","T").replace("Z","+00:00").split("+")[0]+"+00:00")
-                dt_local = dt.astimezone(timezone(timedelta(hours=3)))
+                dt_local = dt.astimezone(timezone(timedelta(hours=-3)))
                 date_display = f"{dt_local.day} {MONTHS_PT[dt_local.month-1]} · {dt_local.strftime('%H:%M')}"
             except Exception:
                 pass
