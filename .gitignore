@@ -60,3 +60,6 @@ gravador.py.anterior
 # Kit que vai para quem vai gravar (montado, nao versionado)
 gravador-de-clipes.zip
 BACKUP-antes-da-reforma-*.zip
+
+# Rotina automatica da escalacao por PDF (agendada) - estado local, nao publico
+escalacao_pdf_estado.json
