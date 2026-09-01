@@ -177,10 +177,15 @@ def testar():
                  '@app.get("/api/mercado")',
                  '@app.post("/api/mercado/processar")'):
         ok(rota in fonte, f"sumiu a rota: {rota}")
-    ok("_pagina_de_noticias(\"mercado\", \"/mercado\")" in fonte,
+    # O que importa não é a rota que ela passa para o cabeçalho — isso mudou
+    # quando ela virou guia própria — e sim que a lista crua de mercado
+    # continue existindo e continue alcançável.
+    ok('_pagina_de_noticias("mercado"' in fonte,
        "a lista de notícias soltas de mercado deixou de existir")
     ok('href="/mercado/noticias"' in fonte,
-       "a lista antiga existe mas não há como chegar nela pela tela")
+       "a lista crua existe mas não há como chegar nela pela guia de cards")
+    ok('("/mercado/noticias", _ICO_MERCADO' in fonte,
+       "a lista crua saiu do menu — só se chega nela por dentro da outra guia")
 
     for f in falhas:
         print("  ✗", f)

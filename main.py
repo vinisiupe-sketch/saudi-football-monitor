@@ -480,6 +480,11 @@ _NAV_EXTRAS = [
     # Fontes não foi citada na lista, mas também não estava entre as seis do
     # dia a dia. Deixo aqui em vez de sumir com ela sem avisar.
     ("/fontes",      _ICO_SOURCES, "Fontes",      "", "#FFBE5D"),
+    # A lista crua do mercado, uma notícia por card. Guia independente da de
+    # negociações: uma mostra o material bruto, a outra o compilado. Fica no
+    # menu, e não na barra, porque a barra já está no teto de doze — e o
+    # limite existe para a barra não virar caça ao ícone.
+    ("/mercado/noticias", _ICO_MERCADO, "Notícias do Mercado", "", ""),
 ]
 
 
@@ -787,6 +792,23 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
           </div>
         </div>"""
 
+    # Os chips de categoria só existem na guia que TEM mais de uma categoria.
+    # Aspas é só entrevista e Notícias do Mercado é só mercado: ali o filtro
+    # não filtra nada — ele só ocupa uma faixa da tela e sugere que existe
+    # escolha onde não existe.
+    if categoria:
+        filtros_de_categoria = ""
+    else:
+        _CHIPS = (("", "Todos"), ("mercado", "🔀 Mercado"),
+                  ("financas", "💰 Finanças"), ("competicao", "🏆 Competição"),
+                  ("entrevista", "🎙️ Entrevista"), ("lesao", "🩺 Lesão"),
+                  ("treino", "🏋️ Treino"), ("geral", "📰 Geral"))
+        botoes = "".join(
+            f'<button class="cat-filter{" active" if not c else ""}" '
+            f"onclick=\"filterCat(this,'{c}')\">{r}</button>"
+            for c, r in _CHIPS)
+        filtros_de_categoria = f'<div class="cat-filters">{botoes}</div>'
+
     html = f"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -955,8 +977,18 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
     }}
 
     /* ── COLLECT BAR ── */
+    /* A barra subiu, entao o corpo precisa de mais folga embaixo: sem isso os
+       ultimos cards ficam presos atras dela e da barra de menu. O 88px que a
+       barra de menu ja pedia nao cobre as duas. */
+    body {{ padding-bottom: 170px; }}
+    /* A barra de coleta subiu acima do menu flutuante.
+       Ela estava em bottom:0 com z-index 10, e o menu mora em bottom:12px
+       com z-index 30 — no celular o menu cobria o botao Coletar por inteiro.
+       O 62px e o mesmo deslocamento que o menu de reticencias ja usava; nao
+       inventei numero novo para nao ter dois valores que precisam concordar. */
     .collect-bar {{
-      position: fixed; bottom: 0; left: 0; right: 0;
+      position: fixed; left: 0; right: 0;
+      bottom: calc(max(12px, env(safe-area-inset-bottom)) + 62px);
       background: var(--c-bg); border-top: 1px solid var(--c-border);
       padding: 10px 24px; display: flex; align-items: center; gap: 14px;
       z-index: 10;
@@ -1141,16 +1173,7 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
       <span id="coletaStatus" class="coleta-status"></span>
     </div>
   </div>
-  <div class="cat-filters">
-    <button class="cat-filter active" onclick="filterCat(this,'')">Todos</button>
-    <button class="cat-filter" onclick="filterCat(this,'mercado')">🔀 Mercado</button>
-    <button class="cat-filter" onclick="filterCat(this,'financas')">💰 Finanças</button>
-    <button class="cat-filter" onclick="filterCat(this,'competicao')">🏆 Competição</button>
-    <button class="cat-filter" onclick="filterCat(this,'entrevista')">🎙️ Entrevista</button>
-    <button class="cat-filter" onclick="filterCat(this,'lesao')">🩺 Lesão</button>
-    <button class="cat-filter" onclick="filterCat(this,'treino')">🏋️ Treino</button>
-    <button class="cat-filter" onclick="filterCat(this,'geral')">📰 Geral</button>
-  </div>
+  {filtros_de_categoria}
   <div class="grid">
     {cards}
   </div>
@@ -13965,7 +13988,7 @@ __HDR__
      dois continuam ali.</p>
   <div class="barra">
     <button class="ctrl" onclick="ler(this)">Ler as notícias</button>
-    <a class="ctrl" href="/mercado/noticias">Ver as notícias soltas</a>
+    <a class="ctrl" href="/mercado/noticias">Notícias soltas &rarr;</a>
   </div>
   <p class="sub" id="resumo"></p>
   <div id="lista"></div>
@@ -13980,14 +14003,17 @@ __MERCADO_JS__
 
 @app.get("/mercado/noticias", response_class=HTMLResponse)
 async def pagina_mercado_noticias():
-    """A lista antiga, uma notícia por card.
+    """A lista crua do mercado, uma notícia por card.
 
-    Continua existindo porque a guia nova depende de o extrator já ter rodado.
-    Enquanto ele não rodou — ou quando o coletor está seco, como ficou nestes
-    dias — o card não tem o que compilar, e ficar sem a lista crua seria
-    trocar uma tela útil por uma tela vazia.
+    Guia independente da de negociações, e não um apêndice dela: uma mostra o
+    material bruto conforme chega, a outra mostra o compilado por negociação.
+    São dois usos diferentes — conferir o que saiu hoje, e acompanhar em que
+    pé está um negócio.
+
+    Sem os chips de categoria: aqui só existe mercado, e um filtro que não
+    filtra nada só ocupa faixa de tela sugerindo escolha onde não há.
     """
-    return await _pagina_de_noticias("mercado", "/mercado")
+    return await _pagina_de_noticias("mercado", "/mercado/noticias")
 
 
 @app.get("/previa", response_class=HTMLResponse)
