@@ -9094,7 +9094,14 @@ async function colherPerfis(onde, botao) {
 # gravação — e o pior é que derrubaria em silêncio, no meio de um jogo.
 LIVRES = ("/entrar", "/cadastrar", "/api/entrar", "/api/cadastrar",
           "/api/clipe/", "/api/gravador/", "/api/diag/", "/manifest",
-          "/static", "/favicon", "/sw.js", "/api/token-status")
+          "/static", "/favicon", "/sw.js", "/api/token-status",
+          # A escalação por PDF tem uma segunda porta, além do login por
+          # cookie: o navegador buscando o PDF direto no mediahub e mandando
+          # pra cá sozinho. Esse pedido nasce noutro site (mediahub.spl.media)
+          # e o navegador não leva cookie de sessão para lá — se essa rota
+          # dependesse só de sessão, o fluxo automatizado nunca funcionaria.
+          # A rota confere sozinha, abaixo: sessão OU o token do agente.
+          "/api/escalacao-pdf")
 
 
 def _quem_esta_logado(request: Request) -> str:
@@ -14585,8 +14592,51 @@ function render(d) {{
     return HTMLResponse(html)
 
 
+# A escalação por PDF pode chegar de duas origens bem diferentes: você, pela
+# tela, com sessão de navegador — ou eu, buscando o PDF direto no mediahub e
+# mandando pra cá de dentro daquele site. A segunda é outra ORIGEM (CORS), e
+# o navegador não deixa um site ler a resposta de outro sem o cabeçalho
+# dizendo que aquela origem específica pode. Restrinjo ao mediahub, não a
+# qualquer site — abrir geral aqui deixaria qualquer página da internet
+# mandar PDF pra essa rota e ler a resposta.
+_ORIGEM_ESCALACAO = "https://mediahub.spl.media"
+
+
+def _escalacao_autorizada(request: Request) -> bool:
+    """Sessão de navegador (você, na tela) OU o token do agente (eu, de fora).
+
+    O token é o mesmo desenho do `_agente_autorizado` do gravador: um
+    segredo compartilhado, guardado só na variável de ambiente, para provar
+    que quem está mandando o PDF fui eu buscando no mediahub — não qualquer
+    um que descobrisse o endereço desta rota.
+    """
+    if _quem_esta_logado(request):
+        return True
+    esperado = os.environ.get("ESCALACAO_TOKEN", "").strip()
+    if not esperado:
+        return False
+    return request.headers.get("X-Escalacao-Token", "").strip() == esperado
+
+
+def _com_cors_mediahub(resp):
+    resp.headers["Access-Control-Allow-Origin"] = _ORIGEM_ESCALACAO
+    resp.headers["Vary"] = "Origin"
+    return resp
+
+
+@app.options("/api/escalacao-pdf")
+async def api_escalacao_pdf_preflight():
+    """O navegador pergunta antes de mandar o POST de verdade (preflight)."""
+    resp = Response(status_code=204)
+    resp.headers["Access-Control-Allow-Origin"] = _ORIGEM_ESCALACAO
+    resp.headers["Access-Control-Allow-Methods"] = "POST"
+    resp.headers["Access-Control-Allow-Headers"] = "X-Escalacao-Token, Content-Type"
+    resp.headers["Access-Control-Max-Age"] = "600"
+    return resp
+
+
 @app.post("/api/escalacao-pdf")
-async def api_escalacao_pdf(arquivo: UploadFile = File(...)):
+async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
     """Lê o matchsheet e devolve a escalação titular cruzada com o elenco.
 
     Zero IA aqui — ver docstring de matchsheet.py. O cruzamento por camisa
@@ -14597,13 +14647,20 @@ async def api_escalacao_pdf(arquivo: UploadFile = File(...)):
     """
     import matchsheet
 
+    if not _escalacao_autorizada(request):
+        return _com_cors_mediahub(
+            JSONResponse({"erro": "não autenticado"}, status_code=401))
+
     if not (arquivo.filename or "").lower().endswith(".pdf"):
-        return JSONResponse({"erro": "manda um arquivo .pdf"}, status_code=400)
+        return _com_cors_mediahub(
+            JSONResponse({"erro": "manda um arquivo .pdf"}, status_code=400))
     conteudo = await arquivo.read()
     if not conteudo:
-        return JSONResponse({"erro": "arquivo vazio"}, status_code=400)
+        return _com_cors_mediahub(
+            JSONResponse({"erro": "arquivo vazio"}, status_code=400))
     if len(conteudo) > 15 * 1024 * 1024:
-        return JSONResponse({"erro": "PDF grande demais (máx. 15MB)"}, status_code=400)
+        return _com_cors_mediahub(
+            JSONResponse({"erro": "PDF grande demais (máx. 15MB)"}, status_code=400))
 
     caminho = None
     try:
@@ -14612,7 +14669,8 @@ async def api_escalacao_pdf(arquivo: UploadFile = File(...)):
             caminho = tmp.name
         dados = matchsheet.extrair(caminho)
     except Exception as e:
-        return JSONResponse({"erro": f"não consegui ler o PDF: {e}"}, status_code=400)
+        return _com_cors_mediahub(
+            JSONResponse({"erro": f"não consegui ler o PDF: {e}"}, status_code=400))
     finally:
         if caminho:
             try:
@@ -14637,7 +14695,7 @@ async def api_escalacao_pdf(arquivo: UploadFile = File(...)):
         dados[lado]["texto"] = matchsheet.texto_titulares(nome_time, dados[lado]["titulares"])
 
     dados["avisos"] = avisos
-    return dados
+    return _com_cors_mediahub(JSONResponse(dados))
 
 
 @app.get("/api/convites")
