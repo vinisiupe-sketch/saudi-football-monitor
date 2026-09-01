@@ -4002,6 +4002,38 @@ async def _page_lesoes_impl(request: Request):
         "fadiga": "Fadiga", "outro": "Outro",
     }
 
+    # ── Rosto e escudo ─────────────────────────────────────────────────
+    #
+    # A tabela de jogadores não existia quando esta tela foi feita. Hoje ela
+    # tem 573 pessoas com foto, e o nome que o extrator de lesão guardou é o
+    # bastante para achar quem é — pelo mesmo índice que a guia de Mercado
+    # usa, com a mesma regra: nome completo, e nada de sobrenome solto.
+    #
+    # Quem não for achado fica com as iniciais num círculo. Rosto errado numa
+    # notícia de lesão é pior que rosto nenhum.
+    try:
+        import elos
+        import liga_spl
+        from database import listar_jogadores, escudos_por_clube
+        _gente = listar_jogadores(limite=2000)
+        _indice, _ = elos.indice_de_jogadores(_gente)
+        _por_id = {j["spl_id"]: j for j in _gente}
+        _escudos = escudos_por_clube()
+    except Exception as e:
+        print(f"⚠️ lesões, rosto: {type(e).__name__}: {e}")
+        _indice, _por_id, _escudos = {"chave": {}}, {}, {}
+
+    def _rosto(nome: str) -> str:
+        achados = elos.jogadores_no_texto("", nome or "", _indice)
+        if len(achados) != 1:
+            return ""
+        foto = (_por_id.get(next(iter(achados))) or {}).get("foto") or ""
+        return (foto if foto.startswith("http") else liga_spl.MEDIA + foto) if foto else ""
+
+    def _iniciais(nome: str) -> str:
+        partes = [p for p in (nome or "?").split() if p][:2]
+        return "".join(p[0] for p in partes).upper() or "?"
+
     def _card(inj: dict) -> str:
         emoji, slabel = STATUS_LABEL.get(inj.get("status") or "lesionado", ("⚪", inj.get("status") or "—"))
         tipo = TYPE_LABEL.get(inj.get("injury_type") or "", inj.get("injury_type") or "—")
@@ -4057,17 +4089,35 @@ async def _page_lesoes_impl(request: Request):
         notes_html = ('<div class="injury-notes">💬 ' + notes + "</div>") if notes else ""
         retorno_html = (" · Retorno est.: " + retorno) if retorno and retorno != "—" else ""
 
+        # ── O card, no padrão da guia de Mercado ───────────────────────
+        # Mesma anatomia: rosto à esquerda, quem e para onde no meio, estado
+        # à direita, e o histórico escondido até o toque. A cor do selo é o
+        # estado — dá para varrer a tela sem ler uma palavra.
+        foto = _rosto(player)
+        rosto_html = (
+            '<img class="lsn-rosto" src="' + foto + '" alt="" loading="lazy">'
+            if foto else
+            '<div class="lsn-semrosto">' + _iniciais(player) + "</div>"
+        )
+        escudo = _escudos.get(club) or ""
+        escudo_html = ('<img class="lsn-escudo" src="' + escudo + '" alt="" loading="lazy">'
+                       if escudo else "")
+        detalhe = tipo_full + retorno_html
         return (
             '<div class="injury-card">'
-            + '<div class="injury-card-top">'
-            + '<span class="status-pill status-' + status + '">' + emoji + " " + slabel + "</span>"
-            + '<span class="injury-updated">Atualizado ' + updated + "</span>"
+            + '<div class="lsn-topo">'
+            + rosto_html
+            + '<div class="lsn-quem">'
+            + '<div class="lsn-nome">' + player + orig_html + "</div>"
+            + '<div class="lsn-clube">' + escudo_html + "<span>" + club + "</span>"
+            + '<span class="lsn-sep">·</span><span>Lesão em ' + injury_dt + "</span></div>"
+            + '<div class="lsn-detalhe">' + detalhe + "</div>"
             + "</div>"
-            + '<div class="injury-player">' + player + orig_html + "</div>"
-            + '<div class="injury-club">' + club + "</div>"
-            + '<div class="injury-detail">' + tipo_full + retorno_html + " · Lesão em " + injury_dt + "</div>"
+            + '<span class="status-pill status-' + status + '">' + emoji + " " + slabel + "</span>"
+            + "</div>"
             + notes_html
             + timeline_section
+            + '<div class="lsn-rodape">Atualizado ' + updated + "</div>"
             + "</div>"
         )
 
@@ -4146,12 +4196,37 @@ async def _page_lesoes_impl(request: Request):
 }}
 .injury-card {{
   background: var(--c-bg-card);
-  border-radius: 16px;
-  padding: 18px 20px;
+  border: 1px solid var(--c-border);
+  border-radius: 18px;
+  padding: 13px 15px;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }}
+/* ── O card no padrão da guia de Mercado ──────────────────────────────
+   Rosto à esquerda, quem e onde no meio, estado à direita. A mesma
+   anatomia das duas telas, para não haver duas gramáticas visuais para
+   a mesma ideia — uma pessoa, um clube, uma situação que anda. */
+.lsn-topo {{ display: flex; gap: 13px; align-items: center; }}
+.lsn-rosto {{ width: 52px; height: 52px; border-radius: 50%; object-fit: cover;
+  flex: 0 0 auto; background: var(--c-bg); border: 1px solid var(--c-border); }}
+/* Sem foto, as iniciais. Nunca uma foto parecida: rosto errado numa
+   notícia de lesão é pior que rosto nenhum. */
+.lsn-semrosto {{ width: 52px; height: 52px; border-radius: 50%; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--c-bg); border: 1px dashed var(--c-border);
+  font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem;
+  color: var(--c-muted-3); }}
+.lsn-quem {{ flex: 1; min-width: 0; }}
+.lsn-nome {{ font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem;
+  letter-spacing: .03em; line-height: 1.1; }}
+.lsn-clube {{ display: flex; align-items: center; gap: 6px; margin-top: 4px;
+  font-size: .72rem; color: var(--c-muted-3); flex-wrap: wrap; }}
+.lsn-escudo {{ width: 16px; height: 16px; object-fit: contain; }}
+.lsn-sep {{ opacity: .5; }}
+.lsn-detalhe {{ font-size: .68rem; color: var(--c-muted-3); margin-top: 3px; }}
+.lsn-rodape {{ font-size: .62rem; color: var(--c-muted-2);
+  text-transform: uppercase; letter-spacing: .05em; }}
 .injury-card-top {{
   display: flex;
   align-items: center;

@@ -96,6 +96,29 @@ def testar():
     ok('_pagina_de_noticias("mercado", "/mercado/noticias")' in FONTE,
        "a guia Notícias do Mercado deixou de ser fixa em mercado")
 
+    # ── 4. Lesões segue a mesma anatomia do card de Mercado ────────────────
+    # Não é capricho: duas telas que mostram a mesma ideia — uma pessoa, um
+    # clube, uma situação que anda — não podem ter duas gramáticas visuais.
+    # E o rosto tem a mesma regra das outras: quem não é achado com certeza
+    # fica com as iniciais, nunca com uma foto parecida.
+    lesoes = _corpo("_page_lesoes_impl")
+    ok(lesoes, "não achei _page_lesoes_impl")
+    for pedaco, porque in (
+            ("lsn-rosto", "o card de lesão perdeu o rosto"),
+            # A classe existe no CSS mesmo quando o HTML para de emiti-la —
+            # foi assim que este teste passou verde com o círculo removido.
+            # O que prova a emissão é a chamada que monta as iniciais.
+            ("_iniciais(player)", "o card de lesão perdeu o círculo de iniciais — "
+                                  "sem ele, quem não tem foto some da tela"),
+            ("lsn-escudo", "o card de lesão perdeu o escudo do clube"),
+            ("status-pill", "o card de lesão perdeu o selo de estado")):
+        ok(pedaco in lesoes, porque)
+    ok("elos.jogadores_no_texto" in lesoes,
+       "o rosto da lesão deixou de usar o índice de nomes — se voltar a casar "
+       "por conta própria, volta a errar de pessoa")
+    ok("len(achados) != 1" in lesoes,
+       "o rosto passou a aceitar nome que cai em mais de uma pessoa")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
