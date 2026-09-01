@@ -15725,6 +15725,73 @@ async def diag_mercado(dias: int = 30, limite: int = 120):
     return PlainTextResponse("\n".join(linhas))
 
 
+@app.get("/api/diag/jogos-de-hoje")
+async def diag_jogos_de_hoje():
+    """Os jogos da Saudi Pro League de hoje, na data local da ARÁBIA SAUDITA
+    (não a de Brasília) — é essa a data que o mediahub usa para filtrar o
+    matchsheet, e é essa a comparação que a rotina agendada da escalação por
+    PDF precisa fazer.
+
+    POR QUE ESTA ROTA EXISTE, E NÃO A TAREFA AGENDADA FALANDO DIRETO COM A
+    API DA LIGA
+        A primeira versão da tarefa fazia três chamadas encadeadas
+        (competitions → seasons → matches) direto na API da SPL, usando
+        `web_fetch`. Rodando com o Vini presente (Run now), só a primeira —
+        a que estava escrita LITERAL no texto da tarefa — passou; as outras
+        duas, montadas em tempo de execução a partir do id que acabara de
+        vir na resposta anterior, foram recusadas por não estarem na lista
+        de origens permitidas. E mesmo que passassem, a lista de partidas
+        da temporada inteira (300+ jogos) é grande demais para o limite de
+        saída do `web_fetch`.
+
+        As duas travas desaparecem juntando as três chamadas aqui, num
+        endereço FIXO, sem nada montado na hora, devolvendo só os jogos de
+        hoje (poucos, nunca a temporada inteira). A tarefa agendada rodando
+        sozinha de madrugada não tem ninguém para aprovar site novo nem
+        parâmetro novo — só uma URL fixa e uma resposta pequena resolvem.
+    """
+    import httpx
+    import liga_spl
+
+    agora_arabia = datetime.now(timezone.utc) + timedelta(hours=3)
+    hoje_arabia = agora_arabia.strftime("%Y-%m-%d")
+
+    try:
+        with httpx.Client(timeout=25.0, follow_redirects=True) as cli:
+            sid = liga_spl.temporada(hoje_arabia, cli)
+            if not sid:
+                return {"data_arabia": hoje_arabia, "jogos": [],
+                        "aviso": "temporada não encontrada"}
+            todos = liga_spl.jogos_da_temporada(sid, cli)
+    except Exception as e:
+        return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, status_code=502)
+
+    jogos = []
+    for j in todos:
+        local = j.get("matchDateLocal") or ""
+        if local[:10] != hoje_arabia:
+            continue
+        jogos.append({
+            "casa": (j.get("home") or {}).get("shortName") or "",
+            "fora": (j.get("away") or {}).get("shortName") or "",
+            "pontape_local_arabia": local,
+            "pontape_utc": _pontape_utc_de_local(local),
+            "rodada": j.get("roundName") or "",
+        })
+    return {"data_arabia": hoje_arabia, "jogos": jogos}
+
+
+def _pontape_utc_de_local(local: str) -> str:
+    """matchDateLocal da API da liga vem sem fuso, já na hora da Arábia
+    Saudita (UTC+3) — três horas pra trás dá o instante em UTC. Devolve ""
+    para o que não é uma data válida, em vez de chutar um horário errado."""
+    try:
+        ingenuo = datetime.fromisoformat((local or "").replace("Z", ""))
+    except ValueError:
+        return ""
+    return (ingenuo - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 @app.get("/api/diag/coletor", response_class=PlainTextResponse)
 async def diag_coletor(contas: str = "", quantas: int = 6):
     """A saúde de cada provedor de RSS do Twitter, conta por conta.
