@@ -1,12 +1,16 @@
 """
-A navegação: o topo, a barra de baixo e o painel suspenso.
+A navegação: o topo, a barra de baixo e o painel que sobe dela.
 
 O DESENHO QUE ISTO VIGIA
-    Você pediu cinco paradas fixas embaixo — Notícias do Mercado, Fim de
-    jogo, Início no centro e elevado, Agendamentos, Clipes — no estilo de
-    pílula flutuante que você mandou em referência. Tudo o mais foi para um
-    painel em grade suspenso no alto, aberto por um ícone de menu no
-    cabeçalho: o "More" do Fotmob que você também mandou.
+    Você pediu sete paradas na barra — Agendamentos, Clipes, Fim de jogo à
+    esquerda; Início no centro e elevado; Notícias do Mercado e Lesões à
+    direita; e o botão de menu como sétima, à direita de Lesões. As "três
+    barrinhas" que abriam o painel moravam no cabeçalho na primeira versão
+    deste desenho — você pediu que elas se mudassem para a própria barra.
+
+    O painel que esse botão abre também mudou de lado: não desce mais do
+    topo, sobe da barra — um "bottom sheet" ancorado no mesmo fundo que a
+    pílula, e não mais suspenso perto do cabeçalho.
 
 Estes testes existem porque duas coisas já quebraram de verdade, antes desta
 mudança, e continuam valendo:
@@ -17,11 +21,11 @@ mudança, e continuam valendo:
      vencia. Tudo do cabeçalho leva prefixo "iar-", e este teste garante que
      nenhuma classe minha colide com classe de página.
 
-  2. O botão que abre a lista de mais opções "não funcionava". Funcionava: o
-     menu abria e ficava recortado, porque um ancestral tinha overflow —
-     overflow cria contexto de recorte. Agora o painel é fixed (não more
-     absolute) e vive fora de qualquer coisa que role, dentro ou fora da
-     barra.
+  2. O painel "não funcionava". Funcionava: ele abria e ficava recortado,
+     porque um ancestral tinha overflow — overflow cria contexto de recorte.
+     O Início elevado tem o mesmo risco: ele mora por fora do MIOLO que rola
+     (.iar-linha), e não dentro dele, senão o recorte cortaria o círculo que
+     sobe acima da pílula.
 """
 import ast
 import os
@@ -77,9 +81,18 @@ for perigosa in (".barra", ".topo", ".marca"):
        f"o cabeçalho voltou a usar {perigosa}, que as páginas já usam")
 print("  .barra, .topo e .marca continuam sendo só das páginas")
 
-# ── 2. o painel não pode ficar dentro de quem rola ─────────────────────────
+# ── 2. o botão de menu mora NA BARRA, não mais no cabeçalho ────────────────
 pos_nav = html.find('class="iar-nav"')
 pos_fim_nav = html.find("</nav>", pos_nav)
+pos_btn = html.find('id="btnMenu"')
+ok(pos_nav < pos_btn < pos_fim_nav,
+   "o botão de menu saiu da barra de baixo — você pediu que ele se mudasse "
+   "para lá, junto dos outros seis ícones")
+_qtd_btn_menu = html.count('id="btnMenu"')
+ok(_qtd_btn_menu == 1, f"{_qtd_btn_menu} botões de menu no HTML — deveria haver um só")
+print("  botão de menu: dentro da barra, uma cópia só")
+
+# ── 3. o painel não pode ficar dentro de quem rola, e sobe — não desce ─────
 pos_painel = html.find('id="iarPainel"')
 ok(pos_painel > pos_fim_nav,
    "o painel está dentro da barra de baixo — um overflow ali pode voltar a "
@@ -89,26 +102,19 @@ ok(".iar-painel { position: fixed" in css,
    "ancestral com overflow")
 ok(".iar-painel-fundo { position: fixed" in css,
    "sumiu o fundo escurecido atrás do painel")
-print("  painel fora da barra e em posição fixa, com fundo próprio")
-
-# ── 3. o botão existe e o script encontra as três peças ────────────────────
-ok('id="btnMenu"' in html, "sem botão de menu no cabeçalho")
-ok('id="iarPainel"' in html, "sem painel")
-ok('id="iarPainelFundo"' in html, "sem fundo do painel")
-ok("getElementById('btnMenu')" in html and "getElementById('iarPainel')" in html
-   and "getElementById('iarPainelFundo')" in html,
-   "o script não acha o botão, o painel ou o fundo")
-# O botão de menu mora no CABEÇALHO agora, e não mais dentro da pílula de
-# baixo — a barra ficou só com as cinco paradas fixas. Conto as ocorrências:
-# uma cópia extra dentro da barra passaria batido se eu olhasse só a
-# primeira ocorrência, que continuaria sendo a do cabeçalho.
-_qtd_btn_menu = html.count('id="btnMenu"')
-ok(_qtd_btn_menu == 1,
-   f"{_qtd_btn_menu} botões de menu no HTML — deveria haver um só")
-ok(pos_fim_nav > 0 and html.find('id="btnMenu"') < pos_nav,
-   "o botão de menu foi parar dentro da barra de baixo — deveria estar no "
-   "cabeçalho, de onde o painel abre suspenso no alto")
-print("  botão no cabeçalho, painel e fundo presentes, script encontra os três")
+# "Emerge de baixo pra cima": ancorado por bottom, e não por top — e com uma
+# transição, senão ele só pisca em vez de subir.
+_bloco_painel = re.search(r"\.iar-painel \{(.*?)\.iar-painel a \{", css, re.S)
+ok(_bloco_painel is not None, "não achei o bloco de regras do .iar-painel")
+if _bloco_painel:
+    regra = _bloco_painel.group(1)
+    ok("bottom:" in regra, "o painel voltou a subir por 'top' — você pediu que ele "
+       "emergisse da barra de baixo para cima")
+    ok("top:" not in regra.replace("top: 0", ""),
+       "sobrou uma âncora de topo no painel, e ele deveria vir só de baixo")
+    ok("transition:" in regra, "o painel perdeu a transição — sem ela não dá pra "
+       "ver ele emergindo, só pisca")
+print("  painel fora da barra, fixo, ancorado embaixo e com transição de subida")
 
 # ── 4. a marca voltou a ser o nome ─────────────────────────────────────────
 ok(">IARABÃO<" in html, "a marca não voltou a ser o nome inteiro")
@@ -120,47 +126,62 @@ ok("history.back()" not in ns["_header"]("/"), "voltar aparece na tela inicial")
 ok("history.back()" in ns["_header"]("/mercado"), "voltar sumiu das outras telas")
 print("  voltar: fora da home, presente nas demais")
 
-# ── 6. a barra de baixo tem exatamente cinco paradas, Início no meio ───────
-# A ordem que você deu foi: Início, Notícias do Mercado, Fim de jogo,
-# Agendamento e Clipes. Início no centro deixa dois de cada lado — os dois
-# que vieram antes dele na sua frase à esquerda, os dois de depois à direita.
-ok(len(ns["_NAV_BOTTOM"]) == 5,
-   f"a barra tem {len(ns['_NAV_BOTTOM'])} paradas, e você pediu cinco")
+# ── 6. a barra tem seis rotas fixas, Início no meio, na ordem pedida ───────
+# esquerda: Agendamentos, Clipes, Fim de jogo — centro: Início — direita:
+# Notícias do Mercado, Lesões. O menu (sétimo ícone) não está em _NAV_BOTTOM
+# porque não é uma rota — é montado à parte, mas sempre depois das seis.
+ok(len(ns["_NAV_BOTTOM"]) == 6,
+   f"a barra tem {len(ns['_NAV_BOTTOM'])} rotas, e são seis mais o menu")
 rotas_barra = [p[0] for p in ns["_NAV_BOTTOM"]]
-ok(rotas_barra == ["/mercado/noticias", "/fim-de-jogo", "/", "/posts", "/clipes"],
+ok(rotas_barra == ["/posts", "/clipes", "/fim-de-jogo", "/",
+                    "/mercado/noticias", "/lesoes"],
    f"a ordem da barra mudou: {rotas_barra}")
-ok(rotas_barra[2] == "/", "o Início saiu do centro da barra")
-print("  barra: 5 paradas, Início no meio")
+ok(rotas_barra[3] == "/", "o Início saiu do centro da barra")
+print("  barra: 6 rotas na ordem pedida, Início no meio")
 
 # ── 7. o Início é o item especial — maior, sempre com a cor de marca ───────
-ok('iar-icon iar-home' in html or 'iar-home iar-icon' in html
-   or re.search(r'class="iar-icon[^"]*iar-home', html),
+ok(re.search(r'class="iar-icon[^"]*iar-home', html),
    "o Início perdeu a classe que o deixa maior e elevado sobre a barra")
 ok(html.count('<div class="iar-lacuna">') == 1,
    "sumiu (ou dobrou) a lacuna que reserva o espaço do Início na barra")
 print("  Início: classe especial e lacuna reservando o espaço dele")
 
-# ── 8. cada rota do painel está lá, e nenhuma repete a da barra ───────────
+# ── 8. o espaço ao redor do Início é maior que o dos outros ícones ────────
+# Você pediu para espaçar mais os botões ao lado do centro — a lacuna
+# reservada para o Início precisa ficar mais larga que um ícone comum,
+# senão os vizinhos encostam no círculo elevado.
+_m_icone = re.search(r"\.iar-icon \{ width: (\d+)px", css)
+_m_lacuna = re.search(r"\.iar-lacuna \{ width: (\d+)px", css)
+ok(_m_icone and _m_lacuna, "não achei a largura do ícone comum ou da lacuna")
+if _m_icone and _m_lacuna:
+    ok(int(_m_lacuna.group(1)) > int(_m_icone.group(1)),
+       "a lacuna do Início não é mais larga que um ícone comum — sem folga "
+       "extra dos dois lados do botão central")
+print("  lacuna do Início mais larga que um ícone comum — mais respiro ao redor dele")
+
+# ── 9. Lesões saiu do painel e entrou na barra; não fica duplicada ────────
 rotas_painel = [p[0] for p in ns["_NAV_MAIS"]]
+ok("/lesoes" not in rotas_painel,
+   "Lesões continua no painel — deveria ter entrado na barra")
 ok(not (set(rotas_painel) & set(rotas_barra)),
    f"rota duplicada entre barra e painel: {set(rotas_painel) & set(rotas_barra)}")
-for rota in ("/noticias", "/mercado", "/aspas", "/lesoes", "/janela", "/elencos",
+for rota in ("/noticias", "/mercado", "/aspas", "/janela", "/elencos",
              "/arbitragem", "/previa", "/numeros", "/descartadas", "/lixeira",
              "/analise", "/fontes"):
     ok(rota in rotas_painel, f"{rota} sumiu do painel — e não está na barra")
-print(f"  painel: {len(rotas_painel)} rotas, nenhuma repetida da barra")
+print(f"  painel: {len(rotas_painel)} rotas, Lesões migrou para a barra")
 
-# ── 9. o ativo é único — na barra OU no painel, nunca nos dois ────────────
-for rota in ("/", "/clipes", "/posts", "/fim-de-jogo", "/mercado/noticias"):
+# ── 10. o ativo é único — na barra OU no painel, nunca nos dois ───────────
+for rota in ("/", "/clipes", "/posts", "/fim-de-jogo", "/mercado/noticias", "/lesoes"):
     h = ns["_header"](rota)
     ativos_barra = len(re.findall(r'class="iar-icon[^"]*\bativo\b', h))
     ok(ativos_barra == 1, f"{rota}: {ativos_barra} ícones ativos na barra")
 
-for rota in ("/noticias", "/mercado", "/aspas", "/lesoes"):
+for rota in ("/noticias", "/mercado", "/aspas", "/janela"):
     h = ns["_header"](rota)
     ok(h.count('aria-current="page"') == 1,
        f"{rota}: deveria marcar exatamente uma opção do painel como atual")
-    ok('class="iar-btn ativo" id="btnMenu"' in h,
+    ok(re.search(r'class="iar-icon ativo" id="btnMenu"', h),
        f"{rota}: o botão de menu deveria acender — a tela aberta está "
        "escondida no painel")
 print("  exatamente um destino marcado como atual em cada tela")

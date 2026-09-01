@@ -322,16 +322,20 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "    .iar-btn:hover, .iar-btn.ativo { color: var(--c-acento);\n"
     "      border-color: var(--c-acento); }\n"
     # ── A BARRA DE BAIXO ──────────────────────────────────────────────────
-    # Cinco paradas, sem rolagem: a pílula não precisa mais de overflow
-    # porque não sobra ícone para rolar. A altura fica igual à de antes de
-    # propósito (padding 6px, ícone 42px) — o 62px que a coleta e o painel de
-    # baixo usam para ficar acima da pílula continua valendo sem recalcular.
+    # Sete paradas agora: seis rotas mais o botão de menu, que saiu do
+    # cabeçalho e se mudou para cá. A pílula em si (.iar-nav) não tem
+    # overflow — quem rola, se precisar, é o MIOLO (.iar-linha). É a mesma
+    # lição de sempre: overflow na pílula cria contexto de recorte, e o Home
+    # elevado (posicionado por fora do miolo) seria cortado junto.
     "    .iar-nav { position: fixed; left: 50%; transform: translateX(-50%);\n"
     "      bottom: max(12px, env(safe-area-inset-bottom)); z-index: 30;\n"
-    "      display: flex; align-items: center; justify-content: center;\n"
-    "      padding: 6px 10px; gap: 8px; border-radius: 999px;\n"
-    "      background: var(--c-bg-card); border: 1px solid var(--c-border-2);\n"
+    "      display: flex; align-items: center; padding: 6px 12px;\n"
+    "      border-radius: 999px; background: var(--c-bg-card);\n"
+    "      border: 1px solid var(--c-border-2);\n"
     "      box-shadow: 0 8px 30px rgba(0,0,0,.45); }\n"
+    "    .iar-linha { display: flex; align-items: center; gap: 13px;\n"
+    "      max-width: calc(100vw - 16px); overflow-x: auto; scrollbar-width: none; }\n"
+    "    .iar-linha::-webkit-scrollbar { display: none; }\n"
     "    .iar-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 999px;\n"
     "      display: flex; align-items: center; justify-content: center;\n"
     "      color: var(--c-muted-3); text-decoration: none; position: relative;\n"
@@ -346,11 +350,12 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "      justify-content: center; }\n"
     # O Home fica maior, sempre acesa (é o atalho, não mais um item que
     # acende e apaga), e sobe por CIMA da pílula em vez de esticá-la —
-    # position:absolute tira-o do fluxo do flex, então a altura da pílula
-    # continua sendo só a dos quatro ícones normais. A lacuna do lado é um
-    # espaço vazio reservado no fluxo para as duas duplas não colidirem
-    # embaixo do círculo.
-    "    .iar-lacuna { width: 46px; flex: 0 0 46px; }\n"
+    # position:absolute o tira do miolo que rola, então nem a altura da
+    # pílula nem o corte do overflow o alcançam. A lacuna é o espaço vazio
+    # reservado no MIOLO para as duas trincas não colidirem embaixo do
+    # círculo — mais larga que o ícone de propósito, para sobrar respiro dos
+    # dois lados do botão central.
+    "    .iar-lacuna { width: 58px; flex: 0 0 58px; }\n"
     "    .iar-home { position: absolute; left: 50%; top: 50%;\n"
     "      transform: translate(-50%, -50%) translateY(-14px);\n"
     "      width: 56px; height: 56px; flex: 0 0 56px; z-index: 2;\n"
@@ -362,20 +367,28 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "      0 6px 18px rgba(182,255,0,.55); }\n"
     "    .iar-home svg { width: 22px; height: 22px; }\n"
     "    body { padding-bottom: 88px; }\n"
-    # ── O PAINEL SUSPENSO ─────────────────────────────────────────────────
-    # Fixo, no alto — não mais grudado na barra de baixo. Fundo escurecido
-    # por trás, como o "More" do Fotmob: clicar fora, ou Esc, fecha.
+    # ── O PAINEL DE BAIXO ─────────────────────────────────────────────────
+    # Sobe da barra, e não desce do topo: fica ancorado no MESMO fundo que a
+    # pílula, logo acima dela (62px, o mesmo deslocamento que a coleta usa),
+    # e emerge de baixo para cima com um deslizar curto. Fundo escurecido
+    # por trás cobrindo a tela inteira: clicar nele, ou Esc, fecha.
     "    .iar-painel-fundo { position: fixed; inset: 0; background: rgba(0,0,0,.55);\n"
-    "      z-index: 45; display: none; }\n"
-    "    .iar-painel-fundo.aberto { display: block; }\n"
-    "    .iar-painel { position: fixed; left: 50%; transform: translateX(-50%);\n"
-    "      top: calc(env(safe-area-inset-top) + 62px); width: calc(100vw - 28px);\n"
-    "      max-width: 420px; max-height: calc(100vh - 140px); overflow-y: auto;\n"
+    "      z-index: 45; opacity: 0; pointer-events: none;\n"
+    "      transition: opacity .18s ease; }\n"
+    "    .iar-painel-fundo.aberto { opacity: 1; pointer-events: auto; }\n"
+    "    .iar-painel { position: fixed; left: 50%;\n"
+    "      bottom: calc(max(12px, env(safe-area-inset-bottom)) + 62px);\n"
+    "      transform: translateX(-50%) translateY(14px);\n"
+    "      width: calc(100vw - 28px); max-width: 420px;\n"
+    "      max-height: calc(100vh - 160px); overflow-y: auto;\n"
     "      background: var(--c-bg-card); border: 1px solid var(--c-border-2);\n"
-    "      border-radius: 20px; padding: 14px; display: none;\n"
+    "      border-radius: 20px; padding: 14px; display: grid;\n"
     "      grid-template-columns: repeat(3, 1fr); gap: 10px;\n"
-    "      box-shadow: 0 20px 50px rgba(0,0,0,.55); z-index: 46; }\n"
-    "    .iar-painel.aberto { display: grid; }\n"
+    "      box-shadow: 0 -20px 50px rgba(0,0,0,.5); z-index: 46;\n"
+    "      opacity: 0; pointer-events: none;\n"
+    "      transition: transform .18s ease, opacity .18s ease; }\n"
+    "    .iar-painel.aberto { opacity: 1; pointer-events: auto;\n"
+    "      transform: translateX(-50%) translateY(0); }\n"
     "    .iar-painel a { display: flex; flex-direction: column; align-items: center;\n"
     "      gap: 7px; padding: 14px 4px; border-radius: 14px;\n"
     "      background: var(--c-bg-soft); color: var(--c-muted-4);\n"
@@ -470,31 +483,35 @@ _ICO_MENU = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
              '<line x1="3" y1="12" x2="21" y2="12"/>'
              '<line x1="3" y1="18" x2="21" y2="18"/></svg>')
 
-# Você pediu cinco ícones fixos embaixo, no estilo da referência que mandou:
-# pílula flutuante, Home centralizado e elevado sobre os demais. O resto vira
-# um painel suspenso no alto — o "More" do Fotmob que você também mandou —
-# em vez do menu de reticências colado na própria barra.
+# Sete paradas embaixo: seis rotas mais o menu, com o Início centralizado e
+# elevado sobre as outras. A ordem que você deu na segunda rodada:
 #
-# A ordem é a que você deu: Home, Notícias do Mercado, Fim de jogo,
-# Agendamento e Clipes. Home no centro deixa dois de cada lado; os dois que
-# vieram antes dele na sua frase ficam à esquerda, os dois de depois ficam à
-# direita — a mesma ordem de leitura, só dobrada ao meio da tela.
+#   esquerda:  Agendamentos, Clipes, Fim de jogo
+#   centro:    Início (elevado)
+#   direita:   Notícias do Mercado, Lesões
+#
+# O menu — as três barrinhas que moravam no cabeçalho — se mudou para cá
+# também, como sétimo ícone, à direita de Lesões: "além das três barrinhas
+# que você colocou no canto superior direito, ela vem pra barra inferior".
+# O painel que ele abre passou a subir da barra, e não a descer do topo —
+# ver o comentário da regra do painel, no CSS ali em cima.
 _NAV_BOTTOM = [
-    ("/mercado/noticias", _ICO_MERCADO, "Notícias do Mercado", "",       ""),
+    ("/posts",            _ICO_POSTS,   "Agendamentos",        "",       "#1d9bf0"),
+    ("/clipes",           _ICO_CLIPE,   "Clipes",              "clipes", "#B6FF00"),
     ("/fim-de-jogo",      _ICO_APITO,   "Fim de jogo",         "",       "#B6FF00"),
-    ("/",                 _ICO_INICIO,  "Início",               "home",   ""),
-    ("/posts",            _ICO_POSTS,   "Agendamentos",         "",       "#1d9bf0"),
-    ("/clipes",           _ICO_CLIPE,   "Clipes",               "clipes", "#B6FF00"),
+    ("/",                 _ICO_INICIO,  "Início",              "home",   ""),
+    ("/mercado/noticias", _ICO_MERCADO, "Notícias do Mercado", "",       ""),
+    ("/lesoes",           _ICO_INJURY,  "Lesões",              "",       "#FD5D5D"),
 ]
 
-# Tudo que não é uma das cinco paradas fixas. Antes ficava dividido entre uma
-# barra rolável de dez ícones e este mesmo menu como sobra dela — agora é só
-# isto: um painel em grade, aberto pelo ícone de menu do cabeçalho.
+# Tudo que não é uma das seis rotas fixas da barra. Lesões saiu daqui quando
+# entrou na barra — o resto continua num painel em grade, só que agora
+# aberto por um ícone que mora na própria barra de baixo, não mais no
+# cabeçalho.
 _NAV_MAIS = [
     ("/noticias",    _ICO_JORNAL,  "Notícias",   "", ""),
     ("/mercado",     _ICO_MERCADO, "Mercado",    "", ""),
     ("/aspas",       _ICO_ASPAS,   "Aspas",      "", ""),
-    ("/lesoes",      _ICO_INJURY,  "Lesões",     "", "#FD5D5D"),
     ("/janela",      _ICO_JANELA,  "Janela",     "", "#B6FF00"),
     ("/elencos",     _ICO_ELENCOS, "Elencos",    "", "#B6FF00"),
     ("/arbitragem",  _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
@@ -527,34 +544,40 @@ def _login_ligado() -> bool:
 
 
 def _header(active: str) -> str:
-    # As cinco paradas fixas. O Início vem especial: maior, sempre acesa
-    # (é o atalho de marca, não mais um item que acende e apaga como os
-    # outros quatro), e some do fluxo (position:absolute no CSS) para não
-    # esticar a altura da pílula — a lacuna ao lado dele reserva o espaço no
-    # fluxo para as duas duplas não colidirem embaixo do círculo.
-    itens_barra = ""
+    # As seis rotas fixas mais o botão de menu. O Início vem especial: maior,
+    # sempre aceso (é o atalho de marca, não mais um item que acende e
+    # apaga), e sai do MIOLO que rola (.iar-linha) para virar filho direto da
+    # pílula, posicionado por fora — position:absolute o tira tanto do fluxo
+    # quanto do recorte do overflow. A lacuna, dentro do miolo, reserva o
+    # espaço vazio onde ele fica por cima.
+    linha_html = ""
+    home_html = ""
     for href, ico, label, badge_tab, color in _NAV_BOTTOM:
-        especial = href == "/"
-        cls = ("iar-icon" + (" iar-home" if especial else "")
-               + (" ativo" if href == active else ""))
         badge = (f'<span class="iar-badge" data-tab="{badge_tab}" style="display:none"></span>'
                  if badge_tab else "")
-        lacuna = '<div class="iar-lacuna"></div>' if especial else ""
-        itens_barra += f'{lacuna}<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
+        if href == "/":
+            cls = "iar-icon iar-home" + (" ativo" if href == active else "")
+            home_html = f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
+            linha_html += '<div class="iar-lacuna"></div>'
+        else:
+            cls = "iar-icon" + (" ativo" if href == active else "")
+            linha_html += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
 
-    # O ícone de menu herda a cor da página aberta quando ela está escondida
-    # no painel — senão não haveria pista nenhuma de onde você está, já que
-    # essas telas deixaram de ter ícone próprio na barra.
+    # O botão de menu entrou na barra como a sétima parada, à direita de
+    # Lesões — as "três barrinhas" saíram do cabeçalho. Ele herda a cor da
+    # página aberta quando ela está escondida no painel, senão não haveria
+    # pista nenhuma de onde você está.
     aberto_no_painel = any(p[0] == active for p in _NAV_MAIS)
-    cls_menu = "iar-btn" + (" ativo" if aberto_no_painel else "")
+    cls_menu = "iar-icon" + (" ativo" if aberto_no_painel else "")
+    linha_html += (
+        f'<button type="button" class="{cls_menu}" id="btnMenu" '
+        'aria-haspopup="true" aria-expanded="false" title="Menu">' + _ICO_MENU + '</button>'
+    )
+
     opcoes = ""
     for href, ico, label, _b, color in _NAV_MAIS:
         marca = ' aria-current="page"' if href == active else ""
         opcoes += f'<a href="{href}"{marca}>{ico}<span>{label}</span></a>'
-    btn_menu = (
-        f'<button type="button" class="{cls_menu}" id="btnMenu" '
-        'aria-haspopup="true" aria-expanded="false" title="Menu">' + _ICO_MENU + '</button>'
-    )
     menu_script = """<script>
 (function(){
   var bt = document.getElementById('btnMenu');
@@ -665,7 +688,7 @@ def _header(active: str) -> str:
         '<header class="iar-topo">'
         f'<div class="iar-lado">{voltar}</div>'
         '<a class="iar-marca" href="/" title="IARABÃO">IARABÃO</a>'
-        f'<div class="iar-lado dir">{token_dot}{btn_menu}'
+        f'<div class="iar-lado dir">{token_dot}'
         f'<a class="iar-btn{cfg_ativa}" href="/config" title="Configurações" '
         f'aria-label="Configurações">{_ICO_CONFIG}</a>{sair}</div>'
         '</header>'
@@ -689,7 +712,7 @@ def _header(active: str) -> str:
 })();
 </script>"""
     return (topo
-            + f'<nav class="iar-nav">{itens_barra}</nav>'
+            + f'<nav class="iar-nav"><div class="iar-linha">{linha_html}</div>{home_html}</nav>'
             + '<div class="iar-painel-fundo" id="iarPainelFundo"></div>'
             + f'<div class="iar-painel" id="iarPainel">{opcoes}</div>'
             + f'{menu_script}{badge_script}{theme_script}{token_script}'

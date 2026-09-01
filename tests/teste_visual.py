@@ -63,25 +63,27 @@ print("  nenhuma página com acento próprio")
 
 # ── as guias ───────────────────────────────────────────────────────────────
 # Notícias, Mercado e Aspas existem — mas moraram para o painel suspenso
-# quando a barra de baixo virou cinco paradas fixas. Só Notícias do Mercado
-# (a lista crua, e não o guia de negociações) ficou na barra.
+# quando a barra de baixo virou paradas fixas. Só Notícias do Mercado (a
+# lista crua, e não o guia de negociações) ficou na barra.
 for rota, rotulo in (("/noticias", "Notícias"), ("/mercado", "Mercado"),
                      ("/aspas", "Aspas")):
     ok(any(p[0] == rota for p in ns["_NAV_MAIS"]), f"{rotulo} não está no painel")
     ok(not any(p[0] == rota for p in ns["_NAV_BOTTOM"]),
-       f"{rotulo} está na barra de baixo — a barra é só as cinco paradas fixas")
+       f"{rotulo} está na barra de baixo — a barra é só as rotas fixas pedidas")
     ok(f'@app.get("{rota}"' in src, f"a rota {rota} não existe")
 ok(src.count("async def _pagina_de_noticias") == 1, "a página de notícias duplicou")
 print("  guias: Notícias, Mercado e Aspas no painel suspenso")
 
-# A barra é sempre cinco: Início no meio, dois de cada lado. Ela não rola
-# mais — se crescer, a lógica do Início centralizado (a lacuna, o
-# position:absolute) deixa de fazer sentido, e é hora de repensar o desenho,
-# não só de tirar este teste do caminho.
-ok(len(ns["_NAV_BOTTOM"]) == 5,
-   f"{len(ns['_NAV_BOTTOM'])} itens na barra — o desenho de pílula com "
-   "Início elevado no meio pressupõe exatamente cinco")
-print(f"  {len(ns['_NAV_BOTTOM'])} na barra, {len(ns['_NAV_MAIS'])} no painel suspenso")
+# A barra tem seis rotas, Início no meio, três de cada lado — mais o botão
+# de menu como sétimo ícone (esse não é uma rota, então não conta em
+# _NAV_BOTTOM). Se crescer além disso, a lógica do Início centralizado (a
+# lacuna, o position:absolute) deixa de fazer sentido, e é hora de repensar
+# o desenho, não só de tirar este teste do caminho.
+ok(len(ns["_NAV_BOTTOM"]) == 6,
+   f"{len(ns['_NAV_BOTTOM'])} rotas na barra — o desenho pedido tem seis "
+   "mais o menu")
+print(f"  {len(ns['_NAV_BOTTOM'])} rotas na barra (+ menu), "
+      f"{len(ns['_NAV_MAIS'])} no painel suspenso")
 
 print()
 print("FALHAS:", len(falhas))
