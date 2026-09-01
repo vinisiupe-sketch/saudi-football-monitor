@@ -23,7 +23,7 @@ src = open("main.py", encoding="utf-8").read()
 mod = ast.parse(src)
 
 ns = {}
-quero = {"_NAV_PRINCIPAIS", "_NAV_EXTRAS", "_THEME_VARS_CSS", "PALETA"}
+quero = {"_NAV_BOTTOM", "_NAV_MAIS", "_THEME_VARS_CSS", "PALETA"}
 corpo = [n for n in mod.body if isinstance(n, ast.Assign)
          and isinstance(n.targets[0], ast.Name)
          and (n.targets[0].id.startswith("_ICO_") or n.targets[0].id in quero)]
@@ -62,17 +62,26 @@ ok(not locais, f"página com acento próprio: {locais}")
 print("  nenhuma página com acento próprio")
 
 # ── as guias ───────────────────────────────────────────────────────────────
+# Notícias, Mercado e Aspas existem — mas moraram para o painel suspenso
+# quando a barra de baixo virou cinco paradas fixas. Só Notícias do Mercado
+# (a lista crua, e não o guia de negociações) ficou na barra.
 for rota, rotulo in (("/noticias", "Notícias"), ("/mercado", "Mercado"),
                      ("/aspas", "Aspas")):
-    ok(any(p[0] == rota for p in ns["_NAV_PRINCIPAIS"]), f"{rotulo} não está na barra")
+    ok(any(p[0] == rota for p in ns["_NAV_MAIS"]), f"{rotulo} não está no painel")
+    ok(not any(p[0] == rota for p in ns["_NAV_BOTTOM"]),
+       f"{rotulo} está na barra de baixo — a barra é só as cinco paradas fixas")
     ok(f'@app.get("{rota}"' in src, f"a rota {rota} não existe")
 ok(src.count("async def _pagina_de_noticias") == 1, "a página de notícias duplicou")
-print(f"  guias: Notícias, Mercado e Aspas na barra")
+print("  guias: Notícias, Mercado e Aspas no painel suspenso")
 
-# Dez cabem porque a barra rola. Passando de doze, rolar vira caça ao ícone.
-ok(len(ns["_NAV_PRINCIPAIS"]) <= 12,
-   f"{len(ns['_NAV_PRINCIPAIS'])} itens na barra — passou do que se acha rolando")
-print(f"  {len(ns['_NAV_PRINCIPAIS'])} na barra, {len(ns['_NAV_EXTRAS'])} no menu")
+# A barra é sempre cinco: Início no meio, dois de cada lado. Ela não rola
+# mais — se crescer, a lógica do Início centralizado (a lacuna, o
+# position:absolute) deixa de fazer sentido, e é hora de repensar o desenho,
+# não só de tirar este teste do caminho.
+ok(len(ns["_NAV_BOTTOM"]) == 5,
+   f"{len(ns['_NAV_BOTTOM'])} itens na barra — o desenho de pílula com "
+   "Início elevado no meio pressupõe exatamente cinco")
+print(f"  {len(ns['_NAV_BOTTOM'])} na barra, {len(ns['_NAV_MAIS'])} no painel suspenso")
 
 print()
 print("FALHAS:", len(falhas))

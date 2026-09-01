@@ -247,7 +247,6 @@ _ICO_PREVIA  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/>'
                 '<path d="M14 4v6h6"/><path d="M8 14h7M8 17.5h5"/></svg>')
-_ICO_MAIS    = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>'
 _ICO_JANELA  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16V4m0 0L3 8m4-4 4 4"/><path d="M17 8v12m0 0 4-4m-4 4-4-4"/></svg>'
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -323,20 +322,16 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "    .iar-btn:hover, .iar-btn.ativo { color: var(--c-acento);\n"
     "      border-color: var(--c-acento); }\n"
     # ── A BARRA DE BAIXO ──────────────────────────────────────────────────
-    # A rolagem fica no MIOLO, não na pílula. Overflow cria contexto de
-    # recorte, e o menu de reticências é posicionado em relação à pílula: com
-    # overflow nela, o menu abria e ficava cortado, invisível. O botão parecia
-    # não funcionar — e funcionava.
+    # Cinco paradas, sem rolagem: a pílula não precisa mais de overflow
+    # porque não sobra ícone para rolar. A altura fica igual à de antes de
+    # propósito (padding 6px, ícone 42px) — o 62px que a coleta e o painel de
+    # baixo usam para ficar acima da pílula continua valendo sem recalcular.
     "    .iar-nav { position: fixed; left: 50%; transform: translateX(-50%);\n"
     "      bottom: max(12px, env(safe-area-inset-bottom)); z-index: 30;\n"
-    "      display: flex; align-items: center; padding: 6px; gap: 4px;\n"
-    "      border-radius: 999px; background: var(--c-bg-card);\n"
-    "      border: 1px solid var(--c-border-2);\n"
-    "      box-shadow: 0 8px 30px rgba(0,0,0,.45);\n"
-    "      max-width: calc(100vw - 20px); }\n"
-    "    .iar-rolo { display: flex; align-items: center; gap: 2px;\n"
-    "      overflow-x: auto; scrollbar-width: none; }\n"
-    "    .iar-rolo::-webkit-scrollbar { display: none; }\n"
+    "      display: flex; align-items: center; justify-content: center;\n"
+    "      padding: 6px 10px; gap: 8px; border-radius: 999px;\n"
+    "      background: var(--c-bg-card); border: 1px solid var(--c-border-2);\n"
+    "      box-shadow: 0 8px 30px rgba(0,0,0,.45); }\n"
     "    .iar-icon { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 999px;\n"
     "      display: flex; align-items: center; justify-content: center;\n"
     "      color: var(--c-muted-3); text-decoration: none; position: relative;\n"
@@ -349,23 +344,47 @@ _HEADER_CSS = _THEME_VARS_CSS + (
     "      background: var(--c-negativo); color: #fff; font-size: .58rem;\n"
     "      font-weight: 800; display: flex; align-items: center;\n"
     "      justify-content: center; }\n"
+    # O Home fica maior, sempre acesa (é o atalho, não mais um item que
+    # acende e apaga), e sobe por CIMA da pílula em vez de esticá-la —
+    # position:absolute tira-o do fluxo do flex, então a altura da pílula
+    # continua sendo só a dos quatro ícones normais. A lacuna do lado é um
+    # espaço vazio reservado no fluxo para as duas duplas não colidirem
+    # embaixo do círculo.
+    "    .iar-lacuna { width: 46px; flex: 0 0 46px; }\n"
+    "    .iar-home { position: absolute; left: 50%; top: 50%;\n"
+    "      transform: translate(-50%, -50%) translateY(-14px);\n"
+    "      width: 56px; height: 56px; flex: 0 0 56px; z-index: 2;\n"
+    "      background: var(--c-acento) !important;\n"
+    "      color: var(--c-acento-texto) !important;\n"
+    "      border: 4px solid var(--c-bg-card);\n"
+    "      box-shadow: 0 6px 18px rgba(182,255,0,.45); }\n"
+    "    .iar-home.ativo { box-shadow: 0 0 0 4px rgba(182,255,0,.3),\n"
+    "      0 6px 18px rgba(182,255,0,.55); }\n"
+    "    .iar-home svg { width: 22px; height: 22px; }\n"
     "    body { padding-bottom: 88px; }\n"
-    # ── O MENU DE RETICÊNCIAS ─────────────────────────────────────────────
-    # Fixo, e não absoluto: assim nenhum overflow de ancestral consegue
-    # recortá-lo, que foi exatamente o que aconteceu.
-    "    .iar-mais { flex: 0 0 auto; display: flex; }\n"
-    "    .iar-menu { position: fixed; right: 14px;\n"
-    "      bottom: calc(max(12px, env(safe-area-inset-bottom)) + 62px);\n"
-    "      min-width: 196px; background: var(--c-bg-card);\n"
-    "      border: 1px solid var(--c-border-2); border-radius: 14px; padding: 6px;\n"
-    "      display: none; flex-direction: column; gap: 2px;\n"
-    "      box-shadow: 0 10px 34px rgba(0,0,0,.55); z-index: 40; }\n"
-    "    .iar-menu.aberto { display: flex; }\n"
-    "    .iar-menu a { display: flex; align-items: center; gap: 10px;\n"
-    "      padding: 9px 11px; border-radius: 10px; color: var(--c-muted-4);\n"
-    "      text-decoration: none; font-size: .8rem; font-weight: 600;\n"
-    "      font-family: 'Inter', system-ui, sans-serif; }\n"
-    "    .iar-menu a:hover { background: var(--c-hover-tint); color: var(--c-text); }\n"
+    # ── O PAINEL SUSPENSO ─────────────────────────────────────────────────
+    # Fixo, no alto — não mais grudado na barra de baixo. Fundo escurecido
+    # por trás, como o "More" do Fotmob: clicar fora, ou Esc, fecha.
+    "    .iar-painel-fundo { position: fixed; inset: 0; background: rgba(0,0,0,.55);\n"
+    "      z-index: 45; display: none; }\n"
+    "    .iar-painel-fundo.aberto { display: block; }\n"
+    "    .iar-painel { position: fixed; left: 50%; transform: translateX(-50%);\n"
+    "      top: calc(env(safe-area-inset-top) + 62px); width: calc(100vw - 28px);\n"
+    "      max-width: 420px; max-height: calc(100vh - 140px); overflow-y: auto;\n"
+    "      background: var(--c-bg-card); border: 1px solid var(--c-border-2);\n"
+    "      border-radius: 20px; padding: 14px; display: none;\n"
+    "      grid-template-columns: repeat(3, 1fr); gap: 10px;\n"
+    "      box-shadow: 0 20px 50px rgba(0,0,0,.55); z-index: 46; }\n"
+    "    .iar-painel.aberto { display: grid; }\n"
+    "    .iar-painel a { display: flex; flex-direction: column; align-items: center;\n"
+    "      gap: 7px; padding: 14px 4px; border-radius: 14px;\n"
+    "      background: var(--c-bg-soft); color: var(--c-muted-4);\n"
+    "      text-decoration: none; font-size: .68rem; font-weight: 700;\n"
+    "      text-align: center; font-family: 'Inter', system-ui, sans-serif; }\n"
+    "    .iar-painel a svg { width: 20px; height: 20px; }\n"
+    "    .iar-painel a:hover { color: var(--c-text); }\n"
+    "    .iar-painel a[aria-current=\"page\"] { color: var(--c-acento-texto);\n"
+    "      background: var(--c-acento); }\n"
 )
 
 # Tags que transformam o site em app de tela de início no iPhone. Vão no <head>
@@ -445,46 +464,46 @@ _ICO_CONFIG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                '1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 '
                '1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>')
 
-_NAV_PRINCIPAIS = [
-    ("/",         _ICO_INICIO, "Início",   "home", ""),
-    ("/noticias", _ICO_JORNAL, "Notícias", "",     ""),
-    ("/mercado",  _ICO_MERCADO, "Mercado",  "",     ""),
-    ("/aspas",    _ICO_ASPAS,   "Aspas",    "",     ""),
-    ("/lesoes",  _ICO_INJURY,  "Lesões",  "",     "#FD5D5D"),
-    ("/janela",  _ICO_JANELA,  "Janela",  "",     "#B6FF00"),
-    ("/elencos", _ICO_ELENCOS, "Elencos", "",     "#B6FF00"),
-    ("/posts",   _ICO_POSTS,   "Agendamentos", "", "#1d9bf0"),
-    # Entrou por último para não bagunçar a ordem que você pediu. Fica na barra,
-    # e não no menu, porque é a única tela com pressa: o texto serve nos minutos
-    # seguintes ao apito.
-    ("/fim-de-jogo", _ICO_APITO, "Fim de jogo", "", "#B6FF00"),
-    # A tela mais urgente de todas: o gol acabou de sair e o clipe tem prazo.
-    # Fica na barra, e o contador aparece quando há clipe esperando você.
-    ("/clipes", _ICO_CLIPE, "Clipes", "clipes", "#B6FF00"),
-    # A escala do dia. Fica na barra porque é consulta diária, e porque a
-    # janela de captura é curta: o SAFF publica e tira do ar.
-    ("/arbitragem", _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
-    # Sua preparação para o ar. Fica ao lado de Arbitragem porque as duas
-    # são telas de dia de jogo, consultadas com o jogo prestes a começar.
-    ("/previa", _ICO_PREVIA, "Prévia", "", "#B6FF00"),
+_ICO_MENU = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+             'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+             'stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/>'
+             '<line x1="3" y1="12" x2="21" y2="12"/>'
+             '<line x1="3" y1="18" x2="21" y2="18"/></svg>')
+
+# Você pediu cinco ícones fixos embaixo, no estilo da referência que mandou:
+# pílula flutuante, Home centralizado e elevado sobre os demais. O resto vira
+# um painel suspenso no alto — o "More" do Fotmob que você também mandou —
+# em vez do menu de reticências colado na própria barra.
+#
+# A ordem é a que você deu: Home, Notícias do Mercado, Fim de jogo,
+# Agendamento e Clipes. Home no centro deixa dois de cada lado; os dois que
+# vieram antes dele na sua frase ficam à esquerda, os dois de depois ficam à
+# direita — a mesma ordem de leitura, só dobrada ao meio da tela.
+_NAV_BOTTOM = [
+    ("/mercado/noticias", _ICO_MERCADO, "Notícias do Mercado", "",       ""),
+    ("/fim-de-jogo",      _ICO_APITO,   "Fim de jogo",         "",       "#B6FF00"),
+    ("/",                 _ICO_INICIO,  "Início",               "home",   ""),
+    ("/posts",            _ICO_POSTS,   "Agendamentos",         "",       "#1d9bf0"),
+    ("/clipes",           _ICO_CLIPE,   "Clipes",               "clipes", "#B6FF00"),
 ]
-_NAV_EXTRAS = [
-    # Saiu da barra quando a Prévia entrou. O limite de doze é meu próprio
-    # teste, e ele existe porque barra que rola demais vira caça ao ícone.
-    # Números é tela de consulta, não de dia de jogo — foi a que menos
-    # sofre indo para cá. Se eu errei, é uma linha para desfazer.
-    ("/numeros",     _ICO_NUMEROS, "Números",     "", "#B6FF00"),
-    ("/descartadas", _ICO_ARCHIVE, "Descartadas", "", "#FFBE5D"),
-    ("/lixeira",     _ICO_TRASH2,  "Lixeira",     "", "#FFBE5D"),
-    ("/analise",     _ICO_ANALISE, "Análise",     "", "#FFBE5D"),
-    # Fontes não foi citada na lista, mas também não estava entre as seis do
-    # dia a dia. Deixo aqui em vez de sumir com ela sem avisar.
-    ("/fontes",      _ICO_SOURCES, "Fontes",      "", "#FFBE5D"),
-    # A lista crua do mercado, uma notícia por card. Guia independente da de
-    # negociações: uma mostra o material bruto, a outra o compilado. Fica no
-    # menu, e não na barra, porque a barra já está no teto de doze — e o
-    # limite existe para a barra não virar caça ao ícone.
-    ("/mercado/noticias", _ICO_MERCADO, "Notícias do Mercado", "", ""),
+
+# Tudo que não é uma das cinco paradas fixas. Antes ficava dividido entre uma
+# barra rolável de dez ícones e este mesmo menu como sobra dela — agora é só
+# isto: um painel em grade, aberto pelo ícone de menu do cabeçalho.
+_NAV_MAIS = [
+    ("/noticias",    _ICO_JORNAL,  "Notícias",   "", ""),
+    ("/mercado",     _ICO_MERCADO, "Mercado",    "", ""),
+    ("/aspas",       _ICO_ASPAS,   "Aspas",      "", ""),
+    ("/lesoes",      _ICO_INJURY,  "Lesões",     "", "#FD5D5D"),
+    ("/janela",      _ICO_JANELA,  "Janela",     "", "#B6FF00"),
+    ("/elencos",     _ICO_ELENCOS, "Elencos",    "", "#B6FF00"),
+    ("/arbitragem",  _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
+    ("/previa",      _ICO_PREVIA,  "Prévia",     "", "#B6FF00"),
+    ("/numeros",     _ICO_NUMEROS, "Números",    "", "#B6FF00"),
+    ("/descartadas", _ICO_ARCHIVE, "Descartadas","", "#FFBE5D"),
+    ("/lixeira",     _ICO_TRASH2,  "Lixeira",    "", "#FFBE5D"),
+    ("/analise",     _ICO_ANALISE, "Análise",    "", "#FFBE5D"),
+    ("/fontes",      _ICO_SOURCES, "Fontes",     "", "#FFBE5D"),
 ]
 
 
@@ -508,49 +527,55 @@ def _login_ligado() -> bool:
 
 
 def _header(active: str) -> str:
-    rolaveis = ""
-    for href, ico, label, badge_tab, color in _NAV_PRINCIPAIS:
-        cls = "iar-icon" + (" ativo" if href == active else "")
+    # As cinco paradas fixas. O Início vem especial: maior, sempre acesa
+    # (é o atalho de marca, não mais um item que acende e apaga como os
+    # outros quatro), e some do fluxo (position:absolute no CSS) para não
+    # esticar a altura da pílula — a lacuna ao lado dele reserva o espaço no
+    # fluxo para as duas duplas não colidirem embaixo do círculo.
+    itens_barra = ""
+    for href, ico, label, badge_tab, color in _NAV_BOTTOM:
+        especial = href == "/"
+        cls = ("iar-icon" + (" iar-home" if especial else "")
+               + (" ativo" if href == active else ""))
         badge = (f'<span class="iar-badge" data-tab="{badge_tab}" style="display:none"></span>'
                  if badge_tab else "")
-        rolaveis += f'<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
+        lacuna = '<div class="iar-lacuna"></div>' if especial else ""
+        itens_barra += f'{lacuna}<a class="{cls}" href="{href}" title="{label}">{ico}{badge}</a>'
 
-    # O botão herda a cor da página aberta quando ela está escondida no menu —
-    # senão não haveria pista nenhuma de onde você está.
-    aberto_no_menu = next((p for p in _NAV_EXTRAS if p[0] == active), None)
-    cls_mais = "iar-icon" + (" ativo" if aberto_no_menu else "")
-    estilo_mais = ""
+    # O ícone de menu herda a cor da página aberta quando ela está escondida
+    # no painel — senão não haveria pista nenhuma de onde você está, já que
+    # essas telas deixaram de ter ícone próprio na barra.
+    aberto_no_painel = any(p[0] == active for p in _NAV_MAIS)
+    cls_menu = "iar-btn" + (" ativo" if aberto_no_painel else "")
     opcoes = ""
-    for href, ico, label, _b, color in _NAV_EXTRAS:
+    for href, ico, label, _b, color in _NAV_MAIS:
         marca = ' aria-current="page"' if href == active else ""
-        cor = 'style="color:var(--c-acento)"' if href == active else ""
-        opcoes += f'<a href="{href}"{marca} {cor}>{ico}<span>{label}</span></a>'
-    items = (
-        '<div class="iar-mais">'
-        f'<button type="button" class="{cls_mais}" id="btnMais" '
-        'aria-haspopup="true" aria-expanded="false" title="Mais">' + _ICO_MAIS + '</button>'
-        '</div>'
+        opcoes += f'<a href="{href}"{marca}>{ico}<span>{label}</span></a>'
+    btn_menu = (
+        f'<button type="button" class="{cls_menu}" id="btnMenu" '
+        'aria-haspopup="true" aria-expanded="false" title="Menu">' + _ICO_MENU + '</button>'
     )
     menu_script = """<script>
 (function(){
-  var bt = document.getElementById('btnMais');
-  var menu = document.getElementById('navMenu');
-  if(!bt || !menu) return;
+  var bt = document.getElementById('btnMenu');
+  var painel = document.getElementById('iarPainel');
+  var fundo = document.getElementById('iarPainelFundo');
+  if(!bt || !painel || !fundo) return;
   function fechar(){
-    menu.classList.remove('aberto');
+    painel.classList.remove('aberto');
+    fundo.classList.remove('aberto');
     bt.setAttribute('aria-expanded','false');
   }
   bt.addEventListener('click', function(ev){
     ev.stopPropagation();          // senão o clique de fora fecha na mesma hora
-    var vai = !menu.classList.contains('aberto');
-    menu.classList.toggle('aberto', vai);
+    var vai = !painel.classList.contains('aberto');
+    painel.classList.toggle('aberto', vai);
+    fundo.classList.toggle('aberto', vai);
     bt.setAttribute('aria-expanded', vai ? 'true' : 'false');
   });
-  // Clicar fora e Esc fecham. Sem isso, no celular o menu ficaria preso aberto
-  // por cima do conteúdo, já que não há hover para revelar que ele está ali.
-  document.addEventListener('click', function(ev){
-    if(!menu.contains(ev.target)) fechar();
-  });
+  // O fundo escurecido cobre a tela inteira: clicar nele fecha, como o
+  // "More" do Fotmob. Esc também fecha, para quem usa teclado.
+  fundo.addEventListener('click', fechar);
   document.addEventListener('keydown', function(ev){
     if(ev.key === 'Escape') fechar();
   });
@@ -640,7 +665,7 @@ def _header(active: str) -> str:
         '<header class="iar-topo">'
         f'<div class="iar-lado">{voltar}</div>'
         '<a class="iar-marca" href="/" title="IARABÃO">IARABÃO</a>'
-        f'<div class="iar-lado dir">{token_dot}'
+        f'<div class="iar-lado dir">{token_dot}{btn_menu}'
         f'<a class="iar-btn{cfg_ativa}" href="/config" title="Configurações" '
         f'aria-label="Configurações">{_ICO_CONFIG}</a>{sair}</div>'
         '</header>'
@@ -664,8 +689,9 @@ def _header(active: str) -> str:
 })();
 </script>"""
     return (topo
-            + f'<nav class="iar-nav"><div class="iar-rolo">{rolaveis}</div>{items}</nav>'
-            + f'<div class="iar-menu" id="navMenu">{opcoes}</div>'
+            + f'<nav class="iar-nav">{itens_barra}</nav>'
+            + '<div class="iar-painel-fundo" id="iarPainelFundo"></div>'
+            + f'<div class="iar-painel" id="iarPainel">{opcoes}</div>'
             + f'{menu_script}{badge_script}{theme_script}{token_script}'
             + f'{perfil_script}')
 
