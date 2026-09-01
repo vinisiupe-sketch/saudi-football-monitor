@@ -106,6 +106,24 @@ def temporada(dia: str, cliente) -> str:
         ini, fim = (t.get("startDateUtc") or "")[:10], (t.get("endDateUtc") or "")[:10]
         if ini and fim and ini <= dia <= fim:
             return _guardar(f"temporada:{dia}", t.get("seasonId") or "")
+    # A API passou a devolver a temporada EM CURSO sem começo nem fim (vi ao
+    # vivo em 01/09/2026: "2026/2027" com startDateUtc e endDateUtc nulos) —
+    # sem essa segunda tentativa, `jogos_da_temporada` nunca acha nada, e a
+    # aba Clipes some com toda transmissão do dia, mesmo com o gravador
+    # enxergando o jogo no canal. Sem data de verdade pra confiar, uso o
+    # nome: no futebol saudita a temporada vai de agosto de um ano a julho do
+    # seguinte, então "2026/2027" cobre 01/ago/2026 a 31/jul/2027. Só entra
+    # aqui quem NÃO tinha as duas datas — quem tinha já foi julgado acima, com
+    # dado de verdade, que vale mais que nome.
+    for t in temporadas:
+        if (t.get("startDateUtc") or "") and (t.get("endDateUtc") or ""):
+            continue
+        m = re.match(r"^(\d{4})/(\d{4})$", (t.get("seasonName") or "").strip())
+        if not m:
+            continue
+        ano1, ano2 = m.group(1), m.group(2)
+        if f"{ano1}-08-01" <= dia <= f"{ano2}-07-31":
+            return _guardar(f"temporada:{dia}", t.get("seasonId") or "")
     return _guardar(f"temporada:{dia}", "")
 
 
