@@ -167,6 +167,15 @@ def testar():
        f"Lajami (sem cruzamento) não deveria sair com bandeira chutada: {linha_lajami!r}")
     print("  texto_titulares: bandeira aparece só quando a nacionalidade veio do cruzamento")
 
+    # ── 8. texto_titulares: número de um dígito sai com zero à esquerda ─
+    linha_mahzari = next(l for l in linhas if "MAHZARI" in l)  # camisa 2, sem cruzamento
+    ok(" 02 MAHZARI" in linha_mahzari or linha_mahzari.startswith("02 MAHZARI"),
+       f"#2 (um dígito) deveria sair como \"02\", veio {linha_mahzari!r}")
+    linha_bono2 = next(l for l in linhas if "BONO" in l)  # camisa 37, dois dígitos
+    ok(" 37 " in linha_bono2 or linha_bono2.startswith("37 "),
+       f"#37 (dois dígitos) não deveria ganhar zero à esquerda, veio {linha_bono2!r}")
+    print("  texto_titulares: número de um dígito com zero à esquerda (\"02\", não \"2\")")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else

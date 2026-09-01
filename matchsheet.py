@@ -261,6 +261,11 @@ def texto_titulares(nome_time: str, titulares: list[dict]) -> str:
     """A lista pronta pra colar na arte do post: bandeira, número, sobrenome
     — um jogador por linha, na ordem em que o PDF lista o time titular.
 
+    Número de UM dígito sai com zero à esquerda ("02", não "2") — é assim
+    que a arte do post mostra, e é assim que a SPL numera nas costas da
+    camisa. Dois dígitos ou mais fica como está; não existe camisa "0X" de
+    verdade nesse caso, então não há o que preencher.
+
     Sobrenome vem do nome_curto do banco quando `cruzar_com_elenco` achou o
     jogador; sem cruzamento, cai pro nome do PDF (que às vezes já vem só o
     sobrenome). Sem nacionalidade cruzada, a linha sai sem bandeira — nunca
@@ -270,6 +275,9 @@ def texto_titulares(nome_time: str, titulares: list[dict]) -> str:
     for j in titulares:
         emoji = arbitragem.bandeira(j.get("nacionalidade", ""))
         nome = j.get("nome_curto") or j["nome"]
+        numero = str(j["numero"]).strip()
+        if numero.isdigit() and len(numero) == 1:
+            numero = numero.zfill(2)
         prefixo = f"{emoji} " if emoji else ""
-        linhas.append(f"{prefixo}{j['numero']} {nome}")
+        linhas.append(f"{prefixo}{numero} {nome}")
     return "\n".join(linhas)
