@@ -6658,10 +6658,69 @@ async def api_escalacoes(horas: int = 12, coletar: int = 1):
             "sportmonks_configurada": sm.configurado()}
 
 
+def _jogos_de_hoje_da_liga() -> list[dict]:
+    """Os jogos da liga de hoje e de ontem, para casar com as transmissões.
+
+    Ontem entra porque jogo que começa 21h local vira madrugada aqui, e a
+    gravação atravessa a virada do dia. Falha em silêncio de propósito: se a
+    API da liga não responder, a guia mostra o título cru e continua servindo.
+    """
+    import httpx
+    import liga_spl
+    try:
+        with httpx.Client() as cli:
+            hoje = _dia_de_brasilia()
+            sid = liga_spl.temporada(hoje, cli)
+            if not sid:
+                return []
+            todos = liga_spl.jogos_da_temporada(sid, cli)
+            dias = {hoje, _dia_de_brasilia(-1)}
+            return [j for j in todos
+                    if (j.get("matchDateLocal") or "")[:10] in dias]
+    except Exception as e:
+        print(f"⚠️ jogos de hoje: {type(e).__name__}: {e}")
+        return []
+
+
+def _enfeitar(itens: list[dict], jogos: list[dict]) -> list[dict]:
+    """Acrescenta sigla, escudo, placar e minuto ao que for jogo da liga.
+
+    O que não for reconhecido sai como veio, com `da_liga: False`. A tela usa
+    isso para mostrar o título cru em vez de inventar escudo — Copa do Rei e
+    AFC não estão nesta API, e um escudo errado no ar é pior que nenhum.
+    """
+    import liga_spl
+    saida = []
+    for it in itens:
+        novo = dict(it)
+        placar = liga_spl.placar_do_jogo(
+            liga_spl.achar_jogo(it.get("titulo") or "", jogos))
+        novo["jogo"] = placar
+        novo["da_liga"] = bool(placar)
+        saida.append(novo)
+    return saida
+
+
 @app.get("/api/clipe/lives")
-async def api_clipe_lives():
-    """O que está sendo gravado, e o que o canal está transmitindo agora."""
-    return {"lives": listar_lives(), "disponiveis": lives_disponiveis(),
+async def api_clipe_lives(todas: int = 0):
+    """O que está sendo gravado, e o que o canal está transmitindo agora.
+
+    `todas=1` mostra também as transmissões que não são da liga saudita. Por
+    padrão elas ficam escondidas: o canal transmite outras competições, e a
+    guia é sobre o campeonato que ele cobre. Escondidas, e não descartadas —
+    quem esconde sem porta de saída acaba perdendo um jogo importante que foi
+    rotulado de um jeito que a regra não previu.
+    """
+    jogos = _jogos_de_hoje_da_liga()
+    lives = _enfeitar(listar_lives(), jogos)
+    disponiveis = _enfeitar(lives_disponiveis(), jogos)
+    escondidas = 0
+    if not todas:
+        antes = len(disponiveis)
+        disponiveis = [d for d in disponiveis if d.get("da_liga")]
+        escondidas = antes - len(disponiveis)
+    return {"lives": lives, "disponiveis": disponiveis,
+            "escondidas": escondidas,
             "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES,
             "atraso": _atraso_transmissao()}
 
@@ -6860,16 +6919,30 @@ async def api_clipe_falhou(clipe_id: int, request: Request):
 
 
 @app.get("/api/clipes")
-async def api_clipes(horas: int = 8):
-    lives = listar_lives()
+async def api_clipes(horas: int = 8, todas: int = 0):
+    """Tudo que a guia de Clipes precisa numa resposta só.
+
+    O enfeite do jogo — sigla, escudo, placar e minuto — é montado AQUI, e não
+    na tela. A tela não deveria saber que o escudo vem como caminho relativo
+    de um servidor de mídia, nem como se acha o jogo pelo título: no dia em
+    que isso mudar, muda num lugar e não em JavaScript espalhado.
+    """
+    jogos_liga = _jogos_de_hoje_da_liga()
+    lives = _enfeitar(listar_lives(), jogos_liga)
     nomes = {l.get("id"): (l.get("titulo") or "") for l in lives}
     clipes = []
     for c in clipes_recentes(horas):
         c["jogo"] = nomes.get(c.get("live_id")) or ""
         clipes.append(_com_legenda(c))
+    disponiveis = _enfeitar(lives_disponiveis(), jogos_liga)
+    escondidas = 0
+    if not todas:
+        antes = len(disponiveis)
+        disponiveis = [d for d in disponiveis if d.get("da_liga")]
+        escondidas = antes - len(disponiveis)
     return {"clipes": clipes,
             "agente_configurado": bool(os.environ.get("CLIPE_TOKEN", "").strip()),
-            "lives": lives, "disponiveis": lives_disponiveis(),
+            "lives": lives, "disponiveis": disponiveis, "escondidas": escondidas,
             "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES,
             "atraso": _atraso_transmissao()}
 
@@ -7377,7 +7450,45 @@ h1{font-size:1.5rem;margin:0 0 4px}
    que você aperta com pressa, no celular, olhando a partida. */
 .jogo{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:12px;padding:14px;margin-bottom:12px}
-.jogo-topo{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px}
+.jogo-topo{display:flex;align-items:flex-start;gap:10px;margin-bottom:12px;
+  cursor:pointer}
+/* ── O CARTÃO DE PLACAR ──────────────────────────────────────────────────
+   Duas linhas — escudo, sigla de três letras e gol — com a caixa escura e a
+   marca embaixo. É o formato de app de resultados, e ele existe aqui porque
+   durante a transmissão a leitura tem que ser de relance: qual jogo, quanto
+   está, que minuto.
+
+   Só aparece para jogo que a API da liga reconheceu. Copa do Rei e AFC não
+   estão nela, e para eles fica o título cru — escudo errado no ar durante a
+   narração é pior que escudo nenhum. */
+.placar{flex:1;min-width:0}
+.placar-cru{font-weight:700;font-size:.92rem;line-height:1.35}
+.placar-caixa{background:var(--c-bg);border:1px solid var(--c-border);
+  border-radius:12px;padding:8px 12px;display:flex;flex-direction:column;gap:4px}
+.placar-linha{display:flex;align-items:center;gap:9px}
+.placar-escudo{width:22px;height:22px;flex:0 0 22px;display:flex;
+  align-items:center;justify-content:center}
+.placar-escudo img{max-width:22px;max-height:22px;object-fit:contain}
+.placar-sigla{flex:1;font-family:'Bebas Neue',sans-serif;font-size:1.15rem;
+  letter-spacing:.06em;line-height:1}
+.placar-gols{font-family:'Bebas Neue',sans-serif;font-size:1.15rem;
+  min-width:18px;text-align:right}
+.placar-pe{display:flex;align-items:baseline;gap:7px;margin-top:6px}
+/* A cor é o estado: gravando salta, encerrado não. */
+.placar-marca{font-weight:800;font-size:.72rem;letter-spacing:.02em;
+  color:var(--c-muted-3)}
+.placar-marca.vivo{color:var(--c-negativo)}
+.placar-minuto{font-size:.72rem;color:var(--c-muted-3);
+  font-variant-numeric:tabular-nums}
+.placar-comp{font-size:.62rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--c-muted-3);margin-top:3px}
+/* O jogo escolhido: os clipes de baixo passam a ser só dele. */
+.jogo.escolhido{border-color:var(--c-acento)}
+.jogo.escolhido .placar-caixa{border-color:var(--c-acento)}
+.ver-todas{background:transparent;border:1px dashed var(--c-border-2);
+  color:var(--c-muted-3);border-radius:12px;padding:9px 14px;width:100%;
+  font-size:.72rem;cursor:pointer;font-family:inherit}
+.ver-todas:hover{border-color:var(--c-text);color:var(--c-text)}
 .jogo-nome{font-weight:800;font-size:.95rem;line-height:1.35;flex:1;min-width:0}
 .jogo-x{background:none;border:none;color:var(--c-muted-2);cursor:pointer;
   font-size:1.1rem;line-height:1;padding:0 2px;flex-shrink:0}
@@ -7539,7 +7650,7 @@ __HDR__
   <div class="titulo-secao" id="tituloDisp" style="display:none">No ar no canal</div>
   <div id="disponiveis"></div>
 
-  <div class="titulo-secao">Clipes</div>
+  <div class="titulo-secao" id="tituloClipes">Clipes</div>
   <p class="atraso-nota" style="margin:0 0 10px">Clipe sem ★ é apagado 2h depois
     que o jogo sai do ar. Para ficar com um, clique em Salvar.</p>
   <div id="lista"></div>
@@ -7625,6 +7736,86 @@ async function pedir(liveId, tipo, botao) {
   }, 4000);
 }
 
+// Qual jogo está selecionado. Vazio = todos, que é como a guia abre.
+var _jogoEscolhido = '';
+var _ultimosClipes = [];
+// Transmissões do canal fora da liga saudita: escondidas por padrão.
+var _verTodas = false;
+var _escondidas = 0;
+
+function escolherJogo(id) {
+  _jogoEscolhido = (_jogoEscolhido === id) ? '' : id;
+  document.querySelectorAll('.jogo').forEach(function (el) {
+    el.classList.toggle('escolhido', el.id === 'jogo-' + _jogoEscolhido);
+  });
+  pintarClipes(_ultimosClipes);
+}
+
+// O cartão de placar. Duas linhas — escudo, sigla e gol — com uma faixa da
+// cor do clube à esquerda, igual ao app de resultados.
+//
+// Só existe para jogo que a API da liga reconheceu. Copa do Rei e AFC não
+// estão nela: para eles fica o título da transmissão, sem sigla e sem
+// escudo. Escudo errado na tela durante a narração é pior que escudo nenhum.
+function placarDoJogo(j) {
+  const cx = document.createElement('div');
+  cx.className = 'placar';
+  const p = j.jogo || {};
+  if (!j.da_liga || !p.casa) {
+    const t = document.createElement('div');
+    t.className = 'placar-cru';
+    t.textContent = j.titulo || j.id;
+    cx.appendChild(t);
+    return cx;
+  }
+  function linha(lado, gols) {
+    const l = document.createElement('div');
+    l.className = 'placar-linha';
+    const esc = document.createElement('span');
+    esc.className = 'placar-escudo';
+    if (lado.escudo) {
+      const img = document.createElement('img');
+      img.src = lado.escudo; img.alt = ''; img.loading = 'lazy';
+      esc.appendChild(img);
+    }
+    const sg = document.createElement('span');
+    sg.className = 'placar-sigla';
+    sg.textContent = lado.sigla || lado.nome || '—';
+    sg.title = lado.nome || '';
+    const g = document.createElement('span');
+    g.className = 'placar-gols';
+    g.textContent = (gols === null || gols === undefined) ? '' : gols;
+    l.appendChild(esc); l.appendChild(sg); l.appendChild(g);
+    return l;
+  }
+  const caixa = document.createElement('div');
+  caixa.className = 'placar-caixa';
+  caixa.appendChild(linha(p.casa, p.gols_casa));
+  caixa.appendChild(linha(p.fora, p.gols_fora));
+  cx.appendChild(caixa);
+  const pe = document.createElement('div');
+  pe.className = 'placar-pe';
+  const marca = document.createElement('span');
+  const vivo = p.status === 'LIVE' || p.status === 'PLAYING' || !!p.minuto;
+  marca.className = 'placar-marca' + (vivo ? ' vivo' : '');
+  marca.textContent = vivo ? 'Gravando' : (p.status === 'FINISHED' ? 'Encerrado' : 'Aguardando');
+  pe.appendChild(marca);
+  if (p.minuto) {
+    const m = document.createElement('span');
+    m.className = 'placar-minuto';
+    m.textContent = p.minuto + "'";
+    pe.appendChild(m);
+  }
+  cx.appendChild(pe);
+  if (p.rodada) {
+    const r = document.createElement('div');
+    r.className = 'placar-comp';
+    r.textContent = p.rodada;
+    cx.appendChild(r);
+  }
+  return cx;
+}
+
 function cartaoJogo(j, grav) {
   const d = document.createElement('div');
   d.className = 'jogo';
@@ -7632,17 +7823,19 @@ function cartaoJogo(j, grav) {
 
   const topo = document.createElement('div');
   topo.className = 'jogo-topo';
-  const nome = document.createElement('div');
-  nome.className = 'jogo-nome';
-  nome.textContent = j.titulo || j.id;
+  topo.appendChild(placarDoJogo(j));
   const x = document.createElement('button');
   x.className = 'jogo-x';
   x.textContent = '✕';
   x.title = 'parar de gravar este jogo';
-  x.onclick = function () { removerJogo(j, x); };
-  topo.appendChild(nome);
+  x.onclick = function (e) { e.stopPropagation(); removerJogo(j, x); };
   topo.appendChild(x);
+  // O cartão inteiro seleciona o jogo: os clipes de baixo passam a mostrar
+  // só os dele. Antes tudo caía numa lista só e, com dois jogos ao mesmo
+  // tempo, achar o lance certo virava conferência de horário.
+  topo.onclick = function () { escolherJogo(j.id); };
   d.appendChild(topo);
+  if (_jogoEscolhido === j.id) d.classList.add('escolhido');
 
   const acoes = document.createElement('div');
   acoes.className = 'jogo-acoes';
@@ -7714,7 +7907,8 @@ function rotulo(e) {
 async function carregar() {
   let d;
   try {
-    const r = await fetch('/api/clipes?horas=8&_=' + Date.now());
+    const r = await fetch('/api/clipes?horas=8' + (_verTodas ? '&todas=1' : '')
+                          + '&_=' + Date.now());
     const bruto = await r.text();
     if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 200));
     d = JSON.parse(bruto);
@@ -7726,6 +7920,7 @@ async function carregar() {
 
   const g = d.gravador || {};
   const lives = d.lives || [];
+  _escondidas = d.escondidas || 0;
   const grav = g.gravando || {};
   const est = document.getElementById('estadoGravador');
   if (!d.agente_configurado) {
@@ -7806,27 +8001,45 @@ function pintarDisponiveis(disp, lives, max, online) {
   livres.forEach(function (x) {
     const d = document.createElement('div');
     d.className = 'disp';
-    const n = document.createElement('div');
-    n.className = 'disp-nome';
-    n.textContent = x.titulo || x.id;
+    d.appendChild(placarDoJogo(x));
     const b = document.createElement('button');
     b.textContent = 'Gravar';
     b.disabled = cheio;
     if (cheio) b.title = 'já são ' + max + ' jogos, o máximo';
     b.onclick = function () { adicionarJogo(x.id, b); };
-    d.appendChild(n);
     d.appendChild(b);
     alvo.appendChild(d);
   });
+  // O que não é da liga saudita fica escondido, mas nunca descartado: uma
+  // regra de título pode não prever como um jogo importante foi rotulado, e
+  // esconder sem porta de saída é como se perde uma final.
+  if (_escondidas > 0 && !_verTodas) {
+    const p = document.createElement('button');
+    p.className = 'ver-todas';
+    p.textContent = '+ ' + _escondidas + ' fora da liga saudita';
+    p.onclick = function () { _verTodas = true; carregar(); };
+    alvo.appendChild(p);
+  }
 }
 
 function pintarClipes(clipes) {
   const alvo = document.getElementById('lista');
   if (!alvo) return;
+  // Guardo a lista inteira: trocar de jogo é filtrar o que já está aqui, sem
+  // ir à rede de novo.
+  _ultimosClipes = clipes || [];
+  const titulo = document.getElementById('tituloClipes');
+  if (_jogoEscolhido) {
+    clipes = _ultimosClipes.filter(function (c) { return c.live_id === _jogoEscolhido; });
+    if (titulo) titulo.textContent = 'Clipes deste jogo';
+  } else {
+    clipes = _ultimosClipes;
+    if (titulo) titulo.textContent = 'Clipes';
+  }
   if (!clipes.length) {
-    if (!alvo.querySelector('.vazio')) {
-      alvo.innerHTML = '<div class="vazio"><p>Nenhum clipe ainda.</p></div>';
-    }
+    alvo.innerHTML = '<div class="vazio"><p>'
+      + (_jogoEscolhido ? 'Nenhum clipe deste jogo ainda.' : 'Nenhum clipe ainda.')
+      + '</p></div>';
     return;
   }
   const v = alvo.querySelector('.vazio');

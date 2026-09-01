@@ -128,6 +128,76 @@ def jogos_do_dia(sid: str, dia: str, cliente) -> list[dict]:
             if (j.get("matchDateLocal") or j.get("matchDateUtc") or "")[:10] == dia]
 
 
+def clubes_do_titulo(titulo: str) -> tuple[str, str]:
+    """'AL KHALEEJ X AL HILAL | AO VIVO ... | SAUDI PRO LEAGUE' -> os dois clubes.
+
+    O título da transmissão é escrito por ele, à mão, e segue um padrão: os
+    dois times antes da primeira barra, separados por um X. Não tento entender
+    o resto — o resto é slogan e nome de competição, e muda.
+
+    Devolvo ("", "") quando não reconheço, e quem chama mostra o título cru.
+    Um card sem escudo é honesto; um card com o escudo do time errado, não.
+    """
+    bruto = (titulo or "").split("|")[0]
+    # O separador aparece como ' X ', ' x ', ' vs ' e ' VS '. Tudo com espaço
+    # dos dois lados: sem isso, o 'x' de 'Al Akhdoud' viraria separador.
+    partes = re.split(r"\s+(?:[xX]|[vV][sS])\s+", bruto)
+    if len(partes) != 2:
+        return "", ""
+    a, b = (" ".join(p.split()) for p in partes)
+    return (a, b) if a and b else ("", "")
+
+
+def achar_jogo(titulo: str, jogos: list[dict]) -> dict:
+    """O jogo da liga que corresponde a esta transmissão, ou {}.
+
+    Uso `confronto()`, que já existe para casar o mesmo jogo entre fontes
+    diferentes: ele passa pelo glossário de clubes e ignora quem é mandante.
+    É a mesma pergunta de sempre — 'isto e aquilo são o mesmo jogo?' — e
+    responder duas vezes de jeitos diferentes é como se ganha duas respostas.
+    """
+    casa, fora = clubes_do_titulo(titulo)
+    if not casa or not fora:
+        return {}
+    alvo = confronto(casa, fora)
+    for j in jogos:
+        c = (j.get("home") or {}).get("shortName") or ""
+        f = (j.get("away") or {}).get("shortName") or ""
+        if c and f and confronto(c, f) == alvo:
+            return j
+    return {}
+
+
+def placar_do_jogo(j: dict) -> dict:
+    """O que a tela precisa para desenhar o card: sigla, escudo, placar, minuto.
+
+    Devolve {} para jogo que não veio da liga — Copa do Rei e AFC não estão
+    nesta API, e inventar sigla ou escudo para eles seria pior que não ter.
+    """
+    if not j:
+        return {}
+
+    def lado(k):
+        t = j.get(k) or {}
+        logo = (t.get("imagery") or {}).get("teamLogo") or ""
+        return {"sigla": t.get("acronymName") or "",
+                "nome": t.get("shortName") or t.get("officialName") or "",
+                "escudo": (MEDIA + logo) if logo else ""}
+
+    minuto = str(j.get("time") or "")
+    extra = str(j.get("additionalTime") or "")
+    if minuto and extra and extra != "0":
+        minuto = f"{minuto}+{extra}"
+    return {
+        "casa": lado("home"), "fora": lado("away"),
+        "gols_casa": j.get("providerHomeScore"),
+        "gols_fora": j.get("providerAwayScore"),
+        "status": (j.get("status") or "").upper(),
+        "minuto": minuto,
+        "rodada": j.get("roundName") or "",
+    }
+
+
 def jogos_ate(sid: str, dia: str, cliente) -> list[dict]:
     """Os jogos já disputados até (sem incluir) esta data, do mais novo ao mais
     velho. É a matéria-prima da escalação provável."""

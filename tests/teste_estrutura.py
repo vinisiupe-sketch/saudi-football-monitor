@@ -239,6 +239,26 @@ for a in TODOS:
     ok(not p, f"{a}: {p[:3]}")
 print("  nem nome que não existe em lugar nenhum")
 
+# ── 2d. duas rotas com o mesmo endereço ────────────────────────────────────
+# Reescrevi uma rota trocando o corpo da função e deixei o decorador antigo
+# para trás. Ele passou a decorar a função auxiliar logo abaixo — e o mesmo
+# endereço ficou registrado duas vezes, apontando para coisas diferentes.
+#
+# O FastAPI não reclama: ele atende a PRIMEIRA e ignora a segunda em silêncio.
+# A rota respondia, com o conteúdo errado, e o teste de contagem de rotas
+# continuava verde porque o número total não muda.
+import collections as _col
+_rotas = _col.Counter()
+for _n in ast.walk(ast.parse(open("main.py", encoding="utf-8").read())):
+    if isinstance(_n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        for _d in _n.decorator_list:
+            if (isinstance(_d, ast.Call) and isinstance(_d.func, ast.Attribute)
+                    and _d.args and isinstance(_d.args[0], ast.Constant)):
+                _rotas[(_d.func.attr, _d.args[0].value)] += 1
+_dup = [f"{m.upper()} {c}" for (m, c), n in _rotas.items() if n > 1]
+ok(not _dup, f"o mesmo endereço registrado mais de uma vez: {_dup[:4]}")
+print(f"  {len(_rotas)} endereços, nenhum registrado duas vezes")
+
 # ── 3. o que os outros importam de main tem que existir ────────────────────
 principal = _nomes_do_modulo(ast.parse(open("main.py", encoding="utf-8").read()))
 fantasmas = []
