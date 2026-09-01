@@ -389,6 +389,11 @@ def init_db():
         # notícia que NÃO era negociação — senão são justamente essas que
         # ficam sendo repagas para sempre.
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS mercado_em TIMESTAMPTZ")
+        # Quantas fontes responderam sem trazer nada, e quantos artigos a
+        # coleta produziu antes das peneiras. Sem esses dois, o boletim não
+        # distingue "a fonte secou" de "o filtro daqui descartou".
+        c.execute("ALTER TABLE collection_logs ADD COLUMN IF NOT EXISTS sources_vazias INTEGER DEFAULT 0")
+        c.execute("ALTER TABLE collection_logs ADD COLUMN IF NOT EXISTS articles_raw INTEGER DEFAULT 0")
         # Migrações
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS af_id INTEGER")
         # Nascimento e altura não vêm na escalação da liga — só na página do
@@ -1436,10 +1441,12 @@ def log_collection(log: dict):
             c = conn.cursor()
             c.execute("""
                 INSERT INTO collection_logs
-                    (ran_at, sources_ok, sources_fail, articles_new, articles_dup, error_msg)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                    (ran_at, sources_ok, sources_fail, sources_vazias,
+                     articles_raw, articles_new, articles_dup, error_msg)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 log.get("ran_at"), log.get("sources_ok", 0), log.get("sources_fail", 0),
+                log.get("sources_vazias", 0), log.get("articles_raw", 0),
                 log.get("articles_new", 0), log.get("articles_dup", 0), log.get("error_msg"),
             ))
     except Exception:

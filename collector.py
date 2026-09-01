@@ -377,7 +377,7 @@ async def collect_all(hours: int = None) -> dict:
     if hours:
         ARTICLE_MAX_AGE_HOURS = hours
     all_articles = []
-    stats = {"sources_ok": 0, "sources_fail": 0}
+    stats = {"sources_ok": 0, "sources_fail": 0, "sources_vazias": 0}
     limits = httpx.Limits(max_keepalive_connections=10, max_connections=20)
     # Fontes efetivas = sources.py (TIER_A/B/C) + overrides salvos via /fontes
     # (fontes adicionadas, excluídas ou com tier trocado). Mesma função usada
@@ -419,18 +419,41 @@ async def collect_all(hours: int = None) -> dict:
                     batch_coroutines.append(_collect_rss(client, tier, name, target))
             results = await asyncio.gather(*batch_coroutines, return_exceptions=True)
             for result in results:
+                # "OK" passa a significar TROUXE ALGO, e não apenas "não deu
+                # erro". A diferença parece semântica e não é.
+                #
+                # O RSSHub ficou quatro dias devolvendo tweets de 2025 em vez
+                # da timeline. Feed válido, sem erro, itens dentro — e nenhum
+                # deles sobrevivia ao corte de idade. Pela contagem antiga
+                # isso era `sources_ok = 45`, e o app se declarava saudável
+                # enquanto nada entrava.
+                #
+                # Pior: `lookback_hours()` só estica a janela quando
+                # `sources_ok == 0`. Esse mecanismo existe exatamente para se
+                # recuperar de uma queda — e ficou desligado durante a queda
+                # inteira, porque a contagem dizia que não havia queda. O
+                # marcador de "última coleta boa" foi avançando, a janela
+                # ficou grudada em duas horas, e quando a fonte voltou não
+                # havia mais como alcançar o buraco.
+                #
+                # Uma fonte quieta agora conta como vazia, e isso é certo: se
+                # ninguém trouxe nada, a próxima rodada olha mais para trás.
+                # Não custa tradução — os repetidos são descartados antes.
                 if isinstance(result, Exception) or result is None:
                     stats["sources_fail"] += 1
-                else:
+                elif result:
                     stats["sources_ok"] += 1
                     all_articles.extend(result)
+                else:
+                    stats["sources_vazias"] += 1
     seen_ids = set()
     unique_articles = []
     for art in all_articles:
         if art["id"] not in seen_ids:
             seen_ids.add(art["id"])
             unique_articles.append(art)
-    print(f"\n📡 Coleta: {stats['sources_ok']} ok, {stats['sources_fail']} falhas")
+    print(f"\n📡 Coleta: {stats['sources_ok']} trouxeram, "
+          f"{stats['sources_vazias']} vazias, {stats['sources_fail']} falhas")
     print(f"   {len(unique_articles)} artigos relevantes\n")
     return {"articles": unique_articles, **stats}
 

@@ -70,6 +70,8 @@ async def run_pipeline(force: bool = False, hours: int | None = None):
         "ran_at": datetime.now(timezone.utc).isoformat(),
         "sources_ok": 0,
         "sources_fail": 0,
+        "sources_vazias": 0,
+        "articles_raw": 0,
         "articles_new": 0,
         "articles_dup": 0,
         "error_msg": None,
@@ -78,6 +80,11 @@ async def run_pipeline(force: bool = False, hours: int | None = None):
         collect_result = await collect_all(hours=effective_hours)
         log["sources_ok"] = collect_result.get("sources_ok", 0)
         log["sources_fail"] = collect_result.get("sources_fail", 0)
+        log["sources_vazias"] = collect_result.get("sources_vazias", 0)
+        # Quantos artigos a COLETA produziu, antes de qualquer peneira daqui
+        # para a frente. É o número que faltava para saber, olhando o
+        # boletim, se o problema está na origem ou depois dela.
+        log["articles_raw"] = len(collect_result.get("articles") or [])
         process_result = await process_and_save(collect_result["articles"])
         log["articles_new"] = process_result.get("articles_new", 0)
         log["articles_dup"] = process_result.get("articles_dup", 0)
