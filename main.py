@@ -24,7 +24,7 @@ import time
 from contextlib import asynccontextmanager
 from urllib.parse import quote
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, BackgroundTasks, Request
+from fastapi import FastAPI, BackgroundTasks, Request, UploadFile, File
 from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
@@ -232,6 +232,7 @@ _ICO_ANALISE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_NUMEROS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>'
 _ICO_POSTS   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>'
 _ICO_ELENCOS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
+_ICO_ESCALACAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6a1 1 0 0 1 1 1v2H8V3a1 1 0 0 1 1-1z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="13" y2="15"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
 _ICO_CLIPE   = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
@@ -516,6 +517,7 @@ _NAV_MAIS = [
     ("/elencos",     _ICO_ELENCOS, "Elencos",    "", "#B6FF00"),
     ("/arbitragem",  _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
     ("/previa",      _ICO_PREVIA,  "Prévia",     "", "#B6FF00"),
+    ("/escalacao-pdf", _ICO_ESCALACAO, "Escalação PDF", "", "#B6FF00"),
     ("/numeros",     _ICO_NUMEROS, "Números",    "", "#B6FF00"),
     ("/descartadas", _ICO_ARCHIVE, "Descartadas","", "#FFBE5D"),
     ("/lixeira",     _ICO_TRASH2,  "Lixeira",    "", "#FFBE5D"),
@@ -14435,6 +14437,207 @@ async def pagina_previa():
         .replace("__PREVIA_JS__", _PREVIA_JS)
         .replace("__HDR__", _header("/previa"))
     )
+
+
+@app.get("/escalacao-pdf", response_class=HTMLResponse)
+async def escalacao_pdf_page():
+    """Sobe o matchsheet oficial da SPL (baixado do mediahub) e devolve a
+    escalação titular pronta pra colar na arte do post.
+
+    Login no mediahub é manual e periódico — você que baixa o PDF; aqui só lê
+    o que já sai de graça no arquivo. Zero token de IA: é geometria de PDF e
+    cruzamento por número de camisa contra o elenco que o app já tem.
+    """
+    hdr = _header("/escalacao-pdf")
+    html = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IARABÃO — Escalação PDF</title>
+{_HEAD_COMUM}
+<style>
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--c-bg); color: var(--c-text); }}
+{_HEADER_CSS}
+
+.esc-wrap {{ max-width: 720px; margin: 0 auto; padding: 24px 16px 90px; }}
+.esc-title {{ font-size: 1.15rem; font-weight: 700; margin: 0 0 4px; }}
+.esc-subtitle {{ font-size: .78rem; color: var(--c-muted-3); margin: 0 0 18px; }}
+
+.esc-drop {{
+  border: 2px dashed var(--c-border-2); border-radius: 14px; padding: 28px 16px;
+  text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+}}
+.esc-drop:hover, .esc-drop.arrastando {{ border-color: var(--c-text); background: rgba(182,255,0,.05); }}
+.esc-drop input {{ display: none; }}
+.esc-drop-label {{ font-size: .85rem; font-weight: 700; }}
+.esc-drop-sub {{ font-size: .72rem; color: var(--c-muted-3); margin-top: 6px; }}
+
+.esc-status {{ font-size: .78rem; color: var(--c-muted-3); margin-top: 12px; min-height: 18px; }}
+.esc-status.err {{ color: var(--c-error, #FD5D5D); }}
+
+.esc-jogo {{ font-size: .78rem; color: var(--c-muted-3); margin: 18px 0 8px; }}
+
+.esc-time {{
+  border: 1px solid var(--c-border); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
+}}
+.esc-time h3 {{ font-size: .9rem; font-weight: 700; margin: 0 0 4px; }}
+.esc-time .tecnico {{ font-size: .7rem; color: var(--c-muted-3); margin-bottom: 10px; }}
+.esc-texto {{
+  width: 100%; min-height: 190px; background: var(--c-bg-2, transparent); color: var(--c-text);
+  border: 1px solid var(--c-border-2); border-radius: 8px; padding: 10px;
+  font-family: ui-monospace, monospace; font-size: .78rem; line-height: 1.6; resize: vertical;
+}}
+.esc-copy {{
+  margin-top: 8px; background: none; border: 1px solid var(--c-border-2); border-radius: 99px;
+  padding: 6px 16px; font-size: .72rem; font-weight: 700; color: var(--c-text); cursor: pointer;
+}}
+.esc-copy.copied {{ border-color: #B6FF00; color: #B6FF00; }}
+
+.esc-aviso {{
+  font-size: .7rem; color: #FFBE5D; margin-top: 10px; border: 1px solid rgba(255,190,93,.3);
+  border-radius: 8px; padding: 8px 10px;
+}}
+</style>
+</head>
+<body>
+{hdr}
+<div class="esc-wrap">
+  <h1 class="esc-title">Escalação por PDF</h1>
+  <p class="esc-subtitle">Sobe o matchsheet oficial baixado do mediahub da SPL — sem custo de IA, leitura direta do PDF.</p>
+
+  <label class="esc-drop" id="escDrop">
+    <input type="file" id="escInput" accept="application/pdf">
+    <div class="esc-drop-label">📄 Clique ou arraste o PDF do matchsheet</div>
+    <div class="esc-drop-sub">Baixado do mediahub.spl.media — máx. 15MB</div>
+  </label>
+  <div class="esc-status" id="escStatus"></div>
+
+  <div id="escResultado"></div>
+</div>
+
+<script>
+const drop = document.getElementById('escDrop');
+const input = document.getElementById('escInput');
+const status = document.getElementById('escStatus');
+const resultado = document.getElementById('escResultado');
+
+input.addEventListener('change', () => {{ if (input.files[0]) enviar(input.files[0]); }});
+drop.addEventListener('dragover', e => {{ e.preventDefault(); drop.classList.add('arrastando'); }});
+drop.addEventListener('dragleave', () => drop.classList.remove('arrastando'));
+drop.addEventListener('drop', e => {{
+  e.preventDefault(); drop.classList.remove('arrastando');
+  const f = e.dataTransfer.files[0];
+  if (f) enviar(f);
+}});
+
+function copyText(btn, text) {{
+  navigator.clipboard.writeText(text).then(() => {{
+    btn.textContent = '✅ Copiado';
+    btn.classList.add('copied');
+    setTimeout(() => {{ btn.textContent = '📋 Copiar'; btn.classList.remove('copied'); }}, 2000);
+  }});
+}}
+
+async function enviar(arquivo) {{
+  status.className = 'esc-status';
+  status.textContent = 'Lendo ' + arquivo.name + '...';
+  resultado.innerHTML = '';
+  const form = new FormData();
+  form.append('arquivo', arquivo);
+  try {{
+    const r = await fetch('/api/escalacao-pdf', {{ method: 'POST', body: form }});
+    const d = await r.json();
+    if (!r.ok || d.erro) {{
+      status.className = 'esc-status err';
+      status.textContent = d.erro || 'não consegui ler o PDF';
+      return;
+    }}
+    status.textContent = '';
+    render(d);
+  }} catch (e) {{
+    status.className = 'esc-status err';
+    status.textContent = 'falha ao enviar: ' + e;
+  }}
+}}
+
+function render(d) {{
+  let html = `<div class="esc-jogo">Rodada ${{d.rodada}} — ${{d.estadio}} — ${{d.data}} ${{d.hora}}</div>`;
+  for (const lado of ['casa', 'fora']) {{
+    const t = d[lado];
+    const id = 'esc_' + lado;
+    html += `<div class="esc-time">
+      <h3>${{t.time}}</h3>
+      <div class="tecnico">Técnico: ${{t.tecnico || '—'}}</div>
+      <textarea class="esc-texto" id="${{id}}">${{t.texto}}</textarea>
+      <button class="esc-copy" onclick="copyText(this, document.getElementById('${{id}}').value)">📋 Copiar</button>
+    </div>`;
+  }}
+  if (d.avisos && d.avisos.length) {{
+    html += `<div class="esc-aviso">${{d.avisos.join('<br>')}}</div>`;
+  }}
+  resultado.innerHTML = html;
+}}
+</script>
+</body>
+</html>"""
+    return HTMLResponse(html)
+
+
+@app.post("/api/escalacao-pdf")
+async def api_escalacao_pdf(arquivo: UploadFile = File(...)):
+    """Lê o matchsheet e devolve a escalação titular cruzada com o elenco.
+
+    Zero IA aqui — ver docstring de matchsheet.py. O cruzamento por camisa
+    com `listar_jogadores` é best-effort: time que o glossário não reconhece,
+    ou jogador sem casamento no elenco (contratação recente, elenco
+    desatualizado), sai sem bandeira em vez de travar a resposta inteira —
+    por isso os avisos, pra você notar em vez de publicar calado.
+    """
+    import matchsheet
+
+    if not (arquivo.filename or "").lower().endswith(".pdf"):
+        return JSONResponse({"erro": "manda um arquivo .pdf"}, status_code=400)
+    conteudo = await arquivo.read()
+    if not conteudo:
+        return JSONResponse({"erro": "arquivo vazio"}, status_code=400)
+    if len(conteudo) > 15 * 1024 * 1024:
+        return JSONResponse({"erro": "PDF grande demais (máx. 15MB)"}, status_code=400)
+
+    caminho = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp.write(conteudo)
+            caminho = tmp.name
+        dados = matchsheet.extrair(caminho)
+    except Exception as e:
+        return JSONResponse({"erro": f"não consegui ler o PDF: {e}"}, status_code=400)
+    finally:
+        if caminho:
+            try:
+                os.remove(caminho)
+            except OSError:
+                pass
+
+    avisos = []
+    for lado in ("casa", "fora"):
+        nome_time = dados[lado]["time"]
+        clube = glossary.clube_para_guardar(nome_time)
+        elenco = listar_jogadores(clube=clube) if clube else []
+        if not clube:
+            avisos.append(f"time \"{nome_time}\" não reconhecido pelo glossário — "
+                           "escalação sai sem cruzar com o elenco")
+        dados[lado]["titulares"] = matchsheet.cruzar_com_elenco(dados[lado]["titulares"], elenco)
+        dados[lado]["reservas"] = matchsheet.cruzar_com_elenco(dados[lado]["reservas"], elenco)
+        sem_bandeira = sorted({j["nome"] for j in dados[lado]["titulares"]
+                               if not j.get("nacionalidade")})
+        if sem_bandeira:
+            avisos.append(f"{nome_time}: sem nacionalidade cruzada — " + ", ".join(sem_bandeira))
+        dados[lado]["texto"] = matchsheet.texto_titulares(nome_time, dados[lado]["titulares"])
+
+    dados["avisos"] = avisos
+    return dados
 
 
 @app.get("/api/convites")

@@ -112,6 +112,9 @@ PAISES = {
     "colombia": "CO", "mexico": "MX", "united states": "US", "usa": "US",
     "senegal": "SN", "mali": "ML", "gambia": "GM", "algeria ": "DZ",
     "south africa": "ZA", "zambia": "ZM", "kenya": "KE", "nigeria": "NG",
+    "ivory coast": "CI", "côte d'ivoire": "CI", "cote d'ivoire": "CI",
+    "cameroon": "CM", "armenia": "AM", "belgium": "BE", "switzerland": "CH",
+    "ghana": "GH", "guinea": "GN", "georgia": "GE", "montenegro": "ME",
 }
 
 
