@@ -465,7 +465,18 @@ class Gravador:
                 detalhe = e.read().decode()[:200]
             except Exception:
                 pass
-            return None, f"HTTP {e.code}: {detalhe}"
+            # O CAMINHO vai na mensagem. Sem ele, "HTTP 500: Internal Server
+            # Error" na janela não diz se quem falhou foi a consulta de
+            # sempre, a entrega de um clipe ou o download da versão nova — e
+            # são problemas completamente diferentes do outro lado. Custou uma
+            # rodada de perguntas numa máquina que não é minha (02/09/26).
+            ajuda = ""
+            if e.code == 500:
+                ajuda = "  (é erro DO APP, não desta máquina)"
+            elif e.code == 403:
+                ajuda = ("  (o app recusou a senha: confira o clipe_token.txt "
+                         "desta pasta contra a variável CLIPE_TOKEN do Railway)")
+            return None, f"HTTP {e.code} em {caminho}: {detalhe}{ajuda}"
         except urllib.error.URLError as e:
             # A mensagem crua do Python aqui é
             #   "<urlopen error [Errno 11001] getaddrinfo failed>"
@@ -1020,7 +1031,10 @@ class Gravador:
             with urllib.request.urlopen(req, timeout=60) as r:
                 codigo = r.read().decode("utf-8")
         except Exception as e:
-            diz(f"    não consegui baixar a versão nova: {e}", erro=True)
+            diz(f"    não consegui baixar a versão nova em "
+                f"/api/gravador/codigo: {e}", erro=True)
+            diz("    Continuo rodando na versão que já tenho — atualizar é o "
+                "que falhou, não a gravação.")
             return
         if len(codigo) < 5000 or "VERSAO" not in codigo:
             diz("    o que veio não parece o gravador; fico na versão atual",
