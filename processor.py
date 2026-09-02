@@ -355,8 +355,11 @@ async def process_and_save(raw_articles: list[dict]) -> dict:
 
     # Triagem barata antes da tradução cara. Só roda se houver filtro de categoria
     # ativo — com todas as categorias ligadas, não gasta nada.
-    from database import get_categorias_ativas
-    ativas = set(get_categorias_ativas())
+    # `categorias_que_traduzem`, e não `get_categorias_ativas`: mercado e
+    # entrevista têm guia própria e traduzem sempre, marcadas ou não no botão
+    # ⚙️ Coleta — que é sobre a guia de Notícias. Ver database.py.
+    from database import categorias_que_traduzem
+    ativas = categorias_que_traduzem()
     fora_do_filtro = []
     if ativas:
         async with httpx.AsyncClient() as client:

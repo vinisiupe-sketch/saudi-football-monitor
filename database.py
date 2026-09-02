@@ -1660,31 +1660,118 @@ def set_state(key: str, value: str):
 CATEGORIAS_ATIVAS_KEY = "categorias_ativas"
 TODAS_CATEGORIAS = ["mercado", "lesao", "competicao", "entrevista", "treino", "financas", "geral"]
 
+# Estas duas TÊM GUIA PRÓPRIA (Notícias do Mercado e Aspas) e não passam pelo
+# botão ⚙️ Coleta.
+#
+# Isto existe por causa de um caso real, em 01/09/26: o botão diz "categorias
+# que são traduzidas", mas quem o usa está olhando a guia de Notícias e lendo
+# "o que aparece AQUI". Foi o que aconteceu — mercado e entrevista foram
+# desmarcadas para tirá-las da guia de Notícias (onde, aliás, elas já não
+# apareciam: a guia exclui as duas desde que cada uma ganhou tela própria), e
+# o efeito real foi outro: elas pararam de ser TRADUZIDAS, e como as guias
+# exigem tradução, Mercado e Aspas ficaram vazias por dias sem nenhum erro
+# em lugar nenhum.
+#
+# A regra agora é: guia própria manda em si mesma. O botão ⚙️ Coleta decide
+# só o que entra na guia de Notícias, e essas duas traduzem sempre.
+CATEGORIAS_COM_GUIA_PROPRIA = ("mercado", "entrevista")
+
+# O que o botão ⚙️ Coleta pode ligar e desligar — o resto da guia de Notícias.
+CATEGORIAS_DA_GUIA_NOTICIAS = [c for c in TODAS_CATEGORIAS
+                               if c not in CATEGORIAS_COM_GUIA_PROPRIA]
+
 
 def get_categorias_ativas() -> list[str]:
-    """Categorias que hoje merecem tradução. Lista vazia = todas (sem triagem).
+    """Categorias da guia de Notícias que hoje merecem tradução.
 
-    Fica no banco, não no código, pra você abrir e fechar a janela pelo botão da
-    interface sem depender de deploy."""
+    Lista vazia = todas (sem triagem). Fica no banco, não no código, pra você
+    abrir e fechar a janela pelo botão da interface sem depender de deploy.
+
+    NÃO inclui mercado nem entrevista: elas têm guia própria e não são
+    governadas por aqui. Ver `categorias_que_traduzem`."""
     import json as _json
     try:
         raw = get_state(CATEGORIAS_ATIVAS_KEY)
         if not raw:
             return []
         cats = _json.loads(raw)
-        return [c for c in cats if c in TODAS_CATEGORIAS] if isinstance(cats, list) else []
+        if not isinstance(cats, list):
+            return []
+        return [c for c in cats if c in CATEGORIAS_DA_GUIA_NOTICIAS]
     except Exception:
         return []
 
 
 def set_categorias_ativas(cats: list[str]) -> list[str]:
-    """Grava as categorias ativas. Lista vazia (ou todas marcadas) desliga a triagem."""
+    """Grava as categorias ativas. Lista vazia (ou todas marcadas) desliga a triagem.
+
+    O que vier de mercado/entrevista é ignorado de propósito: elas não são
+    desta lista. Aceitar silenciosamente e depois não obedecer seria pior."""
     import json as _json
-    validas = [c for c in (cats or []) if c in TODAS_CATEGORIAS]
-    if len(validas) == len(TODAS_CATEGORIAS):
+    validas = [c for c in (cats or []) if c in CATEGORIAS_DA_GUIA_NOTICIAS]
+    if len(validas) == len(CATEGORIAS_DA_GUIA_NOTICIAS):
         validas = []  # todas marcadas = sem filtro, e sem custo de triagem
     set_state(CATEGORIAS_ATIVAS_KEY, _json.dumps(validas))
     return validas
+
+
+def artigos_sem_traducao(horas: int = 48, categorias: tuple = (),
+                         limite: int = 60) -> list[dict]:
+    """O que foi guardado SEM tradução e ainda está dentro da janela da guia.
+
+    Existe por causa do estrago de 01/09/26: com mercado e entrevista
+    desmarcadas no botão ⚙️ Coleta, dias de notícia entraram no banco sem
+    title_pt. Consertar a regra não traz nada disso de volta — as guias
+    exigem tradução, e ninguém retraduz o passado sozinho. Isto é o resgate
+    do que ainda cabe na janela de 48h."""
+    cats = tuple(categorias or CATEGORIAS_COM_GUIA_PROPRIA)
+    marcadores = ", ".join(["%s"] * len(cats))
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute(f"""
+                SELECT id, title_orig, body_orig, category, source_name,
+                       relevance_score, published_at
+                  FROM articles
+                 WHERE is_duplicate = 0
+                   AND title_pt IS NULL
+                   AND category IN ({marcadores})
+                   AND published_at::TIMESTAMPTZ >=
+                       (NOW() AT TIME ZONE 'UTC' - (INTERVAL '1 hour' * %s))
+              ORDER BY published_at DESC
+                 LIMIT %s
+            """, [*cats, horas, max(1, min(int(limite), 300))])
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
+def preencher_traducao(article_id: str, title_pt: str, body_pt: str) -> bool:
+    """Preenche a tradução que faltou. NÃO toca na categoria de propósito:
+    ela já foi decidida na triagem, e é dela que a guia depende — trocá-la
+    aqui poderia tirar da guia justamente o artigo que estou resgatando."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""UPDATE articles SET title_pt = %s, body_pt = %s
+                          WHERE id = %s AND title_pt IS NULL""",
+                      (title_pt, body_pt, article_id))
+            return c.rowcount == 1
+    except Exception:
+        return False
+
+
+def categorias_que_traduzem() -> set:
+    """O que de fato passa pela tradução. Conjunto vazio = tudo passa.
+
+    É a soma do que está marcado no botão ⚙️ Coleta com as categorias de guia
+    própria — que entram sempre, marcadas ou não. Quem chama a triagem usa
+    ISTO, e não `get_categorias_ativas` direto: era exatamente essa diferença
+    que faltava quando Mercado e Aspas secaram."""
+    ativas = get_categorias_ativas()
+    if not ativas:
+        return set()          # filtro desligado: tudo traduz
+    return set(ativas) | set(CATEGORIAS_COM_GUIA_PROPRIA)
 
 
 SOURCE_OVERRIDE_KEY = "source_overrides"

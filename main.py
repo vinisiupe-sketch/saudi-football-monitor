@@ -913,10 +913,12 @@ async def _pagina_de_noticias(categoria: str = "", rota: str = "/noticias"):
             '</div></div>')
         painel_de_coleta = (
             '<div id="coletaPainel" class="coleta-painel">'
-            '<div class="coleta-titulo">Categorias que são traduzidas</div>'
+            '<div class="coleta-titulo">O que entra nesta guia</div>'
             '<div class="coleta-aviso">O que ficar desmarcado é guardado sem '
             'tradução e não aparece aqui. Economiza tokens — reversível a '
-            'qualquer momento.</div>'
+            'qualquer momento.<br><b>Mercado e Aspas não estão nesta lista de '
+            'propósito:</b> elas têm guia própria e seguem coletando sozinhas, '
+            'independentemente do que você marcar aqui.</div>'
             '<div id="coletaItens" class="coleta-itens"></div>'
             '<div class="coleta-acoes">'
             '<button class="coleta-salvar" onclick="salvarColeta()">Salvar</button>'
@@ -1492,7 +1494,11 @@ function fecharGerarModal() {{
 // -- Painel de coleta: escolhe quais categorias VALEM traducao --------------
 // Diferente do filtro de exibicao: aqui a decisao acontece ANTES de gastar token.
 // O que fica desmarcado e guardado sem traduzir e nao chega na tela.
-const CAT_ROTULOS={{mercado:'🔀 Mercado',lesao:'🩺 Lesao',competicao:'🏆 Competicao',entrevista:'🎙 Entrevista',treino:'🏋 Treino',financas:'💰 Financas',geral:'📰 Geral'}};
+// Mercado e Entrevista NAO estao aqui de proposito: elas tem guia propria
+// (Noticias do Mercado e Aspas) e traduzem sempre. Desmarca-las aqui, quando
+// apareciam, tirava as duas guias do ar sem nenhum erro na tela -- foi o que
+// aconteceu em 01/09/26. Ver CATEGORIAS_COM_GUIA_PROPRIA em database.py.
+const CAT_ROTULOS={{lesao:'🩺 Lesao',competicao:'🏆 Competicao',treino:'🏋 Treino',financas:'💰 Financas',geral:'📰 Geral'}};
 let _coletaAtivas=[];
 function toggleColetaPainel(){{
   const p=document.getElementById('coletaPainel');
@@ -12211,22 +12217,77 @@ async def api_varrer_competicoes(seasons: str = "", so_detectar: int = 0):
     return {"status": "started", "seasons": anos, "acompanhe": "/api/admin/stats-apuradas"}
 
 
+@app.get("/api/noticias/traduzir-atrasados", response_class=PlainTextResponse)
+async def api_traduzir_atrasados(horas: int = 48, limite: int = 60,
+                                 confirmar: int = 0):
+    """Traduz o que ficou guardado sem tradução e ainda cabe na janela.
+
+    Fora de /api/diag/ de propósito: aquele prefixo é aberto (sem login), e
+    esta rota GASTA — precisa de sessão. Sem `confirmar=1` ela só conta e
+    diz o preço, no mesmo espírito do "A CONTA ANTES DE GASTAR" do
+    /api/diag/mercado.
+    """
+    from database import artigos_sem_traducao, preencher_traducao
+    from processor import translate_articles
+    pendentes = artigos_sem_traducao(horas=horas, limite=limite)
+    linhas = ["RESGATE DO QUE FICOU SEM TRADUÇÃO", "─" * 34,
+              f"  janela ............. {horas}h",
+              f"  sem tradução ....... {len(pendentes)}"]
+    if not pendentes:
+        return PlainTextResponse("\n".join(
+            linhas + ["", "nada a resgatar — o que existe já está traduzido."]))
+
+    por_cat: dict = {}
+    for a in pendentes:
+        por_cat[a.get("category") or "—"] = por_cat.get(a.get("category") or "—", 0) + 1
+    for cat, n in sorted(por_cat.items(), key=lambda x: -x[1]):
+        linhas.append(f"    {cat:<14} {n}")
+    # translate_articles só traduz de 0.34 pra cima — dizer isso antes evita
+    # a conta não fechar depois e parecer erro.
+    baixos = [a for a in pendentes if (a.get("relevance_score") or 0) < 0.34]
+    if baixos:
+        linhas.append(f"  abaixo de 0.34 (não traduzem) ... {len(baixos)}")
+    if not confirmar:
+        linhas += ["", "  isto é só a conta. Para traduzir de verdade, chame",
+                   "  de novo com &confirmar=1 no fim do endereço."]
+        return PlainTextResponse("\n".join(linhas))
+
+    artigos = [dict(a) for a in pendentes]
+    artigos = await translate_articles(artigos)
+    gravados = 0
+    for a in artigos:
+        if a.get("title_pt") and preencher_traducao(
+                a["id"], a["title_pt"], a.get("body_pt") or ""):
+            gravados += 1
+    linhas += ["", f"  traduzidos e gravados ... {gravados}",
+               "  (a categoria de cada um foi preservada — quem decidiu foi",
+               "   a triagem, e é dela que a guia depende)"]
+    return PlainTextResponse("\n".join(linhas))
+
+
 @app.get("/api/categorias-ativas")
 async def api_get_categorias_ativas():
-    """Categorias que hoje passam pela tradução. Vazio = todas."""
-    from database import get_categorias_ativas, TODAS_CATEGORIAS
+    """Categorias da guia de Notícias que passam pela tradução. Vazio = todas.
+
+    Mercado e entrevista não estão aqui: têm guia própria e traduzem sempre.
+    Vão em `sempre` só para a tela poder dizer isso a quem abre o painel."""
+    from database import (get_categorias_ativas, CATEGORIAS_DA_GUIA_NOTICIAS,
+                          CATEGORIAS_COM_GUIA_PROPRIA)
     ativas = get_categorias_ativas()
-    return {"ativas": ativas or TODAS_CATEGORIAS, "filtro_ligado": bool(ativas),
-            "todas": TODAS_CATEGORIAS}
+    return {"ativas": ativas or CATEGORIAS_DA_GUIA_NOTICIAS,
+            "filtro_ligado": bool(ativas),
+            "todas": CATEGORIAS_DA_GUIA_NOTICIAS,
+            "sempre": list(CATEGORIAS_COM_GUIA_PROPRIA)}
 
 
 @app.post("/api/categorias-ativas")
 async def api_set_categorias_ativas(request: Request):
     """Liga/desliga categorias sem deploy — o valor fica no banco."""
-    from database import set_categorias_ativas, TODAS_CATEGORIAS
+    from database import set_categorias_ativas, CATEGORIAS_DA_GUIA_NOTICIAS
     body = await request.json()
     salvas = set_categorias_ativas(body.get("ativas") or [])
-    return {"ok": True, "ativas": salvas or TODAS_CATEGORIAS, "filtro_ligado": bool(salvas)}
+    return {"ok": True, "ativas": salvas or CATEGORIAS_DA_GUIA_NOTICIAS,
+            "filtro_ligado": bool(salvas)}
 
 
 TRIAGEM_SYSTEM = (
@@ -15989,7 +16050,8 @@ async def diag_categorias(dias: int = 4):
     linhas diferentes, e é por isso que a rota mostra a contagem em cada
     degrau em vez de só o total do fim.
     """
-    from database import get_categorias_ativas, TODAS_CATEGORIAS
+    from database import (get_categorias_ativas, CATEGORIAS_DA_GUIA_NOTICIAS,
+                          CATEGORIAS_COM_GUIA_PROPRIA)
     dias = max(1, min(int(dias or 4), 30))
     linhas: list[str] = []
 
@@ -16006,17 +16068,19 @@ async def diag_categorias(dias: int = 4):
     # ── 1. o botão ⚙️ Coleta ───────────────────────────────────────────────
     ativas = get_categorias_ativas()
     linhas += ["CATEGORIAS QUE PASSAM PELA TRADUÇÃO", "─" * 35]
+    linhas.append(f"  sempre (guia própria): "
+                  f"{', '.join(CATEGORIAS_COM_GUIA_PROPRIA)}")
     if not ativas:
-        linhas.append("  filtro DESLIGADO — todas traduzem (é o padrão)")
+        linhas.append("  guia de Notícias: filtro DESLIGADO — todas traduzem")
     else:
-        fora = [c for c in TODAS_CATEGORIAS if c not in ativas]
-        linhas.append(f"  ligadas : {', '.join(ativas)}")
-        linhas.append(f"  FORA    : {', '.join(fora) or '(nenhuma)'}")
+        fora = [c for c in CATEGORIAS_DA_GUIA_NOTICIAS if c not in ativas]
+        linhas.append(f"  guia de Notícias, ligadas : {', '.join(ativas)}")
+        linhas.append(f"  guia de Notícias, FORA    : "
+                      f"{', '.join(fora) or '(nenhuma)'}")
         if fora:
-            linhas.append("  ⚠️  o que está FORA é guardado sem tradução e NÃO")
-            linhas.append("      aparece em guia nenhuma. Se Mercado/Aspas estão")
-            linhas.append("      vazias e aparecem aí em cima, é só isso: reabra")
-            linhas.append("      no botão ⚙️ Coleta da guia de Notícias.")
+            linhas.append("  ⚠️  o que está FORA é guardado sem tradução e não")
+            linhas.append("      aparece na guia de Notícias. Mercado e Aspas")
+            linhas.append("      NÃO dependem disso — traduzem de qualquer jeito.")
 
     # ── 2. o que entrou, por categoria e por dia ───────────────────────────
     linhas += ["", f"O QUE ENTROU NOS ÚLTIMOS {dias} DIAS", "─" * 35]
