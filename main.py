@@ -6910,6 +6910,13 @@ async def api_clipe_pedir(request: Request):
             "tipo": tipo, "reacao_descontada": reacao, "atraso": atraso}
 
 
+# Dois pedidos automáticos do MESMO jogo dentro desta janela são o mesmo gol
+# visto por duas máquinas, e não dois gols. Trinta segundos: o intervalo entre
+# duas leituras do placar é de 2,5s, e o gol seguinte mais rápido que já se
+# viu num jogo de verdade está muito longe disso.
+JANELA_GOL_REPETIDO_SEG = 30
+
+
 @app.post("/api/clipe/gol-automatico")
 async def api_clipe_gol_automatico(request: Request):
     """A própria máquina que grava pede o clipe, ao notar o placar mudar.
@@ -6940,6 +6947,26 @@ async def api_clipe_gol_automatico(request: Request):
         return JSONResponse({"erro": "não entendi o instante do clipe"}, 400)
     if alvo.tzinfo is None:
         alvo = alvo.replace(tzinfo=timezone.utc)
+
+    # Dois gravadores ligados ao mesmo tempo — o do Vini e o de quem estiver
+    # com o PC de pé — veem a MESMA mudança de placar no mesmo jogo, e cada
+    # um pede o seu clipe. Sem isto, um gol vira dois clipes iguais na fila,
+    # e o corte é a parte cara. A janela é generosa de propósito: o que
+    # separa os dois pedidos é o tempo de rede entre duas máquinas, não a
+    # distância entre dois gols de verdade.
+    for c in clipes_recentes(2):
+        if not c.get("automatico") or c.get("live_id") != live_id:
+            continue
+        try:
+            outro = datetime.fromisoformat(c["alvo_em"])
+        except Exception:
+            continue
+        if outro.tzinfo is None:
+            outro = outro.replace(tzinfo=timezone.utc)
+        if abs((outro - alvo).total_seconds()) <= JANELA_GOL_REPETIDO_SEG:
+            return {"id": c["id"], "alvo_em": c["alvo_em"], "live_id": live_id,
+                    "ja_pedido": True}
+
     cid = criar_pedido_clipe(alvo, int(ajuste("clipe_antes_seg")),
                              int(ajuste("clipe_depois_seg")), live_id, "gol",
                              automatico=True)

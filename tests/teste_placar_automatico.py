@@ -27,6 +27,7 @@ OS DOIS QUADROS REAIS
     um teste que só usasse imagem sintética não pegaria isso.
 """
 import io
+import re
 import os
 import sys
 import types
@@ -147,6 +148,21 @@ def testar():
        "a rota parou de conferir se o jogo está mesmo sendo gravado")
     ok('int(ajuste("clipe_antes_seg"))' in rota and 'int(ajuste("clipe_depois_seg"))' in rota,
        "a janela do clipe automático parou de usar os mesmos ajustes do manual")
+
+    # Com DUAS máquinas gravando (a do Vini e a de quem estiver com o PC de
+    # pé), as duas veem a mesma mudança de placar e as duas pedem clipe. Sem
+    # guarda, um gol vira dois clipes iguais na fila — e o corte é a parte
+    # cara.
+    ok("JANELA_GOL_REPETIDO_SEG" in rota,
+       "sumiu a guarda contra dois gravadores pedirem o mesmo gol")
+    ok('c.get("automatico")' in rota and 'c.get("live_id") != live_id' in rota,
+       "a guarda parou de comparar por jogo e por origem automática — ela "
+       "não pode engolir um pedido do botão manual")
+    ok('"ja_pedido": True' in rota,
+       "o segundo gravador deixou de receber a resposta de 'já pedido' — sem "
+       "isso ele acha que falhou e tenta de novo")
+    conferir("a janela do gol repetido",
+             int(re.search(r"JANELA_GOL_REPETIDO_SEG = (\d+)", fonte).group(1)), 30)
 
     # O botão continua exatamente como estava.
     manual = _corpo("api_clipe_pedir")

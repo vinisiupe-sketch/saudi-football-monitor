@@ -70,8 +70,10 @@ mesmo tempo dão uns 8 Mbps.
 Disco: cerca de 1,6 GB por partida. O programa apaga sozinho as gravações
 com mais de 12 horas, então não vai encher o disco.
 
-Processador: quase nada durante a gravação. Um pouco na hora que alguém pede
-um recorte, por poucos segundos.
+Processador: pouco. Enquanto grava, ele olha de poucos em poucos segundos o
+placar que aparece na tela da transmissão, para recortar o gol sozinho assim
+que o número muda — isso é rápido e não atrapalha o uso normal do
+computador. Sobe um pouco por alguns segundos quando um recorte é pedido.
 
 
 SE DER ALGUM PROBLEMA
