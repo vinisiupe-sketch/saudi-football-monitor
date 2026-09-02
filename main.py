@@ -15970,6 +15970,140 @@ async def diag_coletor(contas: str = "", quantas: int = 6):
     return PlainTextResponse("\n".join(linhas))
 
 
+@app.get("/api/diag/categorias", response_class=PlainTextResponse)
+async def diag_categorias(dias: int = 4):
+    """Por que uma guia de categoria está vazia — o funil inteiro, por etapa.
+
+    Isto existe porque Mercado e Aspas já ficaram vazias duas vezes, e das
+    duas eu perdi tempo adivinhando ENTRE três coisas que dão exatamente o
+    mesmo sintoma na tela:
+
+        1. o artigo não está sendo CLASSIFICADO naquela categoria;
+        2. está classificado, mas foi guardado SEM TRADUÇÃO (fora das
+           categorias ativas do botão ⚙️ Coleta) — e a guia exige title_pt;
+        3. está classificado e traduzido, mas algum filtro DEPOIS da
+           consulta (relevância < 0.45, seleção, "não é futebol saudita")
+           derruba tudo antes de virar card.
+
+    Da tela, os três casos são "a guia não coleta mais". Aqui eles são três
+    linhas diferentes, e é por isso que a rota mostra a contagem em cada
+    degrau em vez de só o total do fim.
+    """
+    from database import get_categorias_ativas, TODAS_CATEGORIAS
+    dias = max(1, min(int(dias or 4), 30))
+    linhas: list[str] = []
+
+    def pega(sql, params=None):
+        try:
+            with get_conn() as conn:
+                c = conn.cursor()
+                c.execute(sql, params or [])
+                return c.fetchall()
+        except Exception as e:
+            linhas.append(f"  (erro: {type(e).__name__}: {e})")
+            return []
+
+    # ── 1. o botão ⚙️ Coleta ───────────────────────────────────────────────
+    ativas = get_categorias_ativas()
+    linhas += ["CATEGORIAS QUE PASSAM PELA TRADUÇÃO", "─" * 35]
+    if not ativas:
+        linhas.append("  filtro DESLIGADO — todas traduzem (é o padrão)")
+    else:
+        fora = [c for c in TODAS_CATEGORIAS if c not in ativas]
+        linhas.append(f"  ligadas : {', '.join(ativas)}")
+        linhas.append(f"  FORA    : {', '.join(fora) or '(nenhuma)'}")
+        if fora:
+            linhas.append("  ⚠️  o que está FORA é guardado sem tradução e NÃO")
+            linhas.append("      aparece em guia nenhuma. Se Mercado/Aspas estão")
+            linhas.append("      vazias e aparecem aí em cima, é só isso: reabra")
+            linhas.append("      no botão ⚙️ Coleta da guia de Notícias.")
+
+    # ── 2. o que entrou, por categoria e por dia ───────────────────────────
+    linhas += ["", f"O QUE ENTROU NOS ÚLTIMOS {dias} DIAS", "─" * 35]
+    por_cat = pega("""
+        SELECT COALESCE(category, '(sem categoria)') AS cat,
+               COUNT(*) AS total,
+               COUNT(title_pt) AS traduzidos
+          FROM articles
+         WHERE is_duplicate = 0
+           AND collected_at >= %s
+      GROUP BY 1 ORDER BY 2 DESC
+    """, [(datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()])
+    if not por_cat:
+        linhas.append("  (nada)")
+    else:
+        linhas.append(f"  {'categoria':<18} {'total':>7} {'traduzidos':>11}")
+        for cat, total, traduzidos in por_cat:
+            marca = "  ⚠️ sem tradução" if traduzidos == 0 and total else ""
+            linhas.append(f"  {cat:<18} {total:>7} {traduzidos:>11}{marca}")
+
+    # ── 3. o funil de cada guia de categoria única ─────────────────────────
+    # Reproduz, degrau a degrau, o que _pagina_de_noticias faz — inclusive os
+    # filtros de Python que rodam DEPOIS da consulta. É o único jeito de ver
+    # onde a conta chega a zero.
+    _deletadas = {h.upper() for h, ov in load_source_overrides().items()
+                  if ov.get("deleted")}
+    for guia, categoria in (("Notícias do Mercado", "mercado"),
+                            ("Aspas", "entrevista")):
+        linhas += ["", f"FUNIL DA GUIA {guia.upper()} (categoria "
+                       f"'{categoria}', janela de {HORAS_DE_NOTICIA}h)", "─" * 35]
+        crus = pega("""
+            SELECT COUNT(*) FROM articles
+             WHERE is_duplicate = 0 AND category = %s
+               AND collected_at >= %s
+        """, [categoria, (datetime.now(timezone.utc)
+                          - timedelta(days=dias)).isoformat()])
+        linhas.append(f"  1. classificados como '{categoria}' "
+                      f"({dias}d) ... {crus[0][0] if crus else '?'}")
+
+        artigos = get_recent_articles(hours=HORAS_DE_NOTICIA, limit=150,
+                                      categoria=categoria)
+        linhas.append(f"  2. com tradução e dentro de {HORAS_DE_NOTICIA}h ..... "
+                      f"{len(artigos)}")
+
+        passo = [a for a in artigos if a.get("relevance_score", 0) >= 0.45]
+        linhas.append(f"  3. relevância >= 0.45 ............... {len(passo)}")
+        passo2 = [a for a in passo if a.get("source_name", "").lstrip("@").upper()
+                  not in _deletadas]
+        linhas.append(f"  4. fonte não apagada ................ {len(passo2)}")
+        passo3 = [a for a in passo2 if not _is_selecao_article(a)]
+        linhas.append(f"  5. não é da seleção ................. {len(passo3)}")
+        passo4 = [a for a in passo3 if _is_actually_saudi_football(a)]
+        linhas.append(f"  6. passou no 'é futebol saudita' .... {len(passo4)}")
+        linhas.append(f"     → a guia mostra {len(passo4)} card(s)")
+
+        # Onde a conta morreu, dito em português.
+        if crus and crus[0][0] == 0:
+            linhas.append("  ⇒ ninguém está sendo CLASSIFICADO nessa categoria.")
+            linhas.append("    O problema é antes da tela: triagem/tradução.")
+        elif not artigos and crus and crus[0][0]:
+            linhas.append("  ⇒ existem artigos da categoria, mas nenhum com")
+            linhas.append("    tradução dentro da janela. Ou estão fora das")
+            linhas.append("    categorias ativas, ou são mais velhos que a janela.")
+        elif artigos and not passo4:
+            queda = ("relevância" if not passo else
+                     "fonte apagada" if not passo2 else
+                     "filtro de seleção" if not passo3 else
+                     "filtro 'é futebol saudita'")
+            linhas.append(f"  ⇒ os artigos existem e estão traduzidos, mas o")
+            linhas.append(f"    {queda} derruba todos antes de virar card.")
+
+    # ── 4. amostra do que veio hoje, para olho humano ──────────────────────
+    linhas += ["", "ÚLTIMOS 15 QUE ENTRARAM (qualquer categoria)", "─" * 35]
+    ultimos = pega("""
+        SELECT COALESCE(category, '—'), source_name,
+               CASE WHEN title_pt IS NULL THEN 'sem traducao' ELSE 'ok' END,
+               COALESCE(title_pt, title_orig)
+          FROM articles
+         WHERE is_duplicate = 0
+      ORDER BY collected_at DESC LIMIT 15
+    """)
+    for cat, fonte, traduzido, titulo in ultimos:
+        linhas.append(f"  {str(cat):<12} {str(fonte)[:18]:<18} {traduzido:<12} "
+                      f"{(titulo or '')[:60]}")
+    return PlainTextResponse("\n".join(linhas))
+
+
 @app.get("/api/diag/af-fora", response_class=PlainTextResponse)
 async def diag_af_fora(nomes: str = "Watkins,Martinelli,Doan,Bergwijn"):
     """A API-Football alcança jogador que NÃO está na liga saudita?
