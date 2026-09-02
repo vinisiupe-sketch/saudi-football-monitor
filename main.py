@@ -13,6 +13,13 @@ from zoneinfo import ZoneInfo
 # nada. A diferença aparece na faixa 00h–03h UTC, que em Brasília ainda é o dia
 # anterior — é lá que agrupar por UTC jogaria o jogo para o dia errado.
 BRT = ZoneInfo("America/Sao_Paulo")
+
+# Quando ESTE processo subiu. Serve ao /api/diag/banco: junto com a impressão
+# digital do arquivo, é o que prova que um deploy novo entrou mesmo quando a
+# variável de commit do Railway ficou para trás (aconteceu em 02/09/26).
+import time as _time
+_SUBIU_EM = _time.time()
+
 import re
 import shutil
 import subprocess
@@ -7425,9 +7432,33 @@ async def api_diag_banco():
     # meu era chute.
     #
     # O Railway injeta estas variáveis sozinho; não precisa configurar nada.
+    #
+    # MAS ELAS PODEM MENTIR, e mentiram: em 02/09/26 o deploy do commit
+    # 5315d06 subiu com sucesso e esta linha continuou dizendo 1ca2b34, o
+    # commit da véspera. Eu li isso, concluí "o deploy está quebrado" e
+    # mandei o Vini procurar defeito no Railway — que estava certo o tempo
+    # todo. Uma linha de diagnóstico errada é pior que nenhuma: ela não
+    # deixa você sem resposta, ela te dá a resposta errada com confiança.
+    #
+    # Por isso agora vai junto uma impressão digital do ARQUIVO que está
+    # rodando, medida na hora, sem depender de variável nenhuma. Se o número
+    # do commit não mexer entre dois deploys mas a impressão digital mexer,
+    # foi a variável que ficou para trás — e não o deploy que não aconteceu.
     sha = (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "")[:7]
     msg = (os.environ.get("RAILWAY_GIT_COMMIT_MESSAGE") or "").split("\n")[0][:70]
     linhas.append(f"código   : {sha or '?'}  {msg}")
+    try:
+        import hashlib
+        meu = os.path.abspath(__file__)
+        bruto = open(meu, "rb").read()
+        digital = hashlib.sha1(bruto).hexdigest()[:8]
+        subiu = datetime.fromtimestamp(_SUBIU_EM, timezone.utc).astimezone(
+            BRT).strftime("%d/%m %H:%M")
+        linhas.append(f"arquivo  : main.py {digital} · {len(bruto)//1024} KB "
+                      f"(isto é medido agora, não é variável)")
+        linhas.append(f"no ar desde: {subiu}")
+    except Exception as e:
+        linhas.append(f"arquivo  : não consegui medir ({type(e).__name__})")
     ff = _tem_ffmpeg()
     linhas.append(f"ffmpeg   : {ff or 'AUSENTE — a fita de corte não funciona'}")
     if _FALHA_NA_SUBIDA:
