@@ -89,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-09-01a"
+VERSAO = "2026-09-02a"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
@@ -1069,13 +1069,27 @@ def _desenhar(cor):
     return img
 
 
-def bandeja(g) -> None:
-    """Ícone ao lado do relógio: verde gravando, cinza parado, vermelho com erro."""
+def bandeja(g) -> bool:
+    """Ícone ao lado do relógio: verde gravando, cinza parado, vermelho com erro.
+
+    Devolve False se NÃO deu para pôr o ícone. Quem chama precisa saber:
+    até 02/09/26 esta função voltava calada quando faltava o pystray, o
+    main() achava que tinha terminado e saía — e a thread da gravação, que é
+    daemon, morria junto. Ou seja: o comentário aqui em cima prometia "roda
+    igual, só sem ícone" e o código fazia o contrário, sem deixar rastro.
+
+    Foi assim que uma instalação nova ficou parecendo "não apareceu o ícone"
+    quando o que tinha acontecido era o programa inteiro ter desistido.
+    """
+    VERDE, CINZA, VERMELHO = (34, 197, 94, 255), (120, 130, 140, 255), (239, 68, 68, 255)
     try:
         import pystray
-    except Exception:
-        return
-    VERDE, CINZA, VERMELHO = (34, 197, 94, 255), (120, 130, 140, 255), (239, 68, 68, 255)
+        _desenhar(CINZA)      # o ícone precisa do Pillow; falha aqui é fácil
+    except Exception as e:
+        diz(f"    sem ícone ao lado do relógio ({type(e).__name__}: {e}).")
+        diz("    Isso é só o enfeite: a gravação continua rodando. Para ter o")
+        diz("    ícone de volta:  py -3 -m pip install pystray pillow")
+        return False
 
     def dizer(_=None):
         n = ESTADO["gravando"]
@@ -1115,7 +1129,16 @@ def bandeja(g) -> None:
                 pass
             time.sleep(5)
 
-    icone.run(setup=pulsar)
+    try:
+        icone.run(setup=pulsar)
+    except Exception as e:
+        # A bandeja do Windows recusa ícone em algumas sessões (RDP, conta
+        # sem shell carregado). De novo: é o enfeite que falhou, não a
+        # gravação — quem chama segura o processo de pé.
+        diz(f"    o ícone não subiu ({type(e).__name__}: {e}); "
+            "sigo gravando sem ele.")
+        return False
+    return True
 
 
 def main() -> int:
@@ -1158,7 +1181,18 @@ def main() -> int:
     if "--bandeja" in sys.argv or (os.name == "nt" and not sys.stdout.isatty()):
         import threading
         threading.Thread(target=g.rodar, daemon=True).start()
-        bandeja(g)
+        if bandeja(g):
+            return 0
+        # Sem ícone eu NÃO posso simplesmente sair: a thread lá em cima é
+        # daemon e morre junto com o processo. Era exatamente esse retorno
+        # que fazia uma máquina recém-instalada não gravar nada e o sintoma
+        # aparecer como "não apareceu o ícone".
+        diz("    (sem ícone, mas gravando — deixe esta máquina ligada)")
+        try:
+            while True:
+                time.sleep(3600)
+        except KeyboardInterrupt:
+            g.parar()
         return 0
 
     try:
