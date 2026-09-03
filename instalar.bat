@@ -59,17 +59,17 @@ echo    [ok] ffmpeg encontrado.
 rem ================================================================= senha
 rem
 rem O "if exist ... goto" sozinho tem um buraco que custou caro: se o arquivo
-rem existe mas esta ERRADO, reinstalar nao conserta nada — o instalador pula
+rem existe mas esta ERRADO, reinstalar nao conserta nada - o instalador pula
 rem a pergunta e a maquina segue sem conseguir falar com o app. Foi o que
 rem aconteceu em 02/09/26: o arquivo tinha "ECHO esta ativado." dentro (bug
 rem da versao anterior deste .bat, ver comentario mais abaixo), e rodar o
 rem instalador de novo, e ate reiniciar o computador, nao mudava nada.
 rem
 rem Entao antes de confiar no arquivo, eu OLHO o que tem nele.
+rem Olho o ARQUIVO direto com o findstr, e nao o conteudo por variavel: uma
+rem senha com & ou | dentro viraria comando no meio do caminho.
 if not exist clipe_token.txt goto pede_senha
-set "ATUAL="
-set /p "ATUAL="<clipe_token.txt
-echo(!ATUAL!| findstr /b /c:"ECHO " >nul
+findstr /b /c:"ECHO " clipe_token.txt >nul
 if not errorlevel 1 (
   echo    [!] A senha guardada aqui nao e uma senha: e sobra de um defeito
   echo        do instalador antigo. Vou apagar e pedir de novo.
@@ -95,7 +95,7 @@ rem A linha era esta:
 rem     >clipe_token.txt echo^|set /p"=!TOKEN!"
 rem
 rem e ela GRAVAVA A COISA ERRADA. Numa linha com pipe, o redirecionamento
-rem escrito na frente pertence ao PRIMEIRO comando — o echo — e nao ao
+rem escrito na frente pertence ao PRIMEIRO comando - o echo - e nao ao
 rem set /p, que e quem escreve a senha. Resultado: o arquivo ficava com a
 rem mensagem que o echo sozinho imprime ("ECHO esta ativado.", 18 caracteres,
 rem com acento) e a senha ia para a tela.
