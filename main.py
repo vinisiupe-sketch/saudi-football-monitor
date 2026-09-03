@@ -7054,11 +7054,23 @@ async def api_clipe_pendentes(request: Request):
             titulo_da_live(t.get("id") or "", t.get("titulo") or "")
     # Os ajustes vão na mesma resposta. É isto que faz a máquina que grava
     # obedecer à guia de Configurações sem ninguém atualizar nada lá.
-    return {"clipes": clipes_a_cortar(), "lives": listar_lives(), "canal": CANAL,
-            "versao_esperada": VERSAO_GRAVADOR,
-            "ajustes": {a["chave"]: ajuste(a["chave"])
-                        for a in ajustes.AJUSTES
-                        if a["chave"].startswith("gravador_")}}
+    #
+    # O try/except em volta NÃO é medo genérico: sem ele, qualquer exceção
+    # aqui vira um 500 com o corpo "Internal Server Error", e é SÓ ISSO que
+    # aparece na janela de quem está com a máquina — numa casa que não é a
+    # minha, com o dono do PC sem como saber o que houve. Aconteceu em
+    # 02/09/26 e custou uma noite de perguntas por WhatsApp. Erro que chega
+    # ao operador tem que dizer o que foi.
+    try:
+        return {"clipes": clipes_a_cortar(), "lives": listar_lives(),
+                "canal": CANAL, "versao_esperada": VERSAO_GRAVADOR,
+                "ajustes": {a["chave"]: ajuste(a["chave"])
+                            for a in ajustes.AJUSTES
+                            if a["chave"].startswith("gravador_")}}
+    except Exception as e:
+        return JSONResponse(
+            {"erro": f"o app quebrou ao montar a resposta: "
+                     f"{type(e).__name__}: {e}"}, 500)
 
 
 @app.get("/api/gravador/codigo", response_class=PlainTextResponse)
@@ -16086,6 +16098,62 @@ async def diag_coletor(contas: str = "", quantas: int = 6):
     elif s.get("erro"):
         linhas.append("  O PRINCIPAL ESTÁ FORA DO AR. Confira se o serviço do")
         linhas.append("  RSSHub está de pé no Railway.")
+    return PlainTextResponse("\n".join(linhas))
+
+
+@app.get("/api/diag/pendentes", response_class=PlainTextResponse)
+async def diag_pendentes():
+    """Roda, uma por uma, as peças da resposta que o gravador recebe.
+
+    Existe porque a máquina que grava mostrou "HTTP 500: Internal Server
+    Error" e mais nada. Do lado de lá não há como saber qual pedaço quebrou,
+    e do lado de cá eu não podia reproduzir sem o token do agente. Esta rota
+    é aberta (não devolve segredo nenhum, só o nome da peça e o erro dela) e
+    responde em uma chamada o que custou uma noite de perguntas.
+    """
+    linhas = ["AS PEÇAS DA RESPOSTA DO GRAVADOR", "─" * 32]
+    saidas = {}
+
+    def tenta(nome, fn):
+        try:
+            v = fn()
+            saidas[nome] = v
+            resumo = (f"{len(v)} item(ns)" if isinstance(v, (list, dict))
+                      else str(v)[:40])
+            linhas.append(f"  ✓ {nome:<22} {resumo}")
+        except Exception as e:
+            linhas.append(f"  ✗ {nome:<22} {type(e).__name__}: {e}")
+
+    tenta("clipes_a_cortar", clipes_a_cortar)
+    tenta("listar_lives", listar_lives)
+    tenta("canal", lambda: CANAL)
+    tenta("versao_esperada", lambda: VERSAO_GRAVADOR)
+    tenta("ajustes do gravador",
+          lambda: {a["chave"]: ajuste(a["chave"]) for a in ajustes.AJUSTES
+                   if a["chave"].startswith("gravador_")})
+
+    # O passo que faltava: a resposta inteira precisa virar JSON. Uma peça
+    # pode montar bem e ainda assim carregar um valor que o FastAPI não
+    # serializa — e aí o 500 nasce DEPOIS de todo o código da rota rodar,
+    # que é o lugar mais difícil de procurar.
+    linhas.append("")
+    try:
+        bruto = json.dumps(saidas, default=str)
+        linhas.append(f"  ✓ vira JSON ({len(bruto)} bytes)")
+    except Exception as e:
+        linhas.append(f"  ✗ NÃO VIRA JSON: {type(e).__name__}: {e}")
+    try:
+        json.dumps(saidas)
+        linhas.append("  ✓ vira JSON sem precisar de conversor")
+    except Exception as e:
+        linhas.append(f"  ✗ SÓ VIRA JSON COM CONVERSOR: {type(e).__name__}: {e}")
+        linhas.append("    (é isto: algum valor não é JSON puro — o FastAPI"
+                      " levanta e o gravador vê só 'Internal Server Error')")
+        for nome, v in saidas.items():
+            try:
+                json.dumps(v)
+            except Exception as e2:
+                linhas.append(f"    culpado: {nome} → {type(e2).__name__}: {e2}")
     return PlainTextResponse("\n".join(linhas))
 
 
