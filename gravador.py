@@ -89,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-09-02b"
+VERSAO = "2026-09-02c"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
@@ -1057,7 +1057,40 @@ class Gravador:
             return
         diz("    atualizado. Reiniciando com a versão nova.")
         self.parar()
-        os.execv(sys.executable, [sys.executable, meu] + sys.argv[1:])
+        # POR QUE NÃO os.execv AQUI.
+        #
+        # Era assim, e quebrava em qualquer máquina cujo caminho tivesse
+        # ESPAÇO. No Windows o os.execv entrega os argumentos ao runtime do C,
+        # que os divide de novo pelos espaços — então
+        #
+        #     C:\Users\Henrique Veiga\AppData\...\python.exe
+        #
+        # virava o programa "C:\Users\Henrique" e o resto ("Veiga\AppData\...")
+        # ia parar colado na pasta de trabalho. O erro que aparecia era
+        # "can't open file ... No such file or directory" com um caminho
+        # remendado que não existe em lugar nenhum — e o programa morria ali,
+        # depois de já ter trocado o arquivo.
+        #
+        # Isso não aparecia aqui porque este computador é "C:\Users\marcu",
+        # sem espaço. Apareceu na primeira máquina emprestada (02/09/26), que
+        # é exatamente onde ninguém tem como investigar.
+        #
+        # O Popen com LISTA cita cada argumento por conta própria, e é o
+        # caminho recomendado no Windows.
+        try:
+            subprocess.Popen([sys.executable, meu] + sys.argv[1:], cwd=PASTA)
+        except Exception as e:
+            # Falhar aqui NÃO pode matar a gravação: o arquivo novo já está no
+            # disco e o processo atual continua com o código antigo na
+            # memória, que funciona. Ele entra na versão nova na próxima vez
+            # que alguém abrir o programa.
+            diz(f"    não consegui reiniciar sozinho ({type(e).__name__}: {e}).",
+                erro=True)
+            diz("    Sigo gravando na versão antiga. Quando puder, feche esta")
+            diz("    janela e abra o gravador.bat de novo — o arquivo novo já")
+            diz("    está aqui e ele sobe na versão nova.")
+            return
+        os._exit(0)
 
     def parar(self) -> None:
         for jogo in self.jogos.values():
