@@ -36,7 +36,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, cruzar_api_football, congelar_elenco, elenco_congelado, resumo_do_congelamento, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, apagar_clipe, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, cruzar_api_football, congelar_elenco, elenco_congelado, resumo_do_congelamento, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -7418,6 +7418,21 @@ async def api_clipe_guardar(clipe_id: int, guardar: int = 1):
     return {"ok": True, "guardado": bool(guardar), "aviso": aviso}
 
 
+@app.post("/api/clipe/{clipe_id}/apagar")
+async def api_clipe_apagar(clipe_id: int):
+    """Apaga um clipe agora. A tela pergunta antes; aqui só executa.
+
+    Fica sob /api/clipe/, que é prefixo livre de sessão para o gravador
+    falar com o app — mas quem chama isto é a SUA tela, com o clipe na
+    frente. Não há id adivinhável valendo nada aqui: apagar um clipe é
+    apagar um vídeo descartável que só existe neste app.
+    """
+    ok, motivo = apagar_clipe(clipe_id)
+    if not ok:
+        return JSONResponse({"erro": motivo or "não deu para apagar"}, 409)
+    return {"ok": True, "id": clipe_id}
+
+
 @app.post("/api/clipe/descartar")
 async def api_clipe_descartar():
     """Faz agora a limpeza que o agendador faria sozinho."""
@@ -7856,6 +7871,12 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .atraso-ok{color:#B6FF00;font-weight:700}
 .atraso-nota{margin:9px 0 0;font-size:.7rem;line-height:1.6;color:var(--c-muted-3)}
 .acoes .guardar.on{border-color:#FFBE5D;color:#FFBE5D}
+/* O apagar fica discreto e SEM texto: um botao vermelho escrito "APAGAR" do
+   lado do "Publicar no X" e um convite ao erro com o dedo no meio do jogo.
+   So a lixeira, e a cor de perigo aparece quando o dedo ja esta em cima. */
+.acoes .apagar{font-size:.85rem;line-height:1;padding:6px 11px;
+  color:var(--c-muted-3)}
+.acoes .apagar:hover:not(:disabled){border-color:#FD5D5D;color:#FD5D5D}
 .selo.s-guardado{background:#FFBE5D22;color:#FFBE5D}
 .selo.s-automatico{background:#4f9cf922;color:#4f9cf9}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
@@ -8353,13 +8374,21 @@ function montar(c, assin) {
     corpo.innerHTML = '<div class="nota">O gravador pega este pedido em alguns '
       + 'segundos. Se ficar parado aqui, confira se a janela do gravador está '
       + 'aberta no computador.</div>';
+    // Pedido feito por engano (ou clipe automático que disparou à toa) sai
+    // daqui sem esperar o gravador atender só para depois poder apagar.
+    const ap = document.createElement('div');
+    ap.className = 'acoes';
+    ap.appendChild(botaoApagar(c));
+    corpo.appendChild(ap);
     d.appendChild(corpo);
     return d;
   }
 
   if (c.estado === 'erro') {
     corpo.innerHTML = '<div class="nota ruim">' + esc(c.erro || 'deu erro e ninguém explicou') + '</div>';
-    corpo.appendChild(botoesAjuste(c));
+    const acoesErro = botoesAjuste(c);
+    acoesErro.appendChild(botaoApagar(c));
+    corpo.appendChild(acoesErro);
     d.appendChild(corpo);
     return d;
   }
@@ -8430,6 +8459,7 @@ function montar(c, assin) {
   pub.onclick = function () { publicar(c.id, t, pub); };
   acoes.appendChild(botaoBaixar(c));
   acoes.appendChild(botaoGuardar(c));
+  acoes.appendChild(botaoApagar(c));
   acoes.appendChild(pub);
   corpo.appendChild(acoes);
   d.appendChild(corpo);
@@ -8577,6 +8607,38 @@ function botaoGuardar(c) {
     : 'sem isto ele some 2h depois que o jogo sair do ar';
   b.onclick = function () { guardar(c.id, !c.guardado, b); };
   return b;
+}
+
+function botaoApagar(c) {
+  // Some da lista na hora, e nao espera a faxina das 2h. Serve para o clipe
+  // que saiu errado no meio do jogo: com quatro partidas ao mesmo tempo, a
+  // lista enche rapido e achar o certo com o dedo e o que importa.
+  const b = document.createElement('button');
+  b.className = 'apagar';
+  b.textContent = '🗑';
+  b.title = 'apagar este clipe';
+  b.onclick = function () { apagarClipe(c, b); };
+  return b;
+}
+
+async function apagarClipe(c, botao) {
+  // Confirmacao com o que identifica o clipe, e nao um "tem certeza?" seco:
+  // sao varios cards parecidos na tela, e o risco real e apagar o vizinho.
+  const quem = (c.jogo ? c.jogo + ' — ' : '') + hora(c.alvo_em)
+             + (c.guardado ? '  (este esta marcado com ★)' : '');
+  if (!confirm('Apagar este clipe?\n\n' + quem)) return;
+  botao.disabled = true;
+  try {
+    const r = await fetch('/api/clipe/' + c.id + '/apagar', {method: 'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
+    const card = document.getElementById('clipe-' + c.id);
+    if (card) card.remove();
+    carregar();
+  } catch (e) {
+    alert('nao deu para apagar: ' + (e.message || e));
+    botao.disabled = false;
+  }
 }
 
 async function guardar(id, ligar, botao) {

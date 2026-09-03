@@ -3846,6 +3846,46 @@ def descartar_clipes(lives_ativas: list[str], horas: int = 2) -> dict:
     return saida
 
 
+def apagar_clipe(clipe_id: int) -> tuple[bool, str]:
+    """Apaga UM clipe agora, por ordem sua. Devolve (deu_certo, motivo).
+
+    Diferente do `descartar_clipes`, que é a faxina automática e só mexe no
+    que passou da validade e não está marcado. Aqui é o oposto: você olhou o
+    clipe, ele não presta, e some na hora — inclusive o marcado com ★, porque
+    quem marcou foi você e quem está desmarcando também.
+
+    A única coisa que eu me recuso a apagar é clipe já publicado: aquele
+    vídeo está no ar em nome do seu acordo com o detentor dos direitos, e a
+    linha aqui é o único registro de que ele existe (o post_id vive nela).
+    Apagar isso não tira o vídeo do X — só apaga a sua memória dele.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_clipe(c)
+            c.execute("SELECT estado FROM clipe WHERE id = %s", [clipe_id])
+            linha = c.fetchone()
+            if not linha:
+                return False, "esse clipe não existe mais"
+            if linha[0] == "publicado":
+                return False, ("clipe já publicado não é apagado daqui: a "
+                               "linha é o registro do post que está no ar")
+            c.execute("DELETE FROM clipe WHERE id = %s", [clipe_id])
+            apagou = c.rowcount == 1
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+    if not apagou:
+        return False, "esse clipe não existe mais"
+    # O arquivo depois da linha, e sem derrubar a operação se ele já não
+    # estiver lá: o mp4 é descartável (o disco do contêiner é efêmero), a
+    # linha é que era a verdade.
+    try:
+        os.remove(_caminho_do_clipe(clipe_id))
+    except Exception:
+        pass
+    return True, ""
+
+
 def video_do_clipe(clipe_id: int) -> bytes | None:
     """O mp4. Do disco; e, para clipes antigos, ainda do banco."""
     try:
