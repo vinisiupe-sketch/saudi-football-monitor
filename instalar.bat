@@ -57,7 +57,27 @@ if errorlevel 1 (
 echo    [ok] ffmpeg encontrado.
 
 rem ================================================================= senha
+rem
+rem O "if exist ... goto" sozinho tem um buraco que custou caro: se o arquivo
+rem existe mas esta ERRADO, reinstalar nao conserta nada — o instalador pula
+rem a pergunta e a maquina segue sem conseguir falar com o app. Foi o que
+rem aconteceu em 02/09/26: o arquivo tinha "ECHO esta ativado." dentro (bug
+rem da versao anterior deste .bat, ver comentario mais abaixo), e rodar o
+rem instalador de novo, e ate reiniciar o computador, nao mudava nada.
+rem
+rem Entao antes de confiar no arquivo, eu OLHO o que tem nele.
+if not exist clipe_token.txt goto pede_senha
+set "ATUAL="
+set /p "ATUAL="<clipe_token.txt
+echo(!ATUAL!| findstr /b /c:"ECHO " >nul
+if not errorlevel 1 (
+  echo    [!] A senha guardada aqui nao e uma senha: e sobra de um defeito
+  echo        do instalador antigo. Vou apagar e pedir de novo.
+  del /f clipe_token.txt
+)
 if exist clipe_token.txt goto tem_token
+
+:pede_senha
 echo.
 echo    Cole abaixo a senha que o Vini te mandou e aperte Enter.
 echo    (ela nao publica nada; so deixa este computador entregar os videos)
@@ -69,13 +89,44 @@ if not defined TOKEN (
   pause
   exit /b 1
 )
->clipe_token.txt echo|set /p"=!TOKEN!"
-echo.
-echo    [ok] Senha guardada neste computador.
+rem COMO A SENHA E GRAVADA, e por que nao e do jeito obvio.
+rem
+rem A linha era esta:
+rem     >clipe_token.txt echo^|set /p"=!TOKEN!"
+rem
+rem e ela GRAVAVA A COISA ERRADA. Numa linha com pipe, o redirecionamento
+rem escrito na frente pertence ao PRIMEIRO comando — o echo — e nao ao
+rem set /p, que e quem escreve a senha. Resultado: o arquivo ficava com a
+rem mensagem que o echo sozinho imprime ("ECHO esta ativado.", 18 caracteres,
+rem com acento) e a senha ia para a tela.
+rem
+rem Isso passou despercebido porque o arquivo EXISTIA e tinha texto dentro.
+rem Na maquina de quem foi gravar, em 02/09/26, o efeito foi o gravador
+rem passar horas sem conectar: o app recusava aquilo, e o acento ainda
+rem derrubava a rota com 500 em vez de dizer "senha errada".
+rem
+rem O <nul manda o set /p ler de lugar nenhum (nao espera digitacao) e o
+rem redirecionamento agora e do comando certo. Sem pipe, sem ambiguidade.
+<nul set /p "=!TOKEN!" >clipe_token.txt
+
+rem E CONFIRO o que ficou gravado. Escrever e torcer foi o que custou a noite.
+set "GRAVADO="
+set /p "GRAVADO="<clipe_token.txt
+if "!GRAVADO!"=="!TOKEN!" (
+  echo.
+  echo    [ok] Senha guardada e CONFERIDA neste computador.
+) else (
+  echo.
+  echo    [X] A senha nao foi gravada direito neste computador.
+  echo        Ficou isto no arquivo:  !GRAVADO!
+  echo        Abra o clipe_token.txt no Bloco de Notas, apague tudo, digite
+  echo        a senha a mao e salve. Depois rode o gravador.bat.
+  pause
+)
 :tem_token
 
 if exist app_url.txt goto tem_url
->app_url.txt echo|set /p"=https://saudi-football-monitor-production.up.railway.app"
+<nul set /p "=https://saudi-football-monitor-production.up.railway.app" >app_url.txt
 :tem_url
 
 rem ==================================================== iniciar com Windows
