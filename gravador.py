@@ -89,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-09-02a"
+VERSAO = "2026-09-02b"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
@@ -1185,6 +1185,18 @@ def main() -> int:
     diz(f"    versao : {VERSAO}")
     diz(f"    app    : {app}")
     diz(f"    token  : configurado ({len(token)} caracteres)")
+    # A senha quase sempre chega por aplicativo de mensagem, e copiar-e-colar
+    # de lá traz sujeira invisível: espaço não separável, aspa curva, uma
+    # letra acentuada que entrou junto. Nada disso aparece na tela — mas o
+    # app recusa, e em 02/09/26 chegou a derrubar a rota inteira do outro
+    # lado. Se dá para ver daqui, tem que ser dito aqui.
+    if not token.isascii():
+        estranhos = sorted({c for c in token if not c.isascii()})
+        diz("    !! A SENHA TEM CARACTERE ESTRANHO: "
+            + " ".join(f"{c!r}" for c in estranhos), erro=True)
+        diz("       Isso costuma vir de copiar-e-colar do WhatsApp. Apague o")
+        diz("       clipe_token.txt desta pasta, rode o instalar.bat de novo e")
+        diz("       digite a senha à mão em vez de colar.")
     conferir_rede(app)
     diz()
 

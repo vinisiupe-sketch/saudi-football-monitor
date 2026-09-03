@@ -6478,7 +6478,19 @@ def _agente_autorizado(request: Request) -> bool:
         return False
     enviado = (request.headers.get("X-Clipe-Token")
                or request.query_params.get("token") or "")
-    return secrets.compare_digest(enviado, esperado)
+    # Comparo em BYTES, e não em texto. O secrets.compare_digest LEVANTA
+    # TypeError quando qualquer um dos lados tem caractere fora do ASCII —
+    # e uma exceção aqui não vira "senha errada", vira 500 com o corpo
+    # "Internal Server Error".
+    #
+    # Isso não é hipótese: em 02/09/26 a máquina de quem ia gravar ficou
+    # horas sem conectar mostrando exatamente esse 500. A senha tinha vindo
+    # de um copiar-e-colar de aplicativo de mensagem e carregava um
+    # caractere invisível. O app dizia "eu quebrei" quando a resposta certa
+    # era "essa senha não é a minha" — e a diferença entre as duas mandou a
+    # gente procurar defeito no lugar errado.
+    return secrets.compare_digest(enviado.encode("utf-8", "replace"),
+                                  esperado.encode("utf-8", "replace"))
 
 
 CHAVE_GRAVADOR = "clipe_gravador"
@@ -6489,7 +6501,7 @@ CHAVE_GRAVADOR = "clipe_gravador"
 # Sem isso, um gravador antigo rodando na memória entrega clipes com defeitos
 # já corrigidos, e nada na tela denuncia. Aconteceu: três horas de clipes com
 # o áudio adiantado depois de o defeito estar consertado no arquivo.
-VERSAO_GRAVADOR = "2026-09-02a"
+VERSAO_GRAVADOR = "2026-09-02b"
 
 
 def _gravador_estado() -> dict:
