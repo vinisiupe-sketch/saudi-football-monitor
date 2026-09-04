@@ -6735,6 +6735,52 @@ async def coletar_escalacoes() -> dict:
                                        fixture_af=fid):
                     novos.append(("api_football", chave))
 
+    # ── A API DA PRÓPRIA LIGA ─────────────────────────────────────────────
+    # Terceira fonte na mesma medição, e a que interessa decidir: hoje a
+    # escalação vem do matchsheet em PDF do mediahub, que custa sessão de
+    # navegador logada (caduca sozinha) e uma volta por duas abas por causa
+    # do CSP daquele site. A liga tem endpoint de escalação SEM login. Se ele
+    # encher no mesmo horário do PDF, o mediahub sai da jogada inteiro.
+    #
+    # "No mesmo horário" não se responde lendo código: mede-se. Por isso ela
+    # entra aqui, no mesmo carimbo que já compara Sportmonks e API-Football —
+    # e o PDF, quando chega, é carimbado como "matchsheet_pdf" pela rota de
+    # upload. Os quatro instantes ficam lado a lado em /api/diag/corrida.
+    try:
+        import httpx
+        import liga_spl as _liga
+        hoje_arabia = (agora + timedelta(hours=3)).strftime("%Y-%m-%d")
+        with httpx.Client(timeout=20.0, follow_redirects=True) as cli:
+            sid = _liga.temporada(hoje_arabia, cli)
+            for j in (_liga.jogos_da_temporada(sid, cli) if sid else []):
+                local = j.get("matchDateLocal") or ""
+                if local[:10] != hoje_arabia:
+                    continue
+                bruto = _pontape_utc_de_local(local)
+                try:
+                    quando = datetime.strptime(
+                        bruto, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                except Exception:
+                    continue
+                if not na_janela(quando):
+                    continue
+                casa = (j.get("home") or {}).get("shortName") or ""
+                fora = (j.get("away") or {}).get("shortName") or ""
+                chave = _chave_escalacao(quando.isoformat(), casa)
+                if ("liga_spl", chave) in ja:
+                    continue
+                escala = _liga.escala_do_jogo(sid, j.get("matchId"), cli)
+                if not _liga.tem_escalacao(escala):
+                    continue      # a liga responde, mas ainda sem gente dentro
+                if registrar_escalacao(
+                        "liga_spl", chave,
+                        jogo=f"{casa.upper()} x {fora.upper()}",
+                        comeca_em=quando,
+                        conteudo=json.dumps(escala, ensure_ascii=False)[:60000]):
+                    novos.append(("liga_spl", chave))
+    except Exception as e:
+        diag["erros"].append(f"liga_spl escalacao: {type(e).__name__}: {e}")
+
     diag["novos"] = len(novos)
     _ULTIMA_ESCALACAO.update(diag)
     return diag
@@ -16242,6 +16288,95 @@ async def diag_jogos_de_hoje():
             "rodada": j.get("roundName") or "",
         })
     return {"data_arabia": hoje_arabia, "jogos": jogos}
+
+
+@app.get("/api/diag/corrida", response_class=PlainTextResponse)
+async def diag_corrida_escalacao(horas: int = 48):
+    """QUEM CHEGA PRIMEIRO com a escalação: o PDF do mediahub ou a liga.
+
+    Existe para decidir uma coisa só, e com número em vez de opinião: dá para
+    largar o matchsheet do mediahub? Ele custa sessão de navegador logada,
+    que caduca, e uma volta por duas abas por causa do CSP daquele site. A
+    API da liga não pede login nenhum — mas só serve se chegar na mesma hora.
+
+    Cada linha é um jogo; cada coluna, o instante em que AQUELA fonte
+    publicou pela primeira vez. Quem tem hora mais cedo, ganhou. A diferença
+    em minutos é o que decide: dois minutos não valem uma sessão que caduca;
+    quarenta valem.
+    """
+    fontes = [("matchsheet_pdf", "PDF mediahub"), ("liga_spl", "API da liga"),
+              ("api_football", "API-Football"), ("sportmonks", "Sportmonks")]
+    vistas = escalacoes_vistas(max(1, min(int(horas or 48), 240)))
+
+    # Junto por CONFRONTO, não pela chave: cada fonte escreve o nome do clube
+    # do seu jeito e usa a sua própria chave. O confronto já resolve isso no
+    # projeto inteiro (ver liga_spl.confronto).
+    import liga_spl as _liga
+    jogos: dict = {}
+    for e in vistas:
+        rotulo = (e.get("jogo") or "").strip()
+        partes = re.split(r"\s+[xX]\s+", rotulo)
+        ident = (frozenset(_liga.confronto(partes[0], partes[1]))
+                 if len(partes) == 2 else rotulo.lower())
+        alvo = jogos.setdefault(ident, {"rotulo": rotulo, "quando": {}})
+        fonte = e.get("fonte") or ""
+        visto = e.get("visto_em") or ""
+        # A PRIMEIRA vez de cada fonte é a que vale.
+        if fonte not in alvo["quando"] or visto < alvo["quando"][fonte]:
+            alvo["quando"][fonte] = visto
+        if len(alvo["rotulo"]) < len(rotulo):
+            alvo["rotulo"] = rotulo
+
+    def hhmm(iso):
+        if not iso:
+            return "—"
+        try:
+            d = datetime.fromisoformat(iso)
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            return d.astimezone(BRT).strftime("%d/%m %H:%M:%S")
+        except Exception:
+            return iso[:16]
+
+    linhas = [f"QUEM PUBLICA A ESCALAÇÃO PRIMEIRO (últimas {horas}h, "
+              "hora de Brasília)", "─" * 62]
+    if not jogos:
+        linhas.append("  Nada carimbado ainda. As fontes só são consultadas na")
+        linhas.append("  janela em volta do apito inicial — rode num dia de jogo.")
+    for ident, dados in sorted(jogos.items(),
+                               key=lambda kv: min(
+                                   [v for v in kv[1]["quando"].values() if v] or [""]),
+                               reverse=True):
+        linhas.append("")
+        linhas.append(f"  {dados['rotulo']}")
+        marcados = [(rot, dados["quando"].get(f)) for f, rot in fontes]
+        for rot, quando in marcados:
+            linhas.append(f"    {rot:<14} {hhmm(quando)}")
+        validos = [(rot, q) for rot, q in marcados if q]
+        if len(validos) >= 2:
+            validos.sort(key=lambda rq: rq[1])
+            primeiro, segundo = validos[0], validos[1]
+            try:
+                d1 = datetime.fromisoformat(primeiro[1])
+                d2 = datetime.fromisoformat(segundo[1])
+                if d1.tzinfo is None:
+                    d1 = d1.replace(tzinfo=timezone.utc)
+                if d2.tzinfo is None:
+                    d2 = d2.replace(tzinfo=timezone.utc)
+                dif = (d2 - d1).total_seconds() / 60
+                linhas.append(f"    → {primeiro[0]} chegou {dif:.0f} min antes "
+                              f"de {segundo[0]}")
+            except Exception:
+                pass
+        elif len(validos) == 1:
+            linhas.append(f"    → só {validos[0][0]} publicou até agora")
+
+    linhas += ["", "COMO USAR ESTA TELA", "─" * 62,
+               "  Se a API da liga empatar ou ganhar do PDF em dois ou três",
+               "  jogos seguidos, o mediahub deixa de ser necessário: cai o",
+               "  login que caduca, cai o navegador no meio do caminho, e a",
+               "  escalação passa a vir de uma chamada só, sem sessão."]
+    return PlainTextResponse("\n".join(linhas))
 
 
 @app.get("/api/diag/escalacao-oficial", response_class=PlainTextResponse)
