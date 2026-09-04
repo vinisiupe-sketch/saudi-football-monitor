@@ -15033,6 +15033,20 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
                                if not j.get("nacionalidade")})
         if sem_bandeira:
             avisos.append(f"{nome_time}: sem nacionalidade cruzada — " + ", ".join(sem_bandeira))
+        # O OUTRO jeito de a bandeira sumir, que era silencioso: o jogador
+        # cruzou, tem nacionalidade, e mesmo assim não sai bandeira — porque
+        # aquela grafia de país não está na tabela do arbitragem.py. O aviso
+        # de cima não pega isso (a nacionalidade existe), e o post saía sem
+        # bandeira sem ninguém saber por quê. Aqui o conserto vira uma linha:
+        # o texto abaixo já diz exatamente qual grafia falta cadastrar.
+        import arbitragem as _arb
+        paises_sem_mapa = sorted({j.get("nacionalidade") for j in dados[lado]["titulares"]
+                                  if j.get("nacionalidade")
+                                  and not _arb.bandeira(j["nacionalidade"])})
+        if paises_sem_mapa:
+            avisos.append(f"{nome_time}: país sem bandeira cadastrada — "
+                          + ", ".join(f'"{p}"' for p in paises_sem_mapa)
+                          + " (falta em arbitragem.PAISES)")
         dados[lado]["texto"] = matchsheet.texto_titulares(nome_time, dados[lado]["titulares"])
 
     dados["avisos"] = avisos
@@ -16268,6 +16282,66 @@ async def diag_coletor(contas: str = "", quantas: int = 6):
     elif s.get("erro"):
         linhas.append("  O PRINCIPAL ESTÁ FORA DO AR. Confira se o serviço do")
         linhas.append("  RSSHub está de pé no Railway.")
+    return PlainTextResponse("\n".join(linhas))
+
+
+@app.get("/api/diag/escalacao", response_class=PlainTextResponse)
+async def diag_escalacao():
+    """Por que a escalação do PDF sai sem bandeira.
+
+    A bandeira depende de uma corrente de três elos, e QUALQUER um deles
+    quebra em silêncio:
+
+        1. o jogador do PDF casa com o elenco PELO NÚMERO DA CAMISA — se a
+           tabela não tem camisa, nada cruza;
+        2. o registro cruzado precisa ter nacionalidade;
+        3. aquela grafia de país precisa estar em arbitragem.PAISES — senão
+           a nacionalidade existe e a bandeira sai vazia mesmo assim.
+
+    Os três dão o mesmo resultado na tela (post sem bandeirinha), e era
+    preciso adivinhar qual. Aqui eles aparecem separados, por clube.
+    """
+    import arbitragem as _arb
+    from database import listar_jogadores
+    gente = listar_jogadores(limite=2000)
+    linhas = ["A CORRENTE DA BANDEIRA, POR CLUBE", "─" * 34,
+              f"  jogadores na tabela: {len(gente)}", "",
+              f"  {'clube':<16}{'total':>6}{'c/ camisa':>11}{'c/ país':>9}"
+              f"{'c/ bandeira':>13}"]
+    por_clube: dict = {}
+    for j in gente:
+        por_clube.setdefault(j.get("clube") or "(sem clube)", []).append(j)
+    sem_mapa: dict = {}
+    for clube in sorted(por_clube):
+        time = por_clube[clube]
+        com_camisa = sum(1 for j in time if str(j.get("camisa") or "").strip())
+        com_pais = sum(1 for j in time if (j.get("nacionalidade") or "").strip())
+        com_bandeira = 0
+        for j in time:
+            pais = (j.get("nacionalidade") or "").strip()
+            if not pais:
+                continue
+            if _arb.bandeira(pais):
+                com_bandeira += 1
+            else:
+                sem_mapa.setdefault(pais, []).append(f"{j.get('nome')} ({clube})")
+        marca = ""
+        if not com_camisa:
+            marca = "  ⚠️ sem camisa: NADA cruza deste clube"
+        elif com_bandeira < com_camisa:
+            marca = "  ⚠️"
+        linhas.append(f"  {clube[:15]:<16}{len(time):>6}{com_camisa:>11}"
+                      f"{com_pais:>9}{com_bandeira:>13}{marca}")
+
+    linhas += ["", "PAÍSES QUE A TABELA TEM E O APP NÃO SABE DESENHAR", "─" * 34]
+    if not sem_mapa:
+        linhas.append("  (nenhum — toda nacionalidade cadastrada vira bandeira)")
+    else:
+        linhas.append("  Copie a linha para arbitragem.PAISES e a bandeira volta:")
+        for pais in sorted(sem_mapa):
+            quem = ", ".join(sem_mapa[pais][:4])
+            linhas.append(f'    "{pais.lower()}": "??",   → {len(sem_mapa[pais])} '
+                          f"jogador(es): {quem}")
     return PlainTextResponse("\n".join(linhas))
 
 
