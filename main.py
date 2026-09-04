@@ -14826,6 +14826,13 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 .esc-status.err {{ color: var(--c-error, #FD5D5D); }}
 
 .esc-jogo {{ font-size: .78rem; color: var(--c-muted-3); margin: 18px 0 8px; }}
+.esc-titulo {{ font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem;
+  letter-spacing: .04em; margin: 30px 0 4px; }}
+.esc-card {{ border-top: 1px solid var(--c-border); padding-top: 6px;
+  margin-top: 14px; }}
+.esc-quando {{ float: right; font-variant-numeric: tabular-nums; }}
+.esc-vazio {{ margin-top: 26px; font-size: .8rem; line-height: 1.7;
+  color: var(--c-muted-3); }}
 
 .esc-time {{
   border: 1px solid var(--c-border); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
@@ -14863,6 +14870,7 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
   <div class="esc-status" id="escStatus"></div>
 
   <div id="escResultado"></div>
+  <div id="recentes"></div>
 </div>
 
 <script>
@@ -14927,6 +14935,62 @@ function render(d) {{
   }}
   resultado.innerHTML = html;
 }}
+
+// ── O que a rotina já leu ───────────────────────────────────────────────
+// Quase sempre quem sobe o PDF NAO e voce nesta tela: e a rotina, 1h30 antes
+// do jogo. Sem esta lista o trabalho dela nao aparecia em lugar nenhum do
+// app, e a guia abria vazia como se nada tivesse acontecido.
+function hhmm(iso) {{
+  try {{
+    return new Date(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z')
+      .toLocaleString('pt-BR', {{timeZone: 'America/Sao_Paulo', day: '2-digit',
+                                month: '2-digit', hour: '2-digit', minute: '2-digit'}});
+  }} catch (e) {{ return ''; }}
+}}
+
+function esc(s) {{
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}}
+
+async function carregarRecentes() {{
+  const alvo = document.getElementById('recentes');
+  if (!alvo) return;
+  let d;
+  try {{
+    const r = await fetch('/api/escalacao-pdf/recentes?horas=72');
+    d = await r.json();
+  }} catch (e) {{ return; }}
+  const lista = (d && d.escalacoes) || [];
+  if (!lista.length) {{
+    alvo.innerHTML = '<div class="esc-vazio">Nada lido nas últimas 72 horas. '
+      + 'A rotina busca o matchsheet sozinha a partir de 1h30 antes de cada '
+      + 'jogo — o que ela achar aparece aqui.</div>';
+    return;
+  }}
+  let html = '<h2 class="esc-titulo">Já lidas</h2>';
+  lista.forEach(function (e, i) {{
+    html += '<div class="esc-card"><div class="esc-jogo">' + esc(e.jogo)
+      + ' <span class="esc-quando">' + hhmm(e.visto_em || '') + '</span></div>';
+    ['casa', 'fora'].forEach(function (lado) {{
+      const t = e[lado] || {{}};
+      if (!t.texto) return;
+      const id = 'rec_' + i + '_' + lado;
+      html += '<div class="esc-time"><h3>' + esc(t.time) + '</h3>'
+        + '<div class="tecnico">Técnico: ' + esc(t.tecnico || '—') + '</div>'
+        + '<textarea class="esc-texto" id="' + id + '">' + esc(t.texto) + '</textarea>'
+        + '<button class="esc-copy" onclick="copyText(this, '
+        + "document.getElementById('" + id + "').value)\">📋 Copiar</button></div>";
+    }});
+    if (e.avisos && e.avisos.length) {{
+      html += '<div class="esc-aviso">' + e.avisos.map(esc).join('<br>') + '</div>';
+    }}
+    html += '</div>';
+  }});
+  alvo.innerHTML = html;
+}}
+
+carregarRecentes();
 </script>
 </body>
 </html>"""
@@ -15050,7 +15114,51 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
         dados[lado]["texto"] = matchsheet.texto_titulares(nome_time, dados[lado]["titulares"])
 
     dados["avisos"] = avisos
+
+    # GUARDA o que foi lido. Sem isto, a escalação existia só na tela de quem
+    # subiu o PDF — e quando quem sobe é a rotina automática, ninguém subiu
+    # tela nenhuma: o texto ia pro chat e a guia continuava vazia, como se
+    # nada tivesse acontecido. Reaproveito a tabela `escalacao_vista`, que já
+    # guarda "esta fonte publicou esta escalação", com a fonte do matchsheet.
+    try:
+        chave = "|".join([dados.get("data") or "", dados["casa"]["time"],
+                          dados["fora"]["time"]])
+        registrar_escalacao(
+            "matchsheet_pdf", chave,
+            jogo=f'{dados["casa"]["time"]} x {dados["fora"]["time"]}',
+            conteudo=json.dumps({
+                "rodada": dados.get("rodada"), "estadio": dados.get("estadio"),
+                "data": dados.get("data"), "hora": dados.get("hora"),
+                "casa": {k: dados["casa"].get(k) for k in ("time", "tecnico", "texto")},
+                "fora": {k: dados["fora"].get(k) for k in ("time", "tecnico", "texto")},
+                "avisos": avisos}, ensure_ascii=False))
+    except Exception:
+        # Guardar é um bônus; a resposta com a escalação é o serviço. Se o
+        # banco falhar aqui, quem subiu o PDF continua recebendo o texto.
+        pass
     return _com_cors_mediahub(JSONResponse(dados))
+
+
+@app.get("/api/escalacao-pdf/recentes")
+async def api_escalacao_pdf_recentes(horas: int = 72):
+    """As escalações já lidas, para a guia não abrir vazia.
+
+    Quem lê o PDF quase nunca é você na tela — é a rotina, 1h30 antes do
+    jogo. Sem esta lista, o trabalho dela não aparecia em lugar nenhum do
+    app.
+    """
+    saida = []
+    for e in escalacoes_vistas(max(1, min(int(horas or 72), 240))):
+        if e.get("fonte") != "matchsheet_pdf":
+            continue
+        try:
+            corpo = json.loads(e.get("conteudo") or "{}")
+        except Exception:
+            corpo = {}
+        corpo["visto_em"] = e.get("visto_em")
+        corpo["jogo"] = e.get("jogo") or ""
+        saida.append(corpo)
+    return {"escalacoes": saida}
 
 
 @app.get("/api/convites")
@@ -16134,6 +16242,87 @@ async def diag_jogos_de_hoje():
             "rodada": j.get("roundName") or "",
         })
     return {"data_arabia": hoje_arabia, "jogos": jogos}
+
+
+@app.get("/api/diag/escalacao-oficial", response_class=PlainTextResponse)
+async def diag_escalacao_oficial():
+    """A escalação oficial da API da liga já saiu? E quanto antes do jogo?
+
+    POR QUE ISTO EXISTE
+        Hoje a escalação vem do matchsheet em PDF do mediahub, e isso custa
+        caro: exige sessão de navegador logada, que caduca sozinha, e uma
+        volta por duas abas para driblar o CSP daquele site. Só que a API da
+        própria liga TEM endpoint de escalação (`lineups`), que o app já usa
+        na prévia — e ele não pede login nenhum.
+
+        A pergunta que decide se dá para largar o PDF não é "existe?", é
+        "enche A TEMPO?". A liga publica o matchsheet ~1h30 antes; se o
+        `lineups` só encher aos 40 minutos, ele não substitui nada.
+
+        Isso não se responde por leitura de código nem por busca na web: tem
+        que ser medido no dia do jogo, na hora certa. Esta rota é o
+        instrumento — abra-a a partir de 1h30 antes de um jogo e ela diz,
+        por partida, se a escalação já está lá e quantos jogadores tem.
+    """
+    import httpx
+    import liga_spl
+
+    agora = datetime.now(timezone.utc)
+    hoje_arabia = (agora + timedelta(hours=3)).strftime("%Y-%m-%d")
+    linhas = [f"ESCALAÇÃO OFICIAL NA API DA LIGA — {hoje_arabia} (Arábia)",
+              "─" * 46]
+    try:
+        with httpx.Client(timeout=25.0, follow_redirects=True) as cli:
+            sid = liga_spl.temporada(hoje_arabia, cli)
+            if not sid:
+                return PlainTextResponse("\n".join(
+                    linhas + ["  temporada não encontrada"]))
+            todos = liga_spl.jogos_da_temporada(sid, cli)
+            hoje = [j for j in todos
+                    if (j.get("matchDateLocal") or "")[:10] == hoje_arabia]
+            if not hoje:
+                return PlainTextResponse("\n".join(
+                    linhas + ["  sem jogo hoje — rode num dia de partida, "
+                              "a partir de 1h30 antes do pontapé"]))
+            for j in hoje:
+                casa = (j.get("home") or {}).get("shortName") or "?"
+                fora = (j.get("away") or {}).get("shortName") or "?"
+                utc = _pontape_utc_de_local(j.get("matchDateLocal") or "")
+                falta = ""
+                try:
+                    pontape = datetime.strptime(utc, "%Y-%m-%dT%H:%M:%SZ").replace(
+                        tzinfo=timezone.utc)
+                    minutos = (pontape - agora).total_seconds() / 60
+                    falta = (f"faltam {minutos:.0f} min" if minutos >= 0
+                             else f"começou há {-minutos:.0f} min")
+                except Exception:
+                    pass
+                linhas.append("")
+                linhas.append(f"  {casa} x {fora}  ({falta})")
+                try:
+                    escala = liga_spl.escala_do_jogo(sid, j.get("matchId"), cli)
+                except Exception as e:
+                    linhas.append(f"    erro ao perguntar: {type(e).__name__}: {e}")
+                    continue
+                for lado, rotulo in (("home", "casa"), ("away", "fora")):
+                    fielded = ((escala.get(lado) or {}).get("fielded") or [])
+                    banco = ((escala.get(lado) or {}).get("substitutes") or [])
+                    linhas.append(f"    {rotulo:<5} titulares: {len(fielded):>2}"
+                                  f"   banco: {len(banco):>2}")
+                if liga_spl.tem_escalacao(escala):
+                    linhas.append("    ✓ JÁ SAIU — a API da liga bastaria para "
+                                  "este jogo, sem mediahub")
+                else:
+                    linhas.append("    … ainda vazia (a liga responde, mas sem "
+                                  "gente dentro)")
+    except Exception as e:
+        linhas.append(f"  erro: {type(e).__name__}: {e}")
+    linhas += ["", "COMO LER", "─" * 46,
+               "  Se aparecer '✓ JÁ SAIU' com ~1h30 faltando, dá para trocar o",
+               "  PDF do mediahub por esta fonte e acabar com o login que",
+               "  caduca. Se só encher perto do pontapé, o PDF continua sendo",
+               "  o que chega antes — e a rotina do mediahub se justifica."]
+    return PlainTextResponse("\n".join(linhas))
 
 
 def _pontape_utc_de_local(local: str) -> str:
