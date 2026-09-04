@@ -15022,11 +15022,17 @@ async function carregarRecentes() {{
       const t = e[lado] || {{}};
       if (!t.texto) return;
       const id = 'rec_' + i + '_' + lado;
+      // Sem onclick embutido no HTML DE PROPÓSITO. A primeira versão montava
+      // onclick="copyText(this, document.getElementById('...').value)" dentro
+      // de uma string, e a aspa que fecha o atributo precisava vir escapada —
+      // só que este HTML mora dentro de uma string do Python, o Python comeu
+      // a barra, a aspa fechou cedo e o <script> INTEIRO virou erro de
+      // sintaxe. A página parou de responder (nem o upload funcionava) sem
+      // nada aparecer na tela. O handler agora é ligado por JS, embaixo.
       html += '<div class="esc-time"><h3>' + esc(t.time) + '</h3>'
         + '<div class="tecnico">Técnico: ' + esc(t.tecnico || '—') + '</div>'
         + '<textarea class="esc-texto" id="' + id + '">' + esc(t.texto) + '</textarea>'
-        + '<button class="esc-copy" onclick="copyText(this, '
-        + "document.getElementById('" + id + "').value)\">📋 Copiar</button></div>";
+        + '<button class="esc-copy" data-alvo="' + id + '">📋 Copiar</button></div>';
     }});
     if (e.avisos && e.avisos.length) {{
       html += '<div class="esc-aviso">' + e.avisos.map(esc).join('<br>') + '</div>';
@@ -15034,6 +15040,12 @@ async function carregarRecentes() {{
     html += '</div>';
   }});
   alvo.innerHTML = html;
+  alvo.querySelectorAll('.esc-copy').forEach(function (b) {{
+    b.onclick = function () {{
+      const campo = document.getElementById(b.dataset.alvo);
+      if (campo) copyText(b, campo.value);
+    }};
+  }});
 }}
 
 carregarRecentes();
