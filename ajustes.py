@@ -140,6 +140,52 @@ AJUSTES = [
                  "YouTube o que está no ar no canal do parceiro.",
     },
 
+    # ── Clipe automático (pelo alerta de gol) ──────────────────────────────
+    # O gol é detectado pelo alerta da API-Football, o mesmo que já preenche a
+    # legenda. Ele chega DEPOIS do lance — por isso a janela aqui é mais larga
+    # que a do botão: melhor sobrar vídeo, que a fita de corte resolve, do que
+    # faltar o lance, que não tem conserto.
+    {
+        "chave": "clipe_auto_ligado",
+        "grupo": "Clipe automático (pelo alerta de gol)",
+        "rotulo": "Pedir clipe sozinho quando sair gol",
+        "tipo": "escolha",
+        "opcoes": ["ligado", "desligado"],
+        "padrao": "ligado",
+        "ajuda": "Só vale para jogo que está sendo gravado E que a API "
+                 "reconheceu. O botão GOL AGORA continua igual, e o clipe "
+                 "automático aparece marcado com ⚡ na lista.",
+    },
+    {
+        "chave": "clipe_auto_atraso_alerta_seg",
+        "grupo": "Clipe automático (pelo alerta de gol)",
+        "rotulo": "Atraso do alerta de gol",
+        "unidade": "s",
+        "tipo": "int", "min": 0, "max": 180, "padrao": 45,
+        "ajuda": "Quanto tempo passa entre a bola entrar e o alerta chegar "
+                 "aqui. O coletor passa de 45 em 45 segundos e o provedor "
+                 "leva o dele. Se os clipes automáticos estiverem pegando o "
+                 "lance tarde demais, aumente.",
+    },
+    {
+        "chave": "clipe_auto_antes_seg",
+        "grupo": "Clipe automático (pelo alerta de gol)",
+        "rotulo": "Segundos antes (automático)",
+        "unidade": "s",
+        "tipo": "int", "min": 3, "max": 90, "padrao": 20,
+        "ajuda": "Maior que a do botão de propósito: o instante do gol aqui é "
+                 "estimado, não apontado por você.",
+    },
+    {
+        "chave": "clipe_auto_depois_seg",
+        "grupo": "Clipe automático (pelo alerta de gol)",
+        "rotulo": "Segundos depois (automático)",
+        "unidade": "s",
+        "tipo": "int", "min": 1, "max": 90, "padrao": 20,
+        "ajuda": "Idem: sobra de vídeo se resolve na fita de corte; falta de "
+                 "vídeo, não.",
+    },
+
     # ── Clipe automático (lê o placar do vídeo) ─────────────────────────────
     # Em teste desde 01/09/26: a máquina que grava lê o gráfico do placar
     # direto do vídeo, sem depender de nenhuma API, e pede um clipe sozinha
@@ -151,9 +197,13 @@ AJUSTES = [
         "rotulo": "Detectar gol pelo placar do vídeo",
         "tipo": "escolha",
         "opcoes": ["ligado", "desligado"],
-        "padrao": "ligado",
-        "ajuda": "Enquanto estiver em teste, dá para desligar aqui sem mexer "
-                 "em código — o botão GOL AGORA não é afetado de nenhum jeito.",
+        "padrao": "desligado",
+        "ajuda": "DESLIGADO desde 03/09/26. A leitura olhava uma posição fixa "
+                 "da tela, e a transmissão move o placar: quando entra o "
+                 "letreiro em L da casa de apostas, a imagem encolhe e o "
+                 "placar sai de baixo do recorte — o que estava sendo lido "
+                 "virava grama, e cada troca de câmera parecia um gol. Quem "
+                 "detecta gol agora é o alerta da API-Football.",
     },
     {
         "chave": "gravador_atraso_placar_seg",

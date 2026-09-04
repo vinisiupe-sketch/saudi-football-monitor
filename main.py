@@ -6337,6 +6337,12 @@ async def coletar_gols_ao_vivo() -> dict:
                                  assistente=assist or None, placar=f"{gc}-{gf}",
                                  texto="\n".join(linhas), fixture_af=fid):
                     novos.append(("api_football", chave))
+                    # Gol NOVO e o jogo está sendo gravado: pede o clipe. É
+                    # aqui, e não numa rotina à parte, porque o registrar_gol
+                    # só devolve True uma vez por gol — a dedução de "é novo"
+                    # já está feita, e duplicar essa conta em outro lugar era
+                    # criar uma segunda verdade sobre o que já foi visto.
+                    _clipe_automatico_do_gol(nc, nf)
 
     diag["novos"] = len(novos)
     _ULTIMA_COLETA.update(diag)
@@ -6930,10 +6936,77 @@ async def api_clipe_pedir(request: Request):
 
 
 # Dois pedidos automáticos do MESMO jogo dentro desta janela são o mesmo gol
-# visto por duas máquinas, e não dois gols. Trinta segundos: o intervalo entre
-# duas leituras do placar é de 2,5s, e o gol seguinte mais rápido que já se
-# viu num jogo de verdade está muito longe disso.
+# visto duas vezes, e não dois gols. Trinta segundos: o gol seguinte mais
+# rápido que já se viu num jogo de verdade está muito longe disso.
 JANELA_GOL_REPETIDO_SEG = 30
+
+
+def _ja_tem_clipe_automatico(live_id: str, alvo) -> int:
+    """O id de um clipe automático já pedido para este mesmo instante, ou 0."""
+    for c in clipes_recentes(2):
+        if not c.get("automatico") or c.get("live_id") != live_id:
+            continue
+        try:
+            outro = datetime.fromisoformat(c["alvo_em"])
+        except Exception:
+            continue
+        if outro.tzinfo is None:
+            outro = outro.replace(tzinfo=timezone.utc)
+        if abs((outro - alvo).total_seconds()) <= JANELA_GOL_REPETIDO_SEG:
+            return int(c["id"])
+    return 0
+
+
+def _live_do_jogo(nome_casa: str, nome_fora: str) -> str:
+    """Qual transmissão em gravação é este jogo. Vazio quando nenhuma.
+
+    Casa os dois clubes pelo glossário, e não pelo texto cru: a API-Football
+    escreve "Al-Qadisiyah FC" onde o título da live diz "AL QADSIAH". Exigir
+    os DOIS clubes é o que impede clipar a partida errada num dia de quatro
+    jogos — e clipe da partida errada é pior que clipe nenhum, porque tem
+    cara de certo.
+    """
+    for l in listar_lives():
+        if liga_spl.mesmo_jogo(l.get("titulo") or "", nome_casa, nome_fora):
+            return l.get("id") or ""
+    return ""
+
+
+def _clipe_automatico_do_gol(nome_casa: str, nome_fora: str) -> int:
+    """Pede o clipe do gol que a API-Football acabou de contar.
+
+    POR QUE VOLTOU A SER A API, e não o placar do vídeo
+        A leitura do placar na imagem foi desligada em 03/09/26. Ela olhava
+        uma POSIÇÃO FIXA da tela, e a transmissão move o placar: quando entra
+        o letreiro em L da casa de apostas, a imagem inteira encolhe e o
+        recorte passa a cair na grama. Cada troca de câmera virava "o placar
+        mudou", e saíam clipes de nada. Posição fixa é uma suposição sobre
+        uma tela que muda o tempo todo.
+
+    O PREÇO DESTA, E COMO ELE É PAGO
+        O alerta da API chega depois do gol — o coletor passa de 45 em 45
+        segundos, e o provedor ainda leva o dele. Não dá para saber o
+        instante exato, então a janela do clipe automático é LARGA de
+        propósito (20s para cada lado, contra 12/10 do botão): é melhor
+        cortar um pedaço a mais e o Vini apertar a fita do que perder o lance.
+    """
+    if ajuste("clipe_auto_ligado") != "ligado":
+        return 0
+    live_id = _live_do_jogo(nome_casa, nome_fora)
+    if not live_id:
+        return 0
+    # O instante NA GRAVAÇÃO: recuo o atraso do alerta (o gol é mais velho que
+    # a notícia dele) e avanço o atraso da transmissão, que é o mesmo desconto
+    # que o botão manual já faz.
+    atraso_alerta = int(ajuste("clipe_auto_atraso_alerta_seg"))
+    alvo = datetime.now(timezone.utc) + timedelta(
+        seconds=_atraso_transmissao() - atraso_alerta)
+    ja = _ja_tem_clipe_automatico(live_id, alvo)
+    if ja:
+        return ja
+    return criar_pedido_clipe(alvo, int(ajuste("clipe_auto_antes_seg")),
+                              int(ajuste("clipe_auto_depois_seg")),
+                              live_id, "gol", automatico=True)
 
 
 @app.post("/api/clipe/gol-automatico")
@@ -6973,18 +7046,10 @@ async def api_clipe_gol_automatico(request: Request):
     # e o corte é a parte cara. A janela é generosa de propósito: o que
     # separa os dois pedidos é o tempo de rede entre duas máquinas, não a
     # distância entre dois gols de verdade.
-    for c in clipes_recentes(2):
-        if not c.get("automatico") or c.get("live_id") != live_id:
-            continue
-        try:
-            outro = datetime.fromisoformat(c["alvo_em"])
-        except Exception:
-            continue
-        if outro.tzinfo is None:
-            outro = outro.replace(tzinfo=timezone.utc)
-        if abs((outro - alvo).total_seconds()) <= JANELA_GOL_REPETIDO_SEG:
-            return {"id": c["id"], "alvo_em": c["alvo_em"], "live_id": live_id,
-                    "ja_pedido": True}
+    ja = _ja_tem_clipe_automatico(live_id, alvo)
+    if ja:
+        return {"id": ja, "alvo_em": alvo.isoformat(), "live_id": live_id,
+                "ja_pedido": True}
 
     cid = criar_pedido_clipe(alvo, int(ajuste("clipe_antes_seg")),
                              int(ajuste("clipe_depois_seg")), live_id, "gol",
@@ -7812,10 +7877,14 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .tam{margin-left:auto;font-size:.66rem;color:var(--c-muted-3)}
 .clipe video{width:100%;display:block;background:#000;max-height:56vh}
 .clipe-corpo{padding:14px}
-.clipe textarea{width:100%;min-height:126px;padding:12px 14px;box-sizing:border-box;
+/* A caixa cresce com o texto, e por isso overflow:hidden — a legenda inteira
+   fica à vista de uma vez. Barra de rolagem DENTRO de uma caixa de texto num
+   celular é a pior combinação possível: você rola a legenda achando que está
+   rolando a página, ou o contrário, e no meio do jogo isso custa o post. */
+.clipe textarea{width:100%;min-height:170px;padding:12px 14px;box-sizing:border-box;
   border:1px solid var(--c-border-2);border-radius:10px;background:var(--c-bg-soft);
   color:var(--c-text);font-family:inherit;font-size:.9rem;line-height:1.6;
-  resize:vertical}
+  resize:vertical;overflow:hidden}
 .clipe textarea:focus{outline:none;border-color:#B6FF00}
 .fita-caixa{margin-top:12px}
 .fita{position:relative;height:34px;border-radius:8px;background:var(--c-bg-soft);
@@ -8015,11 +8084,27 @@ var _verTodas = false;
 var _escondidas = 0;
 
 function escolherJogo(id) {
-  _jogoEscolhido = (_jogoEscolhido === id) ? '' : id;
+  // Clicar no jogo já escolhido NÃO volta para "todos". Antes voltava, e
+  // essa era a única porta para os clipes de duas partidas aparecerem
+  // misturados na mesma lista — que é justamente o que não pode acontecer
+  // com quatro jogos ao mesmo tempo e o dedo com pressa.
+  _jogoEscolhido = id;
   document.querySelectorAll('.jogo').forEach(function (el) {
     el.classList.toggle('escolhido', el.id === 'jogo-' + _jogoEscolhido);
   });
   pintarClipes(_ultimosClipes);
+}
+
+function garantirJogoEscolhido(lives) {
+  // A guia abre já dentro de um jogo, e não numa lista misturada. Se o jogo
+  // que estava aberto saiu do ar, caio no primeiro que sobrou em vez de
+  // mostrar tudo junto.
+  const ids = (lives || []).map(function (l) { return l.id; });
+  if (!ids.length) { _jogoEscolhido = ''; return; }
+  if (ids.indexOf(_jogoEscolhido) === -1) _jogoEscolhido = ids[0];
+  document.querySelectorAll('.jogo').forEach(function (el) {
+    el.classList.toggle('escolhido', el.id === 'jogo-' + _jogoEscolhido);
+  });
 }
 
 // O cartão de placar. Duas linhas — escudo, sigla e gol — com uma faixa da
@@ -8220,6 +8305,7 @@ async function carregar() {
   }
 
   pintarJogos(lives, grav);
+  garantirJogoEscolhido(lives);
   pintarDisponiveis(d.disponiveis || [], lives, d.max || 4, g.online);
   pintarClipes(d.clipes || []);
 }
@@ -8424,12 +8510,22 @@ function montar(c, assin) {
     : 'Sem alerta de gol ainda — escreva ou espere alguns segundos.';
   const conta = document.createElement('div');
   conta.className = 'conta-letras';
+  function encaixar() {
+    // Cresce até caber tudo. O 'auto' antes não é enfeite: sem zerar, a
+    // altura só sobe e a caixa nunca encolhe quando você apaga texto.
+    t.style.height = 'auto';
+    t.style.height = Math.max(t.scrollHeight, 170) + 'px';
+  }
   function atualizaConta() {
     const n = pesoX(t.value);
     conta.textContent = n + ' / 280';
     conta.classList.toggle('demais', n > 280);
+    encaixar();
   }
   t.oninput = atualizaConta;
+  // A legenda do alerta de gol chega DEPOIS, por atualização da lista. Sem
+  // reencaixar na chegada, o texto automático nasce com barra de rolagem.
+  setTimeout(encaixar, 0);
   t.onfocus = function () { _editando = c.id; };
   t.onblur = function () {
     _editando = null;

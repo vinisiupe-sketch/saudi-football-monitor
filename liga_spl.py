@@ -166,6 +166,29 @@ def clubes_do_titulo(titulo: str) -> tuple[str, str]:
     return (a, b) if a and b else ("", "")
 
 
+def mesmo_jogo(titulo: str, casa: str, fora: str) -> bool:
+    """O título desta transmissão é o jogo entre estes dois clubes?
+
+    Existe para o clipe automático: o alerta de gol chega com os nomes da
+    API-Football ('Al-Qadisiyah FC') e a live tem o título escrito à mão
+    ('AL QADSIAH'). Reaproveita o `confronto`, que é onde essa pergunta já
+    era respondida — responder de outro jeito aqui seria ter duas respostas
+    para a mesma coisa, e um dia elas discordariam.
+
+    Exige os DOIS clubes: num dia de quatro jogos, casar por um só clipa a
+    partida errada, e clipe da partida errada tem cara de certo.
+    """
+    a, b = clubes_do_titulo(titulo)
+    if not a or not b or not casa or not fora:
+        return False
+    alvo = confronto(casa, fora)
+    # Dois nomes que viram o mesmo clube não formam um jogo — sem isto, um
+    # confronto degenerado casaria com qualquer outro igualmente degenerado.
+    if len(alvo) != 2:
+        return False
+    return confronto(a, b) == alvo
+
+
 def achar_jogo(titulo: str, jogos: list[dict]) -> dict:
     """O jogo da liga que corresponde a esta transmissão, ou {}.
 

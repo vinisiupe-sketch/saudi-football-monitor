@@ -153,9 +153,12 @@ def testar():
     # pé), as duas veem a mesma mudança de placar e as duas pedem clipe. Sem
     # guarda, um gol vira dois clipes iguais na fila — e o corte é a parte
     # cara.
-    ok("JANELA_GOL_REPETIDO_SEG" in rota,
-       "sumiu a guarda contra dois gravadores pedirem o mesmo gol")
-    ok('c.get("automatico")' in rota and 'c.get("live_id") != live_id' in rota,
+    ok("_ja_tem_clipe_automatico(live_id, alvo)" in rota,
+       "sumiu a guarda contra o mesmo gol ser pedido duas vezes")
+    guarda = _corpo("_ja_tem_clipe_automatico")
+    ok("JANELA_GOL_REPETIDO_SEG" in guarda,
+       "a guarda perdeu a janela de tempo")
+    ok('c.get("automatico")' in guarda and 'c.get("live_id") != live_id' in guarda,
        "a guarda parou de comparar por jogo e por origem automática — ela "
        "não pode engolir um pedido do botão manual")
     ok('"ja_pedido": True' in rota,
