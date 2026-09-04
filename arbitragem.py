@@ -115,6 +115,38 @@ PAISES = {
     "ivory coast": "CI", "côte d'ivoire": "CI", "cote d'ivoire": "CI",
     "cameroon": "CM", "armenia": "AM", "belgium": "BE", "switzerland": "CH",
     "ghana": "GH", "guinea": "GN", "georgia": "GE", "montenegro": "ME",
+    # Faltavam, e apareceram no elenco de verdade (03/09/26):
+    "cabo verde": "CV", "cape verde": "CV", "ecuador": "EC",
+    "new caledonia": "NC", "niger": "NE", "slovakia": "SK", "venezuela": "VE",
+
+    # ── OS MESMOS PAÍSES, EM ÁRABE ────────────────────────────────────────
+    # Isto é o conserto de um defeito que ficou dias em pé sem ninguém ver o
+    # motivo: a escalação saía sem bandeirinha nenhuma. A tabela `jogador`
+    # vem da API da própria liga, e ela escreve a nacionalidade EM ÁRABE —
+    # "السعودية" para 255 dos 573 jogadores. Aqui só havia grafia latina,
+    # então `bandeira()` devolvia "" para quase todo mundo e o post saía
+    # limpo, sem erro em lugar nenhum.
+    #
+    # As latinas continuam: parte da tabela tem país em latim (veio de outra
+    # fonte), e as duas grafias convivem no mesmo elenco.
+    "السعودية": "SA", "الأردن": "JO", "مصر": "EG", "المغرب": "MA",
+    "الجزائر": "DZ", "تونس": "TN",
+    "البرازيل": "BR", "أوروغواي": "UY", "كولومبيا": "CO", "المكسيك": "MX",
+    "الإكوادور": "EC", "فنزويلا": "VE", "بنما": "PA", "كندا": "CA",
+    "سورينام": "SR", "كوراساو": "CW", "غيانا الفرنسية": "GF",
+    "إسبانيا": "ES", "البرتغال": "PT", "فرنسا": "FR", "إيطاليا": "IT",
+    "ألمانيا": "DE", "هولندا": "NL", "بلجيكا": "BE", "إنجلترا": "GB",
+    "إسكتلندا": "GB", "السويد": "SE", "النرويج": "NO", "الدنمارك": "DK",
+    "بولندا": "PL", "رومانيا": "RO", "بلغاريا": "BG", "صربيا": "RS",
+    "كرواتيا": "HR", "البوسنة والهرسك": "BA", "ألبانيا": "AL",
+    "كوسوفو": "XK", "سلوفاكيا": "SK", "ليتوانيا": "LT", "لوكسمبورغ": "LU",
+    "اليونان": "GR", "تركيا": "TR", "أرمينيا": "AM", "الجبل الأسود": "ME",
+    "السنغال": "SN", "غانا": "GH", "غينيا": "GN", "غينيا بيساو": "GW",
+    "غينيا الاستوائية": "GQ", "غامبيا": "GM", "مالي": "ML",
+    "ساحل العاج": "CI", "الكاميرون": "CM", "الغابون": "GA", "توغو": "TG",
+    "الكونغو": "CG", "الكونغو الديمقراطية": "CD", "رواندا": "RW",
+    "زامبيا": "ZM", "ليبيريا": "LR", "نيجيريا": "NG", "جزر القمر": "KM",
+    "الرأس الأخضر": "CV", "النيجر": "NE", "كاليدونيا الجديدة": "NC",
 }
 
 
