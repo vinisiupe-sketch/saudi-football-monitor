@@ -6986,6 +6986,11 @@ async def api_clipe_pedir(request: Request):
 # rápido que já se viu num jogo de verdade está muito longe disso.
 JANELA_GOL_REPETIDO_SEG = 30
 
+# As últimas decisões do clipe automático, para /api/diag/clipe-auto. Vive na
+# memória do processo de propósito: é diagnóstico de agora, não histórico —
+# e um deploy reinicia o app de qualquer jeito.
+_DIAG_CLIPE_AUTO: list = []
+
 
 def _ja_tem_clipe_automatico(live_id: str, alvo) -> int:
     """O id de um clipe automático já pedido para este mesmo instante, ou 0."""
@@ -7036,11 +7041,31 @@ def _clipe_automatico_do_gol(nome_casa: str, nome_fora: str) -> int:
         propósito (20s para cada lado, contra 12/10 do botão): é melhor
         cortar um pedaço a mais e o Vini apertar a fita do que perder o lance.
     """
+    def anotar(motivo: str, live_id: str = "", clipe: int = 0) -> int:
+        """Guarda POR QUE este gol virou (ou não) clipe.
+
+        Sem isto, o não-acontecido é invisível: o gol entra, nenhum clipe
+        nasce, e não há erro em lugar nenhum para explicar qual dos três
+        degraus falhou — o interruptor, o casamento com a transmissão que
+        está gravando, ou o registro do pedido. Foi exatamente essa dúvida
+        que sobrou depois da primeira rodada com a detecção pela API
+        (04/09/26), e a resposta não estava em lugar nenhum.
+        """
+        _DIAG_CLIPE_AUTO.append({
+            "quando": datetime.now(timezone.utc).isoformat(),
+            "jogo": f"{nome_casa} x {nome_fora}",
+            "motivo": motivo, "live_id": live_id, "clipe": clipe})
+        del _DIAG_CLIPE_AUTO[:-20]
+        return clipe
+
     if ajuste("clipe_auto_ligado") != "ligado":
-        return 0
+        return anotar("desligado na guia Configurações (clipe_auto_ligado)")
     live_id = _live_do_jogo(nome_casa, nome_fora)
     if not live_id:
-        return 0
+        titulos = [ (l.get("titulo") or l.get("id") or "?")[:40]
+                    for l in listar_lives() ]
+        return anotar("nenhuma transmissão GRAVANDO casa com este jogo. "
+                      f"Gravando agora: {titulos or 'nada'}")
     # O instante NA GRAVAÇÃO: recuo o atraso do alerta (o gol é mais velho que
     # a notícia dele) e avanço o atraso da transmissão, que é o mesmo desconto
     # que o botão manual já faz.
@@ -7049,10 +7074,12 @@ def _clipe_automatico_do_gol(nome_casa: str, nome_fora: str) -> int:
         seconds=_atraso_transmissao() - atraso_alerta)
     ja = _ja_tem_clipe_automatico(live_id, alvo)
     if ja:
-        return ja
-    return criar_pedido_clipe(alvo, int(ajuste("clipe_auto_antes_seg")),
-                              int(ajuste("clipe_auto_depois_seg")),
-                              live_id, "gol", automatico=True)
+        return anotar("mesmo gol já tinha virado clipe", live_id, ja)
+    cid = criar_pedido_clipe(alvo, int(ajuste("clipe_auto_antes_seg")),
+                             int(ajuste("clipe_auto_depois_seg")),
+                             live_id, "gol", automatico=True)
+    return anotar("clipe pedido" if cid else "criar_pedido_clipe falhou "
+                  "(banco?)", live_id, cid)
 
 
 @app.post("/api/clipe/gol-automatico")
@@ -16300,6 +16327,68 @@ async def diag_jogos_de_hoje():
             "rodada": j.get("roundName") or "",
         })
     return {"data_arabia": hoje_arabia, "jogos": jogos}
+
+
+@app.get("/api/diag/clipe-auto", response_class=PlainTextResponse)
+async def diag_clipe_auto():
+    """Por que o gol NÃO virou clipe. A corrente inteira, em uma tela.
+
+    São quatro degraus, e três deles falham em silêncio:
+      1. o coletor precisa VER o gol (API-Football, de 45 em 45 segundos);
+      2. o interruptor precisa estar ligado;
+      3. a partida precisa estar sendo GRAVADA — e o casamento é por nome de
+         clube, que cada fonte escreve do seu jeito;
+      4. o pedido precisa entrar no banco.
+
+    Nenhum deles dá erro na tela quando falha: simplesmente não nasce clipe.
+    Esta rota mostra os quatro.
+    """
+    linhas = ["CLIPE AUTOMÁTICO PELO ALERTA DE GOL", "─" * 40]
+
+    linhas += ["", "1. OS INTERRUPTORES", "─" * 40]
+    for chave in ("clipe_auto_ligado", "clipe_auto_atraso_alerta_seg",
+                  "clipe_auto_antes_seg", "clipe_auto_depois_seg",
+                  "clipe_atraso_transmissao"):
+        linhas.append(f"  {chave:<30} {ajuste(chave)}")
+    linhas.append(f"  {'gravador_placar_ativo':<30} "
+                  f"{ajuste('gravador_placar_ativo')}   "
+                  "(a leitura de imagem, desligada de propósito — NÃO precisa "
+                  "estar ligada para o clipe pelo alerta funcionar)")
+
+    linhas += ["", "2. O QUE ESTÁ SENDO GRAVADO AGORA", "─" * 40]
+    lives = listar_lives()
+    if not lives:
+        linhas.append("  nada. Sem transmissão na lista, nenhum gol vira "
+                      "clipe — é o degrau 3 que falha.")
+    for l in lives:
+        linhas.append(f"  {(l.get('titulo') or '(sem título ainda)')[:60]}")
+        casa, fora = liga_spl.clubes_do_titulo(l.get("titulo") or "")
+        linhas.append(f"      clubes lidos do título: "
+                      f"{casa or '—'} / {fora or '—'}")
+
+    linhas += ["", "3. O COLETOR DE GOLS (última passagem)", "─" * 40]
+    u = _ULTIMA_COLETA or {}
+    if not u:
+        linhas.append("  ainda não rodou nesta subida do app")
+    else:
+        linhas.append(f"  quando ............ {u.get('quando', '?')}")
+        linhas.append(f"  jogos vistos (AF) . {u.get('af_jogos', 0)}")
+        linhas.append(f"  gols vistos (AF) .. {u.get('af_gols', 0)}")
+        linhas.append(f"  gols NOVOS ........ {u.get('novos', 0)}")
+        for e in (u.get("erros") or [])[:5]:
+            linhas.append(f"  erro: {e}")
+
+    linhas += ["", "4. DECISÃO A CADA GOL NOVO (mais recentes por último)",
+               "─" * 40]
+    if not _DIAG_CLIPE_AUTO:
+        linhas.append("  nenhum gol novo passou por aqui desde que o app subiu.")
+        linhas.append("  Se houve gol e nada aparece: o degrau que falhou foi o")
+        linhas.append("  1 — o coletor não viu o gol (olhe o bloco 3).")
+    for d in _DIAG_CLIPE_AUTO:
+        linhas.append(f"  {d.get('quando', '')[:19]}  {d.get('jogo', '')}")
+        linhas.append(f"      → {d.get('motivo', '')}"
+                      + (f"   (clipe {d['clipe']})" if d.get("clipe") else ""))
+    return PlainTextResponse("\n".join(linhas))
 
 
 @app.get("/api/diag/corrida", response_class=PlainTextResponse)
