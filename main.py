@@ -8083,27 +8083,50 @@ h1{font-size:1.5rem;margin:0 0 4px}
    A fila cabe numa linha só no celular porque quase todos são quadrados de
    34px; só os de mover a janela levam texto (o "8s"), que é a informação que
    não dá para adivinhar por desenho nenhum. */
+/* Todos REDONDOS e do mesmo tamanho. Só os dois de mover a janela são
+   pílulas, porque levam o "8s" — a única informação aqui que desenho nenhum
+   entrega. O resto cabe numa linha só num celular estreito: 2 pílulas de
+   ~58px mais 5 círculos de 32px com 5px de folga dão ~306px. */
+.acoes{gap:5px;flex-wrap:nowrap}
 .acoes .ico{display:inline-flex;align-items:center;justify-content:center;
-  gap:5px;min-width:34px;height:34px;padding:0 9px;border-radius:99px;
+  gap:4px;width:32px;height:32px;padding:0;border-radius:99px;flex:none;
+  box-sizing:border-box;
   background:transparent;border:1.5px solid var(--c-border-2);
   color:var(--c-muted-4);cursor:pointer;font-family:inherit;
-  font-size:.68rem;font-weight:700;letter-spacing:.03em;
+  font-size:.66rem;font-weight:700;letter-spacing:.02em;line-height:1;
   text-transform:none;text-decoration:none}
-.acoes .ico svg{width:17px;height:17px;flex:none;display:block}
+.acoes .ico svg{width:16px;height:16px;flex:none;display:block}
 .acoes .ico:hover:not(:disabled){border-color:var(--c-text);color:var(--c-text)}
 .acoes .ico:disabled{opacity:.45;cursor:default}
+/* As duas pílulas do ajuste, únicas com texto. */
+.acoes .ico.passo{width:auto;min-width:56px;padding:0 9px}
 /* O "8s depois" com a seta DEPOIS do texto: a direção do desenho tem que
    concordar com a direção do movimento, senão os dois botões viram iguais. */
 .acoes .ico.depois{flex-direction:row-reverse}
 .acoes .ico.guardar.on{border-color:#FFBE5D;color:#FFBE5D}
-/* Perigo só aparece quando o dedo já está em cima: um botão vermelho fixo do
-   lado do publicar é convite a errar no meio do jogo. */
+/* Apagar em vermelho o tempo todo, e não só no hover: no celular não existe
+   hover, e o botão que destrói é o único que precisa ser reconhecido antes
+   do toque, não depois. */
+.acoes .ico.apagar{border-color:#FD5D5D66;color:#FD5D5D}
 .acoes .ico.apagar:hover:not(:disabled){border-color:#FD5D5D;color:#FD5D5D}
-.acoes .ico.insta:hover:not(:disabled){border-color:#E1306C;color:#E1306C}
-.acoes .ico.publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;
-  color:#fff;padding:0 14px}
+/* Instagram e X preenchidos, na cor da casa: são os dois que TIRAM o clipe
+   daqui, e a cor é o que separa "mexer no clipe" de "publicar". */
+.acoes .ico.insta{background:#E1306C;border-color:#E1306C;color:#fff}
+.acoes .ico.insta:hover:not(:disabled){background:#c9285f;border-color:#c9285f;
+  color:#fff}
+.acoes .ico.publicar{background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .ico.publicar:hover:not(:disabled){background:#1a8cd8;
   border-color:#1a8cd8;color:#fff}
+/* Medida: a fila dá 302px, e num aparelho de 375 sobram 45. Num de 320 ela
+   estouraria por 10 — então ali os botões encolhem um pouco, em vez de
+   quebrar linha. Alvo de toque menor é ruim; fila partida no meio do jogo é
+   pior. */
+@media (max-width:360px){
+  .acoes{gap:4px}
+  .acoes .ico{width:30px;height:30px}
+  .acoes .ico svg{width:15px;height:15px}
+  .acoes .ico.passo{min-width:50px;padding:0 7px}
+}
 .selo.s-guardado{background:#FFBE5D22;color:#FFBE5D}
 .selo.s-automatico{background:#4f9cf922;color:#4f9cf9}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
@@ -8709,17 +8732,18 @@ function montar(c, assin) {
 
   corpo.appendChild(fitaDeCorte(c, v));
 
+  // A ordem é a do uso: primeiro se ajusta a janela, depois se decide o que
+  // fazer com o clipe (guardar, baixar, apagar) e só então ele sai daqui
+  // (Instagram, X). Tudo numa linha só — com quatro jogos ao mesmo tempo, o
+  // que importa é achar o botão certo com o dedo sem rolar a tela.
   const acoes = botoesAjuste(c);
-  acoes.appendChild(botaoBaixar(c));
   acoes.appendChild(botaoGuardar(c));
+  acoes.appendChild(botaoBaixar(c));
   acoes.appendChild(botaoApagar(c));
   if (podeCompartilhar()) acoes.appendChild(botaoInsta(c));
-  // O publicar fica por último e sozinho à direita: é o único daqui que põe
-  // coisa no ar em nome do acordo com o detentor dos direitos, e um botão
-  // desses não deve ficar encostado nos de mexer na janela.
-  const pub = botao('x', c.estado === 'publicando' ? 'publicando…' : 'Publicar',
-    'sobe o vídeo e publica no X', function () { publicar(c.id, t, pub); },
-    'publicar');
+  const pub = botao('x', '', c.estado === 'publicando'
+    ? 'publicando…' : 'sobe o vídeo e publica no X',
+    function () { publicar(c.id, t, pub); }, 'publicar');
   pub.disabled = c.estado === 'publicando';
   acoes.appendChild(pub);
   corpo.appendChild(acoes);
@@ -8998,12 +9022,10 @@ function botoesAjuste(c) {
   a.className = 'acoes';
   a.appendChild(botao('antes', PASSO + 's', 'puxa a janela do corte ' + PASSO
     + 's para trás — o gravador refaz',
-    function (b) { ajustar(c.id, -PASSO, b); }));
-  const dep = botao('depois', PASSO + 's', 'empurra a janela do corte ' + PASSO
-    + 's para frente — o gravador refaz',
-    function (b) { ajustar(c.id, PASSO, b); });
-  dep.classList.add('depois');
-  a.appendChild(dep);
+    function (b) { ajustar(c.id, -PASSO, b); }, 'passo'));
+  a.appendChild(botao('depois', PASSO + 's', 'empurra a janela do corte '
+    + PASSO + 's para frente — o gravador refaz',
+    function (b) { ajustar(c.id, PASSO, b); }, 'passo depois'));
   return a;
 }
 
