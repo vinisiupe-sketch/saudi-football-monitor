@@ -94,6 +94,31 @@ def _paginas():
         if "<script" in texto:
             yield texto
 
+    # E os arquivos de JavaScript que NÃO moram dentro de <script>: o app
+    # guarda os maiores em constantes (_CLIPES_JS, _MERCADO_JS, _SW_JS) e os
+    # injeta na página depois. Eu descobri essa falha do jeito ruim: escrevi
+    # chave dobrada dentro do _CLIPES_JS achando que era f-string, quebrei o
+    # JavaScript inteiro da guia de Clipes, e este teste passou verde —
+    # porque aquele bloco não tem "<script" dentro dele.
+    for no in ast.walk(arvore):
+        if not isinstance(no, ast.Assign):
+            continue
+        nomes = [a.id for a in no.targets if isinstance(a, ast.Name)]
+        if not any(n.endswith("_JS") for n in nomes):
+            continue
+        if not (isinstance(no.value, ast.Constant)
+                and isinstance(no.value.value, str)):
+            continue
+        corpo = no.value.value.strip()
+        # Algumas dessas constantes são DADOS (um objeto JSON com as bandeiras,
+        # outro com as siglas dos clubes) e não código. Um `{...}` solto não é
+        # instrução válida em JavaScript — o parser lê como bloco e reclama.
+        # Dou um nome a eles para validar como expressão, que é como a página
+        # de fato os usa.
+        if corpo.startswith(("{", "[")):
+            corpo = "var _dados = " + corpo + ";"
+        yield "<script>" + corpo + "</script>"
+
 
 def testar():
     node = _tem_node()

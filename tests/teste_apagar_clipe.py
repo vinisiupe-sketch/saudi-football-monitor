@@ -121,8 +121,9 @@ def testar():
        "o botão de apagar parou de confirmar antes")
     ok("c.jogo ? c.jogo" in fonte and "hora(c.alvo_em)" in fonte,
        "a confirmação parou de dizer QUAL clipe está sendo apagado")
-    ok("(c.guardado ? '  (este esta marcado com ★)' : '')" in fonte,
-       "a confirmação parou de avisar quando o clipe apagado é um marcado ★")
+    ok("(c.guardado ? '  (este esta marcado como salvo)' : '')" in fonte,
+       "a confirmação parou de avisar quando o clipe apagado é um dos que "
+       "você mandou guardar")
 
     # E o botão precisa existir onde ele é útil: no card pronto, no de erro e
     # no pedido que ainda não virou vídeo.

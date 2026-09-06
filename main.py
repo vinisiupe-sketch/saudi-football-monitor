@@ -7388,7 +7388,7 @@ def _video_pronto(clipe_id: int, c: dict) -> tuple[bytes, str]:
     return _cortar_video(dados, corte[0], corte[1])
 
 
-def _nome_do_arquivo(clipe_id: int, c: dict | None) -> str:
+def _nome_do_arquivo(clipe_id: int, c: dict | None, sufixo: str = "") -> str:
     """Nome de arquivo que diz qual jogo é, sem acento e sem espaço.
 
     Vinte clipes chamados clipe_1.mp4 na pasta de Downloads não servem para
@@ -7406,7 +7406,7 @@ def _nome_do_arquivo(clipe_id: int, c: dict | None) -> str:
             ZoneInfo("America/Sao_Paulo")).strftime("%H%M")
     except Exception:
         pass
-    partes = [p for p in (limpo, hora) if p] or [f"clipe_{clipe_id}"]
+    partes = [p for p in (limpo, hora, sufixo) if p] or [f"clipe_{clipe_id}"]
     return "_".join(partes) + ".mp4"
 
 
@@ -7435,6 +7435,67 @@ async def api_clipe_video(clipe_id: int, baixar: int = 0):
     return Response(content=dados, media_type="video/mp4", headers={
         "Cache-Control": "no-store",
         "Content-Disposition": f'attachment; filename="{nome}"'})
+
+
+@app.get("/api/clipe/{clipe_id}/reels")
+async def api_clipe_reels(clipe_id: int):
+    """O mesmo clipe em 9:16, com a janela acompanhando o lance.
+
+    Sai com o corte da fita já aplicado — é o vídeo que vai para o Instagram,
+    e ninguém quer publicar o trecho que foi descartado na tela.
+
+    A montagem é feita AQUI e não na máquina que grava: quem aperta o botão
+    está no celular, e o vídeo precisa sair do servidor de qualquer jeito.
+    Custa alguns segundos de CPU (medido: ~15s num clipe de 22s), e por isso
+    o resultado fica guardado — apertar de novo devolve o mesmo arquivo sem
+    refazer a conta.
+    """
+    c = um_clipe(clipe_id)
+    if not c:
+        return JSONResponse({"erro": "clipe não existe"}, 404)
+    guardado = _caminho_reels(clipe_id, c)
+    if guardado and os.path.exists(guardado):
+        with open(guardado, "rb") as f:
+            dados = f.read()
+        return Response(content=dados, media_type="video/mp4", headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition":
+                f'attachment; filename="{_nome_do_arquivo(clipe_id, c, "reels")}"'})
+
+    base, erro = _video_pronto(clipe_id, c)
+    if erro:
+        return PlainTextResponse(erro, status_code=409)
+    import reels as _reels
+    vertical, erro = _reels.montar(base, _tem_ffmpeg())
+    if erro:
+        return PlainTextResponse(erro, status_code=409)
+    try:
+        if guardado:
+            with open(guardado, "wb") as f:
+                f.write(vertical)
+    except Exception:
+        pass          # guardar é economia, não requisito
+    return Response(content=vertical, media_type="video/mp4", headers={
+        "Cache-Control": "no-store",
+        "Content-Disposition":
+            f'attachment; filename="{_nome_do_arquivo(clipe_id, c, "reels")}"'})
+
+
+def _caminho_reels(clipe_id: int, c: dict) -> str:
+    """Onde a versão vertical fica guardada. Vazio se não der para guardar.
+
+    O nome carrega o trecho escolhido na fita: mexer nos punhos e pedir de
+    novo tem que refazer o vídeo, não devolver o enquadramento do corte
+    anterior.
+    """
+    try:
+        import database
+        corte = _corte_pedido(c)
+        marca = f"{corte[0]:.1f}-{corte[1]:.1f}" if corte else "inteiro"
+        return os.path.join(database.PASTA_CLIPES,
+                            f"reels_{int(clipe_id)}_{marca}.mp4")
+    except Exception:
+        return ""
 
 
 @app.post("/api/clipe/{clipe_id}/ajustar")
@@ -8013,12 +8074,36 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .atraso-ok{color:#B6FF00;font-weight:700}
 .atraso-nota{margin:9px 0 0;font-size:.7rem;line-height:1.6;color:var(--c-muted-3)}
 .acoes .guardar.on{border-color:#FFBE5D;color:#FFBE5D}
-/* O apagar fica discreto e SEM texto: um botao vermelho escrito "APAGAR" do
-   lado do "Publicar no X" e um convite ao erro com o dedo no meio do jogo.
-   So a lixeira, e a cor de perigo aparece quando o dedo ja esta em cima. */
-.acoes .apagar{font-size:.85rem;line-height:1;padding:6px 11px;
-  color:var(--c-muted-3)}
-.acoes .apagar:hover:not(:disabled){border-color:#FD5D5D;color:#FD5D5D}
+
+/* ── OS BOTÕES DE ÍCONE ──
+   Ícones DESENHADOS (SVG), e não emoji: emoji muda de desenho conforme o
+   aparelho, ignora a cor do tema e sai com tamanho diferente em cada linha.
+   Estes herdam currentColor e ficam iguais em qualquer tela.
+
+   A fila cabe numa linha só no celular porque quase todos são quadrados de
+   34px; só os de mover a janela levam texto (o "8s"), que é a informação que
+   não dá para adivinhar por desenho nenhum. */
+.acoes .ico{display:inline-flex;align-items:center;justify-content:center;
+  gap:5px;min-width:34px;height:34px;padding:0 9px;border-radius:99px;
+  background:transparent;border:1.5px solid var(--c-border-2);
+  color:var(--c-muted-4);cursor:pointer;font-family:inherit;
+  font-size:.68rem;font-weight:700;letter-spacing:.03em;
+  text-transform:none;text-decoration:none}
+.acoes .ico svg{width:17px;height:17px;flex:none;display:block}
+.acoes .ico:hover:not(:disabled){border-color:var(--c-text);color:var(--c-text)}
+.acoes .ico:disabled{opacity:.45;cursor:default}
+/* O "8s depois" com a seta DEPOIS do texto: a direção do desenho tem que
+   concordar com a direção do movimento, senão os dois botões viram iguais. */
+.acoes .ico.depois{flex-direction:row-reverse}
+.acoes .ico.guardar.on{border-color:#FFBE5D;color:#FFBE5D}
+/* Perigo só aparece quando o dedo já está em cima: um botão vermelho fixo do
+   lado do publicar é convite a errar no meio do jogo. */
+.acoes .ico.apagar:hover:not(:disabled){border-color:#FD5D5D;color:#FD5D5D}
+.acoes .ico.insta:hover:not(:disabled){border-color:#E1306C;color:#E1306C}
+.acoes .ico.publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;
+  color:#fff;padding:0 14px}
+.acoes .ico.publicar:hover:not(:disabled){background:#1a8cd8;
+  border-color:#1a8cd8;color:#fff}
 .selo.s-guardado{background:#FFBE5D22;color:#FFBE5D}
 .selo.s-automatico{background:#4f9cf922;color:#4f9cf9}
 .acoes .publicar{margin-left:auto;background:#1d9bf0;border-color:#1d9bf0;color:#fff}
@@ -8064,7 +8149,7 @@ __HDR__
   <div id="disponiveis"></div>
 
   <div class="titulo-secao" id="tituloClipes">Clipes</div>
-  <p class="atraso-nota" style="margin:0 0 10px">Clipe sem ★ é apagado 2h depois
+  <p class="atraso-nota" style="margin:0 0 10px">Clipe sem marca de salvo é apagado 2h depois
     que o jogo sai do ar. Para ficar com um, clique em Salvar.</p>
   <div id="lista"></div>
 </div>
@@ -8522,7 +8607,7 @@ function montar(c, assin) {
     + '<span class="selo s-' + esc(c.estado) + '">' + esc(rotulo(c.estado)) + '</span>'
     + (c.tipo === 'outro' ? '<span class="selo">lance</span>' : '')
     + (c.automatico ? '<span class="selo s-automatico">⚡ automático</span>' : '')
-    + (c.guardado ? '<span class="selo s-guardado">★ salvo</span>' : '')
+    + (c.guardado ? '<span class="selo s-guardado">salvo</span>' : '')
     + (c.tamanho ? '<span class="tam">' + (c.tamanho / 1048576).toFixed(1) + ' MB</span>' : '');
   d.appendChild(topo);
 
@@ -8577,6 +8662,10 @@ function montar(c, assin) {
   d.appendChild(v);
 
   const t = document.createElement('textarea');
+  // O id serve ao botão do Instagram: ele copia a legenda para a área de
+  // transferência no mesmo toque, porque a bandeja do sistema não leva texto
+  // junto com o vídeo.
+  t.id = 'txt-' + c.id;
   t.value = c.texto || '';
   t.placeholder = c.tipo === 'outro'
     ? 'Escreva a legenda deste lance.'
@@ -8621,14 +8710,17 @@ function montar(c, assin) {
   corpo.appendChild(fitaDeCorte(c, v));
 
   const acoes = botoesAjuste(c);
-  const pub = document.createElement('button');
-  pub.className = 'publicar';
-  pub.textContent = c.estado === 'publicando' ? 'publicando…' : 'Publicar no X';
-  pub.disabled = c.estado === 'publicando';
-  pub.onclick = function () { publicar(c.id, t, pub); };
   acoes.appendChild(botaoBaixar(c));
   acoes.appendChild(botaoGuardar(c));
   acoes.appendChild(botaoApagar(c));
+  if (podeCompartilhar()) acoes.appendChild(botaoInsta(c));
+  // O publicar fica por último e sozinho à direita: é o único daqui que põe
+  // coisa no ar em nome do acordo com o detentor dos direitos, e um botão
+  // desses não deve ficar encostado nos de mexer na janela.
+  const pub = botao('x', c.estado === 'publicando' ? 'publicando…' : 'Publicar',
+    'sobe o vídeo e publica no X', function () { publicar(c.id, t, pub); },
+    'publicar');
+  pub.disabled = c.estado === 'publicando';
   acoes.appendChild(pub);
   corpo.appendChild(acoes);
   d.appendChild(corpo);
@@ -8759,34 +8851,84 @@ function botaoBaixar(c) {
   // preso numa aba. O nome do arquivo quem decide é o servidor, pelo
   // Content-Disposition, para não haver dois lugares inventando nome.
   const a = document.createElement('a');
-  a.className = 'baixar';
-  a.textContent = '⬇ Baixar';
+  a.className = 'ico baixar';
+  a.innerHTML = ICO.baixar;
   a.href = '/api/clipe/' + c.id + '/video?baixar=1';
   a.setAttribute('download', '');
   a.title = 'salva o mp4 no aparelho';
+  a.setAttribute('aria-label', 'baixar');
   return a;
 }
 
 function botaoGuardar(c) {
-  const b = document.createElement('button');
-  b.className = 'guardar' + (c.guardado ? ' on' : '');
-  b.textContent = c.guardado ? '★ Salvo' : '☆ Salvar';
-  b.title = c.guardado
-    ? 'este fica; clique para soltar e deixar que ele seja descartado'
-    : 'sem isto ele some 2h depois que o jogo sair do ar';
-  b.onclick = function () { guardar(c.id, !c.guardado, b); };
+  const b = botao('salvar', '', c.guardado
+    ? 'este fica guardado; toque para soltar e deixar que seja descartado'
+    : 'guarda este clipe — sem isto ele some 2h depois que o jogo sai do ar',
+    function () { guardar(c.id, !c.guardado, b); },
+    'guardar' + (c.guardado ? ' on' : ''));
   return b;
+}
+
+// ── Compartilhar ────────────────────────────────────────────────────────
+// A bandeja do próprio sistema, e não a API do Instagram. A API exigiria
+// conta profissional, app no Meta, token que expira a cada 60 dias e uma URL
+// pública do vídeo — quatro coisas para quebrar. A bandeja nativa já abre o
+// Instagram com Story, Reels, Publicação e Mensagem, que é exatamente o que
+// o Vini faz hoje à mão. Aqui só encurta o caminho.
+//
+// Só existe no celular: no computador a bandeja não tem Instagram. Por isso
+// o botão some quando o navegador não sabe compartilhar arquivo, em vez de
+// aparecer e falhar no toque.
+function podeCompartilhar() {
+  try {
+    return !!(navigator.canShare && navigator.share
+      && navigator.canShare({files: [new File([new Blob(['x'])], 'a.mp4',
+                                              {type: 'video/mp4'})]}));
+  } catch (e) { return false; }
+}
+
+function botaoInsta(c) {
+  const b = botao('insta', '', 'monta o 9:16 e abre o compartilhar do celular '
+    + '(Story, Reels, Publicação ou Mensagem)',
+    function () { compartilhar(c, b); }, 'insta');
+  return b;
+}
+
+async function compartilhar(c, b) {
+  const antes = b.innerHTML;
+  b.disabled = true;
+  b.innerHTML = ICO.insta + '<span>montando…</span>';
+  try {
+    // A legenda vai para a área de transferência ANTES de abrir a bandeja:
+    // o Instagram não aceita legenda vinda de fora, então o caminho curto é
+    // você colar. Fazer isso depois não funciona — a página perde o foco.
+    const t = document.getElementById('txt-' + c.id);
+    if (t && t.value && navigator.clipboard) {
+      try { await navigator.clipboard.writeText(t.value); } catch (e) {}
+    }
+    const r = await fetch('/api/clipe/' + c.id + '/reels');
+    if (!r.ok) throw new Error((await r.text()).slice(0, 160));
+    const blob = await r.blob();
+    const arq = new File([blob], 'gol.mp4', {type: 'video/mp4'});
+    await navigator.share({files: [arq]});
+  } catch (e) {
+    // Cancelar a bandeja levanta AbortError. Isso não é erro: é você
+    // desistindo, e avisar seria implicância.
+    if (!e || e.name !== 'AbortError') {
+      alert('não deu para compartilhar: ' + ((e && e.message) || e));
+    }
+  } finally {
+    b.disabled = false;
+    b.innerHTML = antes;
+  }
 }
 
 function botaoApagar(c) {
   // Some da lista na hora, e nao espera a faxina das 2h. Serve para o clipe
   // que saiu errado no meio do jogo: com quatro partidas ao mesmo tempo, a
   // lista enche rapido e achar o certo com o dedo e o que importa.
-  const b = document.createElement('button');
-  b.className = 'apagar';
-  b.textContent = '🗑';
-  b.title = 'apagar este clipe';
-  b.onclick = function () { apagarClipe(c, b); };
+  const b = botao('apagar', '', 'apagar este clipe',
+    function () { apagarClipe(c, b); }, 'apagar');
   return b;
 }
 
@@ -8794,7 +8936,7 @@ async function apagarClipe(c, botao) {
   // Confirmacao com o que identifica o clipe, e nao um "tem certeza?" seco:
   // sao varios cards parecidos na tela, e o risco real e apagar o vizinho.
   const quem = (c.jogo ? c.jogo + ' — ' : '') + hora(c.alvo_em)
-             + (c.guardado ? '  (este esta marcado com ★)' : '');
+             + (c.guardado ? '  (este esta marcado como salvo)' : '');
   if (!confirm('Apagar este clipe?\n\n' + quem)) return;
   botao.disabled = true;
   try {
@@ -8825,16 +8967,43 @@ async function guardar(id, ligar, botao) {
   }
 }
 
+// ── Os ícones ────────────────────────────────────────────────────────────
+// Desenhados (SVG), e não emoji. Emoji muda de desenho conforme o aparelho,
+// não aceita a cor do tema e, nos botões pequenos, sai com tamanho diferente
+// em cada linha. Estes são traço fino, herdam a cor do texto e ficam iguais
+// em qualquer tela.
+const ICO = {
+  antes:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>',
+  depois:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>',
+  baixar:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><polyline points="7 11 12 16 17 11"/><path d="M4 20h16"/></svg>',
+  apagar:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="6" x2="18" y2="18"/><line x1="18" y1="6" x2="6" y2="18"/></svg>',
+  salvar:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"/><path d="M8 4v6h7V4"/><rect x="7" y="14" width="10" height="6" rx="1"/></svg>',
+  x:       '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.3 3h3.2l-7 8 8.2 10h-6.4l-5-6.1L4.5 21H1.3l7.5-8.6L1 3h6.6l4.5 5.6L17.3 3zm-1.1 16h1.8L7.9 4.8H6L16.2 19z"/></svg>',
+  insta:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1.2" fill="currentColor" stroke="none"/></svg>',
+  inteiro: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 12h16"/><path d="M4 8v8"/><path d="M20 8v8"/></svg>'
+};
+
+function botao(icone, rotulo, dica, aoClicar, classe) {
+  const b = document.createElement('button');
+  b.className = 'ico' + (classe ? ' ' + classe : '');
+  b.innerHTML = ICO[icone] + (rotulo ? '<span>' + rotulo + '</span>' : '');
+  b.title = dica;
+  b.setAttribute('aria-label', dica);
+  b.onclick = function () { aoClicar(b); };
+  return b;
+}
+
 function botoesAjuste(c) {
   const a = document.createElement('div');
   a.className = 'acoes';
-  [['◀ ' + PASSO + 's antes', -PASSO], [PASSO + 's depois ▶', PASSO]].forEach(function (par) {
-    const b = document.createElement('button');
-    b.textContent = par[0];
-    b.title = 'move a janela do corte e o gravador refaz';
-    b.onclick = function () { ajustar(c.id, par[1], b); };
-    a.appendChild(b);
-  });
+  a.appendChild(botao('antes', PASSO + 's', 'puxa a janela do corte ' + PASSO
+    + 's para trás — o gravador refaz',
+    function (b) { ajustar(c.id, -PASSO, b); }));
+  const dep = botao('depois', PASSO + 's', 'empurra a janela do corte ' + PASSO
+    + 's para frente — o gravador refaz',
+    function (b) { ajustar(c.id, PASSO, b); });
+  dep.classList.add('depois');
+  a.appendChild(dep);
   return a;
 }
 
