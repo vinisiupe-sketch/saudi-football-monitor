@@ -136,6 +136,23 @@ def testar():
        "o pedido de clipe saiu de dentro do 'if registrar_gol(...)' — fora "
        "dali ele dispara a cada passagem do coletor, no mesmo gol")
 
+    # ── 4b. o jogo que NÃO é das ligas de sempre ─────────────────────────
+    # O canal parceiro também transmite outras competições. Quando o Vini
+    # grava uma dessas, nenhuma das ligas fixas contém a partida e o gol
+    # nunca chegava — clipe automático mudo, sem nada explicando. A segunda
+    # varredura (live=all, só quando há gravação em curso) é o que cobre isso.
+    ok('"live": "all"' in coletor,
+       "sumiu a varredura do que está sendo GRAVADO — jogo fora das ligas "
+       "fixas volta a nunca gerar clipe automático")
+    ok("gravando = listar_lives()" in coletor and "if gravando:" in coletor,
+       "a varredura live=all deixou de ser condicionada a haver gravação — "
+       "em dia parado ela vira chamada à API à toa")
+    ok("liga_spl.mesmo_jogo(" in coletor,
+       "a varredura live=all parou de casar a partida com o título da "
+       "transmissão — carimbaria gol de jogo que ninguém está gravando")
+    ok("vistos_af" in coletor,
+       "sumiu a guarda contra a mesma partida cair nas duas varreduras")
+
     # ── 5. a função em si ─────────────────────────────────────────────────
     fn = _corpo("_clipe_automatico_do_gol")
     ok('ajuste("clipe_auto_ligado") != "ligado"' in fn,

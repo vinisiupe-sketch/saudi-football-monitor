@@ -6276,6 +6276,75 @@ async def coletar_gols_ao_vivo() -> dict:
 
     # ── API-Football ──────────────────────────────────────────────────────
     hoje = datetime.now(timezone.utc).date().isoformat()
+    vistos_af = set()
+
+    async def _processar_fixture(fx) -> None:
+        """Carimba os gols de UMA partida. Serve às duas varreduras abaixo."""
+        st = ((fx.get("fixture") or {}).get("status") or {}).get("short")
+        # Inclui FT: o gol do fim do jogo tem que ser carimbado mesmo que a
+        # partida encerre entre uma passagem e outra do coletor.
+        if st not in ("1H", "2H", "HT", "ET", "P", "BT", "FT", "AET", "PEN"):
+            return
+        fid = (fx.get("fixture") or {}).get("id")
+        if fid in vistos_af:
+            return          # a mesma partida pode cair nas duas varreduras
+        vistos_af.add(fid)
+        diag["af_jogos"] += 1
+        ev, e2 = await _af_get("fixtures/events",
+                               {"fixture": fid, "type": "Goal"},
+                               ttl=_AF_TTL_AO_VIVO)
+        if e2:
+            diag["erros"].append(f"af eventos {fid}: {str(e2)[:80]}")
+            return
+        diag["af_gols"] += len((ev or {}).get("response", []))
+        times = fx.get("teams") or {}
+        casa, fora = times.get("home") or {}, times.get("away") or {}
+        gc = gf = 0
+        for g in (ev or {}).get("response", []):
+            if (g.get("detail") or "") == "Missed Penalty":
+                continue
+            dono = (g.get("team") or {}).get("id")
+            marcou_casa = dono == casa.get("id")
+            if (g.get("detail") or "") == "Own Goal":
+                marcou_casa = not marcou_casa
+            if marcou_casa:
+                gc += 1
+            else:
+                gf += 1
+            autor = _nome_artilheiro((g.get("player") or {}).get("name"))
+            minuto = (g.get("time") or {}).get("elapsed")
+            # MESMA chave da Sportmonks, para os dois lados casarem.
+            chave = f"{fid}|{minuto}|{autor}|{gc}-{gf}"
+            assist = _nome_artilheiro((g.get("assist") or {}).get("name") or "")
+            cor = (TEAM_CORES.get(casa.get("name"), "") if marcou_casa
+                   else TEAM_CORES.get(fora.get("name"), ""))
+            # Pela tabela, e não pelo que a API mandou: ela escreve
+            # "Al-Qadisiyah FC" onde a Sportmonks escreve "Al Qadsiah",
+            # e o post não pode mudar conforme quem carimbou primeiro.
+            nc = glossary.nome_para_card(casa.get("name"))
+            nf = glossary.nome_para_card(fora.get("name"))
+            marca = ""
+            if (g.get("detail") or "") == "Penalty":
+                marca = " (p)"
+            elif (g.get("detail") or "") == "Own Goal":
+                marca = " (gc)"
+            linhas = [f"{cor} {glossary.GRITO_DE_GOL}".strip(), "",
+                      f"⏰ {minuto}' {nc} {gc} x {gf} {nf}",
+                      f"⚽ {autor}{marca}"]
+            if assist:
+                linhas.append(f"🅰️ {assist}")
+            if registrar_gol("api_football", chave, minuto=minuto, autor=autor,
+                             assistente=assist or None, placar=f"{gc}-{gf}",
+                             texto="\n".join(linhas), fixture_af=fid):
+                novos.append(("api_football", chave))
+                # Gol NOVO e o jogo está sendo gravado: pede o clipe. É
+                # aqui, e não numa rotina à parte, porque o registrar_gol
+                # só devolve True uma vez por gol — a dedução de "é novo"
+                # já está feita, e duplicar essa conta em outro lugar era
+                # criar uma segunda verdade sobre o que já foi visto.
+                _clipe_automatico_do_gol(nc, nf)
+
+    # Varredura 1: as ligas de sempre, pela data.
     for liga_id in (AF_LEAGUE_SPL, 504, 826, 17, 18):
         season = await _season_da_liga(liga_id, _af_temporada_corrente())
         data, err = await _af_get("fixtures", {"league": liga_id, "season": season,
@@ -6283,66 +6352,32 @@ async def coletar_gols_ao_vivo() -> dict:
         if err or not data:
             continue
         for fx in data.get("response", []):
-            st = ((fx.get("fixture") or {}).get("status") or {}).get("short")
-            # Inclui FT: o gol do fim do jogo tem que ser carimbado mesmo que a
-            # partida encerre entre uma passagem e outra do coletor.
-            if st not in ("1H", "2H", "HT", "ET", "P", "BT", "FT", "AET", "PEN"):
-                continue
-            diag["af_jogos"] += 1
-            fid = (fx.get("fixture") or {}).get("id")
-            ev, e2 = await _af_get("fixtures/events",
-                                   {"fixture": fid, "type": "Goal"},
-                                   ttl=_AF_TTL_AO_VIVO)
-            if e2:
-                diag["erros"].append(f"af eventos {fid}: {str(e2)[:80]}")
-                continue
-            diag["af_gols"] += len((ev or {}).get("response", []))
+            await _processar_fixture(fx)
+
+    # Varredura 2: O QUE ESTÁ SENDO GRAVADO, venha da liga que vier.
+    #
+    # A lista de ligas acima cobre o que o Vini narra normalmente. Mas o canal
+    # parceiro também transmite outras competições, e quando ele grava um jogo
+    # desses o gol nunca chegava — nenhuma daquelas ligas o contém, e o clipe
+    # automático ficava mudo sem nada explicando. Aconteceu no dia em que
+    # fomos testar (06/09/26): jogo no ar, gravação rodando, e nem um alerta.
+    #
+    # Uma chamada só resolve: `fixtures?live=all` traz todas as partidas em
+    # andamento no mundo, e eu fico com as que casam com o título de alguma
+    # transmissão em gravação. Só acontece quando há gravação em curso, então
+    # em dia parado não custa nada.
+    gravando = listar_lives()
+    if gravando:
+        data, err = await _af_get("fixtures", {"live": "all"}, ttl=_AF_TTL_AO_VIVO)
+        if err:
+            diag["erros"].append(f"af live=all: {str(err)[:80]}")
+        for fx in (data or {}).get("response", []):
             times = fx.get("teams") or {}
-            casa, fora = times.get("home") or {}, times.get("away") or {}
-            gc = gf = 0
-            for g in (ev or {}).get("response", []):
-                if (g.get("detail") or "") == "Missed Penalty":
-                    continue
-                dono = (g.get("team") or {}).get("id")
-                marcou_casa = dono == casa.get("id")
-                if (g.get("detail") or "") == "Own Goal":
-                    marcou_casa = not marcou_casa
-                if marcou_casa:
-                    gc += 1
-                else:
-                    gf += 1
-                autor = _nome_artilheiro((g.get("player") or {}).get("name"))
-                minuto = (g.get("time") or {}).get("elapsed")
-                # MESMA chave da Sportmonks, para os dois lados casarem.
-                chave = f"{fid}|{minuto}|{autor}|{gc}-{gf}"
-                assist = _nome_artilheiro((g.get("assist") or {}).get("name") or "")
-                cor = (TEAM_CORES.get(casa.get("name"), "") if marcou_casa
-                       else TEAM_CORES.get(fora.get("name"), ""))
-                # Pela tabela, e não pelo que a API mandou: ela escreve
-                # "Al-Qadisiyah FC" onde a Sportmonks escreve "Al Qadsiah",
-                # e o post não pode mudar conforme quem carimbou primeiro.
-                nc = glossary.nome_para_card(casa.get("name"))
-                nf = glossary.nome_para_card(fora.get("name"))
-                marca = ""
-                if (g.get("detail") or "") == "Penalty":
-                    marca = " (p)"
-                elif (g.get("detail") or "") == "Own Goal":
-                    marca = " (gc)"
-                linhas = [f"{cor} {glossary.GRITO_DE_GOL}".strip(), "",
-                          f"⏰ {minuto}' {nc} {gc} x {gf} {nf}",
-                          f"⚽ {autor}{marca}"]
-                if assist:
-                    linhas.append(f"🅰️ {assist}")
-                if registrar_gol("api_football", chave, minuto=minuto, autor=autor,
-                                 assistente=assist or None, placar=f"{gc}-{gf}",
-                                 texto="\n".join(linhas), fixture_af=fid):
-                    novos.append(("api_football", chave))
-                    # Gol NOVO e o jogo está sendo gravado: pede o clipe. É
-                    # aqui, e não numa rotina à parte, porque o registrar_gol
-                    # só devolve True uma vez por gol — a dedução de "é novo"
-                    # já está feita, e duplicar essa conta em outro lugar era
-                    # criar uma segunda verdade sobre o que já foi visto.
-                    _clipe_automatico_do_gol(nc, nf)
+            casa = (times.get("home") or {}).get("name") or ""
+            fora = (times.get("away") or {}).get("name") or ""
+            if any(liga_spl.mesmo_jogo(l.get("titulo") or "", casa, fora)
+                   for l in gravando):
+                await _processar_fixture(fx)
 
     diag["novos"] = len(novos)
     _ULTIMA_COLETA.update(diag)
