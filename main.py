@@ -8087,7 +8087,12 @@ h1{font-size:1.5rem;margin:0 0 4px}
    pílulas, porque levam o "8s" — a única informação aqui que desenho nenhum
    entrega. O resto cabe numa linha só num celular estreito: 2 pílulas de
    ~58px mais 5 círculos de 32px com 5px de folga dão ~306px. */
-.acoes{gap:5px;flex-wrap:nowrap}
+/* Folga generosa entre os botões que MEXEM no clipe: são os que ficam do
+   lado de um que destrói, e errar o dedo ali custa caro. Os dois que
+   PUBLICAM ficam colados um no outro e empurrados para a direita — juntos
+   porque fazem a mesma coisa, e longe dos outros porque são os únicos
+   irreversíveis. */
+.acoes{gap:9px;flex-wrap:nowrap}
 .acoes .ico{display:inline-flex;align-items:center;justify-content:center;
   gap:4px;width:32px;height:32px;padding:0;border-radius:99px;flex:none;
   box-sizing:border-box;
@@ -8117,15 +8122,26 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .acoes .ico.publicar{background:#1d9bf0;border-color:#1d9bf0;color:#fff}
 .acoes .ico.publicar:hover:not(:disabled){background:#1a8cd8;
   border-color:#1a8cd8;color:#fff}
-/* Medida: a fila dá 302px, e num aparelho de 375 sobram 45. Num de 320 ela
-   estouraria por 10 — então ali os botões encolhem um pouco, em vez de
-   quebrar linha. Alvo de toque menor é ruim; fila partida no meio do jogo é
-   pior. */
+
+/* O par que publica, encostado e à direita. O `auto` mora nos DOIS porque o
+   botão do Instagram some no computador (lá a bandeja do sistema não tem
+   Instagram) — sem isso o do X ficaria grudado no de apagar naquela tela. A
+   regra de irmão adjacente desfaz o empurrão do segundo quando os dois
+   existem, e é o que os mantém colados. */
+.acoes .ico.insta,
+.acoes .ico.publicar{margin-left:auto}
+.acoes .ico.insta + .ico.publicar{margin-left:3px}
+
+/* Medida com a folga nova: 5 botões de mexer somam 244px e o par de publicar
+   67px. Num aparelho de 375 sobram 36 para o vão do meio; num de 320 não
+   sobraria, então lá tudo encolhe um pouco em vez de quebrar linha. Alvo de
+   toque menor é ruim; fila partida no meio do jogo é pior. */
 @media (max-width:360px){
-  .acoes{gap:4px}
+  .acoes{gap:7px}
   .acoes .ico{width:30px;height:30px}
   .acoes .ico svg{width:15px;height:15px}
   .acoes .ico.passo{min-width:50px;padding:0 7px}
+  .acoes .ico.insta + .ico.publicar{margin-left:2px}
 }
 .selo.s-guardado{background:#FFBE5D22;color:#FFBE5D}
 .selo.s-automatico{background:#4f9cf922;color:#4f9cf9}
