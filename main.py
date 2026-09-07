@@ -6309,6 +6309,20 @@ async def coletar_gols_ao_vivo() -> dict:
         diag["af_gols"] += len((ev or {}).get("response", []))
         times = fx.get("teams") or {}
         casa, fora = times.get("home") or {}, times.get("away") or {}
+        # Guardo o casamento com a gravação AQUI, para toda partida vista —
+        # com gol ou sem. Sem isso, saber se o próximo gol viraria clipe
+        # dependia de esperar o próximo gol: se o nome que a API usa não bate
+        # com o título da transmissão, nada acontece e nada explica. Agora o
+        # /api/diag/clipe-auto responde antes, com o jogo no ar.
+        _nc = glossary.nome_para_card(casa.get("name"))
+        _nf = glossary.nome_para_card(fora.get("name"))
+        try:
+            diag.setdefault("partidas", []).append({
+                "casa": _nc, "fora": _nf,
+                "cru": f'{casa.get("name")} x {fora.get("name")}',
+                "live": _live_do_jogo(_nc, _nf)})
+        except Exception as e:
+            diag["erros"].append(f"casamento {_nc}x{_nf}: {type(e).__name__}: {e}")
         gc = gf = 0
         for g in (ev or {}).get("response", []):
             if (g.get("detail") or "") == "Missed Penalty":
@@ -16649,6 +16663,20 @@ async def diag_clipe_auto():
         for e in (u.get("erros") or [])[:5]:
             linhas.append(f"  erro: {e}")
 
+    linhas += ["", "3c. AS PARTIDAS VISTAS CASAM COM O QUE ESTÁ GRAVANDO?",
+               "─" * 40]
+    partidas = (u.get("partidas") or [])
+    if not partidas:
+        linhas.append("  nenhuma partida ao vivo na última passagem")
+    for p in partidas:
+        marca = ("✓ casa com a gravação" if p.get("live")
+                 else "✗ NÃO casa — gol desta partida não vira clipe")
+        linhas.append(f"  {p.get('casa')} x {p.get('fora')}   {marca}")
+        if not p.get("live"):
+            linhas.append(f"      como a API escreve: {p.get('cru')}")
+    linhas.append("  (é este casamento que decide se o PRÓXIMO gol vira clipe —")
+    linhas.append("   dá para conferir com o jogo no ar, sem esperar gol)")
+
     linhas += ["", "3b. O 9:16 CONSEGUE SER MONTADO NESTE SERVIDOR?", "─" * 40]
     linhas.append(f"  ffmpeg ............ {_tem_ffmpeg() or 'AUSENTE'}")
     try:
@@ -16657,11 +16685,26 @@ async def diag_clipe_auto():
     except Exception as e:
         linhas.append(f"  Pillow ............ AUSENTE ({type(e).__name__}) — "
                       "sem ele o 9:16 não sai")
+    # O ARQUIVO ainda existe? O disco do contêiner é efêmero: todo deploy o
+    # esvazia. Um clipe pode estar "pronto" no banco e sem mp4 nenhum — foi o
+    # que aconteceu em 07/09/26, quando fui testar o 9:16 dos clipes do jogo
+    # e os dois tinham sumido nos deploys da tarde. Listar sem conferir isso
+    # é oferecer um teste que já nasceu quebrado.
+    import database as _db
     recentes = [c for c in clipes_recentes(24) if c.get("estado") == "pronto"]
     linhas.append(f"  clipes prontos (24h) ... {len(recentes)}")
     for c in recentes[:6]:
-        linhas.append(f"    id {c['id']:<5} {(c.get('jogo') or '')[:34]:<34} "
-                      f"/api/clipe/{c['id']}/reels")
+        no_disco = os.path.exists(_db._caminho_do_clipe(c["id"]))
+        estado = "arquivo ok" if no_disco else (
+            "guardado no banco" if c.get("guardado")
+            else "SEM ARQUIVO (perdido no último deploy)")
+        linhas.append(f"    id {c['id']:<5} {(c.get('jogo') or '')[:28]:<28} "
+                      f"{estado}")
+        if no_disco or c.get("guardado"):
+            linhas.append(f"          /api/clipe/{c['id']}/reels")
+    linhas.append("  O disco do contêiner é efêmero: deploy apaga os mp4 que")
+    linhas.append("  não estão marcados como salvos. Clipe que você quer manter")
+    linhas.append("  precisa do botão de salvar, que copia o vídeo para o banco.")
 
     linhas += ["", "4. DECISÃO A CADA GOL NOVO (mais recentes por último)",
                "─" * 40]
