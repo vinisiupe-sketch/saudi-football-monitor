@@ -42,6 +42,16 @@ from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
 import clubs
 import glossary
+# O resto do arquivo importa `liga_spl` DENTRO de cada função que usa. Isso
+# atravessou meses sem incomodar e custou uma noite de jogo em 07/09/26:
+# escrevi `liga_spl.mesmo_jogo(...)` em código novo — o clipe automático e a
+# varredura do que está sendo gravado — sem perceber que ali não havia import
+# nenhum. Cada gol levantava NameError, o erro morria no except do agendador,
+# e não saía clipe. Em silêncio, que é o pior jeito de quebrar.
+#
+# Importar aqui em cima mata a classe inteira do problema. O módulo só depende
+# de re, time e urllib; não há ciclo.
+import liga_spl
 import ajustes
 import contas
 from sources import SOURCE_MOON
@@ -8791,7 +8801,12 @@ function montar(c, assin) {
   acoes.appendChild(botaoGuardar(c));
   acoes.appendChild(botaoBaixar(c));
   acoes.appendChild(botaoApagar(c));
-  if (podeCompartilhar()) acoes.appendChild(botaoInsta(c));
+  // O botão aparece SEMPRE. Antes ele sumia quando o navegador não sabia
+  // compartilhar arquivo, e sumir é indistinguível de estar quebrado: em
+  // 07/09/26 o Vini disse "o botão do Insta não funcionou" e eu não tinha
+  // como saber se ele não apareceu, se apareceu e falhou, ou se o vídeo não
+  // foi montado. Agora ele aparece e, quando não dá, EXPLICA.
+  acoes.appendChild(botaoInsta(c));
   const pub = botao('x', '', c.estado === 'publicando'
     ? 'publicando…' : 'sobe o vídeo e publica no X',
     function () { publicar(c.id, t, pub); }, 'publicar');
@@ -8970,6 +8985,20 @@ function botaoInsta(c) {
 }
 
 async function compartilhar(c, b) {
+  if (!podeCompartilhar()) {
+    // Diz QUAL é o impedimento, e o que fazer no lugar. "Não funcionou" sem
+    // motivo é o que faz a pessoa tentar de novo três vezes achando que é
+    // toque errado.
+    const noPc = !/Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    alert(noPc
+      ? 'O compartilhar do sistema só existe no celular — no computador a '
+        + 'bandeja não tem Instagram.\n\nAqui, use o botão de baixar: o mp4 '
+        + 'vai para a pasta de downloads e você sobe pelo Instagram web.'
+      : 'Este navegador não sabe compartilhar arquivo.\n\nNo iPhone use o '
+        + 'Safari; no Android, o Chrome. Se estiver em aba anônima, saia '
+        + 'dela — o compartilhamento é bloqueado lá.');
+    return;
+  }
   const antes = b.innerHTML;
   b.disabled = true;
   b.innerHTML = ICO.insta + '<span>montando…</span>';
@@ -16619,6 +16648,20 @@ async def diag_clipe_auto():
         linhas.append(f"  gols NOVOS ........ {u.get('novos', 0)}")
         for e in (u.get("erros") or [])[:5]:
             linhas.append(f"  erro: {e}")
+
+    linhas += ["", "3b. O 9:16 CONSEGUE SER MONTADO NESTE SERVIDOR?", "─" * 40]
+    linhas.append(f"  ffmpeg ............ {_tem_ffmpeg() or 'AUSENTE'}")
+    try:
+        from PIL import Image  # noqa: F401
+        linhas.append("  Pillow ............ ok (é ele que olha os quadros)")
+    except Exception as e:
+        linhas.append(f"  Pillow ............ AUSENTE ({type(e).__name__}) — "
+                      "sem ele o 9:16 não sai")
+    recentes = [c for c in clipes_recentes(24) if c.get("estado") == "pronto"]
+    linhas.append(f"  clipes prontos (24h) ... {len(recentes)}")
+    for c in recentes[:6]:
+        linhas.append(f"    id {c['id']:<5} {(c.get('jogo') or '')[:34]:<34} "
+                      f"/api/clipe/{c['id']}/reels")
 
     linhas += ["", "4. DECISÃO A CADA GOL NOVO (mais recentes por último)",
                "─" * 40]
