@@ -16917,21 +16917,56 @@ async def diag_clipe_auto():
         linhas.append(f"  gols vistos (AF) .. {u.get('af_gols', 0)}")
         linhas.append(f"  gols NOVOS ........ {u.get('novos', 0)}")
         for e in (u.get("erros") or [])[:5]:
-            linhas.append(f"  erro: {e}")
+            # A Sportmonks é a segunda fonte, usada só para comparar quem
+            # carimba o gol primeiro. Sem token ela não roda, e isso não tem
+            # nada a ver com o clipe — mas aparecia como "erro:" no meio do
+            # diagnóstico e assustava à toa.
+            if "SPORTMONKS_TOKEN ausente" in e:
+                linhas.append("  (Sportmonks sem token — é só a segunda fonte "
+                              "de carimbo de horário, NÃO afeta o clipe)")
+            else:
+                linhas.append(f"  erro: {e}")
 
-    linhas += ["", "3c. AS PARTIDAS VISTAS CASAM COM O QUE ESTÁ GRAVANDO?",
-               "─" * 40]
+    linhas += ["", "3c. O JOGO QUE VOCÊ ESTÁ GRAVANDO JÁ FOI VISTO?", "─" * 40]
+    # A pergunta virou do avesso em 08/09/26. Antes eu listava as partidas que
+    # a API devolveu e dizia, de cada uma, se casava com a gravação. Num dia em
+    # que o jogo do Vini ainda não tinha começado, a tela mostrava um "✗ NÃO
+    # casa" de OUTRA partida e mais nada — e lida assim parece defeito, quando
+    # é só o apito inicial que não soou. O coletor ignora partida que não
+    # começou de propósito: sem bola rolando não há gol para carimbar.
     partidas = (u.get("partidas") or [])
-    if not partidas:
-        linhas.append("  nenhuma partida ao vivo na última passagem")
-    for p in partidas:
-        marca = ("✓ casa com a gravação" if p.get("live")
-                 else "✗ NÃO casa — gol desta partida não vira clipe")
-        linhas.append(f"  {p.get('casa')} x {p.get('fora')}   {marca}")
-        if not p.get("live"):
-            linhas.append(f"      como a API escreve: {p.get('cru')}")
-    linhas.append("  (é este casamento que decide se o PRÓXIMO gol vira clipe —")
-    linhas.append("   dá para conferir com o jogo no ar, sem esperar gol)")
+    if not lives:
+        linhas.append("  não há gravação em curso — nada a casar")
+    for l in lives:
+        titulo = l.get("titulo") or ""
+        # O id tem que ser não-vazio dos dois lados: "sem live" também é "",
+        # e comparar vazio com vazio diria que casou.
+        meu_id = l.get("id") or ""
+        casada = next((p for p in partidas
+                       if meu_id and p.get("live") == meu_id), None)
+        rotulo = (liga_spl.clubes_do_titulo(titulo)[0] or "?") + " x " + \
+                 (liga_spl.clubes_do_titulo(titulo)[1] or "?")
+        if casada:
+            linhas.append(f"  {rotulo}   ✓ achada e casada — o próximo gol "
+                          "vira clipe")
+            linhas.append(f"      como a API escreve: {casada.get('cru')}")
+        else:
+            linhas.append(f"  {rotulo}   — ainda não apareceu na API")
+            linhas.append("      O coletor só olha partida com a bola rolando. "
+                          "Antes do apito")
+            linhas.append("      inicial é ISTO que se espera ver; volte aqui "
+                          "alguns minutos")
+            linhas.append("      depois que o jogo começar. Se o jogo já "
+                          "começou e continua")
+            linhas.append("      assim, aí sim é o degrau 3 falhando por nome "
+                          "de clube.")
+
+    if partidas:
+        linhas.append("")
+        linhas.append("  todas as partidas ao vivo que a última passagem viu:")
+        for p in partidas:
+            marca = "✓ é a sua gravação" if p.get("live") else "não é a sua"
+            linhas.append(f"    {p.get('casa')} x {p.get('fora')}   {marca}")
 
     linhas += ["", "3b. O 9:16 CONSEGUE SER MONTADO NESTE SERVIDOR?", "─" * 40]
     linhas.append(f"  ffmpeg ............ {_tem_ffmpeg() or 'AUSENTE'}")

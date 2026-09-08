@@ -126,6 +126,19 @@ def testar():
     ok(not _casa_com("TRANSMISSÃO ESPECIAL", "Al Diriyah", "Al Qadsiah"),
        "casou com um título que não diz jogo nenhum")
 
+    # As grafias do jogo de 08/09/26, conferidas ANTES do apito. É o único
+    # degrau da corrente que dá para testar sem bola rolando: se o nome que a
+    # API usa não casar com o título da live, o gol chega e não vira clipe,
+    # sem nada aparecer em lugar nenhum.
+    hazem = "AL HAZEM X AL TAAWOUN | AO VIVO E COM IMAGENS | SAUDI PRO LEAGUE"
+    for casa in ("Al-Hazem", "Al Hazem", "Al-Hazm", "Al Hazm", "Al-Hazm SC"):
+        for fora in ("Al-Taawoun", "Al Taawoun", "Al-Taawon", "Al-Taawoun FC"):
+            ok(_casa_com(hazem, casa, fora),
+               f"'{casa} x {fora}' não casou com o título da live — o gol "
+               "desse jogo não viraria clipe")
+    ok(not _casa_com(hazem, "Al-Ettifaq", "Al-Faisaly FC"),
+       "o jogo do Ettifaq casou com a live do Hazem — clipe da partida errada")
+
     # ── 4. o gancho está no lugar certo: só para gol NOVO ─────────────────
     coletor = _corpo("coletar_gols_ao_vivo")
     ok("_clipe_automatico_do_gol(nc, nf)" in coletor,
