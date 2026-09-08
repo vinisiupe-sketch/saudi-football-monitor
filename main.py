@@ -7098,8 +7098,15 @@ def _clipe_automatico_do_gol(nome_casa: str, nome_fora: str) -> int:
         O alerta da API chega depois do gol — o coletor passa de 45 em 45
         segundos, e o provedor ainda leva o dele. Não dá para saber o
         instante exato, então a janela do clipe automático é LARGA de
-        propósito (20s para cada lado, contra 12/10 do botão): é melhor
+        propósito (45s para cada lado, contra 12/10 do botão): é melhor
         cortar um pedaço a mais e o Vini apertar a fita do que perder o lance.
+
+        Começou em 20/20 e virou 45/45 em 08/09/26. No primeiro jogo em que
+        isto rodou de verdade alguns cortes abriram DEPOIS do gol — sinal de
+        que o alerta às vezes demora mais que os 45s que o cálculo abaixo
+        supõe. Alargar a janela não conserta a estimativa, que continua sendo
+        uma suposição; troca um clipe PERDIDO por um clipe com sobra, e sobra
+        a fita de corte resolve.
     """
     def anotar(motivo: str, live_id: str = "", clipe: int = 0) -> int:
         """Guarda POR QUE este gol virou (ou não) clipe.

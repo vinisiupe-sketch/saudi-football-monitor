@@ -95,8 +95,9 @@ def testar():
 
     # ── 1. os ajustes novos, com os números que o Vini pediu ──────────────
     for chave, padrao in (("clipe_auto_ligado", "ligado"),
-                          ("clipe_auto_antes_seg", 20),
-                          ("clipe_auto_depois_seg", 20),
+                          # 45/45 desde 08/09/26 — ver o comentário no ajustes.py
+                          ("clipe_auto_antes_seg", 45),
+                          ("clipe_auto_depois_seg", 45),
                           ("clipe_auto_atraso_alerta_seg", 45)):
         ok(chave in ajustes.POR_CHAVE, f"sumiu o ajuste {chave}")
         if chave in ajustes.POR_CHAVE:

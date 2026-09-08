@@ -172,16 +172,19 @@ AJUSTES = [
         "grupo": "Clipe automático (pelo alerta de gol)",
         "rotulo": "Segundos antes (automático)",
         "unidade": "s",
-        "tipo": "int", "min": 3, "max": 90, "padrao": 20,
+        "tipo": "int", "min": 3, "max": 90, "padrao": 45,
         "ajuda": "Maior que a do botão de propósito: o instante do gol aqui é "
-                 "estimado, não apontado por você.",
+                 "estimado, não apontado por você. Foi de 20 para 45 em "
+                 "08/09/26 — no primeiro jogo de verdade alguns cortes "
+                 "começaram DEPOIS do gol, sinal de que o alerta às vezes "
+                 "demora mais que os 45s supostos ao lado.",
     },
     {
         "chave": "clipe_auto_depois_seg",
         "grupo": "Clipe automático (pelo alerta de gol)",
         "rotulo": "Segundos depois (automático)",
         "unidade": "s",
-        "tipo": "int", "min": 1, "max": 90, "padrao": 20,
+        "tipo": "int", "min": 1, "max": 90, "padrao": 45,
         "ajuda": "Idem: sobra de vídeo se resolve na fita de corte; falta de "
                  "vídeo, não.",
     },
