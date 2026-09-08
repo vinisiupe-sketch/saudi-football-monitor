@@ -89,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-09-02c"
+VERSAO = "2026-09-08a"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
@@ -728,6 +728,40 @@ class Gravador:
         except Exception:
             return None
 
+    def _gravado_de_verdade(self, caminho: str) -> float | None:
+        """Quantos segundos de vídeo o arquivo REALMENTE tem.
+
+        POR QUE ISTO PRECISOU EXISTIR (08/09/26)
+            O Gravacao.posicao() responde "quantos segundos se passaram no
+            RELÓGIO desde que eu abri o ffmpeg". O código inteiro tratava isso
+            como se fosse "quantos segundos de vídeo existem no arquivo" — e
+            são coisas diferentes.
+
+            Elas só coincidem quando o fluxo chega em tempo real, sem falha.
+            Quando a transmissão engasga, o ffmpeg fica sem o que escrever: o
+            relógio anda, o arquivo não. A diferença ACUMULA. Aí um pedido de
+            clipe manda o ffmpeg buscar num segundo que ainda não existe, ele
+            devolve um mp4 só com cabeçalho — 261 bytes — e sai com código 0,
+            porque do ponto de vista dele nada deu errado.
+
+            Era isso o "provavelmente não havia vídeo naquele trecho" que
+            apareceu várias vezes num jogo só: uma vez que aquele fluxo começou
+            a atrasar, todos os clipes seguintes caíram no mesmo buraco,
+            enquanto a outra partida da mesma tarde ia bem.
+
+        O .ts não guarda a duração no cabeçalho; o ffprobe estima indo ao fim
+        do arquivo. É rápido mesmo com gigabytes, e é a única medida honesta
+        aqui — a outra era uma suposição.
+        """
+        try:
+            r = subprocess.run(
+                [self.ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "error",
+                 "-show_entries", "format=duration", "-of", "csv=p=0", caminho],
+                capture_output=True, text=True, timeout=60)
+            return float((r.stdout or "").strip().splitlines()[0])
+        except Exception:
+            return None
+
     def _inicio_do_video(self, caminho: str) -> float | None:
         """O quanto a imagem começa DEPOIS do som, em segundos.
 
@@ -829,18 +863,55 @@ class Gravador:
 
         # O fim da janela pode ainda não ter sido gravado: você aperta o botão
         # no instante do lance, e os segundos seguintes ainda estão chegando.
+        #
+        # A espera olha o ARQUIVO, e não o relógio. Olhando o relógio ela dava
+        # por satisfeita com um trecho que não existia — ver
+        # _gravado_de_verdade(). O relógio fica só de reserva, para o caso de o
+        # ffprobe não responder: melhor a conta antiga que conta nenhuma.
         espera = 0
+        precisa = pedaco.posicao(fim_janela) + MARGEM_SEG
         while pedaco.vivo():
-            gravado = (datetime.now(timezone.utc) - pedaco.inicio).total_seconds()
-            if gravado >= pedaco.posicao(fim_janela) + MARGEM_SEG:
+            real = self._gravado_de_verdade(pedaco.caminho)
+            gravado = (real if real is not None else
+                       (datetime.now(timezone.utc) - pedaco.inicio).total_seconds())
+            if gravado >= precisa:
                 break
             if espera >= ESPERA_MAX_SEG:
-                self._falhou(cid, "esperei e o fim da janela não foi gravado")
+                relogio = (datetime.now(timezone.utc) - pedaco.inicio).total_seconds()
+                if real is not None and relogio - real > 5:
+                    self._falhou(
+                        cid, f"a gravação está {relogio - real:.0f}s atrás do "
+                             "relógio — o sinal desta transmissão está "
+                             "engasgando, e o instante do lance ainda não "
+                             "chegou no arquivo")
+                else:
+                    self._falhou(cid, "esperei e o fim da janela não foi gravado")
                 return
             time.sleep(1)
             espera += 1
 
         inicio = max(0.0, pedaco.posicao(inicio_janela))
+
+        # Última conferência antes de cortar: o começo da janela existe mesmo?
+        # Sem isto o ffmpeg busca além do fim, devolve 261 bytes e sai dizendo
+        # que deu tudo certo — e a tela mostrava "provavelmente não havia vídeo
+        # naquele trecho", que é verdade e não ajuda ninguém a entender por quê.
+        real = self._gravado_de_verdade(pedaco.caminho)
+        if real is not None:
+            relogio = (datetime.now(timezone.utc) - pedaco.inicio).total_seconds()
+            atraso = relogio - real
+            if inicio > real:
+                self._falhou(
+                    cid, f"o instante pedido está a {inicio:.0f}s do início da "
+                         f"gravação, mas o arquivo só tem {real:.0f}s de vídeo "
+                         f"({atraso:.0f}s atrás do relógio). O sinal desta "
+                         "transmissão travou; o clipe sairia do lugar errado")
+                return
+            if atraso > 5:
+                diz(f"    [{jogo.nome()[:24]}] atenção: a gravação está "
+                    f"{atraso:.0f}s atrás do relógio — o sinal está engasgando, "
+                    "e o clipe pode sair adiantado")
+
         saida = os.path.join(GRAVACOES, f"clipe_{cid}.mp4")
         diz(f"    [{jogo.nome()[:24]}] clipe {cid}: cortando de {inicio:.0f}s "
             f"({antes}s antes até {depois}s depois)")
@@ -850,8 +921,13 @@ class Gravador:
             return
         dados = open(saida, "rb").read()
         if len(dados) < 10000:
-            self._falhou(cid, f"o corte saiu com {len(dados)} bytes; "
-                              "provavelmente não havia vídeo naquele trecho")
+            # Chegar aqui hoje é raro: a conferência de duração acima pega o
+            # caso normal. Se ainda assim vier vazio, digo o que sei em vez de
+            # repetir "provavelmente" — a palavra que mandou o Vini adivinhar.
+            real = self._gravado_de_verdade(pedaco.caminho)
+            extra = (f"; o arquivo tem {real:.0f}s e eu pedi a partir de "
+                     f"{inicio:.0f}s") if real is not None else ""
+            self._falhou(cid, f"o corte saiu com {len(dados)} bytes{extra}")
             return
 
         _, err = self._http(f"/api/clipe/{cid}/entregar", dados, "video/mp4")
