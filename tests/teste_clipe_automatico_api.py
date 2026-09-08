@@ -131,8 +131,11 @@ def testar():
     # API usa não casar com o título da live, o gol chega e não vira clipe,
     # sem nada aparecer em lugar nenhum.
     hazem = "AL HAZEM X AL TAAWOUN | AO VIVO E COM IMAGENS | SAUDI PRO LEAGUE"
-    for casa in ("Al-Hazem", "Al Hazem", "Al-Hazm", "Al Hazm", "Al-Hazm SC"):
-        for fora in ("Al-Taawoun", "Al Taawoun", "Al-Taawon", "Al-Taawoun FC"):
+    # "Al-Hazm x Al Taawon" é a grafia REAL, lida do /api/diag/clipe-auto com o
+    # jogo no ar. As outras são variações plausíveis; esta é a que aconteceu.
+    for casa in ("Al-Hazm", "Al-Hazem", "Al Hazem", "Al Hazm", "Al-Hazm SC"):
+        for fora in ("Al Taawon", "Al-Taawoun", "Al Taawoun", "Al-Taawon",
+                     "Al-Taawoun FC"):
             ok(_casa_com(hazem, casa, fora),
                f"'{casa} x {fora}' não casou com o título da live — o gol "
                "desse jogo não viraria clipe")
