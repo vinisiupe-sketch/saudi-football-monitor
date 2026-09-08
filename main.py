@@ -10787,44 +10787,52 @@ h1{font-size:1.5rem;margin:0 0 4px}
    nome e bandeira encolham juntos em qualquer tamanho de tela. Antes isso era
    feito à mão em três media queries, que viviam desencontradas entre si. */
 .campo-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px}
-.campo{position:relative;width:100%;aspect-ratio:860/635;border-radius:16px;
+/* 4:5 é o tamanho da arte inteira. A guia mostra exatamente o que vai sair no
+   PNG — inclusive o preto de cima e a faixa dos escudos —, porque discutir
+   posição de jogador num recorte e baixar outra coisa é receita de surpresa. */
+.campo{position:relative;width:100%;aspect-ratio:1080/1350;border-radius:16px;
   container-type:inline-size;
   background:#000 url('/masks/campo-perspectiva.png') center/100% 100% no-repeat;
   overflow:hidden}
 
-/* --e é a escala de perspectiva daquele slot: 1 na linha de fundo de perto,
-   ~0,66 na de longe. Quem escreve é o JS, jogador por jogador.
-   O slot tem largura ZERO de propósito: o disco e o nome transbordam
-   centrados, então um sobrenome comprido não empurra o vizinho nem precisa de
-   reticências — no máximo encosta, como na arte de TV. */
+/* --e é a escala de perspectiva daquele slot (0,88 no fundo, 1,00 na frente).
+   Quem escreve é o JS, jogador por jogador.
+   O slot tem largura ZERO de propósito: o disco e a placa transbordam
+   centrados, então um sobrenome comprido não empurra o vizinho. */
 .slot{position:absolute;transform:translate(-50%,-50%);width:0;
   display:flex;flex-direction:column;align-items:center;cursor:grab}
 .slot .disco{position:relative;flex:none;
-  width:calc(8.6cqw*var(--e,1));height:calc(8.6cqw*var(--e,1));
-  /* Piso baixo de propósito: no celular o campo é largo e baixo, e disco
-     grande demais faz os nomes de duas linhas vizinhas se encavalarem.
-     28px dava um alvo de toque melhor e uma tela ilegível. */
-  min-width:22px;min-height:22px;border-radius:50%;
-  background:rgba(255,255,255,.30);border:2px dashed rgba(0,0,0,.5);
+  width:calc(7.96cqw*var(--e,1));height:calc(7.96cqw*var(--e,1));
+  min-width:32px;min-height:32px;border-radius:50%;
+  background:rgba(255,255,255,.32);border:2px dashed rgba(48,48,48,.6);
   display:flex;align-items:center;justify-content:center;
-  font-size:max(8px,2.2cqw*var(--e,1));color:#000;font-weight:800}
-/* Anel preto em volta da foto, e só ele: sem borda branca e sem sombra. */
-.slot.ocupado .disco{border:max(2px,0.7cqw*var(--e,1)) solid #000;background:#eef2f5}
+  font-size:max(8px,2.0cqw*var(--e,1));color:#303030;font-weight:800}
+/* Anel #303030 em volta da foto, e só ele: sem borda branca e sem sombra. */
+.slot.ocupado .disco{border:max(2px,0.33cqw*var(--e,1)) solid #303030;background:#eef2f5}
 .slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover}
-/* Bandeira como emoji: a imagem do TM exige a página dele; o emoji já vem
-   pronto na resposta e não depende de rede. */
-.slot .band{position:absolute;right:-6%;bottom:-4%;
-  width:calc(3.6cqw*var(--e,1));height:calc(3.6cqw*var(--e,1));
-  min-width:13px;min-height:13px;border-radius:50%;
-  border:2px solid #fff;background:#fff;display:flex;align-items:center;justify-content:center;
-  font-size:max(7px,2.3cqw*var(--e,1));line-height:1;overflow:hidden}
-/* Nome em caixa alta, preto, Poppins — sobre grama clara não precisa de
-   sombra, e a sombra escura que existia aqui só sujava a leitura. */
-.slot .rot{position:absolute;top:100%;left:50%;transform:translateX(-50%);
-  margin-top:.6cqw;white-space:nowrap;text-transform:uppercase;
+/* A placa de nome encosta POR CIMA da base do círculo — 12px de sobreposição
+   na arte do Vini, num 1080 de largura. Sem isso ela flutua solta e a leitura
+   muda completamente. */
+.slot .rot{position:absolute;top:calc(100% - 1.1cqw*var(--e,1));left:50%;
+  transform:translateX(-50%);
+  display:flex;align-items:center;gap:calc(.7cqw*var(--e,1));
+  height:calc(3.24cqw*var(--e,1));min-height:15px;
+  padding:0 calc(1.1cqw*var(--e,1));background:#303030;
+  white-space:nowrap;text-transform:uppercase;
   font-family:'Work Sans',-apple-system,BlinkMacSystemFont,sans-serif;
-  font-weight:600;color:#000;line-height:1.1;letter-spacing:.01em;
-  font-size:max(9px,2.7cqw*var(--e,1));pointer-events:none}
+  font-weight:600;color:#fff;line-height:1;letter-spacing:.02em;
+  font-size:max(8px,2.04cqw*var(--e,1));pointer-events:none}
+/* Bandeira à ESQUERDA do nome, DENTRO da placa — não mais a bolinha grudada no
+   canto do círculo. Emoji porque já vem pronto na resposta do elenco e não
+   depende de rede; no PNG do servidor ela vira imagem de verdade. */
+.slot .band{font-size:max(8px,2.04cqw*var(--e,1));line-height:1}
+/* A placa passa POR CIMA do círculo do vizinho. Sem isto, o slot desenhado
+   depois cobre o fim da placa do anterior — "RENAN LODI" virava "RENAN LO". */
+.slot .rot{z-index:5}
+
+.arte{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.arte input{flex:1 1 190px;min-width:150px}
+.arte input::placeholder{color:var(--text2)}
 .slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.55)}
 
 /* ── tabela ── */
@@ -10873,6 +10881,18 @@ __HDR__
     <div class="campo-caixa">
       <!-- Vazio: as linhas do campo vêm na própria arte de fundo. -->
       <div id="campo" class="campo"></div>
+      <!-- Os dois campos do cabeçalho e as duas listas do rodapé são texto
+           livre: a arte é publicada e quem publica precisa poder corrigir a
+           hora que mudou ou o nome que a fonte escreveu diferente, sem
+           depender de um deploy. -->
+      <div class="arte">
+        <input id="arteData" class="ctrl" placeholder="TERÇA | 18.08 | 13:15H">
+        <input id="arteConfronto" class="ctrl" placeholder="AL NAJMAH X AL ITTIHAD">
+        <input id="arteLesionados" class="ctrl" placeholder="Lesionados (separados por vírgula)">
+        <input id="arteSuspensos" class="ctrl" placeholder="Suspensos (separados por vírgula)">
+        <button class="ctrl" id="btnArte" onclick="baixarArte()">⬇️ Baixar imagem</button>
+        <span id="arteAviso" class="sub" style="margin:0"></span>
+      </div>
       <p id="infoJogo" class="sub" style="margin:8px 0 0"></p>
       <p class="sub" style="margin:4px 0 0">Arraste um jogador da lista para uma posição. Arraste entre posições para trocar. Clique numa posição ocupada para esvaziar.</p>
     </div>
@@ -11188,13 +11208,16 @@ function preencherAuto(){
 // converti para % da caixa, para a conta acompanhar qualquer redimensionamento:
 // a linha de fundo de LONGE tem 47,91% da largura e fica a 5,98% do topo; a de
 // PERTO tem 89,77% e fica a 89,92%. O eixo central cai em 49,53%.
-// yMeio é a linha do meio-campo da arte, e não a média das outras duas: numa
-// perspectiva ela fica bem acima do meio da tela (32,9% e não 48%).
-const PROJ = {cx:49.53, yLonge:5.98, yMeio:32.91, yPerto:89.92,
-              wLonge:47.91, wPerto:89.77};
-// Fecha o leque lateral: nas pontas o jogador ficaria montado na linha lateral
-// e o nome sairia do gramado.
-const APERTO = 0.86;
+// Medidas em % da ARTE INTEIRA (1080x1350), não de um recorte: a guia mostra o
+// template completo porque é ele que o Vini baixa no fim.
+// yMeio é a linha do meio-campo desenhada na arte, e não a média das outras
+// duas: numa perspectiva ela fica bem acima do meio do campo (42,1% da altura,
+// e não 49,9%).
+const PROJ = {cx:49.95, yLonge:29.19, yMeio:42.15, yPerto:70.59,
+              wLonge:34.54, wPerto:75.78};
+// Fecha o leque lateral. Agora a placa de nome é larga, então a ponta precisa
+// entrar mais que antes para a placa não sair do gramado.
+const APERTO = 0.80;
 
 // Mapa projetivo y(v) = (a*v + b)/(c*v + 1), ajustado para passar EXATO pelas
 // três linhas que dá para medir na arte: fundo de longe (v=0), meio-campo
@@ -11219,9 +11242,11 @@ function projetar(x, y){
   return {
     x: PROJ.cx + (u - 0.5)*larg,
     y: py,
-    // Quem está no fundo é menor. O piso de 0,66 é para o nome lá atrás
-    // continuar legível — realismo puro deixaria o atacante ilegível.
-    e: 0.66 + 0.34*(larg/PROJ.wPerto)
+    // Quem está no fundo é um pouco menor, mas só um pouco: medi na arte
+    // pronta do Vini e a placa do goleiro adversário tem 32px contra 35 do
+    // goleiro de perto — 0,91. Perspectiva de verdade daria 0,46 e deixaria o
+    // ataque ilegível. Aqui o intervalo é 0,88 a 1,00.
+    e: 0.88 + 0.12*(larg - PROJ.wLonge)/(PROJ.wPerto - PROJ.wLonge)
   };
 }
 
@@ -11241,18 +11266,15 @@ function renderCampo(){
     el.draggable = true;
     el.dataset.slot = i;
     let disco = '<div class="disco">';
-    if (j) {
-      disco += j.foto ? imgFoto(j, 'foto', '') : '<span>' + GRUPO_PT[c.g] + '</span>';
-      if (j.pais_bandeira) {
-        disco += '<span class="band" title="' + (j.nacionalidade || '') + '">' + j.pais_bandeira + '</span>';
-      }
-    } else {
-      disco += '<span>' + GRUPO_PT[c.g] + '</span>';
-    }
+    disco += (j && j.foto) ? imgFoto(j, 'foto', '')
+                           : '<span>' + GRUPO_PT[c.g] + '</span>';
     disco += '</div>';
     // Só o sobrenome, sem número: nome inteiro encavalava no vizinho no celular.
+    // A bandeira agora abre a placa, à esquerda do nome, como na arte pronta.
     const rot = j ? '<div class="rot" title="' + (j.nome || '') + '">' +
-                    nomeCurto(j.nome) + '</div>' : '';
+                    (j.pais_bandeira
+                       ? '<span class="band">' + j.pais_bandeira + '</span>' : '') +
+                    '<span>' + nomeCurto(j.nome) + '</span></div>' : '';
     el.innerHTML = disco + rot;
     ligarReserva(el);
     el.addEventListener('dragstart', function(ev){
@@ -11267,6 +11289,62 @@ function renderCampo(){
     el.addEventListener('click', function(){ if (SLOTS[i].id) { SLOTS[i].id = null; renderCampo(); renderTabela(); } });
     campo.appendChild(el);
   });
+}
+
+// ── baixar a arte ───────────────────────────────────────────────────────────
+// Quem monta o PNG é o servidor. Tentar montar aqui num <canvas> não funciona:
+// a foto do jogador vem do Transfermarkt, de outro domínio, e um único pixel
+// de fora CONTAMINA o canvas — o toBlob passa a lançar erro de segurança.
+async function baixarArte(){
+  const btn = document.getElementById('btnArte');
+  const aviso = document.getElementById('arteAviso');
+  const ocupados = SLOTS.filter(function(s){ return s.id; });
+  if (!ocupados.length) { aviso.textContent = 'Escale alguém antes.'; return; }
+  const lista = function(id){
+    return (document.getElementById(id).value || '')
+             .split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  };
+  btn.disabled = true; aviso.textContent = 'Montando a imagem…';
+  try {
+    const r = await fetch('/api/elencos/arte', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        linha_data: document.getElementById('arteData').value || '',
+        confronto: document.getElementById('arteConfronto').value || '',
+        lesionados: lista('arteLesionados'),
+        suspensos: lista('arteSuspensos'),
+        jogadores: ocupados.map(function(s){
+          const j = porId(s.id) || {};
+          return {nome: nomeCurto(j.nome) || j.nome || '',
+                  // O endereço de reserva é o NOSSO proxy; o direto do TM pode
+                  // recusar quem não vem da página dele. O servidor busca com
+                  // calma, então mando o que for mais confiável.
+                  foto: j.foto_reserva ? (location.origin + j.foto_reserva) : (j.foto || null),
+                  bandeira: j.pais_bandeira || null,
+                  x: s.x, y: s.y};
+        })
+      })
+    });
+    if (!r.ok) {
+      let m = 'HTTP ' + r.status;
+      try { m = (await r.json()).erro || m; } catch(e) {}
+      aviso.textContent = 'Não deu: ' + m; return;
+    }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = ((document.getElementById('arteConfronto').value || 'escalacao')
+                    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+                  || 'escalacao') + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    aviso.textContent = 'Baixou.';
+  } catch(e) {
+    aviso.textContent = 'Não deu: ' + e;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 function soltarEm(slot, carga){
@@ -11385,23 +11463,37 @@ carregarTimes();
 # recorrente de erro neste arquivo. Os trechos dinâmicos entram por replace.
 
 # Cada casa do campo: x e y em %, e o grupo (G/D/M/A) que guia o preenchimento
-# automático. y=92 é a área do goleiro, y=14 é o ataque.
+# automático. y=93 é a área do goleiro, y=14 é o ataque.
+#
+# POR QUE OS PARES ESTÃO DESALINHADOS (08/09/26)
+#     Enquanto o nome era texto solto sobre a grama, dois jogadores no mesmo
+#     y ficavam bem. Agora cada nome vem numa PLACA #303030 com bandeira, que
+#     no pior caso ("ABDULHAMID", "MILINKOVIC") passa de 230px de largura numa
+#     arte de 1080 — e o gramado, lá no meio-campo em perspectiva, tem uns 600.
+#     Três placas lado a lado não cabem. Por isso os pares centrais saem
+#     escalonados no eixo y: é o mesmo recurso que a arte pronta do Vini usa,
+#     onde os dois zagueiros e os dois volantes nunca estão na mesma altura.
+#
+#     A altura da placa vale ~8 unidades de y no meio-campo. Escalonar menos
+#     que isso não resolve nada. teste_campo_perspectiva.py mede a sobreposição
+#     de verdade, com o nome mais comprido possível em cada posição.
 _ELENCOS_FORMACOES = {
-    "4-3-3":   [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
-                (30,54,"M"),(50,60,"M"),(70,54,"M"),(15,24,"A"),(50,16,"A"),(85,24,"A")],
-    "4-2-3-1": [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
-                (36,60,"M"),(64,60,"M"),(15,36,"M"),(50,38,"M"),(85,36,"M"),(50,16,"A")],
-    "4-4-2":   [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
-                (12,52,"M"),(38,56,"M"),(62,56,"M"),(88,52,"M"),(38,18,"A"),(62,18,"A")],
-    "4-1-4-1": [(50,92,"G"),(12,74,"D"),(37,77,"D"),(63,77,"D"),(88,74,"D"),
-                (50,62,"M"),(12,42,"M"),(38,44,"M"),(62,44,"M"),(88,42,"M"),(50,16,"A")],
-    "3-5-2":   [(50,92,"G"),(27,77,"D"),(50,79,"D"),(73,77,"D"),
-                (8,55,"M"),(34,55,"M"),(50,60,"M"),(66,55,"M"),(92,55,"M"),(38,18,"A"),(62,18,"A")],
-    "3-4-3":   [(50,92,"G"),(27,77,"D"),(50,79,"D"),(73,77,"D"),
-                (10,55,"M"),(38,58,"M"),(62,58,"M"),(90,55,"M"),
-                (15,24,"A"),(50,16,"A"),(85,24,"A")],
-    "5-3-2":   [(50,92,"G"),(8,66,"D"),(27,78,"D"),(50,80,"D"),(73,78,"D"),(92,66,"D"),
-                (30,52,"M"),(50,57,"M"),(70,52,"M"),(38,18,"A"),(62,18,"A")],
+    "4-3-3":   [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
+                (27,50,"M"),(50,58,"M"),(73,50,"M"),(14,24,"A"),(50,14,"A"),(86,24,"A")],
+    "4-2-3-1": [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
+                (29,56,"M"),(71,56,"M"),(12,35,"M"),(50,43,"M"),(88,35,"M"),(50,14,"A")],
+    "4-4-2":   [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
+                (11,46,"M"),(28,55,"M"),(72,55,"M"),(89,46,"M"),(30,14,"A"),(70,24,"A")],
+    "4-1-4-1": [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
+                (50,64,"M"),(10,36,"M"),(27,46,"M"),(73,46,"M"),(90,36,"M"),(50,14,"A")],
+    "3-5-2":   [(50,93,"G"),(25,78,"D"),(50,84,"D"),(75,78,"D"),
+                (8,58,"M"),(27,42,"M"),(50,51,"M"),(73,42,"M"),(92,58,"M"),
+                (30,14,"A"),(70,24,"A")],
+    "3-4-3":   [(50,93,"G"),(25,78,"D"),(50,84,"D"),(75,78,"D"),
+                (12,50,"M"),(33,58,"M"),(67,64,"M"),(88,50,"M"),
+                (14,24,"A"),(50,14,"A"),(86,24,"A")],
+    "5-3-2":   [(50,93,"G"),(9,62,"D"),(27,76,"D"),(50,84,"D"),(73,76,"D"),(91,62,"D"),
+                (27,46,"M"),(50,56,"M"),(73,46,"M"),(30,14,"A"),(70,24,"A")],
 }
 
 
@@ -12654,6 +12746,84 @@ async def api_elencos_escalacao(team: int):
         "titulares": titulares, "suplentes": [{"id": p} for p in bloco.get("banco") or []],
         "avisos": [a for a in (av1, av2, aviso_time) if a],
     }
+
+
+async def _baixar(client, url: str | None) -> bytes | None:
+    """Uma imagem, ou None. Nunca levanta: arte sem foto é melhor que erro 500."""
+    if not url:
+        return None
+    try:
+        r = await client.get(url, timeout=12)
+        if r.status_code == 200 and r.content:
+            return r.content
+    except Exception:
+        pass
+    return None
+
+
+@app.post("/api/elencos/arte")
+async def api_elencos_arte(request: Request):
+    """O PNG 1080x1350 da provável escalação, pronto pra postar.
+
+    A página manda o que ela JÁ TEM na tela — nome, endereço da foto, emoji da
+    bandeira e a posição de cada um. Assim o servidor não precisa raspar o
+    Transfermarkt de novo só para montar a imagem, e o que sai no arquivo é
+    exatamente a escalação que está na tela, inclusive as trocas feitas à mão.
+    """
+    import asyncio
+
+    import escalacao_arte
+
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+
+    jogadores = (corpo.get("jogadores") or [])[:11]
+    if not jogadores:
+        return JSONResponse({"erro": "nenhum jogador na escalação"}, status_code=400)
+
+    fotos = [j.get("foto") for j in jogadores]
+    bandeiras = [escalacao_arte.iso_da_bandeira(j.get("bandeira")) for j in jogadores]
+    faixa = [corpo.get("escudo_casa"), corpo.get("logo_competicao"),
+             corpo.get("escudo_fora")]
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        baixados = await asyncio.gather(*[
+            _baixar(client, u) for u in
+            fotos
+            + [f"https://flagcdn.com/w40/{i}.png" if i else None for i in bandeiras]
+            + faixa
+        ])
+
+    n = len(jogadores)
+    prontos = []
+    for i, j in enumerate(jogadores):
+        prontos.append({
+            "nome": j.get("nome") or "",
+            "x": j.get("x", 50), "y": j.get("y", 50),
+            "foto": baixados[i],
+            "bandeira": baixados[n + i],
+        })
+
+    try:
+        png = escalacao_arte.montar({
+            "titulo": corpo.get("titulo") or "PROVÁVEL ESCALAÇÃO",
+            "linha_data": corpo.get("linha_data") or "",
+            "confronto": corpo.get("confronto") or "",
+            "faixa": baixados[2 * n:2 * n + 3],
+            "jogadores": prontos,
+            "lesionados": corpo.get("lesionados") or [],
+            "suspensos": corpo.get("suspensos") or [],
+        })
+    except Exception as e:
+        return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, status_code=500)
+
+    nome_arq = (corpo.get("confronto") or "escalacao").lower()
+    nome_arq = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", nome_arq)
+                      .encode("ascii", "ignore").decode()).strip("-") or "escalacao"
+    return Response(png, media_type="image/png", headers={
+        "Content-Disposition": f'attachment; filename="{nome_arq}.png"'})
 
 
 @app.get("/api/numeros/debug-af")

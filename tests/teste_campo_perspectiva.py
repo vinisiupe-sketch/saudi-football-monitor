@@ -36,10 +36,23 @@ os.chdir(RAIZ)
 FONTE = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
 ARTE = os.path.join(RAIZ, "public", "masks", "campo-perspectiva.png")
 
-# O recorte com que as constantes de projetar() foram medidas. Está aqui para
-# que trocar a arte por outra de enquadramento diferente falhe ALTO, em vez de
+# A arte com que as constantes de projetar() foram medidas. Está aqui para que
+# trocar o template por outro de enquadramento diferente falhe ALTO, em vez de
 # silenciosamente empurrar os jogadores para fora da grama.
-TAMANHO_ESPERADO = (860, 635)
+TAMANHO_ESPERADO = (1080, 1350)
+
+# As três linhas que dão as constantes, em % da arte. Repetidas aqui de
+# propósito: se alguém mexer em PROJ sem remedir a imagem, os dois números
+# discordam e o teste fala. Ler PROJ do main.py seria conferir a conta contra
+# ela mesma.
+MARCOS = (("linha de fundo de longe", 0, 29.19),
+          ("meio-campo", 50, 42.15),
+          ("linha de fundo de perto", 100, 70.59))
+
+# À esquerda a arte tem a faixa dos escudos, e o primeiro bloco dela é verde.
+# Medir o meio do gramado sem ignorar essa faixa dá um centro deslocado ~9%
+# para a esquerda — e o teste passaria a exigir que a formação ficasse torta.
+X_MIN_GRAMADO = 200
 
 falhas = []
 
@@ -172,15 +185,13 @@ def testar():
            "public/fonts — o navegador cairia na fonte do sistema sem avisar")
 
     # ── 1. os marcos: a projeção passa pelas linhas que ela diz passar ───────
-    marcos = _rodar(codigo, [[50, 0], [50, 50], [50, 100], [50, 92], [50, 16]])
+    marcos = _rodar(codigo, [[50, m[1]] for m in MARCOS] + [[50, 92], [50, 16]])
     if len(marcos) == 5:
-        longe, meio, perto, goleiro, atacante = marcos
-        for nome, deu, esperado in (("linha de fundo de longe", longe["y"], 5.98),
-                                    ("meio-campo", meio["y"], 32.91),
-                                    ("linha de fundo de perto", perto["y"], 89.92)):
-            ok(abs(deu - esperado) < 0.6,
-               f"a projeção deixou de cair no {nome} da arte: deu {deu:.2f}%, "
-               f"a linha está em {esperado}%")
+        goleiro, atacante = marcos[3], marcos[4]
+        for (nome, _, esperado), p in zip(MARCOS, marcos):
+            ok(abs(p["y"] - esperado) < 0.6,
+               f"a projeção deixou de cair no {nome} da arte: deu "
+               f"{p['y']:.2f}%, a linha está em {esperado}%")
 
         # Orientação. O ataque é para CIMA (y=16 no ataque, y=92 no gol) desde
         # que a guia existe; inverter isso põe o goleiro na área adversária e
@@ -190,7 +201,7 @@ def testar():
            "ALTO na tela que o atacante (y=16)")
         # E quem está no fundo tem que ser menor, senão a perspectiva não
         # existe — foi por isso que o disco ganhou a variável --e.
-        ok(atacante["e"] < goleiro["e"] - 0.05,
+        ok(atacante["e"] < goleiro["e"] - 0.02,
            "o jogador do fundo parou de ser desenhado menor que o de perto")
 
     # ── 1b. o eixo central está no eixo central ─────────────────────────────
@@ -205,9 +216,9 @@ def testar():
         if not p:
             break
         linha = round(p[0]["y"] * alt / 100)
-        if not 0 <= linha < alt * 0.6:      # embaixo o verde vaza do gramado
+        if not 0 <= linha < alt * 0.72:     # embaixo o verde vaza do gramado
             continue
-        verdes = [x for x in range(larg)
+        verdes = [x for x in range(X_MIN_GRAMADO, larg)
                   if px[x, linha][1] > 120
                   and px[x, linha][1] > px[x, linha][0] + 40
                   and px[x, linha][1] > px[x, linha][2] + 40]
