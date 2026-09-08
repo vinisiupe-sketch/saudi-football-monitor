@@ -105,13 +105,39 @@ def _fonte(arquivo: str, tamanho: int):
     return ImageFont.truetype(os.path.join(FONTES, arquivo), max(1, int(tamanho)))
 
 
+SUPER = 4          # fator de superamostragem do círculo
+
+
 def _circulo(dados: bytes | None, diam: float) -> "Image.Image":
-    """Foto recortada em círculo, com o anel #303030 por fora."""
+    """Foto recortada em círculo, com o anel #303030 por fora.
+
+    DESENHADO GRANDE E REDUZIDO DEPOIS (08/09/26)
+        O ImageDraw.ellipse do PIL não tem suavização: cada pixel entra ou não
+        entra, sem meio-termo. Num círculo de 86px isso vira a escadinha que o
+        Vini viu ao abrir o arquivo baixado — na tela o navegador suaviza, no
+        PNG não havia quem suavizasse. O mesmo motivo fazia a foto "vazar":
+        a borda serrilhada da máscara deixava passar canto de foto onde a
+        borda do anel, também serrilhada, não cobria.
+
+        A saída é desenhar tudo em 4x e reduzir com LANCZOS. A redução é o que
+        cria os pixels intermediários — é antisserrilhamento de verdade, e não
+        um filtro de desfoque por cima.
+
+    O ANEL FICA POR DENTRO
+        Antes ele era desenhado montado na borda, metade para fora do círculo.
+        Metade de um anel de 3px é o que dava a impressão de anel "mais fino"
+        que o da tela, e era ali que a foto escapava. Agora ele é traçado
+        inteiramente dentro do disco.
+    """
     from PIL import Image, ImageDraw
-    lado = int(round(diam))
-    fora = Image.new("RGBA", (lado, lado), (0, 0, 0, 0))
+    lado = max(1, int(round(diam)))
+    g = lado * SUPER
+    anel = max(2.0, FOTO_ANEL * diam / FOTO_DIAM) * SUPER
+
+    fora = Image.new("RGBA", (g, g), (0, 0, 0, 0))
     d = ImageDraw.Draw(fora)
-    d.ellipse([0, 0, lado - 1, lado - 1], fill=FOTO_VAZIA)
+    d.ellipse([0, 0, g - 1, g - 1], fill=FOTO_VAZIA)
+
     if dados:
         try:
             foto = Image.open(io.BytesIO(dados)).convert("RGB")
@@ -120,16 +146,22 @@ def _circulo(dados: bytes | None, diam: float) -> "Image.Image":
             l = min(foto.size)
             e = (foto.width - l) // 2
             t = (foto.height - l) // 2
-            foto = foto.crop((e, t, e + l, t + l)).resize((lado, lado), Image.LANCZOS)
-            mascara = Image.new("L", (lado, lado), 0)
-            ImageDraw.Draw(mascara).ellipse([0, 0, lado - 1, lado - 1], fill=255)
+            foto = foto.crop((e, t, e + l, t + l)).resize((g, g), Image.LANCZOS)
+            # A máscara para onde o anel começa: assim nenhum pixel de foto
+            # aparece por fora dele, nem no pior arredondamento.
+            mascara = Image.new("L", (g, g), 0)
+            ImageDraw.Draw(mascara).ellipse(
+                [anel, anel, g - 1 - anel, g - 1 - anel], fill=255)
             fora.paste(foto, (0, 0), mascara)
         except Exception:
             pass
-    anel = max(2, int(round(FOTO_ANEL * diam / FOTO_DIAM)))
-    d.ellipse([anel / 2, anel / 2, lado - 1 - anel / 2, lado - 1 - anel / 2],
-              outline=GRAFITE, width=anel)
-    return fora
+
+    # O contorno do PIL cresce PARA DENTRO da caixa, e não centrado nela. Com a
+    # caixa recuada de meio anel sobrava um aro claro entre o anel e a grama —
+    # o mesmo halo que fazia o anel parecer mais fino do que o da tela. A caixa
+    # aqui é o disco inteiro justamente por isso.
+    d.ellipse([0, 0, g - 1, g - 1], outline=GRAFITE, width=int(round(anel)))
+    return fora.resize((lado, lado), Image.LANCZOS)
 
 
 def _bandeira(dados: bytes | None, alt: float):

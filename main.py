@@ -53,6 +53,7 @@ import glossary
 # de re, time e urllib; não há ciclo.
 import liga_spl
 import ajustes
+import formacoes
 import contas
 from sources import SOURCE_MOON
 import elenco_tm
@@ -11471,43 +11472,11 @@ carregarTimes();
 # tela são grandes e, num f-string, cada chave precisaria ser duplicada — origem
 # recorrente de erro neste arquivo. Os trechos dinâmicos entram por replace.
 
-# Cada casa do campo: x e y em %, e o grupo (G/D/M/A) que guia o preenchimento
-# automático. y=93 é a área do goleiro, y=14 é o ataque.
-#
-# POR QUE OS PARES ESTÃO DESALINHADOS (08/09/26)
-#     Enquanto o nome era texto solto sobre a grama, dois jogadores no mesmo
-#     y ficavam bem. Agora cada nome vem numa PLACA #303030 com bandeira, que
-#     no pior caso ("ABDULHAMID", "MILINKOVIC") passa de 230px de largura numa
-#     arte de 1080. Não havia como caber onze dessas espremidas no meio.
-#
-#     A primeira tentativa foi manter todo mundo sobre a grama e escalonar os
-#     pares no eixo y. Ficou tudo grudado no miolo, e o Vini disse exatamente
-#     isso ao ver. A saída foi outra: liberar a lateral. Com APERTO=1,00 o x=0
-#     é a linha lateral, e a placa do ponta passa POR CIMA dela — que era o que
-#     ele queria ("pode ir e até ficar em cima da borda lateral do campo").
-#     A FOTO continua tendo que cair na grama; só a placa pode vazar.
-#
-#     teste_campo_perspectiva.py mede a sobreposição de verdade, com o nome
-#     mais comprido possível em cada posição.
-_ELENCOS_FORMACOES = {
-    "4-3-3":   [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
-                (20,52,"M"),(50,60,"M"),(80,52,"M"),
-                (2,26,"A"),(50,16,"A"),(98,26,"A")],
-    "4-2-3-1": [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
-                (32,58,"M"),(68,58,"M"),(8,36,"M"),(50,44,"M"),(92,36,"M"),(50,16,"A")],
-    "4-4-2":   [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
-                (6,48,"M"),(33,56,"M"),(67,56,"M"),(94,48,"M"),(22,18,"A"),(78,18,"A")],
-    "4-1-4-1": [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
-                (50,64,"M"),(6,38,"M"),(28,46,"M"),(72,46,"M"),(94,38,"M"),(50,16,"A")],
-    "3-5-2":   [(50,93,"G"),(18,78,"D"),(50,82,"D"),(82,78,"D"),
-                (5,58,"M"),(28,44,"M"),(50,52,"M"),(72,44,"M"),(95,58,"M"),
-                (22,18,"A"),(78,18,"A")],
-    "3-4-3":   [(50,93,"G"),(18,78,"D"),(50,82,"D"),(82,78,"D"),
-                (6,52,"M"),(33,60,"M"),(67,60,"M"),(94,52,"M"),
-                (2,26,"A"),(50,16,"A"),(98,26,"A")],
-    "5-3-2":   [(50,93,"G"),(4,64,"D"),(20,78,"D"),(50,84,"D"),(80,78,"D"),(96,64,"D"),
-                (22,48,"M"),(50,56,"M"),(78,48,"M"),(22,18,"A"),(78,18,"A")],
-}
+# As casas de cada formação moram em formacoes.py, que é também de onde o
+# elenco_tm tira as posições da escalação carregada do último jogo. Eram duas
+# tabelas diferentes antes, e a divergência entre elas foi um defeito de
+# verdade — a história está escrita lá.
+_ELENCOS_FORMACOES = formacoes.QUADROS
 
 
 @app.get("/elencos", response_class=HTMLResponse)
@@ -12788,6 +12757,35 @@ async def _baixar(client, url: str | None) -> bytes | None:
     return None
 
 
+def _fotos_candidatas(url: str | None) -> list[str]:
+    """A mesma foto em tamanhos decrescentes, da melhor para a que existir.
+
+    O endereço que a página do elenco publica é o /portrait/small/, de 60px. O
+    círculo da arte tem 86px: subir um retrato de 60 para 86 é o borrão que o
+    Vini viu. O mesmo arquivo existe em /big/ e /medium/ no servidor de imagem
+    do TM, com o mesmo nome — troco só a pasta.
+
+    Devolve uma LISTA porque nem todo jogador tem todas as versões. Quem tentar
+    na ordem é o chamador; a original fica por último e é a garantia de que
+    ninguém perde a foto que já tinha."""
+    if not url:
+        return []
+    fatias = ["/portrait/big/", "/portrait/medium/", "/portrait/small/"]
+    atual = next((f for f in fatias if f in url), "")
+    if not atual:
+        return [url]
+    return [url.replace(atual, f) for f in fatias if f != atual] + [url]
+
+
+async def _baixar_foto(client, url: str | None) -> bytes | None:
+    """A melhor versão disponível da foto do jogador."""
+    for candidata in _fotos_candidatas(url):
+        dados = await _baixar(client, candidata)
+        if dados:
+            return dados
+    return None
+
+
 @app.post("/api/elencos/arte")
 async def api_elencos_arte(request: Request):
     """O PNG 1080x1350 do campinho com os onze, pronto pra levar ao Canva.
@@ -12814,11 +12812,12 @@ async def api_elencos_arte(request: Request):
     bandeiras = [escalacao_arte.iso_da_bandeira(j.get("bandeira")) for j in jogadores]
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
-        baixados = await asyncio.gather(*[
-            _baixar(client, u) for u in
-            fotos
-            + [f"https://flagcdn.com/w40/{i}.png" if i else None for i in bandeiras]
-        ])
+        baixados = await asyncio.gather(
+            *[_baixar_foto(client, u) for u in fotos],
+            # w80 e não w40: a bandeirinha tem ~16px de altura, mas reduzir de
+            # uma imagem maior sai limpo e subir de uma menor sai borrado.
+            *[_baixar(client, f"https://flagcdn.com/w80/{i}.png" if i else None)
+              for i in bandeiras])
 
     n = len(jogadores)
     prontos = [{"nome": j.get("nome") or "",

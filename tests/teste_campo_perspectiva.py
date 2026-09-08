@@ -86,13 +86,13 @@ def _codigo_da_projecao() -> str:
 
 
 def _formacoes() -> dict:
-    """_ELENCOS_FORMACOES lido do próprio main.py, sem importar o módulo."""
-    for no in ast.walk(ast.parse(FONTE)):
-        if (isinstance(no, ast.Assign)
-                and any(getattr(a, "id", "") == "_ELENCOS_FORMACOES"
-                        for a in no.targets)):
-            return ast.literal_eval(no.value)
-    return {}
+    """As casas, lidas da ÚNICA tabela que deve existir.
+
+    Existiram duas — a da guia Elencos e uma grade regular escondida no
+    elenco_tm — e o teste olhava só para a primeira. Agora lê o formacoes.py e
+    confere, abaixo, que os dois consumidores realmente usam ele."""
+    import formacoes
+    return formacoes.QUADROS
 
 
 def _rodar(codigo: str, pedidos: list) -> list:
@@ -170,6 +170,25 @@ def testar():
        "projetar() foram medidas no recorte antigo: ou o enquadramento novo "
        "bate com elas, ou os jogadores vão cair fora do gramado")
 
+    # ── 0a. UMA tabela de posições, e não duas ──────────────────────────────
+    # O defeito de 08/09: eu abri as sete formações da guia Elencos e o Vini
+    # continuou vendo a 4-2-3-1 apertada. A escalação carregada do último jogo
+    # não passava por esta tabela — passava por uma grade regular escondida
+    # dentro do elenco_tm, que eu nem sabia que existia. Nada quebrou; a tela
+    # só ficou certa por um caminho e errada pelo outro.
+    fonte_tm = open(os.path.join(RAIZ, "elenco_tm.py"), encoding="utf-8").read()
+    ok("formacoes.coordenadas(" in fonte_tm,
+       "o elenco_tm voltou a decidir posição por conta própria — a escalação "
+       "carregada do último jogo vai ignorar o desenho das formações, e a guia "
+       "fica certa quando você escolhe a formação e errada quando ela vem do "
+       "jogo")
+    ok("_ELENCOS_FORMACOES = formacoes.QUADROS" in FONTE,
+       "a guia Elencos voltou a ter a própria cópia da tabela de posições")
+    for arquivo, texto in (("elenco_tm.py", fonte_tm), ("main.py", FONTE)):
+        ok('(c + 1) / (n + 1)' not in texto,
+           f"{arquivo} voltou a espalhar as casas em (c+1)/(n+1) — é a grade "
+           "regular que punha os quatro zagueiros em 20/40/60/80, colados")
+
     # ── 0. a fonte do nome existe onde o CSS diz que existe ─────────────────
     # Um @font-face apontando para arquivo inexistente não dá erro nenhum: o
     # navegador cai calado na fonte do sistema e a tela fica só um pouco
@@ -243,10 +262,83 @@ def testar():
            f"{rotulo} caiu FORA do gramado da arte, em {p['x']:.1f}% x "
            f"{p['y']:.1f}% (pixel {cx},{cy})")
 
+    # ── 3. as placas não se encavalam, e os setores respiram ────────────────
+    # Era isto que faltava aqui: a checagem de "cai na grama" está satisfeita
+    # com os onze empilhados no meio-campo. Foi o Vini quem viu ("tá tudo muito
+    # junto"), olhando a tela, o que um teste devia ter visto antes.
+    #
+    # A largura da placa é medida com o nome MAIS COMPRIDO de cada setor. Um
+    # elenco não tem onze "Abdulhamid", mas basta um numa posição apertada.
+    from PIL import ImageDraw, ImageFont
+    import escalacao_arte
+    desenho = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    PIOR_NOME = {"G": "AL-OWAIS", "D": "ABDULHAMID",
+                 "M": "MILINKOVIC", "A": "AL-DAWSARI"}
+    # Distância mínima, em unidades de campo, entre as medianas de dois
+    # setores vizinhos. A folga mais apertada hoje é 17 (defesa para goleiro).
+    # Em 14 o teste passava verde com o meio-campo puxado 10 para trás — testei
+    # a mutação; por isso o piso é 16 e não um número redondo qualquer.
+    FAIXA_MINIMA = 16
+
+    for nome, casas in formacoes.items():
+        pontos = _rodar(codigo, [[x, y] for x, y, _ in casas])
+        if len(pontos) != len(casas):
+            continue
+        placas = []
+        for (x, y, g), p in zip(casas, pontos):
+            esc = p["e"]
+            fonte = ImageFont.truetype(
+                os.path.join(RAIZ, "public", "fonts", "WorkSans-SemiBold-latin.ttf"),
+                max(1, int(escalacao_arte.NOME_CORPO * esc)))
+            cx, cy = p["x"] * larg / 100, p["y"] * alt / 100
+            raio = escalacao_arte.FOTO_DIAM * esc / 2
+            largura = (escalacao_arte.PLACA_PAD * 2 * esc
+                       + escalacao_arte.BANDEIRA_ALT * 1.5 * esc
+                       + escalacao_arte.PLACA_GAP * esc
+                       + desenho.textlength(PIOR_NOME[g], font=fonte))
+            topo = cy + raio - escalacao_arte.PLACA_SOBE * esc
+            placas.append(dict(g=g, x=x, y=y, cy=cy, raio=raio,
+                               x0=cx - largura / 2, x1=cx + largura / 2,
+                               y0=topo, y1=topo + escalacao_arte.PLACA_ALT * esc))
+
+        for i in range(len(placas)):
+            a = placas[i]
+            ok(a["x0"] >= 0 and a["x1"] <= larg,
+               f"{nome}: a placa de ({a['x']},{a['y']}) sai da imagem")
+            for b in placas[i + 1:]:
+                if (a["x0"] < b["x1"] and b["x0"] < a["x1"]
+                        and a["y0"] < b["y1"] and b["y0"] < a["y1"]):
+                    ok(False, f"{nome}: a placa de ({a['x']},{a['y']}) encavala "
+                              f"a de ({b['x']},{b['y']})")
+
+        # Setores em faixas SEPARADAS, do ataque para o gol.
+        #
+        # Comparado pela mediana de y de cada setor, e não pela borda da placa
+        # mais funda contra a foto mais alta do setor seguinte. Tentei assim
+        # primeiro e dez formações "falharam" sem ter defeito nenhum: dentro de
+        # um setor as posições são escalonadas de propósito (o lateral sobe, o
+        # zagueiro recua), e dois jogadores em colunas opostas do campo podem
+        # se cruzar na vertical sem encostar em nada. A sobreposição real já é
+        # medida logo acima, placa contra placa.
+        alturas = {}
+        for g in "GDMA":
+            ys = sorted(p["y"] for p in placas if p["g"] == g)
+            if ys:
+                alturas[g] = ys[len(ys) // 2]
+        for antes, depois in (("A", "M"), ("M", "D"), ("D", "G")):
+            if antes not in alturas or depois not in alturas:
+                continue
+            ok(alturas[depois] - alturas[antes] >= FAIXA_MINIMA,
+               f"{nome}: o setor {depois} está a {alturas[depois] - alturas[antes]:.0f} "
+               f"de {antes} — abaixo de {FAIXA_MINIMA} os setores deixam de ser "
+               "faixas e a arte vira um amontoado, que foi como o Vini "
+               "descreveu a versão anterior")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
-          f"  ✓ campo em perspectiva: {len(pedidos)} casas, todas na grama")
+          f"  ✓ campo em perspectiva: {len(pedidos)} casas na grama, nenhuma "
+          "placa encavalada, setores separados")
     return len(falhas)
 
 

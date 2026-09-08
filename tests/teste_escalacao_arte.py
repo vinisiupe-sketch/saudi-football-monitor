@@ -56,12 +56,13 @@ def _tem_node() -> str:
 
 
 def _formacoes() -> dict:
-    for no in ast.walk(ast.parse(FONTE)):
-        if (isinstance(no, ast.Assign)
-                and any(getattr(a, "id", "") == "_ELENCOS_FORMACOES"
-                        for a in no.targets)):
-            return ast.literal_eval(no.value)
-    return {}
+    """As casas, lidas da ÚNICA tabela que deve existir.
+
+    Existiram duas — a da guia Elencos e uma grade regular escondida no
+    elenco_tm — e o teste olhava só para a primeira. Agora lê o formacoes.py e
+    confere, abaixo, que os dois consumidores realmente usam ele."""
+    import formacoes
+    return formacoes.QUADROS
 
 
 def _projetar_no_navegador(node: str, pedidos: list) -> list:

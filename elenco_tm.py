@@ -411,20 +411,13 @@ def posicoes_no_campo(formacao: str | None, quantidade: int = 11) -> list[tuple[
     """Coordenadas de cada casa, na ordem em que a súmula lista os titulares.
 
     A súmula do TM lista do goleiro para a frente, então a formação sozinha já
-    diz quem fica onde — sem precisar da grade de coordenadas, que o TM só
-    desenha em imagem."""
-    linhas = [1]
-    if formacao:
-        try:
-            linhas += [int(x) for x in formacao.split("-")]
-        except ValueError:
-            linhas = [1]
-    if sum(linhas) != quantidade:
-        linhas = [1, 4, 3, 3] if quantidade == 11 else [quantidade]
-    coords = []
-    total = len(linhas)
-    for li, n in enumerate(linhas):
-        y = 92.0 if total <= 1 else 92.0 - li * (76.0 / (total - 1))
-        for c in range(n):
-            coords.append((round(((c + 1) / (n + 1)) * 100, 1), round(y, 1)))
-    return coords
+    diz quem fica onde — o TM só desenha a grade em imagem.
+
+    QUEM DECIDE AS COORDENADAS É O formacoes.py, e não este arquivo. Aqui
+    existia uma segunda tabela, uma grade regular, e ela era a que valia no
+    caminho normal (a escalação do último jogo, carregada sozinha ao abrir o
+    clube). Resultado: eu abri as sete formações da tabela da guia Elencos, o
+    Vini olhou e disse que a 4-2-3-1 "não mudou nada" — porque a dele vinha
+    daqui, e eu nem tinha aberto este arquivo."""
+    import formacoes
+    return formacoes.coordenadas(formacao, quantidade)
