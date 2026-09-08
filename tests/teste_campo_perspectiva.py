@@ -157,6 +157,20 @@ def testar():
        "projetar() foram medidas no recorte antigo: ou o enquadramento novo "
        "bate com elas, ou os jogadores vão cair fora do gramado")
 
+    # ── 0. a fonte do nome existe onde o CSS diz que existe ─────────────────
+    # Um @font-face apontando para arquivo inexistente não dá erro nenhum: o
+    # navegador cai calado na fonte do sistema e a tela fica só um pouco
+    # diferente. Ninguém percebe, e a diferença é justamente o que o Vini
+    # escolheu a dedo.
+    for trecho in FONTE.split("@font-face{")[1:]:
+        decl = trecho.split("}")[0]
+        if "url('/fonts/" not in decl:
+            continue
+        arq = decl.split("url('/fonts/")[1].split("'")[0]
+        ok(os.path.exists(os.path.join(RAIZ, "public", "fonts", arq)),
+           f"o CSS pede /fonts/{arq} e esse arquivo não existe em "
+           "public/fonts — o navegador cairia na fonte do sistema sem avisar")
+
     # ── 1. os marcos: a projeção passa pelas linhas que ela diz passar ───────
     marcos = _rodar(codigo, [[50, 0], [50, 50], [50, 100], [50, 92], [50, 16]])
     if len(marcos) == 5:

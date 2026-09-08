@@ -10722,12 +10722,19 @@ __HEADER_CSS__
   --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:var(--c-acento);
 }
 *{box-sizing:border-box}
-/* O nome do jogador no campinho usa Poppins, que já mora em public/fonts e é
-   de licença aberta (OFL). A Canva Sans do template NÃO entra aqui: a licença
-   dela é de uso dentro do Canva, e servir o arquivo numa página pública é
-   distribuição — qualquer visitante baixaria a fonte pelo inspetor. */
-@font-face{font-family:'Poppins';src:url('/fonts/Poppins-Bold.ttf') format('truetype');
-  font-weight:700;font-style:normal;font-display:swap}
+/* O nome do jogador no campinho usa Work Sans SemiBold (SIL OFL, sem Reserved
+   Font Name). A Canva Sans do template NÃO entra aqui: a licença dela é de uso
+   dentro do Canva, e servir o arquivo numa página pública é distribuição —
+   qualquer visitante baixaria a fonte pelo inspetor.
+
+   Medi a semelhança de forma glifo a glifo contra a Canva Sans Bold: Work Sans
+   SemiBold 90,6%, Work Sans Bold 85,6%, Poppins Bold 83,7%. O peso SemiBold
+   ganha do Bold porque a Canva Sans Bold é mais leve do que o nome sugere.
+
+   O arquivo é um SUBCONJUNTO (latim básico + acentuado + hifens tipográficos):
+   23 KB em vez de 191 KB, e esta fonte só desenha sobrenome em caixa alta. */
+@font-face{font-family:'Work Sans';src:url('/fonts/WorkSans-SemiBold-latin.ttf') format('truetype');
+  font-weight:600;font-style:normal;font-display:swap}
 body{margin:0;background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 .wrap{max-width:1600px;margin:0 auto;padding:18px 20px 60px}
@@ -10815,8 +10822,8 @@ h1{font-size:1.5rem;margin:0 0 4px}
    sombra, e a sombra escura que existia aqui só sujava a leitura. */
 .slot .rot{position:absolute;top:100%;left:50%;transform:translateX(-50%);
   margin-top:.6cqw;white-space:nowrap;text-transform:uppercase;
-  font-family:'Poppins',-apple-system,BlinkMacSystemFont,sans-serif;
-  font-weight:700;color:#000;line-height:1.1;letter-spacing:.01em;
+  font-family:'Work Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+  font-weight:600;color:#000;line-height:1.1;letter-spacing:.01em;
   font-size:max(9px,2.7cqw*var(--e,1));pointer-events:none}
 .slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.55)}
 
