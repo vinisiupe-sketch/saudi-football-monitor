@@ -122,13 +122,7 @@ def testar():
     jogadores = [{"nome": "AL-DAWSARI", "x": x, "y": y, "foto": None,
                   "bandeira": None} for x, y, _ in casas]
     try:
-        png = escalacao_arte.montar({
-            "linha_data": "TERÇA | 18.08 | 13:15H",
-            "confronto": "AL NAJMAH X AL ITTIHAD",
-            "jogadores": jogadores,
-            "lesionados": ["Salem", "Theo Hernandez", "Ali Lajami"],
-            "suspensos": ["Yusuf Akcicek"],
-        })
+        png = escalacao_arte.montar({"jogadores": jogadores})
     except Exception as e:
         falhas.append(f"a arte nem monta com jogador sem foto: {type(e).__name__}: {e}")
         png = b""
@@ -174,8 +168,10 @@ def testar():
              escalacao_arte.FOTO_DIAM),
             ("anel da foto", r"\.slot\.ocupado \.disco\{border:max\(2px,([\d.]+)cqw",
              escalacao_arte.FOTO_ANEL),
-            ("altura da placa", r"height:calc\(([\d.]+)cqw\*var\(--e,1\)\);min-height",
+            ("altura da placa", r"height:calc\(([\d.]+)cqw\*var\(--e,1\)\);min-height:15px",
              escalacao_arte.PLACA_ALT),
+            ("altura da bandeira", r"\.slot \.band\{height:calc\(([\d.]+)cqw",
+             escalacao_arte.BANDEIRA_ALT),
             ("sobreposição da placa", r"top:calc\(100% - ([\d.]+)cqw\*var\(--e",
              escalacao_arte.PLACA_SOBE),
             ("respiro da placa", r"padding:0 calc\(([\d.]+)cqw\*var\(--e",
@@ -193,6 +189,49 @@ def testar():
                f"{rotulo}: a tela usa {m.group(1)}cqw e o PNG usa "
                f"{valor / escalacao_arte.CQ:.2f} — o que o Vini vê e o que ele "
                "baixa deixaram de ter o mesmo tamanho")
+
+    # ── 3c. a foto do jogador PRECISA do Referer ─────────────────────────────
+    # O defeito que o Vini pegou olhando a arte baixada: os onze círculos
+    # vazios. O Transfermarkt responde 403 para quem não vem da página dele, e
+    # o _baixar() ia sem cabeçalho nenhum. Nada quebrava — a imagem simplesmente
+    # não vinha, e o PNG saía com o cinza de fundo no lugar do rosto.
+    #
+    # Rodo o _baixar() DE VERDADE, arrancado do main.py, com um cliente de
+    # mentira que só anota o que foi pedido. Conferir o texto do arquivo
+    # ("tem a palavra Referer?") passaria verde com o cabeçalho montado e nunca
+    # enviado.
+    import asyncio
+    import types
+
+    corpo_baixar = ""
+    arvore = ast.parse(FONTE)
+    for no in ast.walk(arvore):
+        if isinstance(no, ast.AsyncFunctionDef) and no.name == "_baixar":
+            corpo_baixar = "\n".join(FONTE.split("\n")[no.lineno - 1:no.end_lineno])
+    ok(bool(corpo_baixar), "sumiu o _baixar() que busca as fotos")
+
+    if corpo_baixar:
+        escopo = {"TM_HEADERS_UA": "agente-de-teste"}
+        exec(corpo_baixar, escopo)
+
+        class ClienteFalso:
+            def __init__(self):
+                self.pedidos = []
+
+            async def get(self, url, timeout=None, headers=None):
+                self.pedidos.append((url, headers or {}))
+                return types.SimpleNamespace(status_code=200, content=b"x")
+
+        cliente = ClienteFalso()
+        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+            escopo["_baixar"](cliente,
+                              "https://img.a.transfermarkt.technology/portrait/1.jpg"))
+        ok(cliente.pedidos and "transfermarkt" in cliente.pedidos[0][1].get("Referer", ""),
+           "a foto do Transfermarkt voltou a ser pedida SEM Referer — o TM "
+           "responde 403 e a arte sai com os onze círculos vazios, sem erro "
+           "nenhum aparecer")
+        ok(cliente.pedidos and cliente.pedidos[0][1].get("User-Agent"),
+           "a foto do Transfermarkt está indo sem User-Agent")
 
     # ── 4. a sigla do país sai do próprio emoji ──────────────────────────────
     for emoji, esperado in (("\U0001F1E7\U0001F1F7", "br"),

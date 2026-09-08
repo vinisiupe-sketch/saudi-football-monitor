@@ -10823,9 +10823,11 @@ h1{font-size:1.5rem;margin:0 0 4px}
   font-weight:600;color:#fff;line-height:1;letter-spacing:.02em;
   font-size:max(8px,2.04cqw*var(--e,1));pointer-events:none}
 /* Bandeira à ESQUERDA do nome, DENTRO da placa — não mais a bolinha grudada no
-   canto do círculo. Emoji porque já vem pronto na resposta do elenco e não
-   depende de rede; no PNG do servidor ela vira imagem de verdade. */
-.slot .band{font-size:max(8px,2.04cqw*var(--e,1));line-height:1}
+   canto do círculo. É IMAGEM, e não o emoji: o Windows não tem fonte colorida
+   com bandeiras, então o emoji virava as duas letras da sigla na tela do Vini
+   ("SA", "NL"). A mesma imagem entra no PNG baixado. */
+.slot .band{height:calc(1.47cqw*var(--e,1));min-height:7px;width:auto;
+  display:block;flex:none}
 /* A placa passa POR CIMA do círculo do vizinho. Sem isto, o slot desenhado
    depois cobre o fim da placa do anterior — "RENAN LODI" virava "RENAN LO". */
 .slot .rot{z-index:5}
@@ -10881,15 +10883,7 @@ __HDR__
     <div class="campo-caixa">
       <!-- Vazio: as linhas do campo vêm na própria arte de fundo. -->
       <div id="campo" class="campo"></div>
-      <!-- Os dois campos do cabeçalho e as duas listas do rodapé são texto
-           livre: a arte é publicada e quem publica precisa poder corrigir a
-           hora que mudou ou o nome que a fonte escreveu diferente, sem
-           depender de um deploy. -->
       <div class="arte">
-        <input id="arteData" class="ctrl" placeholder="TERÇA | 18.08 | 13:15H">
-        <input id="arteConfronto" class="ctrl" placeholder="AL NAJMAH X AL ITTIHAD">
-        <input id="arteLesionados" class="ctrl" placeholder="Lesionados (separados por vírgula)">
-        <input id="arteSuspensos" class="ctrl" placeholder="Suspensos (separados por vírgula)">
         <button class="ctrl" id="btnArte" onclick="baixarArte()">⬇️ Baixar imagem</button>
         <span id="arteAviso" class="sub" style="margin:0"></span>
       </div>
@@ -10947,6 +10941,22 @@ function ligarReserva(raiz){
   });
 }
 function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
+
+// 🇧🇷 -> 'br'. A bandeira em emoji JÁ É a sigla do país: são duas letras A-Z
+// deslocadas para o bloco 1F1E6. Preciso disso porque o WINDOWS NÃO DESENHA
+// bandeira nenhuma — não existe fonte de emoji colorida com elas no sistema, e
+// o navegador do Vini mostrava um "SA" e um "NL" em letrinha no lugar da
+// bandeira. Com a sigla em mãos, uso a imagem de verdade, a mesma que entra no
+// PNG baixado.
+function isoBandeira(emoji){
+  if (!emoji) return '';
+  const letras = [];
+  for (const ch of emoji) {
+    const c = ch.codePointAt(0);
+    if (c >= 0x1F1E6 && c <= 0x1F1FF) letras.push(String.fromCharCode(65 + c - 0x1F1E6));
+  }
+  return letras.length === 2 ? letras.join('').toLowerCase() : '';
+}
 
 // ── carga ──
 async function carregarTimes(){
@@ -11215,9 +11225,11 @@ function preencherAuto(){
 // e não 49,9%).
 const PROJ = {cx:49.95, yLonge:29.19, yMeio:42.15, yPerto:70.59,
               wLonge:34.54, wPerto:75.78};
-// Fecha o leque lateral. Agora a placa de nome é larga, então a ponta precisa
-// entrar mais que antes para a placa não sair do gramado.
-const APERTO = 0.80;
+// Sem aperto lateral: x=0 é a linha lateral e ponto. A placa da ponta passa
+// por cima da lateral, e é para passar — apertar o leque para mantê-la sobre a
+// grama espremia os onze no meio do campo, que foi exatamente o que o Vini viu
+// e reclamou.
+const APERTO = 1.00;
 
 // Mapa projetivo y(v) = (a*v + b)/(c*v + 1), ajustado para passar EXATO pelas
 // três linhas que dá para medir na arte: fundo de longe (v=0), meio-campo
@@ -11271,9 +11283,10 @@ function renderCampo(){
     disco += '</div>';
     // Só o sobrenome, sem número: nome inteiro encavalava no vizinho no celular.
     // A bandeira agora abre a placa, à esquerda do nome, como na arte pronta.
+    const iso = isoBandeira(j && j.pais_bandeira);
     const rot = j ? '<div class="rot" title="' + (j.nome || '') + '">' +
-                    (j.pais_bandeira
-                       ? '<span class="band">' + j.pais_bandeira + '</span>' : '') +
+                    (iso ? '<img class="band" alt="" src="https://flagcdn.com/w40/'
+                           + iso + '.png">' : '') +
                     '<span>' + nomeCurto(j.nome) + '</span></div>' : '';
     el.innerHTML = disco + rot;
     ligarReserva(el);
@@ -11300,26 +11313,19 @@ async function baixarArte(){
   const aviso = document.getElementById('arteAviso');
   const ocupados = SLOTS.filter(function(s){ return s.id; });
   if (!ocupados.length) { aviso.textContent = 'Escale alguém antes.'; return; }
-  const lista = function(id){
-    return (document.getElementById(id).value || '')
-             .split(',').map(function(s){ return s.trim(); }).filter(Boolean);
-  };
   btn.disabled = true; aviso.textContent = 'Montando a imagem…';
   try {
     const r = await fetch('/api/elencos/arte', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        linha_data: document.getElementById('arteData').value || '',
-        confronto: document.getElementById('arteConfronto').value || '',
-        lesionados: lista('arteLesionados'),
-        suspensos: lista('arteSuspensos'),
         jogadores: ocupados.map(function(s){
           const j = porId(s.id) || {};
+          // O endereço DIRETO do Transfermarkt. Mandar o do nosso proxy faria
+          // o servidor pedir uma imagem a si mesmo — um pulo a mais para
+          // chegar no mesmo lugar. Quem põe o Referer que o TM exige é o
+          // _baixar() lá.
           return {nome: nomeCurto(j.nome) || j.nome || '',
-                  // O endereço de reserva é o NOSSO proxy; o direto do TM pode
-                  // recusar quem não vem da página dele. O servidor busca com
-                  // calma, então mando o que for mais confiável.
-                  foto: j.foto_reserva ? (location.origin + j.foto_reserva) : (j.foto || null),
+                  foto: j.foto || null,
                   bandeira: j.pais_bandeira || null,
                   x: s.x, y: s.y};
         })
@@ -11330,16 +11336,19 @@ async function baixarArte(){
       try { m = (await r.json()).erro || m; } catch(e) {}
       aviso.textContent = 'Não deu: ' + m; return;
     }
+    const fotos = r.headers.get('X-Fotos') || '';
     const blob = await r.blob();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = ((document.getElementById('arteConfronto').value || 'escalacao')
+    a.download = ((TIME_ATUAL && TIME_ATUAL.nome ? TIME_ATUAL.nome : 'escalacao')
                     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
                   || 'escalacao') + '.png';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-    aviso.textContent = 'Baixou.';
+    // Dizer QUANTAS fotos entraram: se o Transfermarkt voltar a recusar, isso
+    // aparece aqui na hora, e não depois na arte já postada.
+    aviso.textContent = fotos ? ('Baixou. Fotos: ' + fotos) : 'Baixou.';
   } catch(e) {
     aviso.textContent = 'Não deu: ' + e;
   } finally {
@@ -11469,31 +11478,35 @@ carregarTimes();
 #     Enquanto o nome era texto solto sobre a grama, dois jogadores no mesmo
 #     y ficavam bem. Agora cada nome vem numa PLACA #303030 com bandeira, que
 #     no pior caso ("ABDULHAMID", "MILINKOVIC") passa de 230px de largura numa
-#     arte de 1080 — e o gramado, lá no meio-campo em perspectiva, tem uns 600.
-#     Três placas lado a lado não cabem. Por isso os pares centrais saem
-#     escalonados no eixo y: é o mesmo recurso que a arte pronta do Vini usa,
-#     onde os dois zagueiros e os dois volantes nunca estão na mesma altura.
+#     arte de 1080. Não havia como caber onze dessas espremidas no meio.
 #
-#     A altura da placa vale ~8 unidades de y no meio-campo. Escalonar menos
-#     que isso não resolve nada. teste_campo_perspectiva.py mede a sobreposição
-#     de verdade, com o nome mais comprido possível em cada posição.
+#     A primeira tentativa foi manter todo mundo sobre a grama e escalonar os
+#     pares no eixo y. Ficou tudo grudado no miolo, e o Vini disse exatamente
+#     isso ao ver. A saída foi outra: liberar a lateral. Com APERTO=1,00 o x=0
+#     é a linha lateral, e a placa do ponta passa POR CIMA dela — que era o que
+#     ele queria ("pode ir e até ficar em cima da borda lateral do campo").
+#     A FOTO continua tendo que cair na grama; só a placa pode vazar.
+#
+#     teste_campo_perspectiva.py mede a sobreposição de verdade, com o nome
+#     mais comprido possível em cada posição.
 _ELENCOS_FORMACOES = {
-    "4-3-3":   [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
-                (27,50,"M"),(50,58,"M"),(73,50,"M"),(14,24,"A"),(50,14,"A"),(86,24,"A")],
-    "4-2-3-1": [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
-                (29,56,"M"),(71,56,"M"),(12,35,"M"),(50,43,"M"),(88,35,"M"),(50,14,"A")],
-    "4-4-2":   [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
-                (11,46,"M"),(28,55,"M"),(72,55,"M"),(89,46,"M"),(30,14,"A"),(70,24,"A")],
-    "4-1-4-1": [(50,93,"G"),(11,70,"D"),(28,78,"D"),(72,78,"D"),(89,70,"D"),
-                (50,64,"M"),(10,36,"M"),(27,46,"M"),(73,46,"M"),(90,36,"M"),(50,14,"A")],
-    "3-5-2":   [(50,93,"G"),(25,78,"D"),(50,84,"D"),(75,78,"D"),
-                (8,58,"M"),(27,42,"M"),(50,51,"M"),(73,42,"M"),(92,58,"M"),
-                (30,14,"A"),(70,24,"A")],
-    "3-4-3":   [(50,93,"G"),(25,78,"D"),(50,84,"D"),(75,78,"D"),
-                (12,50,"M"),(33,58,"M"),(67,64,"M"),(88,50,"M"),
-                (14,24,"A"),(50,14,"A"),(86,24,"A")],
-    "5-3-2":   [(50,93,"G"),(9,62,"D"),(27,76,"D"),(50,84,"D"),(73,76,"D"),(91,62,"D"),
-                (27,46,"M"),(50,56,"M"),(73,46,"M"),(30,14,"A"),(70,24,"A")],
+    "4-3-3":   [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
+                (20,52,"M"),(50,60,"M"),(80,52,"M"),
+                (2,26,"A"),(50,16,"A"),(98,26,"A")],
+    "4-2-3-1": [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
+                (32,58,"M"),(68,58,"M"),(8,36,"M"),(50,44,"M"),(92,36,"M"),(50,16,"A")],
+    "4-4-2":   [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
+                (6,48,"M"),(33,56,"M"),(67,56,"M"),(94,48,"M"),(22,18,"A"),(78,18,"A")],
+    "4-1-4-1": [(50,93,"G"),(6,70,"D"),(33,78,"D"),(67,78,"D"),(94,70,"D"),
+                (50,64,"M"),(6,38,"M"),(28,46,"M"),(72,46,"M"),(94,38,"M"),(50,16,"A")],
+    "3-5-2":   [(50,93,"G"),(18,78,"D"),(50,82,"D"),(82,78,"D"),
+                (5,58,"M"),(28,44,"M"),(50,52,"M"),(72,44,"M"),(95,58,"M"),
+                (22,18,"A"),(78,18,"A")],
+    "3-4-3":   [(50,93,"G"),(18,78,"D"),(50,82,"D"),(82,78,"D"),
+                (6,52,"M"),(33,60,"M"),(67,60,"M"),(94,52,"M"),
+                (2,26,"A"),(50,16,"A"),(98,26,"A")],
+    "5-3-2":   [(50,93,"G"),(4,64,"D"),(20,78,"D"),(50,84,"D"),(80,78,"D"),(96,64,"D"),
+                (22,48,"M"),(50,56,"M"),(78,48,"M"),(22,18,"A"),(78,18,"A")],
 }
 
 
@@ -12749,11 +12762,25 @@ async def api_elencos_escalacao(team: int):
 
 
 async def _baixar(client, url: str | None) -> bytes | None:
-    """Uma imagem, ou None. Nunca levanta: arte sem foto é melhor que erro 500."""
+    """Uma imagem, ou None.
+
+    O Referer é o que faz a foto existir. O Transfermarkt RECUSA a imagem para
+    quem não vem da página dele — sem esse cabeçalho a resposta é 403 e o
+    jogador sai com o círculo cinza. Foi exatamente o que aconteceu na primeira
+    versão desta rota: a arte baixava, ninguém errava, e as onze fotos
+    simplesmente não estavam lá. É o mesmo motivo pelo qual /api/tm-img
+    existe — só que ali o cabeçalho estava e aqui eu tinha esquecido.
+
+    Nunca levanta: arte com um círculo vazio é melhor que erro 500 em dia de
+    jogo."""
     if not url:
         return None
+    cabecalhos = {}
+    if "transfermarkt" in url or "akamaized" in url:
+        cabecalhos = {"Referer": "https://www.transfermarkt.com.br/",
+                      "User-Agent": TM_HEADERS_UA}
     try:
-        r = await client.get(url, timeout=12)
+        r = await client.get(url, timeout=12, headers=cabecalhos)
         if r.status_code == 200 and r.content:
             return r.content
     except Exception:
@@ -12763,7 +12790,7 @@ async def _baixar(client, url: str | None) -> bytes | None:
 
 @app.post("/api/elencos/arte")
 async def api_elencos_arte(request: Request):
-    """O PNG 1080x1350 da provável escalação, pronto pra postar.
+    """O PNG 1080x1350 do campinho com os onze, pronto pra levar ao Canva.
 
     A página manda o que ela JÁ TEM na tela — nome, endereço da foto, emoji da
     bandeira e a posição de cada um. Assim o servidor não precisa raspar o
@@ -12785,45 +12812,30 @@ async def api_elencos_arte(request: Request):
 
     fotos = [j.get("foto") for j in jogadores]
     bandeiras = [escalacao_arte.iso_da_bandeira(j.get("bandeira")) for j in jogadores]
-    faixa = [corpo.get("escudo_casa"), corpo.get("logo_competicao"),
-             corpo.get("escudo_fora")]
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         baixados = await asyncio.gather(*[
             _baixar(client, u) for u in
             fotos
             + [f"https://flagcdn.com/w40/{i}.png" if i else None for i in bandeiras]
-            + faixa
         ])
 
     n = len(jogadores)
-    prontos = []
-    for i, j in enumerate(jogadores):
-        prontos.append({
-            "nome": j.get("nome") or "",
-            "x": j.get("x", 50), "y": j.get("y", 50),
-            "foto": baixados[i],
-            "bandeira": baixados[n + i],
-        })
+    prontos = [{"nome": j.get("nome") or "",
+                "x": j.get("x", 50), "y": j.get("y", 50),
+                "foto": baixados[i], "bandeira": baixados[n + i]}
+               for i, j in enumerate(jogadores)]
 
     try:
-        png = escalacao_arte.montar({
-            "titulo": corpo.get("titulo") or "PROVÁVEL ESCALAÇÃO",
-            "linha_data": corpo.get("linha_data") or "",
-            "confronto": corpo.get("confronto") or "",
-            "faixa": baixados[2 * n:2 * n + 3],
-            "jogadores": prontos,
-            "lesionados": corpo.get("lesionados") or [],
-            "suspensos": corpo.get("suspensos") or [],
-        })
+        png = escalacao_arte.montar({"jogadores": prontos})
     except Exception as e:
         return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, status_code=500)
 
-    nome_arq = (corpo.get("confronto") or "escalacao").lower()
-    nome_arq = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", nome_arq)
-                      .encode("ascii", "ignore").decode()).strip("-") or "escalacao"
+    # Quantas fotos chegaram vai no cabeçalho: se o TM bloquear de novo, a tela
+    # avisa em vez de o Vini descobrir olhando a arte publicada.
     return Response(png, media_type="image/png", headers={
-        "Content-Disposition": f'attachment; filename="{nome_arq}.png"'})
+        "Content-Disposition": 'attachment; filename="escalacao.png"',
+        "X-Fotos": f"{sum(1 for b in baixados[:n] if b)}/{n}"})
 
 
 @app.get("/api/numeros/debug-af")
