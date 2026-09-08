@@ -19,17 +19,17 @@ POR QUE NO SERVIDOR, E NÃO NO NAVEGADOR
     volta é o arquivo final.
 
 DE ONDE VÊM AS MEDIDAS
-    Todas as posições foram tiradas a régua da arte que o Vini já publica
-    (a de Al Najmah x Al Ittihad): título com 109px de altura de caixa alta,
-    placa de nome com 35px, foto com 86px de diâmetro e anel de 3px, faixa dos
-    escudos em x 0..127. Não são números escolhidos por gosto — são a arte
-    dele, e é por isso que estão escritos como constantes com nome, e não
-    espalhados pelo código.
+    A régua foi a arte que o Vini já publica: placa de nome com 35px, foto com
+    86px de diâmetro e anel de 3,5px, numa imagem de 1080x1350. Não são
+    números escolhidos por gosto, e por isso estão como constantes com nome em
+    vez de espalhados pelo código. O CSS da guia Elencos carrega os mesmos
+    valores em cqw, e o teste compara os dois — se divergirem, o que aparece na
+    tela deixa de ser o que sai no arquivo.
 
 O QUE ESTE MÓDULO NÃO FAZ
-    Não decide nada. Nome, foto, bandeira, posição, lista de lesionados: tudo
-    chega pronto de quem chamou. Assim ele é testável sem rede — e o teste
-    monta a arte inteira com dados de mentira, sem tocar no Transfermarkt.
+    Não decide nada. Nome, foto, bandeira e posição chegam prontos de quem
+    chamou. Assim ele é testável sem rede — o teste monta a arte inteira com
+    dados de mentira, sem tocar no Transfermarkt.
 """
 from __future__ import annotations
 
@@ -47,31 +47,12 @@ GRAFITE = (48, 48, 48)                    # #303030, o cinza da identidade
 BRANCO = (255, 255, 255)
 FOTO_VAZIA = (238, 242, 245)
 
-# ── a projeção, a MESMA da tela ──────────────────────────────────────────────
-# Repetida aqui porque lá ela é JavaScript. Se um dia divergirem, o que o Vini
-# arrasta na tela deixa de ser o que sai no arquivo — e o defeito só aparece
-# comparando as duas imagens lado a lado. teste_escalacao_arte.py compara os
-# dois números para cada casa de cada formação, justamente por isso.
-PROJ = dict(cx=49.95, y_longe=29.19, y_meio=42.15, y_perto=70.59,
-            w_longe=34.54, w_perto=75.78)
-APERTO = 1.00
-
-_PB = PROJ["y_longe"]
-_PC = (2 * PROJ["y_meio"] - _PB - PROJ["y_perto"]) / (PROJ["y_perto"] - PROJ["y_meio"])
-_PA = PROJ["y_meio"] * _PC + 2 * PROJ["y_meio"] - 2 * _PB
-
-
-def projetar(x: float, y: float) -> tuple[float, float, float]:
-    """(x,y) do campo visto de cima -> (x%, y%, escala) sobre a arte."""
-    u = 0.5 + (x / 100 - 0.5) * APERTO
-    v = max(0.0, min(1.0, y / 100))
-    py = (_PA * v + _PB) / (_PC * v + 1)
-    larg = (PROJ["w_longe"] + (py - PROJ["y_longe"])
-            * (PROJ["w_perto"] - PROJ["w_longe"])
-            / (PROJ["y_perto"] - PROJ["y_longe"]))
-    esc = 0.88 + 0.12 * (larg - PROJ["w_longe"]) / (PROJ["w_perto"] - PROJ["w_longe"])
-    return PROJ["cx"] + (u - 0.5) * larg, py, esc
-
+# ── a projeção ──────────────────────────────────────────────────────────────
+# Vem do formacoes.py, que é quem precisa dela para decidir se uma linha de
+# quatro cabe. Tê-la duplicada aqui foi tentador e seria a terceira cópia da
+# mesma conta no projeto (a outra é o JavaScript da página, que o teste
+# compara com esta).
+from formacoes import PROJ, APERTO, projetar          # noqa: F401  (reexporta)
 
 # ── medidas da arte do Vini, em px de uma imagem 1080x1350 ───────────────────
 FOTO_DIAM = 7.96 * CQ          # 86
@@ -82,6 +63,7 @@ PLACA_GAP = 0.7 * CQ           # 7,5
 PLACA_SOBE = 1.1 * CQ          # o quanto a placa monta sobre a foto
 NOME_CORPO = 2.04 * CQ         # 22
 BANDEIRA_ALT = 1.47 * CQ       # ~16, a bandeirinha dentro da placa
+
 
 def iso_da_bandeira(emoji: str | None) -> str | None:
     """🇧🇷 -> 'br'. O emoji de bandeira JÁ É o código do país.

@@ -274,13 +274,28 @@ def testar():
     desenho = ImageDraw.Draw(Image.new("RGB", (8, 8)))
     PIOR_NOME = {"G": "AL-OWAIS", "D": "ABDULHAMID",
                  "M": "MILINKOVIC", "A": "AL-DAWSARI"}
-    # Distância mínima, em unidades de campo, entre as medianas de dois
-    # setores vizinhos. A folga mais apertada hoje é 17 (defesa para goleiro).
-    # Em 14 o teste passava verde com o meio-campo puxado 10 para trás — testei
-    # a mutação; por isso o piso é 16 e não um número redondo qualquer.
-    FAIXA_MINIMA = 16
+    # Distância mínima, em unidades de campo, entre as médias de dois setores
+    # vizinhos. A folga mais apertada nas 24 formações é 22 (meio para defesa,
+    # na 3-4-1-2). O piso é 18 — perto o bastante para pegar um achatamento de
+    # verdade, longe o bastante para não travar um arranjo novo legítimo.
+    FAIXA_MINIMA = 18
 
-    for nome, casas in formacoes.items():
+    # As formações prontas MAIS um punhado que só existe pelo cálculo.
+    # O 3-1-4-2 quebrou de verdade — o Al Qadsiah entrou nessa formação, ela
+    # não estava na tabela, caiu na grade regular antiga e a linha de quatro
+    # saiu com as placas empilhadas. Hoje ele está entre as prontas, então aqui
+    # ficam arranjos que ninguém desenhou: testar só o que está na tabela é
+    # testar só o que eu já sabia que funcionava.
+    import formacoes as _f
+    calculadas = ["4-2-1-3", "3-2-4-1", "4-4-2-0", "5-1-2-3", "3-3-3-1"]
+    todas = dict(formacoes)
+    for f in calculadas:
+        ok(f not in todas, f"{f} agora está desenhado à mão — tire da lista de "
+                           "formações calculadas, senão o cálculo deixa de ser "
+                           "testado")
+        todas[f] = _f.casas(f)
+
+    for nome, casas in todas.items():
         pontos = _rodar(codigo, [[x, y] for x, y, _ in casas])
         if len(pontos) != len(casas):
             continue
@@ -320,12 +335,16 @@ def testar():
         # zagueiro recua), e dois jogadores em colunas opostas do campo podem
         # se cruzar na vertical sem encostar em nada. A sobreposição real já é
         # medida logo acima, placa contra placa.
+        # MÉDIA do setor, e não mediana. Numa linha escalonada de cinco, três
+        # ficam recuados e dois avançados; a mediana pula para o grupo maior e
+        # diz que a defesa está 13 do meio quando na verdade está 28. Foi o que
+        # aconteceu com a 5-2-2-1.
         alturas = {}
         for g in "GDMA":
-            ys = sorted(p["y"] for p in placas if p["g"] == g)
+            ys = [p["y"] for p in placas if p["g"] == g]
             if ys:
-                alturas[g] = ys[len(ys) // 2]
-        for antes, depois in (("A", "M"), ("M", "D"), ("D", "G")):
+                alturas[g] = sum(ys) / len(ys)
+        for antes, depois in (("A", "M"), ("M", "D")):
             if antes not in alturas or depois not in alturas:
                 continue
             ok(alturas[depois] - alturas[antes] >= FAIXA_MINIMA,
@@ -333,12 +352,19 @@ def testar():
                f"de {antes} — abaixo de {FAIXA_MINIMA} os setores deixam de ser "
                "faixas e a arte vira um amontoado, que foi como o Vini "
                "descreveu a versão anterior")
+        # Goleiro e defesa NÃO entram nessa regra: o Vini pediu a linha de trás
+        # colada nele de propósito, para sobrar campo ao meio. O que precisa
+        # valer é só a ordem — o goleiro atrás de todo mundo.
+        if "D" in alturas and "G" in alturas:
+            ok(alturas["G"] > alturas["D"],
+               f"{nome}: o goleiro ficou à frente da defesa")
 
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
-          f"  ✓ campo em perspectiva: {len(pedidos)} casas na grama, nenhuma "
-          "placa encavalada, setores separados")
+          f"  ✓ campo em perspectiva: {len(pedidos)} casas na grama; "
+          f"{len(todas)} formações sem placa encavalada e com os setores "
+          "separados")
     return len(falhas)
 
 
