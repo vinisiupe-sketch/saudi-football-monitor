@@ -10722,6 +10722,12 @@ __HEADER_CSS__
   --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:var(--c-acento);
 }
 *{box-sizing:border-box}
+/* O nome do jogador no campinho usa Poppins, que já mora em public/fonts e é
+   de licença aberta (OFL). A Canva Sans do template NÃO entra aqui: a licença
+   dela é de uso dentro do Canva, e servir o arquivo numa página pública é
+   distribuição — qualquer visitante baixaria a fonte pelo inspetor. */
+@font-face{font-family:'Poppins';src:url('/fonts/Poppins-Bold.ttf') format('truetype');
+  font-weight:700;font-style:normal;font-display:swap}
 body{margin:0;background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 .wrap{max-width:1600px;margin:0 auto;padding:18px 20px 60px}
@@ -10743,56 +10749,76 @@ h1{font-size:1.5rem;margin:0 0 4px}
   cursor:pointer;padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface)}
 .chk input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
 
-.painel{display:grid;grid-template-columns:minmax(320px,460px) 1fr;gap:20px;align-items:start}
+/* A coluna do campo cresceu junto com a arte: em perspectiva a linha de fundo
+   de longe tem metade da largura da de perto, e com 460px os três atacantes
+   ficavam com o nome um em cima do outro. */
+.painel{display:grid;grid-template-columns:minmax(320px,560px) 1fr;gap:20px;align-items:start}
 /* Sem isso a coluna do grid assume a largura da tabela (min-width:auto) e a
    página inteira estoura no celular, em vez de a tabela rolar por dentro. */
 .painel>*{min-width:0}
 @media(max-width:1100px){
   .painel{grid-template-columns:1fr}
-  .campo-caixa{max-width:400px;margin:0 auto;width:100%}
+  .campo-caixa{max-width:620px;margin:0 auto;width:100%}
   table{min-width:720px}
 }
 @media(max-width:520px){
   .wrap{padding:12px 10px 40px}
-  /* Teto em vh também: só limitar a largura ainda deixava o campo alto demais. */
-  .campo-caixa{max-width:min(340px,84vw)}
-  .campo{max-height:62vh}
-  .slot{width:54px}
-  .slot .disco{width:36px;height:36px}
-  .slot .band{width:15px;height:15px;font-size:.5rem}
-  .slot .rot{font-size:.55rem}
+  /* Sem teto de largura no celular: o campo agora é largo e baixo (860x635),
+     não alto como o retângulo antigo, então apertá-lo só encolhia os nomes.
+     Disco, nome e bandeira já acompanham a largura sozinhos, em cqw — as
+     quatro regras que existiam aqui viviam desencontradas das de cima. */
+  .campo-caixa{max-width:none;padding:8px}
 }
 
 /* ── campo ── */
-.campo-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px}
-.campo{position:relative;width:100%;aspect-ratio:68/100;border-radius:16px;
-  background:linear-gradient(180deg,#15A15F 0%,#0E8B50 100%);overflow:hidden}
-.campo .linha{position:absolute;border:2px solid rgba(255,255,255,.22)}
-.c-borda{inset:3%}
-.c-meio{left:3%;right:3%;top:50%;height:0;border-width:0;border-top:2px solid rgba(255,255,255,.22)}
-.c-circulo{left:50%;top:50%;width:26%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%}
-.c-area-b{left:22%;right:22%;bottom:3%;height:16%;border-bottom:none}
-.c-area-c{left:22%;right:22%;top:3%;height:16%;border-top:none}
+/* O gramado agora é a arte em PERSPECTIVA, e não um retângulo montado com
+   divs. Duas consequências: as linhas do campo vêm desenhadas na imagem (não
+   existe mais nenhum .linha) e a posição de cada jogador precisa passar por
+   uma projeção antes de virar left/top — ver projetar(), no JS.
 
-.slot{position:absolute;transform:translate(-50%,-50%);width:64px;
-  display:flex;flex-direction:column;align-items:center;gap:5px;cursor:grab}
-.slot .disco{position:relative;width:44px;height:44px;border-radius:50%;
-  background:rgba(255,255,255,.22);border:2px dashed rgba(255,255,255,.55);
+   As medidas ficam em cqw (percentual da LARGURA do campo) para que disco,
+   nome e bandeira encolham juntos em qualquer tamanho de tela. Antes isso era
+   feito à mão em três media queries, que viviam desencontradas entre si. */
+.campo-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px}
+.campo{position:relative;width:100%;aspect-ratio:860/635;border-radius:16px;
+  container-type:inline-size;
+  background:#000 url('/masks/campo-perspectiva.png') center/100% 100% no-repeat;
+  overflow:hidden}
+
+/* --e é a escala de perspectiva daquele slot: 1 na linha de fundo de perto,
+   ~0,66 na de longe. Quem escreve é o JS, jogador por jogador.
+   O slot tem largura ZERO de propósito: o disco e o nome transbordam
+   centrados, então um sobrenome comprido não empurra o vizinho nem precisa de
+   reticências — no máximo encosta, como na arte de TV. */
+.slot{position:absolute;transform:translate(-50%,-50%);width:0;
+  display:flex;flex-direction:column;align-items:center;cursor:grab}
+.slot .disco{position:relative;flex:none;
+  width:calc(8.6cqw*var(--e,1));height:calc(8.6cqw*var(--e,1));
+  /* Piso baixo de propósito: no celular o campo é largo e baixo, e disco
+     grande demais faz os nomes de duas linhas vizinhas se encavalarem.
+     28px dava um alvo de toque melhor e uma tela ilegível. */
+  min-width:22px;min-height:22px;border-radius:50%;
+  background:rgba(255,255,255,.30);border:2px dashed rgba(0,0,0,.5);
   display:flex;align-items:center;justify-content:center;
-  font-size:.58rem;color:#fff;font-weight:800}
-.slot.ocupado .disco{border-style:solid;border-color:#fff;background:#eef2f5;
-  box-shadow:0 2px 8px rgba(0,0,0,.25)}
+  font-size:max(8px,2.2cqw*var(--e,1));color:#000;font-weight:800}
+/* Anel preto em volta da foto, e só ele: sem borda branca e sem sombra. */
+.slot.ocupado .disco{border:max(2px,0.7cqw*var(--e,1)) solid #000;background:#eef2f5}
 .slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover}
 /* Bandeira como emoji: a imagem do TM exige a página dele; o emoji já vem
    pronto na resposta e não depende de rede. */
-.slot .band{position:absolute;right:-4px;bottom:-2px;width:18px;height:18px;border-radius:50%;
+.slot .band{position:absolute;right:-6%;bottom:-4%;
+  width:calc(3.6cqw*var(--e,1));height:calc(3.6cqw*var(--e,1));
+  min-width:13px;min-height:13px;border-radius:50%;
   border:2px solid #fff;background:#fff;display:flex;align-items:center;justify-content:center;
-  font-size:.6rem;line-height:1;overflow:hidden}
-/* Uma linha só, com reticências: nome comprido encavalava no vizinho. */
-.slot .rot{font-size:.64rem;color:#fff;font-weight:700;text-align:center;line-height:1.1;
-  max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-  text-shadow:0 1px 3px rgba(0,0,0,.45)}
-.slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.4)}
+  font-size:max(7px,2.3cqw*var(--e,1));line-height:1;overflow:hidden}
+/* Nome em caixa alta, preto, Poppins — sobre grama clara não precisa de
+   sombra, e a sombra escura que existia aqui só sujava a leitura. */
+.slot .rot{position:absolute;top:100%;left:50%;transform:translateX(-50%);
+  margin-top:.6cqw;white-space:nowrap;text-transform:uppercase;
+  font-family:'Poppins',-apple-system,BlinkMacSystemFont,sans-serif;
+  font-weight:700;color:#000;line-height:1.1;letter-spacing:.01em;
+  font-size:max(9px,2.7cqw*var(--e,1));pointer-events:none}
+.slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.55)}
 
 /* ── tabela ── */
 .tab-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;
@@ -10838,10 +10864,8 @@ __HDR__
 
   <div class="painel">
     <div class="campo-caixa">
-      <div id="campo" class="campo">
-        <div class="linha c-borda"></div><div class="linha c-meio"></div>
-        <div class="linha c-circulo"></div><div class="linha c-area-b"></div><div class="linha c-area-c"></div>
-      </div>
+      <!-- Vazio: as linhas do campo vêm na própria arte de fundo. -->
+      <div id="campo" class="campo"></div>
       <p id="infoJogo" class="sub" style="margin:8px 0 0"></p>
       <p class="sub" style="margin:4px 0 0">Arraste um jogador da lista para uma posição. Arraste entre posições para trocar. Clique numa posição ocupada para esvaziar.</p>
     </div>
@@ -11152,6 +11176,48 @@ function preencherAuto(){
   renderCampo(); renderTabela();
 }
 
+// ── projeção sobre a arte do campo ──────────────────────────────────────────
+// O fundo é um campo em perspectiva. Medi as quatro quinas na própria imagem e
+// converti para % da caixa, para a conta acompanhar qualquer redimensionamento:
+// a linha de fundo de LONGE tem 47,91% da largura e fica a 5,98% do topo; a de
+// PERTO tem 89,77% e fica a 89,92%. O eixo central cai em 49,53%.
+// yMeio é a linha do meio-campo da arte, e não a média das outras duas: numa
+// perspectiva ela fica bem acima do meio da tela (32,9% e não 48%).
+const PROJ = {cx:49.53, yLonge:5.98, yMeio:32.91, yPerto:89.92,
+              wLonge:47.91, wPerto:89.77};
+// Fecha o leque lateral: nas pontas o jogador ficaria montado na linha lateral
+// e o nome sairia do gramado.
+const APERTO = 0.86;
+
+// Mapa projetivo y(v) = (a*v + b)/(c*v + 1), ajustado para passar EXATO pelas
+// três linhas que dá para medir na arte: fundo de longe (v=0), meio-campo
+// (v=0,5) e fundo de perto (v=1). Tentei antes o modelo de câmera ideal
+// (largura ∝ 1/profundidade) e ele errava o meio-campo em 15px — a arte foi
+// desenhada à mão no Canva, não fotografada, então o certo é ajustar ao que
+// está desenhado em vez de ao que uma câmera faria.
+const _pb = PROJ.yLonge;
+const _pc = (2*PROJ.yMeio - _pb - PROJ.yPerto) / (PROJ.yPerto - PROJ.yMeio);
+const _pa = PROJ.yMeio*_pc + 2*PROJ.yMeio - 2*_pb;
+
+// (x, y) continuam sendo as coordenadas de campo visto de cima que estão em
+// FORMACOES — nada lá muda. O que muda é a leitura delas aqui.
+function projetar(x, y){
+  const u = 0.5 + (x/100 - 0.5) * APERTO;
+  const v = Math.max(0, Math.min(1, y/100));           // 0 = longe, 1 = perto
+  const py = (_pa*v + _pb) / (_pc*v + 1);
+  // A largura é linear na ALTURA DA TELA — o gramado é um trapézio —, e não
+  // em v. Trocar uma pela outra afina o campo no meio.
+  const larg = PROJ.wLonge + (py - PROJ.yLonge)
+               * (PROJ.wPerto - PROJ.wLonge)/(PROJ.yPerto - PROJ.yLonge);
+  return {
+    x: PROJ.cx + (u - 0.5)*larg,
+    y: py,
+    // Quem está no fundo é menor. O piso de 0,66 é para o nome lá atrás
+    // continuar legível — realismo puro deixaria o atacante ilegível.
+    e: 0.66 + 0.34*(larg/PROJ.wPerto)
+  };
+}
+
 function renderCampo(){
   const campo = document.getElementById('campo');
   campo.querySelectorAll('.slot').forEach(function(s){ s.remove(); });
@@ -11161,8 +11227,10 @@ function renderCampo(){
     const j = c.id ? (porId(c.id) || {id:c.id, nome:c.rotulo, numero:c.numero, foto:null}) : null;
     const el = document.createElement('div');
     el.className = 'slot' + (j ? ' ocupado' : '');
-    el.style.left = c.x + '%';
-    el.style.top = c.y + '%';
+    const p = projetar(c.x, c.y);
+    el.style.left = p.x + '%';
+    el.style.top = p.y + '%';
+    el.style.setProperty('--e', p.e.toFixed(3));
     el.draggable = true;
     el.dataset.slot = i;
     let disco = '<div class="disco">';
