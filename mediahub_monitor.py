@@ -161,15 +161,21 @@ class Monitor:
                 accept_downloads=True, locale="en-GB")
             self.page = await self.context.new_page()
             self.page.set_default_timeout(30000)
+            self.login_verificado = False
 
     async def navegar(self, url):
         # Navegar só pelo fragmento mantém a busca Angular anterior por alguns
         # instantes. Um documento novo evita confundir resultados antigos.
         await self.page.goto("about:blank")
-        resposta = await self.page.goto(url, wait_until="domcontentloaded")
+        # Iniciar pelo formulário oficial, antes de solicitar conteúdo protegido.
+        destino = url if self.login_verificado else HUB + "/site/login"
+        resposta = await self.page.goto(destino, wait_until="domcontentloaded")
         if resposta is not None and resposta.status >= 400:
             raise MonitorError(f"Media Hub recusou a página: HTTP {resposta.status} em {urlparse(self.page.url).path}.")
         if "/site/login" not in self.page.url:
+            if not self.login_verificado:
+                self.login_verificado = True
+                await self.navegar(url)
             return
         if time.time() < self.login_depois:
             raise MonitorError("Login do Media Hub pendente. Nova tentativa em até 15 minutos.")
@@ -187,8 +193,12 @@ class Monitor:
         except Exception as exc:
             raise MonitorError("Media Hub não concluiu o login. Confira as credenciais; se houver código ou CAPTCHA, será necessária intervenção.") from exc
         self.login_depois = 0
+        self.login_verificado = True
         await self.context.storage_state(path=str(self.estado.pasta / "sessao.json"))
-        await self.page.goto(url, wait_until="domcontentloaded")
+        print("Login do Media Hub concluído; abrindo registro.", flush=True)
+        resposta = await self.page.goto(url, wait_until="domcontentloaded")
+        if resposta is not None and resposta.status >= 400:
+            raise MonitorError(f"Media Hub recusou conteúdo após login: HTTP {resposta.status}.")
         if "/site/login" in self.page.url:
             raise MonitorError("A sessão do Media Hub não permaneceu autenticada.")
 
