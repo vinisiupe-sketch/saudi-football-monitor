@@ -257,24 +257,70 @@ def cruzar_com_elenco(jogadores: list[dict], elenco: list[dict]) -> list[dict]:
     return cruzados
 
 
-def texto_titulares(nome_time: str, titulares: list[dict]) -> str:
-    """A lista pronta pra colar na arte do post: bandeira, número, sobrenome
-    — um jogador por linha, na ordem em que o PDF lista o time titular.
+def nome_de_campo(nome_curto: str, nome_do_pdf: str) -> tuple[str, bool]:
+    """O nome pelo qual o jogador é conhecido, e se ele é confiável.
+
+    Devolve (nome, veio_do_elenco). O segundo valor existe para a tela poder
+    marcar a linha: nome deduzido pode estar com a grafia errada, e é melhor
+    o Vini conferir antes de publicar do que descobrir depois.
+
+    QUANDO VEM DO ELENCO
+        `nome_curto` é o nome que a própria SPL usa no placar da transmissão
+        — "BENTO", "AL-NASSER", "IÑIGO", com acento e hífen no lugar certo.
+        É sempre ele quando o cruzamento por camisa acha o jogador.
+
+    QUANDO NÃO VEM
+        Aí eu fico com a última palavra do nome do PDF, que chega inteiro e
+        sem acento: "SAMUEL DE ALMEIDA COSTA" vira COSTA, "CRISTIANO
+        RONALDO" vira RONALDO. É o sobrenome pelo qual quase todo jogador é
+        chamado, e é tudo que dá para afirmar sem o elenco.
+
+    POR QUE NÃO PONHO O HÍFEN DOS NOMES ÁRABES
+        Era a regra óbvia — ALKHAIBARI vira AL-KHAIBARI, que é como a liga
+        escreve. Só que ela não tem como distinguir ALKHAIBARI de ALVES: os
+        dois começam com AL e o comprimento não separa (ALYAMI tem 6 letras,
+        ALISSON tem 7). Testei e o Dani Alves saiu "AL-VES".
+
+        E errar assim é pior do que não tentar. "ALKHAIBARI" sem hífen parece
+        o que é — um nome que não foi tratado, e que o Vini vai corrigir.
+        "AL-VES" parece deliberado, passa despercebido e vai para o ar. Entre
+        um erro que se denuncia e um que se disfarça, fico com o primeiro.
+
+        A grafia certa mora no elenco, e é de lá que ela deve vir. Quando o
+        cruzamento falha, o certo é avisar — que é o que o segundo valor de
+        retorno faz.
+    """
+    if (nome_curto or "").strip():
+        return nome_curto.strip().upper(), True
+
+    bruto = " ".join((nome_do_pdf or "").split()).upper()
+    if not bruto:
+        return "", False
+    return bruto.split()[-1], False
+
+
+def texto_titulares(titulares: list[dict], nome_time: str = "") -> str:
+    """A lista pronta pra colar na arte do post: bandeira, número, nome —
+    um jogador por linha, na ordem em que o PDF lista o time titular.
+
+    SEM O NOME DO TIME (09/09/26)
+        Ele era a primeira linha e ia junto no copiar. Na arte o time já está
+        escrito em cima, então a linha extra era sempre apagada à mão depois
+        de colar. O nome continua aparecendo como título do bloco na tela —
+        só saiu do texto. O parâmetro ficou por compatibilidade e não é usado.
 
     Número de UM dígito sai com zero à esquerda ("02", não "2") — é assim
     que a arte do post mostra, e é assim que a SPL numera nas costas da
-    camisa. Dois dígitos ou mais fica como está; não existe camisa "0X" de
-    verdade nesse caso, então não há o que preencher.
+    camisa.
 
-    Sobrenome vem do nome_curto do banco quando `cruzar_com_elenco` achou o
-    jogador; sem cruzamento, cai pro nome do PDF (que às vezes já vem só o
-    sobrenome). Sem nacionalidade cruzada, a linha sai sem bandeira — nunca
-    com uma bandeira chutada."""
+    Sem nacionalidade cruzada, a linha sai sem bandeira — nunca com uma
+    bandeira chutada.
+    """
     import arbitragem
-    linhas = [nome_time.upper()]
+    linhas = []
     for j in titulares:
         emoji = arbitragem.bandeira(j.get("nacionalidade", ""))
-        nome = j.get("nome_curto") or j["nome"]
+        nome, _ = nome_de_campo(j.get("nome_curto", ""), j.get("nome", ""))
         numero = str(j["numero"]).strip()
         if numero.isdigit() and len(numero) == 1:
             numero = numero.zfill(2)

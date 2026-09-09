@@ -535,7 +535,7 @@ _NAV_MAIS = [
     ("/elencos",     _ICO_ELENCOS, "Elencos",    "", "#B6FF00"),
     ("/arbitragem",  _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
     ("/previa",      _ICO_PREVIA,  "Prévia",     "", "#B6FF00"),
-    ("/escalacao-pdf", _ICO_ESCALACAO, "Escalação PDF", "", "#B6FF00"),
+    ("/escalacao-pdf", _ICO_ESCALACAO, "Escalações", "", "#B6FF00"),
     ("/numeros",     _ICO_NUMEROS, "Números",    "", "#B6FF00"),
     ("/descartadas", _ICO_ARCHIVE, "Descartadas","", "#FFBE5D"),
     ("/lixeira",     _ICO_TRASH2,  "Lixeira",    "", "#FFBE5D"),
@@ -15423,7 +15423,7 @@ async def escalacao_pdf_page():
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IARABÃO — Escalação PDF</title>
+<title>IARABÃO — Escalações</title>
 {_HEAD_COMUM}
 <style>
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -15449,11 +15449,35 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 .esc-jogo {{ font-size: .78rem; color: var(--c-muted-3); margin: 18px 0 8px; }}
 .esc-titulo {{ font-family: 'Bebas Neue', sans-serif; font-size: 1.5rem;
   letter-spacing: .04em; margin: 30px 0 4px; }}
-.esc-card {{ border-top: 1px solid var(--c-border); padding-top: 6px;
-  margin-top: 14px; }}
 .esc-quando {{ float: right; font-variant-numeric: tabular-nums; }}
 .esc-vazio {{ margin-top: 26px; font-size: .8rem; line-height: 1.7;
   color: var(--c-muted-3); }}
+
+/* ── um card por jogo do dia ──────────────────────────────────────────
+   A cor é o estado, e é para dar para ler de longe: apagado é jogo cuja
+   escalação ainda não chegou, aceso é escalação na mão. Antes a guia
+   listava só o que já tinha chegado, e não havia como saber o que faltava. */
+.esc-card {{ border: 1px solid var(--c-border); border-radius: 14px;
+  padding: 14px 16px; margin-top: 14px; transition: border-color .15s; }}
+.esc-card.pronta {{ border-color: #B6FF00;
+  background: color-mix(in srgb, #B6FF00 6%, transparent); }}
+.esc-card-topo {{ display: flex; align-items: center; gap: 10px;
+  flex-wrap: wrap; }}
+.esc-card-jogo {{ font-size: .9rem; font-weight: 700; }}
+.esc-selo {{ font-size: .62rem; font-weight: 700; letter-spacing: .06em;
+  border-radius: 99px; padding: 3px 9px; white-space: nowrap; }}
+.esc-selo.pronta {{ background: rgba(182,255,0,.16); color: #B6FF00; }}
+.esc-selo.esperando {{ background: var(--c-hover-tint); color: var(--c-muted-3); }}
+.esc-card-hora {{ margin-left: auto; font-size: .72rem; color: var(--c-muted-3);
+  font-variant-numeric: tabular-nums; }}
+.esc-card-corpo {{ margin-top: 12px; }}
+.esc-card-nada {{ margin-top: 8px; font-size: .74rem; color: var(--c-muted-3); }}
+
+/* Nome que NÃO veio do elenco: a grafia pode estar errada e é para aparecer
+   assim mesmo — melhor conferir antes de publicar do que descobrir depois. */
+.esc-deduzidos {{ font-size: .7rem; color: #FFBE5D; margin-top: 8px;
+  border: 1px solid rgba(255,190,93,.3); border-radius: 8px; padding: 7px 9px;
+  line-height: 1.5; }}
 
 .esc-time {{
   border: 1px solid var(--c-border); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px;
@@ -15480,8 +15504,8 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 <body>
 {hdr}
 <div class="esc-wrap">
-  <h1 class="esc-title">Escalação por PDF</h1>
-  <p class="esc-subtitle">Sobe o matchsheet oficial baixado do mediahub da SPL — sem custo de IA, leitura direta do PDF.</p>
+  <h1 class="esc-title">Escalações</h1>
+  <p class="esc-subtitle">A rotina busca o matchsheet oficial da SPL sozinha, a partir de 1h30 antes de cada jogo. Você também pode subir o PDF à mão aqui embaixo.</p>
 
   <label class="esc-drop" id="escDrop">
     <input type="file" id="escInput" accept="application/pdf">
@@ -15549,6 +15573,11 @@ function render(d) {{
       <div class="tecnico">Técnico: ${{t.tecnico || '—'}}</div>
       <textarea class="esc-texto" id="${{id}}">${{t.texto}}</textarea>
       <button class="esc-copy" onclick="copyText(this, document.getElementById('${{id}}').value)">📋 Copiar</button>
+      ${{(t.deduzidos && t.deduzidos.length)
+         ? '<div class="esc-deduzidos">Confira: ' + t.deduzidos.map(esc).join(', ')
+           + ' — não achei no elenco, então o nome veio do próprio PDF e a '
+           + 'grafia pode não ser a que a liga usa.</div>'
+         : ''}}
     </div>`;
   }}
   if (d.avisos && d.avisos.length) {{
@@ -15574,6 +15603,13 @@ function esc(s) {{
     .replace(/>/g, '&gt;');
 }}
 
+// Só a hora do jogo — a data já está implícita ("jogos do dia"), e o card
+// fica mais limpo com "16:45" do que com "09/09 16:45".
+function soHora(iso) {{
+  const m = String(iso || '').match(/T(\d{{2}}:\d{{2}})/);
+  return m ? m[1] : '';
+}}
+
 async function carregarRecentes() {{
   const alvo = document.getElementById('recentes');
   if (!alvo) return;
@@ -15582,17 +15618,35 @@ async function carregarRecentes() {{
     const r = await fetch('/api/escalacao-pdf/recentes?horas=72');
     d = await r.json();
   }} catch (e) {{ return; }}
-  const lista = (d && d.escalacoes) || [];
-  if (!lista.length) {{
-    alvo.innerHTML = '<div class="esc-vazio">Nada lido nas últimas 72 horas. '
-      + 'A rotina busca o matchsheet sozinha a partir de 1h30 antes de cada '
-      + 'jogo — o que ela achar aparece aqui.</div>';
+  const jogos = (d && d.jogos) || [];
+  if (!jogos.length) {{
+    alvo.innerHTML = '<div class="esc-vazio">Nenhum jogo hoje, e nada lido '
+      + 'nas últimas 72 horas. A rotina busca o matchsheet sozinha a partir '
+      + 'de 1h30 antes de cada jogo — o que ela achar aparece aqui.</div>';
     return;
   }}
-  let html = '<h2 class="esc-titulo">Já lidas</h2>';
-  lista.forEach(function (e, i) {{
-    html += '<div class="esc-card"><div class="esc-jogo">' + esc(e.jogo)
-      + ' <span class="esc-quando">' + hhmm(e.visto_em || '') + '</span></div>';
+  const prontas = jogos.filter(function (j) {{ return j.escalacao; }}).length;
+  let html = '<h2 class="esc-titulo">Jogos do dia</h2>'
+    + '<p class="esc-subtitle">' + prontas + ' de ' + jogos.length
+    + ' com escalação na mão.</p>';
+
+  jogos.forEach(function (j, i) {{
+    const e = j.escalacao;
+    html += '<div class="esc-card' + (e ? ' pronta' : '') + '">'
+      + '<div class="esc-card-topo">'
+      + '<span class="esc-card-jogo">' + esc(j.jogo) + '</span>'
+      + '<span class="esc-selo ' + (e ? 'pronta' : 'esperando') + '">'
+      + (e ? 'ESCALAÇÃO NA MÃO' : 'AGUARDANDO') + '</span>'
+      + '<span class="esc-card-hora">' + esc(soHora(j.quando)) + '</span>'
+      + '</div>';
+
+    if (!e) {{
+      html += '<div class="esc-card-nada">O matchsheet costuma sair 1h30 '
+        + 'antes. Assim que sair, a rotina traz sozinha.</div></div>';
+      return;
+    }}
+
+    html += '<div class="esc-card-corpo">';
     ['casa', 'fora'].forEach(function (lado) {{
       const t = e[lado] || {{}};
       if (!t.texto) return;
@@ -15607,12 +15661,20 @@ async function carregarRecentes() {{
       html += '<div class="esc-time"><h3>' + esc(t.time) + '</h3>'
         + '<div class="tecnico">Técnico: ' + esc(t.tecnico || '—') + '</div>'
         + '<textarea class="esc-texto" id="' + id + '">' + esc(t.texto) + '</textarea>'
-        + '<button class="esc-copy" data-alvo="' + id + '">📋 Copiar</button></div>';
+        + '<button class="esc-copy" data-alvo="' + id + '">📋 Copiar</button>';
+      if (t.deduzidos && t.deduzidos.length) {{
+        html += '<div class="esc-deduzidos">Confira: '
+          + t.deduzidos.map(esc).join(', ')
+          + ' — não achei no elenco, então o nome veio do próprio PDF e a '
+          + 'grafia pode não ser a que a liga usa.</div>';
+      }}
+      html += '</div>';
     }});
     if (e.avisos && e.avisos.length) {{
       html += '<div class="esc-aviso">' + e.avisos.map(esc).join('<br>') + '</div>';
     }}
-    html += '</div>';
+    html += '<div class="esc-jogo" style="margin:10px 0 0">Lida às '
+      + hhmm(e.visto_em || '') + '</div></div></div>';
   }});
   alvo.innerHTML = html;
   alvo.querySelectorAll('.esc-copy').forEach(function (b) {{
@@ -15744,7 +15806,15 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
             avisos.append(f"{nome_time}: país sem bandeira cadastrada — "
                           + ", ".join(f'"{p}"' for p in paises_sem_mapa)
                           + " (falta em arbitragem.PAISES)")
-        dados[lado]["texto"] = matchsheet.texto_titulares(nome_time, dados[lado]["titulares"])
+        dados[lado]["texto"] = matchsheet.texto_titulares(dados[lado]["titulares"])
+        # Quem NÃO veio do elenco: o nome foi deduzido do PDF e a grafia pode
+        # estar errada (a SPL escreve ALHAMDDAN e chama de AL-HAMDAN). A tela
+        # marca essas linhas para o Vini conferir antes de publicar.
+        dados[lado]["deduzidos"] = [
+            matchsheet.nome_de_campo(j.get("nome_curto", ""), j.get("nome", ""))[0]
+            for j in dados[lado]["titulares"]
+            if not matchsheet.nome_de_campo(j.get("nome_curto", ""),
+                                            j.get("nome", ""))[1]]
 
     dados["avisos"] = avisos
 
@@ -15762,8 +15832,10 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
             conteudo=json.dumps({
                 "rodada": dados.get("rodada"), "estadio": dados.get("estadio"),
                 "data": dados.get("data"), "hora": dados.get("hora"),
-                "casa": {k: dados["casa"].get(k) for k in ("time", "tecnico", "texto")},
-                "fora": {k: dados["fora"].get(k) for k in ("time", "tecnico", "texto")},
+                "casa": {k: dados["casa"].get(k)
+                         for k in ("time", "tecnico", "texto", "deduzidos")},
+                "fora": {k: dados["fora"].get(k)
+                         for k in ("time", "tecnico", "texto", "deduzidos")},
                 "avisos": avisos}, ensure_ascii=False))
     except Exception:
         # Guardar é um bônus; a resposta com a escalação é o serviço. Se o
@@ -15772,15 +15844,80 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
     return _com_cors_mediahub(JSONResponse(dados))
 
 
+def _alvo_do_confronto(casa: str, fora: str):
+    """O par de clubes como o resto do app o entende, ou None.
+
+    None quando não dá para afirmar que são dois clubes distintos — e nesse
+    caso NADA casa. Um confronto degenerado casaria com qualquer outro
+    igualmente degenerado, e a escalação apareceria no card do jogo errado.
+    """
+    try:
+        import liga_spl
+        alvo = liga_spl.confronto(casa or "", fora or "")
+        return alvo if len(alvo) == 2 else None
+    except Exception:
+        return None
+
+
+def _cards_de_escalacao(jogos: list[dict], lidas: list[dict]) -> list[dict]:
+    """Um card por jogo do dia, com a escalação dele quando ela já chegou.
+
+    Fora da rota de propósito: assim dá para testar o casamento sem banco e
+    sem rede, que é onde mora o risco — pôr a escalação no card errado é pior
+    do que não pôr nenhuma, porque tem cara de certo.
+
+    Cada escalação é usada UMA vez. Sem isso, dois jogos parecidos no mesmo
+    dia poderiam exibir a mesma lista de onze.
+    """
+    usadas, cards = set(), []
+    for j in jogos:
+        casa = (j.get("home") or {}).get("shortName") or ""
+        fora = (j.get("away") or {}).get("shortName") or ""
+        alvo = _alvo_do_confronto(casa, fora)
+        achada, indice = None, None
+        if alvo:
+            for i, e in enumerate(lidas):
+                if i in usadas:
+                    continue
+                if _alvo_do_confronto((e.get("casa") or {}).get("time"),
+                                      (e.get("fora") or {}).get("time")) == alvo:
+                    achada, indice = e, i
+                    break
+        if indice is not None:
+            usadas.add(indice)
+        cards.append({"jogo": f"{casa} x {fora}".strip().strip("x").strip(),
+                      "quando": j.get("matchDateLocal") or "",
+                      "escalacao": achada})
+
+    # As que não casaram com jogo nenhum do dia: partida de ontem que virou a
+    # madrugada, amistoso, outra competição. Sumir com elas seria esconder
+    # trabalho que a rotina fez.
+    for i, e in enumerate(lidas):
+        if i not in usadas:
+            cards.append({"jogo": e.get("jogo") or "", "quando": "",
+                          "escalacao": e})
+    return cards
+
+
 @app.get("/api/escalacao-pdf/recentes")
 async def api_escalacao_pdf_recentes(horas: int = 72):
-    """As escalações já lidas, para a guia não abrir vazia.
+    """Os jogos do dia, cada um com a escalação dele quando ela já chegou.
 
     Quem lê o PDF quase nunca é você na tela — é a rotina, 1h30 antes do
-    jogo. Sem esta lista, o trabalho dela não aparecia em lugar nenhum do
-    app.
+    jogo. Sem esta lista, o trabalho dela não aparecia em lugar nenhum.
+
+    A LISTA COMEÇA PELOS JOGOS, E NÃO PELAS ESCALAÇÕES (09/09/26)
+        Antes eu devolvia só o que já tinha sido lido, e a guia mostrava uma
+        pilha de escalações sem contexto: não dava para saber quantos jogos
+        faltavam nem se algum tinha ficado para trás. Agora o dia inteiro
+        aparece, e o que ainda não chegou fica visível como ausência — que é
+        a informação que o Vini precisa antes do jogo, não depois.
+
+    O casamento entre o jogo e a escalação é o `liga_spl.confronto`, o mesmo
+    que decide "isto e aquilo são a mesma partida?" no resto do app. Ter uma
+    segunda regra aqui seria ter duas respostas para a mesma pergunta.
     """
-    saida = []
+    lidas = []
     for e in escalacoes_vistas(max(1, min(int(horas or 72), 240))):
         if e.get("fonte") != "matchsheet_pdf":
             continue
@@ -15790,8 +15927,11 @@ async def api_escalacao_pdf_recentes(horas: int = 72):
             corpo = {}
         corpo["visto_em"] = e.get("visto_em")
         corpo["jogo"] = e.get("jogo") or ""
-        saida.append(corpo)
-    return {"escalacoes": saida}
+        lidas.append(corpo)
+
+    return {"jogos": _cards_de_escalacao(_jogos_de_hoje_da_liga(), lidas),
+            # Mantida para quem já consumia esta rota antes de 09/09/26.
+            "escalacoes": lidas}
 
 
 @app.get("/api/convites")

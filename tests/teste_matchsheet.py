@@ -157,9 +157,15 @@ def testar():
     print("  cruzar_com_elenco: casa por camisa, mantém o do PDF quando não acha no elenco")
 
     # ── 7. texto_titulares: bandeira só quando cruzou nacionalidade ─────
-    texto = matchsheet.texto_titulares("Al Hilal", cruzado)
+    texto = matchsheet.texto_titulares(cruzado)
     linhas = texto.split("\n")
-    ok(linhas[0] == "AL HILAL", f"primeira linha deveria ser o nome do time, veio {linhas[0]!r}")
+    # O nome do time NÃO entra mais: na arte ele já está escrito em cima, e a
+    # linha extra era apagada à mão depois de todo colar (09/09/26).
+    ok(len(linhas) == len(cruzado),
+       f"o texto deveria ter uma linha por jogador e nada mais, veio "
+       f"{len(linhas)} linhas para {len(cruzado)} jogadores")
+    ok("AL HILAL" not in linhas[0],
+       f"o nome do time voltou para o texto copiado: {linhas[0]!r}")
     linha_bono = next(l for l in linhas if "BONO" in l)
     ok(linha_bono.startswith("🇲🇦"), f"Bono (Marrocos cruzado) deveria sair com bandeira: {linha_bono!r}")
     linha_lajami = next(l for l in linhas if "LAJAMI" in l)
@@ -176,10 +182,43 @@ def testar():
        f"#37 (dois dígitos) não deveria ganhar zero à esquerda, veio {linha_bono2!r}")
     print("  texto_titulares: número de um dígito com zero à esquerda (\"02\", não \"2\")")
 
+    # ── 9. o nome pelo qual o jogador é conhecido ───────────────────────
+    # O do elenco é o que a SPL usa no placar e sempre ganha. A dedução só
+    # entra quando o cruzamento por camisa falha — jogador novo, elenco
+    # desatualizado — e precisa AVISAR que é dedução, porque acerta a forma
+    # e pode errar a grafia.
+    casos = [
+        # (nome_curto do elenco, nome do PDF, esperado, veio_do_elenco)
+        ("BENTO",       "BENTO KREPSKI",             "BENTO",       True),
+        ("AL-NASSER",   "SAAD ALNASSER",             "AL-NASSER",   True),
+        ("IÑIGO",       "INIGO MARTINEZ",            "IÑIGO",       True),
+        ("",            "SAMUEL DE ALMEIDA COSTA",   "COSTA",       False),
+        # SEM hífen de propósito. A regra "AL + resto" não distingue
+        # ALKHAIBARI de ALVES, e um "AL-VES" bem formatado passa
+        # despercebido — enquanto "ALKHAIBARI" cru se denuncia sozinho.
+        ("",            "ABDULLAH ALKHAIBARI",       "ALKHAIBARI",  False),
+        ("",            "CRISTIANO RONALDO",         "RONALDO",     False),
+        ("",            "MOHAMED SIMAKAN",           "SIMAKAN",     False),
+        ("",            "SALEM AL-DAWSARI",          "AL-DAWSARI",  False),
+        # O caso que derrubou a regra do hífen quando eu a testei.
+        ("",            "DANI ALVES",                "ALVES",       False),
+        ("",            "",                          "",            False),
+    ]
+    for curto, do_pdf, esperado, do_elenco in casos:
+        nome, veio = matchsheet.nome_de_campo(curto, do_pdf)
+        ok(nome == esperado,
+           f"nome_de_campo({curto!r}, {do_pdf!r}) deu {nome!r}, esperava {esperado!r}")
+        ok(veio == do_elenco,
+           f"nome_de_campo({curto!r}, {do_pdf!r}) marcou veio_do_elenco={veio}, "
+           f"esperava {do_elenco} — é essa marca que faz a tela avisar que o "
+           "nome pode estar com a grafia errada")
+    print("  nome_de_campo: elenco manda; sem elenco, deduz e AVISA que deduziu")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
-          "  ✓ matchsheet: PDF real lido certo — titulares, reservas, GK, capitão, cruzamento")
+          "  ✓ matchsheet: PDF real lido certo — titulares, reservas, GK, capitão, "
+          "cruzamento e nome de campo")
     return len(falhas)
 
 
