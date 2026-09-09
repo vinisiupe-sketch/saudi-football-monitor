@@ -15492,15 +15492,6 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 .esc-title {{ font-size: 1.15rem; font-weight: 700; margin: 0 0 4px; }}
 .esc-subtitle {{ font-size: .78rem; color: var(--c-muted-3); margin: 0 0 18px; }}
 
-.esc-drop {{
-  border: 2px dashed var(--c-border-2); border-radius: 14px; padding: 28px 16px;
-  text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
-}}
-.esc-drop:hover, .esc-drop.arrastando {{ border-color: var(--c-text); background: rgba(182,255,0,.05); }}
-.esc-drop input {{ display: none; }}
-.esc-drop-label {{ font-size: .85rem; font-weight: 700; }}
-.esc-drop-sub {{ font-size: .72rem; color: var(--c-muted-3); margin-top: 6px; }}
-
 .esc-status {{ font-size: .78rem; color: var(--c-muted-3); margin-top: 12px; min-height: 18px; }}
 .esc-status.err {{ color: var(--c-error, #FD5D5D); }}
 
@@ -15511,25 +15502,41 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 .esc-vazio {{ margin-top: 26px; font-size: .8rem; line-height: 1.7;
   color: var(--c-muted-3); }}
 
-/* ── um card por jogo do dia ──────────────────────────────────────────
+/* ── um card por jogo do dia, FECHADO ─────────────────────────────────
+   Oito jogos com onze nomes cada é uma parede de texto que ninguém lê. O
+   card mostra só o confronto e a hora; quem quiser a escalação abre.
    A cor é o estado, e é para dar para ler de longe: apagado é jogo cuja
-   escalação ainda não chegou, aceso é escalação na mão. Antes a guia
-   listava só o que já tinha chegado, e não havia como saber o que faltava. */
+   escalação ainda não chegou, aceso é escalação na mão. */
 .esc-card {{ border: 1px solid var(--c-border); border-radius: 14px;
-  padding: 14px 16px; margin-top: 14px; transition: border-color .15s; }}
+  margin-top: 10px; transition: border-color .15s, background .15s;
+  overflow: hidden; }}
 .esc-card.pronta {{ border-color: #B6FF00;
   background: color-mix(in srgb, #B6FF00 6%, transparent); }}
-.esc-card-topo {{ display: flex; align-items: center; gap: 10px;
-  flex-wrap: wrap; }}
+
+/* O <summary> é o card fechado. Uso <details>/<summary> em vez de um
+   onclick meu: abre e fecha sem JavaScript, funciona com teclado e com
+   leitor de tela de graça, e sobrevive à recarga automática da lista. */
+.esc-card > summary {{ list-style: none; cursor: pointer; padding: 12px 14px;
+  display: flex; align-items: center; gap: 10px; }}
+.esc-card > summary::-webkit-details-marker {{ display: none; }}
+.esc-lado {{ display: flex; align-items: center; gap: 7px; min-width: 0; flex: 1; }}
+.esc-lado.dir {{ flex-direction: row-reverse; text-align: right; }}
+.esc-lado span {{ font-size: .84rem; font-weight: 700; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }}
+.esc-escudo {{ width: 22px; height: 22px; flex: 0 0 22px; display: flex;
+  align-items: center; justify-content: center; }}
+.esc-escudo img {{ max-width: 22px; max-height: 22px; object-fit: contain; }}
+.esc-card-hora {{ font-size: .78rem; font-weight: 700; color: var(--c-muted-3);
+  font-variant-numeric: tabular-nums; flex: 0 0 auto; }}
+.esc-card.pronta > summary .esc-card-hora {{ color: #B6FF00; }}
 .esc-card-jogo {{ font-size: .9rem; font-weight: 700; }}
 .esc-selo {{ font-size: .62rem; font-weight: 700; letter-spacing: .06em;
   border-radius: 99px; padding: 3px 9px; white-space: nowrap; }}
 .esc-selo.pronta {{ background: rgba(182,255,0,.16); color: #B6FF00; }}
 .esc-selo.esperando {{ background: var(--c-hover-tint); color: var(--c-muted-3); }}
-.esc-card-hora {{ margin-left: auto; font-size: .72rem; color: var(--c-muted-3);
-  font-variant-numeric: tabular-nums; }}
-.esc-card-corpo {{ margin-top: 12px; }}
-.esc-card-nada {{ margin-top: 8px; font-size: .74rem; color: var(--c-muted-3); }}
+.esc-card-corpo {{ padding: 0 14px 14px; }}
+.esc-card-nada {{ padding: 0 14px 14px; font-size: .74rem;
+  color: var(--c-muted-3); }}
 
 /* Nome que NÃO veio do elenco: a grafia pode estar errada e é para aparecer
    assim mesmo — melhor conferir antes de publicar do que descobrir depois. */
@@ -15563,34 +15570,21 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 {hdr}
 <div class="esc-wrap">
   <h1 class="esc-title">Escalações</h1>
-  <p class="esc-subtitle">Escalações recebidas do Media Hub, prontas para copiar. Você também pode enviar um PDF.</p>
+  <p class="esc-subtitle">Escalações recebidas do Media Hub, prontas para copiar.</p>
   <p class="esc-status" id="escMonitor" role="status">Consultando o monitor...</p>
 
-  <label class="esc-drop" id="escDrop">
-    <input type="file" id="escInput" accept="application/pdf">
-    <div class="esc-drop-label">📄 Clique ou arraste o PDF do matchsheet</div>
-    <div class="esc-drop-sub">Baixado do mediahub.spl.media — máx. 15MB</div>
-  </label>
   <div class="esc-status" id="escStatus"></div>
-
   <div id="escResultado"></div>
   <div id="recentes"></div>
 </div>
 
 <script>
-const drop = document.getElementById('escDrop');
-const input = document.getElementById('escInput');
+// A área de arrastar o PDF saiu em 09/09/26: quem busca o matchsheet agora é
+// o monitor do Media Hub, sozinho. A ROTA de upload continua de pé — se um dia
+// o monitor falhar em dia de jogo, voltar o campo aqui é uma linha de HTML, e
+// não um caminho novo para escrever às pressas.
 const status = document.getElementById('escStatus');
 const resultado = document.getElementById('escResultado');
-
-input.addEventListener('change', () => {{ if (input.files[0]) enviar(input.files[0]); }});
-drop.addEventListener('dragover', e => {{ e.preventDefault(); drop.classList.add('arrastando'); }});
-drop.addEventListener('dragleave', () => drop.classList.remove('arrastando'));
-drop.addEventListener('drop', e => {{
-  e.preventDefault(); drop.classList.remove('arrastando');
-  const f = e.dataTransfer.files[0];
-  if (f) enviar(f);
-}});
 
 function copyText(btn, text) {{
   navigator.clipboard.writeText(text).then(() => {{
@@ -15598,28 +15592,6 @@ function copyText(btn, text) {{
     btn.classList.add('copied');
     setTimeout(() => {{ btn.textContent = '📋 Copiar'; btn.classList.remove('copied'); }}, 2000);
   }});
-}}
-
-async function enviar(arquivo) {{
-  status.className = 'esc-status';
-  status.textContent = 'Lendo ' + arquivo.name + '...';
-  resultado.innerHTML = '';
-  const form = new FormData();
-  form.append('arquivo', arquivo);
-  try {{
-    const r = await fetch('/api/escalacao-pdf', {{ method: 'POST', body: form }});
-    const d = await r.json();
-    if (!r.ok || d.erro) {{
-      status.className = 'esc-status err';
-      status.textContent = d.erro || 'não consegui ler o PDF';
-      return;
-    }}
-    status.textContent = '';
-    render(d);
-  }} catch (e) {{
-    status.className = 'esc-status err';
-    status.textContent = 'falha ao enviar: ' + e;
-  }}
 }}
 
 function render(d) {{
@@ -15662,11 +15634,24 @@ function esc(s) {{
     .replace(/>/g, '&gt;');
 }}
 
-// Só a hora do jogo — a data já está implícita ("jogos do dia"), e o card
-// fica mais limpo com "16:45" do que com "09/09 16:45".
+// A hora do apito, no fuso de QUEM ESTÁ OLHANDO.
+//
+// O servidor manda o instante em UTC, com fuso escrito, e o navegador
+// converte. A versão anterior recortava "18:30" direto do texto que a liga
+// publica — só que o "local" da liga é a Arábia, seis horas à frente daqui.
+// O card dizia 18:30 num jogo que em Brasília começava 12:30.
 function soHora(iso) {{
-  const m = String(iso || '').match(/T(\d{{2}}:\d{{2}})/);
-  return m ? m[1] : '';
+  if (!iso) return '';
+  try {{
+    return new Date(iso).toLocaleTimeString('pt-BR',
+      {{hour: '2-digit', minute: '2-digit'}});
+  }} catch (e) {{ return ''; }}
+}}
+
+function escudo(lado) {{
+  const url = (lado && lado.escudo) || '';
+  return '<span class="esc-escudo">'
+    + (url ? '<img src="' + esc(url) + '" alt="">' : '') + '</span>';
 }}
 
 // A tela se recarrega sozinha de 30 em 30 segundos. Sem esta guarda, cada
@@ -15702,17 +15687,27 @@ async function carregarRecentes() {{
 
   jogos.forEach(function (j, i) {{
     const e = j.escalacao;
-    html += '<div class="esc-card' + (e ? ' pronta' : '') + '">'
-      + '<div class="esc-card-topo">'
-      + '<span class="esc-card-jogo">' + esc(j.jogo) + '</span>'
-      + '<span class="esc-selo ' + (e ? 'pronta' : 'esperando') + '">'
-      + (e ? 'ESCALAÇÃO NA MÃO' : 'AGUARDANDO') + '</span>'
-      + '<span class="esc-card-hora">' + esc(soHora(j.quando)) + '</span>'
-      + '</div>';
+    const casa = j.casa || {{}}, fora = j.fora || {{}};
+    const nomeCasa = casa.nome || (j.jogo || '').split(' x ')[0] || '';
+    const nomeFora = fora.nome || (j.jogo || '').split(' x ')[1] || '';
+
+    // <details> aberto só quando a escalação chegou E é o único jogo com
+    // ela; com vários, todos fechados. Abrir tudo devolveria a parede de
+    // texto que o card fechado veio resolver.
+    const abrir = e && prontas === 1 ? ' open' : '';
+    html += '<details class="esc-card' + (e ? ' pronta' : '') + '"' + abrir + '>'
+      + '<summary>'
+      + '<span class="esc-lado">' + escudo(casa)
+      + '<span>' + esc(nomeCasa) + '</span></span>'
+      + '<span class="esc-card-hora">' + esc(soHora(j.quando) || '—') + '</span>'
+      + '<span class="esc-lado dir">' + escudo(fora)
+      + '<span>' + esc(nomeFora) + '</span></span>'
+      + '</summary>';
 
     if (!e) {{
-      html += '<div class="esc-card-nada">O matchsheet costuma sair 1h30 '
-        + 'antes. Assim que sair, a rotina traz sozinha.</div></div>';
+      html += '<div class="esc-card-nada">Escalação ainda não chegou. O '
+        + 'monitor busca o matchsheet a partir de 1h40 antes do apito.'
+        + '</div></details>';
       return;
     }}
 
@@ -15726,8 +15721,7 @@ async function carregarRecentes() {{
       // de uma string, e a aspa que fecha o atributo precisava vir escapada —
       // só que este HTML mora dentro de uma string do Python, o Python comeu
       // a barra, a aspa fechou cedo e o <script> INTEIRO virou erro de
-      // sintaxe. A página parou de responder (nem o upload funcionava) sem
-      // nada aparecer na tela. O handler agora é ligado por JS, embaixo.
+      // sintaxe. A página parou de responder sem nada aparecer na tela.
       html += '<div class="esc-time"><h3>' + esc(t.time) + '</h3>'
         + '<div class="tecnico">Técnico: ' + esc(t.tecnico || '—') + '</div>'
         + '<textarea class="esc-texto" id="' + id + '">' + esc(t.texto) + '</textarea>'
@@ -15744,7 +15738,7 @@ async function carregarRecentes() {{
       html += '<div class="esc-aviso">' + e.avisos.map(esc).join('<br>') + '</div>';
     }}
     html += '<div class="esc-jogo" style="margin:10px 0 0">Lida às '
-      + hhmm(e.visto_em || '') + '</div></div></div>';
+      + hhmm(e.visto_em || '') + '</div></div></details>';
   }});
   alvo.innerHTML = html;
   alvo.querySelectorAll('.esc-copy').forEach(function (b) {{
@@ -15982,6 +15976,67 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
     return _com_cors_mediahub(JSONResponse(dados))
 
 
+def _instante_do_jogo(j: dict):
+    """O apito inicial como INSTANTE absoluto, ou None.
+
+    A liga publica dois campos: `matchDateUtc` e `matchDateLocal` — e o
+    "local" dela é a Arábia, três horas à frente de UTC e SEIS à frente de
+    Brasília. Usar o local como se fosse a nossa hora foi exatamente o que
+    pôs "18:30" num jogo que aqui começava 12:30 (09/09/26).
+
+    Prefiro o UTC. Sem ele, leio o local e carimbo o fuso da Arábia, que é o
+    que ele significa — e não o do servidor, que roda em UTC, nem o de quem
+    está olhando a tela.
+    """
+    bruto = (j.get("matchDateUtc") or "").strip()
+    if bruto:
+        try:
+            return datetime.fromisoformat(bruto.replace("Z", "+00:00"))
+        except ValueError:
+            pass
+    bruto = (j.get("matchDateLocal") or "").strip()
+    if not bruto:
+        return None
+    try:
+        quando = datetime.fromisoformat(bruto)
+    except ValueError:
+        return None
+    if quando.tzinfo is None:
+        quando = quando.replace(tzinfo=timezone(timedelta(hours=3)))   # Arábia
+    return quando
+
+
+def _jogos_do_dia_brasilia() -> list[dict]:
+    """Os jogos de HOJE, com hoje contado em Brasília.
+
+    Diferente do `_jogos_de_hoje_da_liga`, que traz hoje E ontem: aquele
+    existe para casar transmissão com partida, e uma gravação que começa 21h
+    atravessa a virada do dia. Aqui é uma agenda para uma pessoa olhar, e
+    agenda com o jogo de ontem em cima confunde — foi o que aconteceu.
+    """
+    import httpx
+    import liga_spl
+    try:
+        with httpx.Client() as cli:
+            sid = liga_spl.temporada(_dia_de_brasilia(), cli)
+            if not sid:
+                return []
+            hoje = _dia_de_brasilia()
+            saida = []
+            for j in liga_spl.jogos_da_temporada(sid, cli):
+                quando = _instante_do_jogo(j)
+                if not quando:
+                    continue
+                em_brasilia = quando.astimezone(timezone(timedelta(hours=-3)))
+                if em_brasilia.strftime("%Y-%m-%d") == hoje:
+                    saida.append((quando, j))
+            saida.sort(key=lambda par: par[0])
+            return [j for _, j in saida]
+    except Exception as e:
+        print(f"⚠️ jogos do dia (Brasília): {type(e).__name__}: {e}")
+        return []
+
+
 def _alvo_do_confronto(casa: str, fora: str):
     """O par de clubes como o resto do app o entende, ou None.
 
@@ -16007,6 +16062,7 @@ def _cards_de_escalacao(jogos: list[dict], lidas: list[dict]) -> list[dict]:
     Cada escalação é usada UMA vez. Sem isso, dois jogos parecidos no mesmo
     dia poderiam exibir a mesma lista de onze.
     """
+    import liga_spl
     usadas, cards = set(), []
     for j in jogos:
         casa = (j.get("home") or {}).get("shortName") or ""
@@ -16023,8 +16079,17 @@ def _cards_de_escalacao(jogos: list[dict], lidas: list[dict]) -> list[dict]:
                     break
         if indice is not None:
             usadas.add(indice)
+        # `quando` vai em UTC, com fuso escrito. Quem converte para a hora de
+        # quem está olhando é o navegador — ele sabe o fuso do aparelho, e o
+        # servidor não. Mandar a hora da Arábia daqui foi o que pôs "18:30"
+        # num jogo que em Brasília começava 12:30.
+        quando = _instante_do_jogo(j)
+        placar = liga_spl.placar_do_jogo(j) if j.get("home") else {}
         cards.append({"jogo": f"{casa} x {fora}".strip().strip("x").strip(),
-                      "quando": j.get("matchDateLocal") or "",
+                      "quando": quando.astimezone(timezone.utc).isoformat()
+                                if quando else "",
+                      "casa": placar.get("casa") or {"nome": casa},
+                      "fora": placar.get("fora") or {"nome": fora},
                       "escalacao": achada})
 
     # As que não casaram com jogo nenhum do dia: partida de ontem que virou a
@@ -16033,6 +16098,8 @@ def _cards_de_escalacao(jogos: list[dict], lidas: list[dict]) -> list[dict]:
     for i, e in enumerate(lidas):
         if i not in usadas:
             cards.append({"jogo": e.get("jogo") or "", "quando": "",
+                          "casa": {"nome": (e.get("casa") or {}).get("time") or ""},
+                          "fora": {"nome": (e.get("fora") or {}).get("time") or ""},
                           "escalacao": e})
     return cards
 
@@ -16067,7 +16134,7 @@ async def api_escalacao_pdf_recentes(horas: int = 72):
         corpo["jogo"] = e.get("jogo") or ""
         lidas.append(corpo)
 
-    return {"jogos": _cards_de_escalacao(_jogos_de_hoje_da_liga(), lidas),
+    return {"jogos": _cards_de_escalacao(_jogos_do_dia_brasilia(), lidas),
             # Mantida para quem já consumia esta rota antes de 09/09/26.
             "escalacoes": lidas}
 
