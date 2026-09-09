@@ -11,7 +11,10 @@ projeto do app. Não precisa deixar seu computador ou o Brave abertos.
 - O extrator existente lê o PDF Al Fateh x Al Ittihad: 11 titulares e
   9 reservas de cada time.
 
-**Ainda precisa ser validado no Railway:** login automático, download no
+**Login automático validado no Railway em 09/09/2026**, com navegador em
+tela virtual e credenciais nas variáveis do serviço.
+
+**Ainda precisa ser validado no Railway:** download no
 navegador do servidor e envio com o token de produção. O login feito no
 Codex não é transferido para o Railway. Não foi copiada nenhuma senha.
 
@@ -24,7 +27,7 @@ Codex não é transferido para o Railway. Não foi copiada nenhuma senha.
    Nome sugerido: `mediahub-monitor`.
 3. Configure **esse novo serviço pelo painel**. Mantenha a raiz do
    repositório, defina `RAILWAY_DOCKERFILE_PATH=Dockerfile.mediahub` nas
-   variáveis e o comando de início `python mediahub_monitor.py` em Settings.
+   variáveis e o comando de início `python mediahub_start.py` em Settings.
    O app continua com sua configuração atual. Deixe uma única instância,
    sem cron, sem domínio público e sem suspensão automática. O Railway
    informa que serviços novos não podem mais aderir a Config as Code;
@@ -51,7 +54,7 @@ preservar integrações anteriores. Não envie o segredo no chat.
 No novo serviço, use temporariamente este comando de início:
 
 ```text
-python mediahub_monitor.py --check-record https://mediahub.spl.media/record/14146 --dry-run
+python mediahub_start.py --check-record https://mediahub.spl.media/record/14146 --dry-run
 ```
 
 Isso baixa e valida o PDF de exemplo, sem publicar e sem esperar horário
@@ -63,10 +66,15 @@ incluir esse jogo antigo no histórico. Confira a escalação na tela do app.
 Para ativar o monitor, restaure:
 
 ```text
-python mediahub_monitor.py
+python mediahub_start.py
 ```
 
 ## Como funciona
+
+- Usa Chromium com janela em uma tela virtual no servidor. Em teste no
+  Railway em 09/09/2026, o modo headless recebeu HTTP 403 do CloudFront,
+  enquanto o modo com janela abriu a página de login com HTTP 200 no mesmo
+  ambiente. Não é necessário manter um computador pessoal ligado.
 
 - Consulta `/api/diag/jogos-de-hoje`, já existente no app.
 - Fora da janela dos jogos, fecha o navegador e aguarda.
