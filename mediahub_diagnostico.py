@@ -19,7 +19,8 @@ async def main():
                 await asyncio.sleep(1)
             browser = None
             try:
-                browser = await pw.chromium.launch(headless=headless, timeout=20000)
+                browser = await pw.chromium.launch(headless=headless, timeout=20000,
+                    env={k: os.environ[k] for k in ("DISPLAY", "PATH", "HOME", "LANG") if k in os.environ})
                 page = await browser.new_page(locale="en-GB")
                 for caminho in ("/", "/site/login"):
                     try:
