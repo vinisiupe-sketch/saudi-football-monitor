@@ -154,7 +154,7 @@ class Monitor:
 
     async def abrir(self, pw):
         if self.browser is None:
-            self.browser = await pw.chromium.launch(headless=True)
+            self.browser = await pw.chromium.launch(headless=os.environ.get("MEDIAHUB_HEADLESS") == "1")
             sessao = self.estado.pasta / "sessao.json"
             self.context = await self.browser.new_context(
                 storage_state=str(sessao) if sessao.exists() else None,
