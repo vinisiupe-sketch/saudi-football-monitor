@@ -166,7 +166,9 @@ class Monitor:
         # Navegar só pelo fragmento mantém a busca Angular anterior por alguns
         # instantes. Um documento novo evita confundir resultados antigos.
         await self.page.goto("about:blank")
-        await self.page.goto(url, wait_until="domcontentloaded")
+        resposta = await self.page.goto(url, wait_until="domcontentloaded")
+        if resposta is not None and resposta.status >= 400:
+            raise MonitorError(f"Media Hub recusou a página: HTTP {resposta.status} em {urlparse(self.page.url).path}.")
         if "/site/login" not in self.page.url:
             return
         if time.time() < self.login_depois:
