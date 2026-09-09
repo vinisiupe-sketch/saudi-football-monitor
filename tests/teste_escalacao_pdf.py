@@ -145,6 +145,39 @@ def testar():
            "token errado não pode autorizar")
         ok(main._escalacao_autorizada(_RequestFalso()) is False,
            "sem cookie e sem token, tem que recusar")
+
+        # ── token com caractere fora do ASCII: 401, e NUNCA 500 ──────────
+        # O secrets.compare_digest LEVANTA TypeError quando um dos lados tem
+        # caractere não-ASCII, e exceção aqui não vira "senha errada", vira
+        # "Internal Server Error". Já custou horas uma vez, com o token do
+        # gravador: a senha veio de um copiar-e-colar de aplicativo de
+        # mensagem com um caractere invisível, o app dizia "eu quebrei"
+        # quando a resposta certa era "essa senha não é a minha", e a gente
+        # foi procurar defeito no lugar errado.
+        #
+        # O token do mediahub chega pelo mesmo caminho, e voltou a ser
+        # comparado como texto num merge (09/09/26). Este teste é o que
+        # impede a terceira vez.
+        for sujo in ("segredo–de–teste", "sênha", "segredo-de-teste\u200b"):
+            try:
+                deu = main._escalacao_autorizada(_RequestFalso(token=sujo))
+            except Exception as e:
+                deu = f"LEVANTOU {type(e).__name__}"
+            ok(deu is False,
+               f"token {sujo!r} devolveu {deu!r}. Tem que ser False: um "
+               "caractere fora do ASCII na senha precisa virar 401, e não "
+               "500 — senão a mensagem manda procurar defeito no lugar "
+               "errado")
+
+        # O espaço-não-separável no FIM é caso à parte e vale documentar: o
+        # .strip() do Python o remove, então o token continua valendo. É o
+        # comportamento certo — ele é sujeira de colagem, não parte da senha.
+        ok(main._escalacao_autorizada(
+            _RequestFalso(token="segredo-de-teste\u00a0")) is True,
+           "espaço invisível colado no fim do token passou a recusar — ele é "
+           "sujeira de copiar-e-colar, e o .strip() existe justamente para "
+           "isso")
+        print("  token com caractere fora do ASCII recusa (401), não quebra (500)")
     finally:
         os.environ.pop("ESCALACAO_TOKEN", None)
     print("  token certo autoriza, token errado e ausência de token recusam")

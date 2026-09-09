@@ -4077,6 +4077,23 @@ def registrar_escalacao(fonte: str, chave: str, jogo: str = "",
         return False
 
 
+def salvar_escalacao_pdf(chave: str, jogo: str, conteudo: str):
+    """Grava o PDF ou sua correção; só retorna depois do commit.
+
+    O primeiro visto_em é preservado para a comparação entre fontes.
+    Erros precisam chegar ao chamador para o monitor repetir o envio.
+    """
+    with get_conn() as conn:
+        c = conn.cursor()
+        _cria_escalacao(c)
+        c.execute("""
+            INSERT INTO escalacao_vista (fonte, chave, jogo, conteudo)
+            VALUES ('matchsheet_pdf', %s, %s, %s)
+            ON CONFLICT (fonte, chave) DO UPDATE
+                SET jogo = EXCLUDED.jogo, conteudo = EXCLUDED.conteudo
+        """, [chave, jogo, conteudo])
+
+
 def escalacoes_vistas(desde_horas: int = 12) -> list[dict]:
     try:
         with get_conn() as conn:
