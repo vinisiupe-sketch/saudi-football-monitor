@@ -1,6 +1,8 @@
 """Diagnóstico pontual de páginas públicas, sem login nem sessão armazenada."""
 import asyncio
 import json
+import os
+import subprocess
 from urllib.parse import urlparse
 from playwright.async_api import async_playwright
 
@@ -10,8 +12,14 @@ async def main():
     async with async_playwright() as pw:
         for headless in (True, False):
             print(f"Abrindo navegador: headless={headless}", flush=True)
-            browser = await pw.chromium.launch(headless=headless)
+            display = None
+            if not headless:
+                display = subprocess.Popen(["Xvfb", ":99", "-screen", "0", "1280x720x24", "-nolisten", "tcp"])
+                os.environ["DISPLAY"] = ":99"
+                await asyncio.sleep(1)
+            browser = None
             try:
+                browser = await pw.chromium.launch(headless=headless, timeout=20000)
                 page = await browser.new_page(locale="en-GB")
                 for caminho in ("/", "/site/login"):
                     try:
@@ -34,7 +42,15 @@ async def main():
                         print(json.dumps({"modo": str(headless), "caminho": caminho,
                                           "falha": type(exc).__name__}), flush=True)
             finally:
-                await browser.close()
+                if browser:
+                    await browser.close()
+                if display:
+                    display.terminate()
+                    try:
+                        display.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        display.kill()
+                        display.wait()
 
 
 if __name__ == "__main__":
