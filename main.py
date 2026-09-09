@@ -443,7 +443,39 @@ _THEME_INIT_SCRIPT = '<script>document.documentElement.setAttribute("data-theme"
 # 12 páginas já injetavam o tema num ponto fixo — pendurar o PWA aqui garante
 # que nenhuma fique de fora, e esquecer uma delas faria a instalação no iPhone
 # sair sem ícone dependendo de qual estivesse aberta.
-_HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD
+# ── o zoom que o iPhone dá sozinho ao focar um campo ────────────────────────
+# Regra do Safari do iOS: campo com letra menor que 16px faz a tela aproximar
+# quando ele recebe o foco. Não dá para desligar pelo CSS. O Vini tocava na
+# legenda do clipe, a página pulava e digitar virava briga — no meio do jogo.
+#
+# POR QUE AQUI, GLOBAL, E NÃO CAMPO A CAMPO
+#     Varri o CSS do app: eram dez regras em seis telas diferentes, e a
+#     próxima que alguém escrever nasceria com o mesmo defeito. Uma regra só
+#     resolve todas e as futuras.
+#
+# POR QUE SÓ EM TELA DE TOQUE
+#     `hover:none` + `pointer:coarse` é dedo, não mouse. No desktop o CSS de
+#     cada tela continua exatamente como foi desenhado — inclusive as tabelas
+#     densas, onde 16px em toda célula estragaria o layout. O problema existe
+#     só no celular; a correção fica só no celular.
+#
+# POR QUE `!important`
+#     Seletores como `.filters-row input` têm mais especificidade que `input`,
+#     e sem o !important a media query perderia para eles. É o caso em que ele
+#     é a ferramenta certa e não um remendo: uma regra de acessibilidade que
+#     precisa vencer o estilo local, de propósito.
+#
+# O QUE EU NÃO FIZ
+#     Pôr `maximum-scale=1` no viewport. Aquilo mata o gesto de pinça na
+#     página inteira, para todo mundo, inclusive para quem depende dele para
+#     enxergar. Resolveria o sintoma cobrando de quem não tem nada com isso.
+_SEM_ZOOM_NO_TOQUE = """<style>
+@media (hover: none) and (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+}
+</style>"""
+
+_HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD + _SEM_ZOOM_NO_TOQUE
 
 # As seis do dia a dia ficam na barra; o resto vai para o menu de reticências.
 # Eram dez ícones lado a lado, o que estourava a largura no celular.
@@ -8063,6 +8095,20 @@ h1{font-size:1.5rem;margin:0 0 4px}
 
 .clipe{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:12px;overflow:hidden;margin-bottom:12px}
+
+/* O CLIPE AUTOMÁTICO É AZUL, DA BORDA À FITA (09/09/26)
+   Ele nascia com a mesma cara do clipe que você pediu, e a única diferença
+   era a etiqueta ⚡ automático — pequena demais para dar conta num card
+   cheio, no meio de uma rodada. Com quatro partidas ao mesmo tempo o que
+   confunde é justamente qual foi você que marcou e qual veio sozinho.
+   O azul é o MESMO da etiqueta: a cor deixa de ser enfeite e passa a ser a
+   informação, e quem já associou o ⚡ ao azul não precisa aprender nada novo. */
+.clipe.auto{border-color:#4f9cf9}
+.clipe.auto .clipe-etiqueta{color:#4f9cf9}
+.clipe.auto textarea:focus{border-color:#4f9cf9}
+.clipe.auto .fita-sel{background:rgba(79,156,249,.22);
+  border-top-color:#4f9cf9;border-bottom-color:#4f9cf9}
+.clipe.auto .punho{background:#4f9cf9}
 .clipe-etiqueta{padding:10px 14px 0;font-weight:800;font-size:.8rem;
   line-height:1.35;color:var(--c-text)}
 .clipe-topo{display:flex;align-items:center;gap:9px;padding:9px 14px 11px;flex-wrap:wrap}
@@ -8082,9 +8128,16 @@ h1{font-size:1.5rem;margin:0 0 4px}
    fica à vista de uma vez. Barra de rolagem DENTRO de uma caixa de texto num
    celular é a pior combinação possível: você rola a legenda achando que está
    rolando a página, ou o contrário, e no meio do jogo isso custa o post. */
+/* 16px, e não 0,9rem (14,4px). O Safari do iPhone DÁ ZOOM sozinho quando o
+   campo que recebe o foco tem letra menor que 16px — é regra do sistema, não
+   dá para desligar pelo CSS. O zoom entrava ao tocar na legenda, a página
+   saía do lugar e digitar virava briga, no meio do jogo.
+   A saída errada seria travar o zoom no <meta viewport>: isso impede o gesto
+   de pinça em TODA a página, inclusive para quem precisa dele para enxergar.
+   Aumentar a letra do campo resolve sem tirar nada de ninguém. */
 .clipe textarea{width:100%;min-height:170px;padding:12px 14px;box-sizing:border-box;
   border:1px solid var(--c-border-2);border-radius:10px;background:var(--c-bg-soft);
-  color:var(--c-text);font-family:inherit;font-size:.9rem;line-height:1.6;
+  color:var(--c-text);font-family:inherit;font-size:16px;line-height:1.55;
   resize:vertical;overflow:hidden}
 .clipe textarea:focus{outline:none;border-color:#B6FF00}
 .fita-caixa{margin-top:12px}
@@ -8128,9 +8181,12 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .atraso-caixa label{display:block;font-size:.62rem;font-weight:800;
   text-transform:uppercase;letter-spacing:.08em;color:var(--c-muted-3)}
 .atraso-linha{display:flex;gap:9px;align-items:center;margin-top:8px;flex-wrap:wrap}
-.atraso-linha input{width:78px;padding:7px 10px;border-radius:9px;
+/* 16px pelo mesmo motivo da caixa de legenda: abaixo disso o iPhone dá zoom
+   ao tocar no campo. Este é pequeno e passou despercebido — achei varrendo o
+   CSS atrás de todo campo que recebe foco, e não só o que incomodava. */
+.atraso-linha input{width:82px;padding:7px 10px;border-radius:9px;
   background:var(--surface2);border:1.5px solid var(--c-border-2);
-  color:var(--c-text);font-family:inherit;font-size:.95rem;font-weight:700;
+  color:var(--c-text);font-family:inherit;font-size:16px;font-weight:700;
   text-align:center}
 .atraso-linha span{font-size:.72rem;color:var(--c-muted-3)}
 .atraso-linha button{padding:7px 14px;border-radius:99px;background:transparent;
@@ -8694,7 +8750,9 @@ function pintarClipes(clipes) {
 
 function montar(c, assin) {
   const d = document.createElement('div');
-  d.className = 'clipe';
+  // A classe 'auto' pinta o card inteiro de azul — borda, título e fita —
+  // na mesma cor da etiqueta ⚡ automático. Ver o CSS.
+  d.className = 'clipe' + (c.automatico ? ' auto' : '');
   d.id = 'clipe-' + c.id;
   d.dataset.id = c.id;
   d.dataset.assin = assin;

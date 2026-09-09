@@ -174,10 +174,32 @@ def testar():
        "o cartão de placar parou de tratar o jogo que a liga não reconhece — "
        "Copa do Rei e AFC sairiam com sigla e escudo em branco")
 
+    # ── o clipe automático se distingue à distância ─────────────────────
+    # A etiqueta ⚡ automático sozinha não dava conta: num card cheio, com
+    # quatro partidas ao mesmo tempo, o Vini não distinguia o clipe que ELE
+    # pediu do que nasceu sozinho. Agora o card inteiro é azul, da borda à
+    # fita, na mesma cor da etiqueta. É a cor que carrega a informação, e por
+    # isso ela precisa continuar ligada ao dado — não ser só decoração.
+    fonte = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
+    ok("d.className = 'clipe' + (c.automatico ? ' auto' : '');" in fonte,
+       "o card do clipe parou de receber a classe 'auto' quando ele é "
+       "automático — o card volta a ter a mesma cara do clipe pedido à mão, "
+       "e a única diferença vira uma etiqueta pequena")
+    for regra in (".clipe.auto{border-color:#4f9cf9}",
+                  ".clipe.auto .fita-sel{",
+                  ".clipe.auto .punho{background:#4f9cf9}"):
+        ok(regra in fonte,
+           f"sumiu a regra `{regra}` — o card automático perde parte do azul "
+           "e volta a se confundir com os outros")
+    ok(".selo.s-automatico{background:#4f9cf922;color:#4f9cf9}" in fonte,
+       "a etiqueta ⚡ automático mudou de cor e o card não acompanhou — os "
+       "dois têm que ser o MESMO azul, senão a cor deixa de significar algo")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
-          "  ✓ clipes: o jogo é reconhecido pelo título, ou não é reconhecido")
+          "  ✓ clipes: o jogo é reconhecido pelo título (ou não é), e o clipe "
+          "automático se distingue pela cor")
     return len(falhas)
 
 
