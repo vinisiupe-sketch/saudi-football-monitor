@@ -227,7 +227,7 @@ class Monitor:
         await self.navegar(url_registro(HUB + href if href.startswith("/") else href))
         # O menu de download da página serve somente a mídia selecionada.
         await self.page.get_by_role("button", name="Record options", exact=True).click()
-        await self.page.get_by_text("Download", exact=True).filter(visible=True).click()
+        await self.page.get_by_text("Download", exact=True).filter(visible=True).first.click()
         await self.page.locator("#sendDownloadSubmit").wait_for()
         async with self.page.expect_download(timeout=60000) as pedido:
             await self.page.locator("#sendDownloadSubmit").click()
