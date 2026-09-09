@@ -199,7 +199,13 @@ class Monitor:
     async def baixar(self, registro, caminho):
         await self.navegar(url_registro(registro))
         english = self.page.get_by_role("link", name=re.compile(r"Team Sheet.*\bENG\b.*\(document\)", re.I))
-        await self.page.get_by_role("button", name="Record options", exact=True).wait_for()
+        try:
+            await self.page.get_by_role("button", name="Record options", exact=True).wait_for()
+        except Exception as exc:
+            # Apenas título e caminho público; nunca campos, cookies ou query.
+            caminho_atual = urlparse(self.page.url).path
+            titulo = (await self.page.title())[:120]
+            raise MonitorError(f"Página do PDF indisponível: {caminho_atual} ({titulo}).") from exc
         if await english.count() == 0:
             # O portal cria o registro do jogo antes de anexar as escalações.
             return False
