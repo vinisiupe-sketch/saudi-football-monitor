@@ -6,13 +6,16 @@ from playwright.async_api import async_playwright
 
 
 async def main():
+    print("Diagnóstico público iniciado (sem credenciais).", flush=True)
     async with async_playwright() as pw:
         for headless in (True, False):
+            print(f"Abrindo navegador: headless={headless}", flush=True)
             browser = await pw.chromium.launch(headless=headless)
             try:
                 page = await browser.new_page(locale="en-GB")
                 for caminho in ("/", "/site/login"):
                     try:
+                        print(f"Consultando {caminho}", flush=True)
                         response = await page.goto("https://mediahub.spl.media" + caminho,
                                                    wait_until="domcontentloaded", timeout=30000)
                         title = await page.title()
@@ -35,4 +38,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(asyncio.wait_for(main(), timeout=120))
