@@ -15481,7 +15481,8 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
 {hdr}
 <div class="esc-wrap">
   <h1 class="esc-title">Escalação por PDF</h1>
-  <p class="esc-subtitle">Sobe o matchsheet oficial baixado do mediahub da SPL — sem custo de IA, leitura direta do PDF.</p>
+  <p class="esc-subtitle">Escalações recebidas do Media Hub, prontas para copiar. Você também pode enviar um PDF.</p>
+  <p class="esc-status" id="escMonitor" role="status">Consultando o monitor...</p>
 
   <label class="esc-drop" id="escDrop">
     <input type="file" id="escInput" accept="application/pdf">
@@ -15574,6 +15575,7 @@ function esc(s) {{
     .replace(/>/g, '&gt;');
 }}
 
+let recentesAnteriores = '';
 async function carregarRecentes() {{
   const alvo = document.getElementById('recentes');
   if (!alvo) return;
@@ -15583,10 +15585,12 @@ async function carregarRecentes() {{
     d = await r.json();
   }} catch (e) {{ return; }}
   const lista = (d && d.escalacoes) || [];
+  const versao = JSON.stringify(lista);
+  if (versao === recentesAnteriores || document.activeElement?.tagName === 'TEXTAREA') return;
+  recentesAnteriores = versao;
   if (!lista.length) {{
     alvo.innerHTML = '<div class="esc-vazio">Nada lido nas últimas 72 horas. '
-      + 'A rotina busca o matchsheet sozinha a partir de 1h30 antes de cada '
-      + 'jogo — o que ela achar aparece aqui.</div>';
+      + 'Quando o monitor enviar um PDF, a escalação aparecerá aqui.</div>';
     return;
   }}
   let html = '<h2 class="esc-titulo">Já lidas</h2>';
@@ -15623,7 +15627,19 @@ async function carregarRecentes() {{
   }});
 }}
 
+async function carregarMonitor() {{
+  const alvo = document.getElementById('escMonitor');
+  try {{
+    const r = await fetch('/api/escalacao-pdf/monitor');
+    if (!r.ok) throw new Error();
+    const d = await r.json();
+    alvo.textContent = d.mensagem + (d.visto_em ? ' Último contato: ' + hhmm(d.visto_em) : '');
+    alvo.className = 'esc-status' + (d.estado === 'erro' || d.atrasado ? ' err' : '');
+  }} catch (e) {{ alvo.textContent = 'Não foi possível consultar o estado do monitor.'; }}
+}}
 carregarRecentes();
+carregarMonitor();
+setInterval(() => {{ carregarMonitor(); carregarRecentes(); }}, 30000);
 </script>
 </body>
 </html>"""
@@ -15653,7 +15669,48 @@ def _escalacao_autorizada(request: Request) -> bool:
     esperado = os.environ.get("ESCALACAO_TOKEN", "").strip()
     if not esperado:
         return False
-    return request.headers.get("X-Escalacao-Token", "").strip() == esperado
+    return secrets.compare_digest(request.headers.get("X-Escalacao-Token", "").strip(), esperado)
+
+
+@app.post("/api/escalacao-pdf/monitor")
+async def receber_status_monitor(request: Request):
+    if not _escalacao_autorizada(request):
+        return JSONResponse({"erro": "não autenticado"}, status_code=401)
+    corpo = await request.body()
+    if len(corpo) > 4096:
+        return JSONResponse({"erro": "status muito grande"}, status_code=413)
+    try:
+        dados = json.loads(corpo)
+        estado = dados["estado"]
+        mensagem = dados["mensagem"]
+        if estado not in {"aguardando", "buscando", "monitorando", "publicado", "erro"}:
+            raise ValueError()
+        if not isinstance(mensagem, str) or len(mensagem) > 500:
+            raise ValueError()
+    except (ValueError, KeyError, TypeError):
+        return JSONResponse({"erro": "status inválido"}, status_code=400)
+    valor = {"estado": estado, "mensagem": mensagem, "visto_em": datetime.now(timezone.utc).isoformat()}
+    # get_state/set_state existentes silenciam erros em algumas versões;
+    # a leitura abaixo permite detectar que o status não foi persistido.
+    set_state("mediahub_monitor_status", json.dumps(valor, ensure_ascii=False))
+    if get_state("mediahub_monitor_status") != json.dumps(valor, ensure_ascii=False):
+        return JSONResponse({"erro": "status não salvo"}, status_code=503)
+    return {"ok": True}
+
+
+@app.get("/api/escalacao-pdf/monitor")
+async def consultar_status_monitor(request: Request):
+    if not _escalacao_autorizada(request):
+        return JSONResponse({"erro": "não autenticado"}, status_code=401)
+    bruto = get_state("mediahub_monitor_status")
+    if not bruto:
+        return {"estado": "aguardando", "mensagem": "Monitor ainda não conectado.", "atrasado": True}
+    dados = json.loads(bruto)
+    idade = (datetime.now(timezone.utc) - datetime.fromisoformat(dados["visto_em"])).total_seconds()
+    dados["atrasado"] = idade > 300
+    if dados["atrasado"]:
+        dados["mensagem"] = "Monitor sem contato há mais de 5 minutos. Confira o serviço no Railway."
+    return dados
 
 
 def _com_cors_mediahub(resp):
@@ -15756,8 +15813,9 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
     try:
         chave = "|".join([dados.get("data") or "", dados["casa"]["time"],
                           dados["fora"]["time"]])
-        registrar_escalacao(
-            "matchsheet_pdf", chave,
+        from database import salvar_escalacao_pdf
+        salvar_escalacao_pdf(
+            chave,
             jogo=f'{dados["casa"]["time"]} x {dados["fora"]["time"]}',
             conteudo=json.dumps({
                 "rodada": dados.get("rodada"), "estadio": dados.get("estadio"),
@@ -15766,9 +15824,10 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
                 "fora": {k: dados["fora"].get(k) for k in ("time", "tecnico", "texto")},
                 "avisos": avisos}, ensure_ascii=False))
     except Exception:
-        # Guardar é um bônus; a resposta com a escalação é o serviço. Se o
-        # banco falhar aqui, quem subiu o PDF continua recebendo o texto.
-        pass
+        return _com_cors_mediahub(JSONResponse(
+            {"erro": "PDF lido, mas não foi possível salvar a escalação. Tente novamente.",
+             "salvo": False}, status_code=503))
+    dados["salvo"] = True
     return _com_cors_mediahub(JSONResponse(dados))
 
 
