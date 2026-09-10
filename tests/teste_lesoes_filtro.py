@@ -96,18 +96,27 @@ def testar():
     ok("if (qual === 'api' && !_lsnApiCarregada)" in tela,
        "a consulta à API deixou de esperar você abrir a aba")
 
-    # ── 3. cobertura: o modo de falhar que engana ────────────────────────
-    ok('"leagues"' in rota and "coverage" in rota,
-       "a rota parou de conferir o coverage.injuries da liga. Sem isso, "
-       "'a API não cobre' e 'ninguém machucado' viram a mesma tela vazia")
-    ok('"cobertura"' in rota,
-       "a resposta da rota não traz mais o campo `cobertura`")
-    ok("d.cobertura === false" in tela,
-       "a tela parou de distinguir lista vazia por falta de cobertura de "
-       "lista vazia por não haver ninguém fora")
+    # ── 3. a sub-aba mudou de fonte: TM no lugar da API ──────────────────
+    # A API-Football NÃO cobre ausências nesta liga (coverage.injuries =
+    # false, conferido com a chave do Vini). Ela respondia com SUCESSO e lista
+    # VAZIA, para sempre — foi isso que ele relatou como "não tá trazendo
+    # nada". Uma aba que só sabe dizer "nada" não é conferência.
+    ok("/api/lesoes/transfermarkt" in tela,
+       "a sub-aba voltou a consultar a API-Football, que não cobre ausências "
+       "nesta liga e sempre devolve lista vazia")
+    ok("Conferir no Transfermarkt" in tela,
+       "o rótulo da sub-aba não diz mais qual é a fonte")
+    # A rota da API continua existindo — ela volta a servir no dia em que a
+    # cobertura aparecer, e apagá-la agora seria jogar fora a conferência do
+    # coverage junto.
+    ok("coverage" in rota,
+       "a rota antiga perdeu a conferência do coverage.injuries, que é o que "
+       "distingue 'a API não sabe' de 'ninguém está fora'")
+    # E a distinção continua valendo na tela nova, com o motivo de agora:
+    # bloqueio ou mudança de layout do TM, e não falta de cobertura.
     ok("NÃO quer dizer" in tela,
-       "sumiu o aviso que explica que a lista vazia sem cobertura não "
-       "significa que não há ninguém fora")
+       "sumiu o aviso de que lista vazia pode ser falha de leitura, e não "
+       "ausência de lesionados")
 
     # ── 4. suspensão vem junto, e o tipo cru não se perde ────────────────
     ok("suspend" in rota and "Suspensão" in rota,
@@ -153,8 +162,8 @@ def testar():
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
-          "  ✓ Lesões: filtro por clube com contagem viva, e a aba da API "
-          "sabendo a diferença entre 'ninguém fora' e 'a API não sabe'")
+          "  ✓ Lesões: filtro por clube com contagem viva, e a conferência "
+          "no Transfermarkt casando por id")
     return len(falhas)
 
 

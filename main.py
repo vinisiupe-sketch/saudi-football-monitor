@@ -4221,11 +4221,26 @@ async def _page_lesoes_impl(request: Request):
         print(f"⚠️ lesões, rosto: {type(e).__name__}: {e}")
         _indice, _por_id, _escudos = {"chave": {}}, {}, {}
 
-    def _rosto(nome: str) -> str:
+    def _do_elenco(nome: str) -> dict:
+        """O jogador do elenco que corresponde a este nome, ou {}.
+
+        Este índice já existia aqui — era ele que achava a FOTO. O nome, no
+        entanto, continuava saindo como a IA o transliterou da notícia, e o
+        Vini reclamou com razão: "Faris Abdi" numa tela e "Fares Abdy" na
+        outra são a mesma pessoa parecendo duas.
+
+        Se o índice é bom o bastante para escolher a foto certa — e é, porque
+        exige correspondência ÚNICA —, ele é bom o bastante para dar o nome.
+        Passar a usá-lo para as duas coisas não é uma fonte nova: é parar de
+        desperdiçar a que já estava aberta.
+        """
         achados = elos.jogadores_no_texto("", nome or "", _indice)
         if len(achados) != 1:
-            return ""
-        foto = (_por_id.get(next(iter(achados))) or {}).get("foto") or ""
+            return {}
+        return _por_id.get(next(iter(achados))) or {}
+
+    def _rosto(nome: str) -> str:
+        foto = (_do_elenco(nome) or {}).get("foto") or ""
         return (foto if foto.startswith("http") else liga_spl.MEDIA + foto) if foto else ""
 
     def _iniciais(nome: str) -> str:
@@ -4241,11 +4256,22 @@ async def _page_lesoes_impl(request: Request):
         injury_dt = ((inj.get("injury_date") or "")[:10]) or "—"
         updated = (inj.get("last_updated") or "")[:10]
         notes = inj.get("notes") or ""
-        player = inj.get("player_name") or "—"
-        club   = inj.get("club") or "—"
+        bruto = inj.get("player_name") or "—"
+        club = inj.get("club") or "—"
         status = inj.get("status") or "lesionado"
 
-        # Nome original (só se diferente)
+        # O NOME DO ELENCO ganha do nome que a IA transliterou da notícia.
+        # É o mesmo que aparece na escalação, no campinho e nos pendurados —
+        # e o elenco vem do Transfermarkt, que escreve nome próprio muito
+        # melhor do que qualquer transliteração feita a partir de um texto
+        # em árabe. O clube também: a notícia diz "Al Ahli" e o elenco diz
+        # "Al-Ahli Jeddah", e é o segundo que casa com o escudo.
+        do_elenco = _do_elenco(bruto)
+        player = (do_elenco.get("nome") or "").strip() or bruto
+        club = (do_elenco.get("clube") or "").strip() or club
+
+        # Nome original (só se diferente). Agora ele tem mais serventia do que
+        # antes: é onde dá para ver que a notícia escrevia de outro jeito.
         orig = inj.get("player_name_orig") or ""
         orig_html = ('<span class="injury-orig">' + orig + "</span>") if orig and orig != player else ""
 
@@ -4291,14 +4317,18 @@ async def _page_lesoes_impl(request: Request):
         # Mesma anatomia: rosto à esquerda, quem e para onde no meio, estado
         # à direita, e o histórico escondido até o toque. A cor do selo é o
         # estado — dá para varrer a tela sem ler uma palavra.
-        foto = _rosto(player)
-        rosto_html = (
-            '<img class="lsn-rosto" src="' + foto + '" alt="" loading="lazy">'
-            if foto else
-            '<div class="lsn-semrosto">' + _iniciais(player) + "</div>"
-        )
+        # ── O card, no padrão da guia Pendurados ───────────────────────
+        #
+        # Saiu a foto do jogador; entrou o escudo do clube. A foto ocupava o
+        # canto mais valioso do card com a informação menos útil: numa lista
+        # de lesionados, o que o olho procura é DE QUEM É O TIME e QUÃO GRAVE
+        # é — não a cara do sujeito. O escudo responde a primeira pergunta
+        # numa fração do espaço, e o que sobra vira texto legível.
+        #
+        # Layout: escudo · nome e detalhe · tipo · estado. Uma linha só, que
+        # se lê varrendo de cima a baixo, como a de pendurados e suspensos.
         escudo = _escudos.get(club) or ""
-        escudo_html = ('<img class="lsn-escudo" src="' + escudo + '" alt="" loading="lazy">'
+        escudo_html = ('<img src="' + escudo + '" alt="" loading="lazy">'
                        if escudo else "")
         detalhe = tipo_full + retorno_html
         # data-clube: é por ele que o filtro esconde e mostra. Vai escapado
@@ -4307,14 +4337,15 @@ async def _page_lesoes_impl(request: Request):
         import html as _html
         return (
             '<div class="injury-card" data-clube="' + _html.escape(club, quote=True) + '">'
-            + '<div class="lsn-topo">'
-            + rosto_html
-            + '<div class="lsn-quem">'
-            + '<div class="lsn-nome">' + player + orig_html + "</div>"
-            + '<div class="lsn-clube">' + escudo_html + "<span>" + club + "</span>"
-            + '<span class="lsn-sep">·</span><span>Lesão em ' + injury_dt + "</span></div>"
-            + '<div class="lsn-detalhe">' + detalhe + "</div>"
-            + "</div>"
+            + '<div class="lsn-linha">'
+            + '<span class="lsn-escudo">' + escudo_html + "</span>"
+            + '<span class="lsn-quem">'
+            + '<span class="lsn-nome">' + player + orig_html + "</span>"
+            + '<span class="lsn-sub">' + club
+            + ('<span class="lsn-sep">·</span>desde ' + injury_dt
+               if injury_dt and injury_dt != "—" else "")
+            + "</span></span>"
+            + '<span class="lsn-tipo">' + detalhe + "</span>"
             + '<span class="status-pill status-' + status + '">' + emoji + " " + slabel + "</span>"
             + "</div>"
             + notes_html
@@ -4404,43 +4435,42 @@ async def _page_lesoes_impl(request: Request):
   opacity: .7;
 }}
 
+/* Uma coluna, não uma grade de cartõezinhos.
+   A grade obrigava cada card a ser alto e estreito, com a informação
+   empilhada. Em lista, cada lesão é UMA LINHA que se lê varrendo de cima a
+   baixo — que é como se procura "quem do meu time está fora". */
 .injury-grid {{
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
   margin-bottom: 32px;
 }}
 .injury-card {{
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
-  border-radius: 18px;
-  padding: 13px 15px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  border-radius: 12px;
+  padding: 11px 13px;
 }}
-/* ── O card no padrão da guia de Mercado ──────────────────────────────
-   Rosto à esquerda, quem e onde no meio, estado à direita. A mesma
-   anatomia das duas telas, para não haver duas gramáticas visuais para
-   a mesma ideia — uma pessoa, um clube, uma situação que anda. */
-.lsn-topo {{ display: flex; gap: 13px; align-items: center; }}
-.lsn-rosto {{ width: 52px; height: 52px; border-radius: 50%; object-fit: cover;
-  flex: 0 0 auto; background: var(--c-bg); border: 1px solid var(--c-border); }}
-/* Sem foto, as iniciais. Nunca uma foto parecida: rosto errado numa
-   notícia de lesão é pior que rosto nenhum. */
-.lsn-semrosto {{ width: 52px; height: 52px; border-radius: 50%; flex: 0 0 auto;
-  display: flex; align-items: center; justify-content: center;
-  background: var(--c-bg); border: 1px dashed var(--c-border);
-  font-family: 'Bebas Neue', sans-serif; font-size: 1.1rem;
-  color: var(--c-muted-3); }}
+/* ── O card no padrão da guia Pendurados ──────────────────────────────
+   escudo · nome e clube · tipo da lesão · estado, tudo numa linha.
+   A foto do jogador saiu: numa lista de lesionados o olho procura de que
+   time é a pessoa e quão grave é o caso, e o escudo responde a primeira
+   pergunta numa fração do espaço que o retrato ocupava. */
+.lsn-linha {{ display: flex; align-items: center; gap: 11px; }}
+.lsn-escudo {{ width: 26px; height: 26px; flex: 0 0 26px; display: flex;
+  align-items: center; justify-content: center; }}
+.lsn-escudo img {{ max-width: 26px; max-height: 26px; object-fit: contain; }}
 .lsn-quem {{ flex: 1; min-width: 0; }}
-.lsn-nome {{ font-family: 'Bebas Neue', sans-serif; font-size: 1.3rem;
-  letter-spacing: .03em; line-height: 1.1; }}
-.lsn-clube {{ display: flex; align-items: center; gap: 6px; margin-top: 4px;
-  font-size: .72rem; color: var(--c-muted-3); flex-wrap: wrap; }}
-.lsn-escudo {{ width: 16px; height: 16px; object-fit: contain; }}
-.lsn-sep {{ opacity: .5; }}
-.lsn-detalhe {{ font-size: .68rem; color: var(--c-muted-3); margin-top: 3px; }}
+.lsn-nome {{ display: block; font-weight: 800; font-size: .9rem;
+  overflow-wrap: anywhere; }}
+.lsn-sub {{ display: block; font-size: .7rem; color: var(--c-muted-3);
+  margin-top: 2px; }}
+.lsn-sep {{ opacity: .5; margin: 0 5px; }}
+/* O tipo da lesão fica no canto, antes do estado — e some no celular, onde
+   a linha não comporta quatro colunas sem espremer o nome. */
+.lsn-tipo {{ font-size: .68rem; color: var(--c-muted-3); text-align: right;
+  flex: 0 0 auto; max-width: 34%; }}
+@media (max-width: 560px) {{ .lsn-tipo {{ display: none; }} }}
 .lsn-rodape {{ font-size: .62rem; color: var(--c-muted-2);
   text-transform: uppercase; letter-spacing: .05em; }}
 .injury-card-top {{
@@ -4627,7 +4657,7 @@ details[open] summary::before {{ transform: rotate(90deg); }}
     <button class="lsn-aba ativa" id="lsnAba-noticias"
             onclick="mostrarLesoes('noticias')">📰 Pela imprensa</button>
     <button class="lsn-aba" id="lsnAba-api"
-            onclick="mostrarLesoes('api')">🔎 Conferir na API</button>
+            onclick="mostrarLesoes('api')">🔎 Conferir no Transfermarkt</button>
   </div>
 
   <div id="lsnPainel-noticias">
@@ -4641,9 +4671,11 @@ details[open] summary::before {{ transform: rotate(90deg); }}
   </div>
 
   <div id="lsnPainel-api" style="display:none">
-    <div class="lesoes-subtitle">A lista oficial de ausentes da API-Football —
-      lesionados e suspensos. Serve para conferir o que a imprensa não
-      noticiou: aqui aparece o reserva que ninguém escreveu.</div>
+    <div class="lesoes-subtitle">A lista de lesionados da Saudi Pro League no
+      Transfermarkt. Serve para conferir o que a imprensa não noticiou — aqui
+      aparece o reserva que ninguém escreveu. O casamento com o elenco é feito
+      pelo <b>identificador do próprio Transfermarkt</b>, sem passar por nome,
+      então o nome que você vê é o mesmo do resto do app.</div>
     <div id="lsnApi"><div class="empty-state">Carregando…</div></div>
   </div>
 </div>
@@ -4705,57 +4737,68 @@ function lsnEsc(s) {{
     .replace(/"/g, '&quot;');
 }}
 
+// A LISTA DO TRANSFERMARKT, e não mais a da API-Football.
+//
+// A API não cobre ausências nesta liga (coverage.injuries = false, conferido
+// com a chave do Vini): ela respondia com SUCESSO e lista VAZIA, para sempre.
+// Uma aba que só sabe dizer "nada" não é conferência nenhuma — era esse o
+// defeito que o Vini relatou como "não tá trazendo nada".
 async function carregarAusencias() {{
   const alvo = document.getElementById('lsnApi');
   let d;
   try {{
-    const r = await fetch('/api/ausencias/api-football');
+    const r = await fetch('/api/lesoes/transfermarkt');
     d = await r.json();
-    if (d.erro) throw new Error(d.erro);
   }} catch (e) {{
-    alvo.innerHTML = '<div class="empty-state">Não consegui consultar a API: '
-      + lsnEsc(e.message || e) + '</div>';
+    alvo.innerHTML = '<div class="empty-state">Não consegui consultar o '
+      + 'Transfermarkt: ' + lsnEsc(e.message || e) + '</div>';
     return;
   }}
 
-  const lista = d.ausencias || [];
+  const lista = d.lesoes || [];
   if (!lista.length) {{
-    // A distinção que importa. Lista vazia com cobertura ligada quer dizer
-    // "ninguém fora". Lista vazia SEM cobertura quer dizer "a API não sabe" —
-    // e as duas apareceriam igualzinhas se eu só escrevesse "nenhum".
+    // Distinguir "ninguém machucado" de "não consegui ler" continua sendo a
+    // regra — só que agora o motivo provável é bloqueio do TM, e não falta
+    // de cobertura.
     alvo.innerHTML = '<div class="empty-state">'
-      + (d.cobertura === false
-         ? 'A API-Football não cobre ausências nesta liga/temporada '
-           + '(coverage.injuries = false). A lista vazia aqui NÃO quer dizer '
-           + 'que não há ninguém fora — quer dizer que esta fonte não sabe.'
-         : 'A API não lista ninguém fora na temporada ' + lsnEsc(d.temporada) + '.')
+      + ((d.erros || []).length
+         ? 'Não consegui ler a página do Transfermarkt: ' + lsnEsc(d.erros.join(' | '))
+           + '<br>Lista vazia aqui NÃO quer dizer que não há ninguém machucado.'
+         : 'O Transfermarkt não lista nenhum lesionado na Saudi Pro League.')
       + '</div>';
     return;
   }}
 
-  let html = '<div class="section-label">A API lista '
-    + lista.length + ' ausente(s) <span class="section-count">temporada '
-    + lsnEsc(d.temporada) + '</span></div><div class="injury-grid">';
+  let html = '<div class="section-label">' + lista.length
+    + ' lesionado(s) no Transfermarkt <span class="section-count">'
+    + d.casados + ' casado(s) com o elenco pelo id</span></div>'
+    + '<div class="injury-grid">';
   lista.forEach(function (a) {{
-    const so_api = !a.no_nosso_monitor;
-    html += '<div class="injury-card" data-clube="' + lsnEsc(a.clube) + '">'
-      + '<div class="lsn-topo">'
-      + (a.foto ? '<img class="lsn-rosto" src="' + lsnEsc(a.foto) + '" alt="" loading="lazy">'
-                : '<div class="lsn-semrosto">?</div>')
-      + '<div class="lsn-quem">'
-      + '<div class="lsn-nome">' + lsnEsc(a.jogador) + '</div>'
-      + '<div class="lsn-clube">'
-      + (a.escudo ? '<img class="lsn-escudo" src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
-      + '<span>' + lsnEsc(a.clube) + '</span></div>'
-      + '<div class="lsn-detalhe">' + lsnEsc(a.motivo || '—')
-      + (a.jogo_em ? ' · jogo de ' + lsnEsc(a.jogo_em) : '') + '</div>'
+    const nome = a.nome_elenco || a.nome;
+    const clube = a.clube_elenco || a.clube;
+    const so_tm = !a.no_nosso_monitor;
+    html += '<div class="injury-card" data-clube="' + lsnEsc(clube) + '">'
+      + '<div class="lsn-linha">'
+      + '<span class="lsn-escudo">'
+      + (a.escudo ? '<img src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
+      + '</span>'
+      + '<span class="lsn-quem">'
+      + '<span class="lsn-nome">' + lsnEsc(nome) + '</span>'
+      + '<span class="lsn-sub">' + lsnEsc(clube)
+      + (a.posicao ? '<span class="lsn-sep">·</span>' + lsnEsc(a.posicao) : '')
+      + '</span></span>'
+      + '<span class="lsn-tipo">' + lsnEsc(a.lesao || '—')
+      + (a.ate_texto && a.ate_texto !== '?'
+          ? '<br>até ' + lsnEsc(a.ate_texto) : '') + '</span>'
+      + '<span class="status-pill status-lesionado">🔴 Lesionado</span>'
       + '</div>'
-      + '<span class="status-pill status-' + (a.tipo === 'Suspensão' ? 'retornando' : 'lesionado')
-      + '">' + lsnEsc(a.tipo) + '</span>'
-      + '</div>'
-      // O valor da aba está nesta linha: quem a API vê e a imprensa não.
-      + (so_api ? '<div class="lsn-so-api">Só a API tem — não saiu na imprensa '
-                  + 'que eu coleto</div>' : '')
+      // O valor da aba está nesta linha: quem o TM vê e a imprensa não.
+      + (so_tm ? '<div class="lsn-so-api">Só o Transfermarkt tem — não saiu '
+                 + 'na imprensa que eu coleto</div>' : '')
+      // E este aviso protege o contrário: sem casar com o elenco, o nome que
+      // aparece é o do TM, e pode estar escrito diferente do resto do app.
+      + (a.no_elenco ? '' : '<div class="lsn-so-api">Não achei este jogador no '
+                            + 'elenco guardado — nome como o TM escreve</div>')
       + '</div>';
   }});
   html += '</div>';
@@ -4798,6 +4841,52 @@ def _chave_de_nome(nome: str) -> str:
     """
     t = unicodedata.normalize("NFKD", nome or "").encode("ascii", "ignore").decode()
     return " ".join(re.sub(r"[^a-zA-Z ]+", " ", t).lower().split())
+
+
+def _lesoes_do_tm() -> dict:
+    """Os lesionados da SPL segundo o Transfermarkt, já casados com o elenco.
+
+    SUBSTITUIU A CONSULTA À API-FOOTBALL, e o motivo é simples: a API não
+    cobre ausências nesta liga (`coverage.injuries = false`, conferido com a
+    chave do Vini), então aquela sub-aba respondia com sucesso e lista vazia
+    para sempre. Uma tela que só sabe dizer "nada" não é uma conferência.
+
+    O TM tem a lista, e tem algo que nenhuma outra fonte deste projeto tem: o
+    MESMO IDENTIFICADOR que a tabela `jogador` já guarda. O casamento não
+    passa por nome — nem por transliteração da IA, nem por glossário — é o
+    mesmo número dos dois lados.
+    """
+    import lesoes_tm
+    from database import listar_jogadores
+    r = lesoes_tm.buscar()
+    try:
+        elenco = listar_jogadores(limite=2000)
+    except Exception:
+        elenco = []
+    r["casados"] = lesoes_tm.casar_com_elenco(r.get("lesoes", []), elenco)
+    r["total"] = len(r.get("lesoes", []))
+    return r
+
+
+@app.get("/api/lesoes/transfermarkt")
+async def api_lesoes_transfermarkt():
+    """A lista do TM. Só busca quando a aba é aberta — ver o comentário lá."""
+    r = await asyncio.to_thread(_lesoes_do_tm)
+    lista = r.get("lesoes", [])
+    # O que a nossa coleta por notícia JÁ tem, para marcar quem só o TM viu.
+    try:
+        nossos = {_chave_de_nome(i.get("player_name") or "")
+                  for i in get_injuries(include_recovered=False)}
+    except Exception:
+        nossos = set()
+    for l in lista:
+        alvo = _chave_de_nome(l.get("nome_elenco") or l.get("nome") or "")
+        l["no_nosso_monitor"] = alvo in nossos
+    lista.sort(key=lambda l: ((l.get("clube_elenco") or l.get("clube") or "").lower(),
+                              (l.get("nome_elenco") or l.get("nome") or "").lower()))
+    r["clubes"] = sorted({(l.get("clube_elenco") or l.get("clube") or "")
+                          for l in lista if (l.get("clube_elenco") or l.get("clube"))})
+    return r
 
 
 @app.get("/api/ausencias/api-football")

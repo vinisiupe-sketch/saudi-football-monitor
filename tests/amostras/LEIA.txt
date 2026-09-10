@@ -21,3 +21,20 @@ por isso que este recorte vale: ele liga as duas fontes num caso conferível.
 A página é servida em windows-1256; este arquivo está em UTF-8, porque o
 teste exercita a LEITURA do HTML e não o download. Quem cuida do charset é
 o disciplina._baixar, com o mesmo remendo do arbitragem.py.
+
+──────────────────────────────────────────────────────────────────────────
+tm_lesionados_SA1.html — capturado em 11/09/2026 de
+transfermarkt.com/saudi-professional-league/verletztespieler/wettbewerb/SA1
+
+As quatro primeiras linhas da tabela de lesionados da liga, com a marcação
+como o TM entrega: a célula do jogador é uma TABELA ANINHADA (nome numa
+linha, posição na outra), o clube vem só como escudo com title, e a data de
+retorno é dia/mês/ano mesmo na versão em inglês.
+
+Tirei os atributos de estilo para caber no repositório. O que importa para o
+teste — a tabela aninhada, o href com o id do jogador, o href com o id do
+clube — está intacto.
+
+A última linha é um caso montado: lesionado sem previsão de retorno ("?").
+Ele existe na página de verdade e é o que prova que uma data faltando não
+vira data inventada.

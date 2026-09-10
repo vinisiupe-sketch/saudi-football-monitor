@@ -119,28 +119,49 @@ def testar():
     ok('_pagina_de_noticias("mercado", "/mercado/noticias")' in FONTE,
        "a guia Notícias do Mercado deixou de ser fixa em mercado")
 
-    # ── 4. Lesões segue a mesma anatomia do card de Mercado ────────────────
+    # ── 4. Lesões segue a mesma anatomia do card de Pendurados ─────────────
     # Não é capricho: duas telas que mostram a mesma ideia — uma pessoa, um
     # clube, uma situação que anda — não podem ter duas gramáticas visuais.
-    # E o rosto tem a mesma regra das outras: quem não é achado com certeza
-    # fica com as iniciais, nunca com uma foto parecida.
+    #
+    # A anatomia MUDOU em 11/09/26. Antes era a da guia de Mercado, com o
+    # rosto do jogador ocupando o canto esquerdo. Numa lista de lesionados o
+    # olho procura de que time é a pessoa e quão grave é o caso, e o retrato
+    # não responde nenhuma das duas — só ocupa o espaço que o texto queria.
+    # Agora é escudo · nome e clube · tipo · estado, tudo numa linha, igual a
+    # pendurados e suspensos.
     lesoes = _corpo("_page_lesoes_impl")
     ok(lesoes, "não achei _page_lesoes_impl")
     for pedaco, porque in (
-            ("lsn-rosto", "o card de lesão perdeu o rosto"),
-            # A classe existe no CSS mesmo quando o HTML para de emiti-la —
-            # foi assim que este teste passou verde com o círculo removido.
-            # O que prova a emissão é a chamada que monta as iniciais.
-            ("_iniciais(player)", "o card de lesão perdeu o círculo de iniciais — "
-                                  "sem ele, quem não tem foto some da tela"),
-            ("lsn-escudo", "o card de lesão perdeu o escudo do clube"),
+            ("lsn-linha", "o card de lesão perdeu a linha única do padrão de "
+                          "Pendurados"),
+            ("lsn-escudo", "o card de lesão perdeu o escudo do clube — é ele "
+                           "que responde 'de que time é' num relance"),
+            ("lsn-tipo", "o card perdeu o tipo da lesão no canto"),
             ("status-pill", "o card de lesão perdeu o selo de estado")):
         ok(pedaco in lesoes, porque)
+    ok("lsn-rosto" not in lesoes,
+       "voltou a foto do jogador ao card de lesão. Ela ocupa o canto mais "
+       "valioso com a informação menos útil da tela")
+
+    # O ÍNDICE DE NOMES continua mandando — e agora dá o NOME, não só a foto.
+    #
+    # O nome vinha da transliteração que a IA fazia do texto da notícia, e
+    # saía diferente do resto do app: "Fares Abdy" numa tela e "Faris Abdi" na
+    # outra são a mesma pessoa parecendo duas. O índice já era bom o bastante
+    # para escolher a foto certa (exige correspondência única); usá-lo também
+    # para o nome não é fonte nova, é parar de desperdiçar a que estava aberta.
     ok("elos.jogadores_no_texto" in lesoes,
-       "o rosto da lesão deixou de usar o índice de nomes — se voltar a casar "
-       "por conta própria, volta a errar de pessoa")
+       "a identificação da lesão deixou de usar o índice de nomes — se voltar "
+       "a casar por conta própria, volta a errar de pessoa")
     ok("len(achados) != 1" in lesoes,
-       "o rosto passou a aceitar nome que cai em mais de uma pessoa")
+       "a identificação passou a aceitar nome que cai em mais de uma pessoa")
+    ok("_do_elenco(bruto)" in lesoes and 'do_elenco.get("nome")' in lesoes,
+       "o card voltou a exibir o nome que a IA transliterou da notícia em vez "
+       "do nome do elenco. É o mesmo jogador aparecendo com dois nomes "
+       "diferentes em duas guias do mesmo app")
+    ok('do_elenco.get("clube")' in lesoes,
+       "o clube também tem que vir do elenco: a notícia escreve 'Al Ahli' e o "
+       "elenco escreve 'Al-Ahli Jeddah', e é o segundo que casa com o escudo")
 
     for f in falhas:
         print("  ✗", f)
