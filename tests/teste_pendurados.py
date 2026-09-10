@@ -60,9 +60,9 @@ def _carregar_regra():
     ainda vem, o pendurado às vésperas do clássico.
     """
     mod = ast.parse(FONTE)
-    alvos = {"_e_amarelo", "_e_segundo_amarelo", "_e_vermelho",
-             "_situacao_dos_cartoes", "_jogos_do_clube", "_adversario",
-             "_ja_aconteceu"}
+    alvos = {"_classificar_cartao", "_e_amarelo", "_e_segundo_amarelo",
+             "_e_vermelho", "_situacao_dos_cartoes", "_jogos_do_clube",
+             "_adversario", "_ja_aconteceu"}
     corpo = [n for n in mod.body
              if isinstance(n, ast.FunctionDef) and n.name in alvos]
     achadas = {n.name for n in corpo}
@@ -75,7 +75,13 @@ def _carregar_regra():
 
 AMARELO = "Yellow Card"
 VERMELHO = "Red Card"
-SEGUNDO = "Second Yellow card"
+# O QUE A API ESCREVE DE VERDADE. Eu tinha suposto "Second Yellow card"; ela
+# manda "Yellow-Red Card". O rótulo que eu procurava não existia, e o defeito
+# foi silencioso e DUPLO: "yellow" está nesse texto (contei um amarelo) e
+# "red card" também (contei um vermelho). O mesmo lance entrava nas duas
+# contas. Este teste usa o rótulo real como padrão; o antigo vira só um
+# apelido a mais no teste 0.
+SEGUNDO = "Yellow-Red Card"
 
 NASSR, ETTIFAQ, TAAWOUN, ITTIHAD, HILAL = 2939, 2934, 2936, 2938, 2932
 NOMES = {NASSR: "Al-Nassr", ETTIFAQ: "Al-Ettifaq", TAAWOUN: "Al-Taawoun",
@@ -144,9 +150,9 @@ def _sem_status(cal):
 def testar():
     falhas.clear()
     ns, achadas = _carregar_regra()
-    esperadas = {"_e_amarelo", "_e_segundo_amarelo", "_e_vermelho",
-                 "_situacao_dos_cartoes", "_jogos_do_clube", "_adversario",
-                 "_ja_aconteceu"}
+    esperadas = {"_classificar_cartao", "_e_amarelo", "_e_segundo_amarelo",
+                 "_e_vermelho", "_situacao_dos_cartoes", "_jogos_do_clube",
+                 "_adversario", "_ja_aconteceu"}
     ok(achadas == esperadas,
        f"sumiu alguma função da regra: falta {esperadas - achadas}")
     if achadas != esperadas:
@@ -154,6 +160,47 @@ def testar():
             print("  ✗", f)
         return len(falhas)
     situacao = ns["_situacao_dos_cartoes"]
+    classificar = ns["_classificar_cartao"]
+
+    # ── 0. cada cartão vira UMA categoria ────────────────────────────────
+    # É aqui que o defeito de setembro nasceu. Eu perguntava três coisas
+    # independentes ("é amarelo?", "é segundo amarelo?", "é vermelho?") e
+    # "Yellow-Red Card" respondia SIM a duas delas — porque o nome dele contém
+    # o nome das outras duas. Uma função só, com ordem explícita, é o que
+    # impede isso de voltar.
+    CATEGORIAS = {
+        "Yellow Card": "amarelo",
+        "Red Card": "vermelho",
+        # O rótulo que a API-Football usa de verdade para o segundo amarelo:
+        "Yellow-Red Card": "amarelo_vermelho",
+        # Apelidos que outras fontes (e a documentação) usam. Custam nada e
+        # evitam que a mesma armadilha volte por outro nome.
+        "Second Yellow card": "amarelo_vermelho",
+        "2nd Yellow Card": "amarelo_vermelho",
+        "yellow_red_card": "amarelo_vermelho",
+        "YELLOW-RED CARD": "amarelo_vermelho",
+    }
+    for texto, esperado in CATEGORIAS.items():
+        obtido = classificar(texto)
+        ok(obtido == esperado,
+           f'"{texto}" foi classificado como {obtido!r} e deveria ser '
+           f"{esperado!r}")
+
+    # E o que eu não reconheço não vira palpite.
+    for texto in ("", None, "Card", "Missing Fixture", "Questionable"):
+        ok(classificar(texto) == "",
+           f'"{texto}" virou uma categoria de cartão sem ser um')
+
+    # A prova direta de que o mesmo evento não entra em duas contas.
+    ok(not (ns["_e_amarelo"]("Yellow-Red Card")
+            and ns["_e_vermelho"]("Yellow-Red Card")),
+       "'Yellow-Red Card' voltou a contar como amarelo E como vermelho ao "
+       "mesmo tempo. Foi assim que o Dion Lopy ganhou dois amarelos que o "
+       "regulamento tinha cancelado")
+    ok(not ns["_e_amarelo"]("Yellow-Red Card"),
+       "'Yellow-Red Card' voltou a contar como amarelo simples")
+    ok(ns["_e_vermelho"]("Yellow-Red Card"),
+       "'Yellow-Red Card' deixou de ser expulsão — o jogador saiu de campo")
 
     def de(cartoes, limite=4, cal=None, hoje="2026-09-10"):
         cal = CAL if cal is None else cal
@@ -250,6 +297,72 @@ def testar():
            "expulso em 25/08, cumpriu em 28/08, voltou ao banco em 05/09 e "
            "foi titular em 09/09 — é o caso que derrubou a primeira versão")
 
+    # ── 5b. O CASO DO DION LOPY ──────────────────────────────────────────
+    # O segundo caso real que o Vini trouxe, e o que revelou o rótulo errado.
+    #
+    #   21/08  expulso por dois amarelos contra o Al-Qadsiah
+    #   24/08  cumpre a suspensão (não joga contra o Al-Hazem)
+    #   29/08  volta contra o Al-Fateh, e leva amarelo
+    #   01/09  leva outro amarelo contra o Al-Nassr
+    #
+    # Ele tem DOIS amarelos no ciclo, não quatro: os dois de 21/08 foram
+    # cancelados junto com a expulsão. Com o defeito, a conta chegava a quatro
+    # e a tela inventava uma segunda suspensão — dizendo que ele cumpriria
+    # contra o Al-Fayha em 08/09 e voltaria contra o Al-Faisaly.
+    ITT, QAD, HAZ, FATEH, FAYHA, FAISALY = 2938, 2933, 2945, 2931, 2944, 2930
+    nomes_ITT = {ITT: "Al-Ittihad", QAD: "Al-Qadsiah", HAZ: "Al-Hazem",
+                 FATEH: "Al-Fateh", NASSR: "Al-Nassr", FAYHA: "Al-Fayha",
+                 FAISALY: "Al-Faisaly FC"}
+
+    def jITT(fid, data, casa, fora, status="FT"):
+        return {"fixture_id": fid, "data": data, "status": status, "rodada": "x",
+                "casa_id": casa, "casa": nomes_ITT[casa],
+                "fora_id": fora, "fora": nomes_ITT[fora]}
+
+    cal_itt = [jITT(101, "2026-08-21", ITT, QAD),
+               jITT(102, "2026-08-24", HAZ, ITT),
+               jITT(103, "2026-08-29", ITT, FATEH),
+               jITT(104, "2026-09-01", NASSR, ITT),
+               jITT(105, "2026-09-08", ITT, FAYHA),
+               jITT(106, "2026-09-15", FAISALY, ITT, "NS")]
+
+    def cITT(fid, detalhe, data, minuto):
+        return {"fixture_id": fid, "jogador_id": 77, "jogador": "D. Lopy",
+                "clube": "Al-Ittihad", "clube_id": ITT, "detalhe": detalhe,
+                "minuto": minuto, "jogo_em": data}
+
+    lopy = [cITT(101, AMARELO, "2026-08-21", 30),
+            cITT(101, "Yellow-Red Card", "2026-08-21", 68),
+            cITT(103, AMARELO, "2026-08-29", 55),
+            cITT(104, AMARELO, "2026-09-01", 77)]
+    d = situacao(lopy, 4, cal_itt, "2026-09-10")[0]
+
+    ok(d["amarelos"] == 2,
+       f"o Lopy ficou com {d['amarelos']} amarelos e são 2. Os dois de 21/08 "
+       "foram cancelados junto com a expulsão — o regulamento saudita diz "
+       "isso com todas as letras: إلغاء الإنذارين اللذين نتج عنهما البطاقة الحمراء")
+    ok(d["no_ciclo"] == 2 and d["faltam"] == 2,
+       f"o ciclo dele está errado: {d['no_ciclo']} no ciclo, faltam {d['faltam']}")
+    ok(d["dois_amarelos"] == 1 and d["vermelhos"] == 1,
+       f"a expulsão de 21/08 não foi contada como uma só: {d}")
+    ok(d["jogo_da_pena"] == "Al-Hazem" and d["jogo_da_pena_em"] == "2026-08-24",
+       f"a suspensão dele foi cumprida contra o {d['jogo_da_pena']} em "
+       f"{d['jogo_da_pena_em']} — era o Al-Hazem em 24/08")
+    ok(d["estado"] == "",
+       f"em 10/09 o Lopy não pode estar em lista nenhuma: {d['estado']!r} "
+       f"({d['motivo']!r}). Ele cumpriu em 24/08 e voltou em 29/08")
+    ok(d["jogo_da_pena"] != "Al-Fayha",
+       "voltou o defeito exato que o Vini viu: a tela dizia que ele cumpria "
+       "contra o Al-Fayha em 08/09 e voltava contra o Al-Faisaly")
+
+    # No dia seguinte à expulsão ele TEM que estar fora — a regra continua
+    # valendo, o que mudou foi só a contagem dos amarelos.
+    d = situacao(lopy[:2], 4,
+                 [dict(p, status=("FT" if p["data"] < "2026-08-22" else "NS"))
+                  for p in cal_itt], "2026-08-22")[0]
+    ok(d["estado"] == "fora" and d["jogo_da_pena"] == "Al-Hazem",
+       f"em 22/08 o Lopy devia estar fora do jogo contra o Al-Hazem: {d}")
+
     # ── 6. vermelho direto, e vermelho antigo ────────────────────────────
     d = de([cartao(4, 4, VERMELHO, "2026-09-09", 30)])[4]
     ok(d["estado"] == "fora" and "expuls" in d["motivo"],
@@ -282,6 +395,21 @@ def testar():
     ok(d["proximo_jogo"] == "Al-Taawoun",
        f"o próximo jogo saiu errado com o calendário bagunçado: "
        f"{d['proximo_jogo']!r}")
+
+    # ── 7a-bis. dois amarelos sem rótulo de expulsão ─────────────────────
+    # A segunda rede de segurança: se a fonte inventar um terceiro nome para
+    # a expulsão indireta, DOIS amarelos na mesma partida continuam sendo
+    # expulsão — não existe outro final para isso. Aqui a fonte manda só dois
+    # "Yellow Card" e nenhum vermelho.
+    dois_crus = [cartao(4, 11, AMARELO, "2026-09-09", 20),
+                 cartao(4, 11, AMARELO, "2026-09-09", 66)]
+    d = de(dois_crus)[11]
+    ok(d["amarelos"] == 0 and d["dois_amarelos"] == 1,
+       f"dois amarelos na mesma partida, sem rótulo de expulsão, não foram "
+       f"reconhecidos como expulsão: {d}")
+    ok(d["estado"] == "fora",
+       "dois amarelos na mesma partida não deixaram o jogador fora do jogo "
+       "seguinte. Não existe outro desfecho para dois amarelos num jogo")
 
     # ── 7c. só os jogos DAQUELE clube contam ─────────────────────────────
     # O calendário tem partidas de Hilal, Ittihad e Taawoun entre as do Nassr.

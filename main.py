@@ -4900,18 +4900,58 @@ async def api_ausencias_af(season: int = 0, team: int = 0):
 #     resposta (`dois_amarelos`) para dar para conferir. Se a SAFF fizer
 #     diferente, o conserto é uma linha — e está isolado numa função só.
 
+def _classificar_cartao(detalhe: str) -> str:
+    """Um cartão vira UMA categoria: amarelo, vermelho ou amarelo-vermelho.
+
+    O QUE DEU ERRADO AQUI (10/09/26, achado pelo Vini)
+        Eu supus que a API-Football escrevesse "Second Yellow card" para a
+        expulsão por dois amarelos. Ela escreve **"Yellow-Red Card"**. O nome
+        que eu procurava não existia, e o efeito foi duplo e silencioso:
+
+            "yellow" está em "Yellow-Red Card"  → contei como AMARELO
+            "red card" está em "yellow-red card" → contei como VERMELHO
+
+        O mesmo evento entrava nas duas contas. Resultado no caso real: o Dion
+        Lopy foi expulso por dois amarelos contra o Al-Qadsiah em 21/08 e
+        cumpriu a suspensão em 24/08 — mas aqueles dois amarelos, que o
+        regulamento CANCELA, ficaram no acúmulo dele. Com mais dois amarelos
+        depois do retorno, a conta chegou a quatro e a tela inventou uma
+        segunda suspensão que não existia.
+
+        A lição que fica no código: classificar por "contém a palavra" só
+        funciona quando as categorias não se contêm. "Yellow-Red" contém as
+        duas. Por isso agora é UMA função, com ordem explícita, devolvendo uma
+        categoria só — e não três perguntas independentes que podem responder
+        "sim" ao mesmo tempo.
+
+    A ordem dos testes é a regra: o amarelo-vermelho vem primeiro justamente
+    porque o nome dele contém os outros dois.
+    """
+    d = " ".join((detalhe or "").lower().replace("_", " ").replace("/", " ").split())
+    if not d:
+        return ""
+    if "yellow" in d and "red" in d:      # "Yellow-Red Card"
+        return "amarelo_vermelho"
+    if "second yellow" in d or "2nd yellow" in d:
+        return "amarelo_vermelho"
+    if "red" in d:
+        return "vermelho"
+    if "yellow" in d:
+        return "amarelo"
+    return ""
+
+
 def _e_amarelo(detalhe: str) -> bool:
-    return "yellow" in (detalhe or "").lower() and not _e_segundo_amarelo(detalhe)
+    return _classificar_cartao(detalhe) == "amarelo"
 
 
 def _e_segundo_amarelo(detalhe: str) -> bool:
-    d = (detalhe or "").lower()
-    return "second yellow" in d
+    return _classificar_cartao(detalhe) == "amarelo_vermelho"
 
 
 def _e_vermelho(detalhe: str) -> bool:
-    d = (detalhe or "").lower()
-    return "red card" in d or _e_segundo_amarelo(detalhe)
+    """Saiu de campo — por vermelho direto ou pelo segundo amarelo."""
+    return _classificar_cartao(detalhe) in ("vermelho", "amarelo_vermelho")
 
 
 def _jogos_do_clube(calendario: list[dict], clube_id) -> list[dict]:
@@ -4989,6 +5029,7 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
             "jogador_id": jid, "jogador": c.get("jogador") or "",
             "clube": c.get("clube") or "", "clube_id": c.get("clube_id"),
             "amarelos": 0, "vermelhos": 0, "dois_amarelos": 0,
+            "desconhecidos": 0,
             "eventos": [], "ultimo_jogo": "", "ultimo_fixture": None,
         })
         # O nome e o clube mais RECENTES ganham: jogador que trocou de time no
@@ -5019,18 +5060,33 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
             d["ultimo_jogo"] = str((lista[0] or {}).get("jogo_em") or "")
             d["ultimo_fixture"] = fixture
 
-            detalhes = [c.get("detalhe") or "" for c in lista]
-            if any(_e_segundo_amarelo(x) for x in detalhes):
+            classes = [_classificar_cartao(c.get("detalhe") or "") for c in lista]
+            d["desconhecidos"] += sum(1 for x in classes if not x)
+            amarelos_no_jogo = sum(1 for x in classes if x == "amarelo")
+
+            # Expulso por dois amarelos? Duas maneiras de saber, e as duas
+            # valem — a primeira depende de a fonte escrever o nome que eu
+            # espero, e foi ela que falhou em setembro. A segunda não depende
+            # de nome nenhum: DOIS amarelos na mesma partida só terminam de um
+            # jeito. Se algum dia a API inventar um terceiro rótulo, esta
+            # continua de pé.
+            dois = ("amarelo_vermelho" in classes) or amarelos_no_jogo >= 2
+            if dois:
                 d["dois_amarelos"] += 1
                 d["vermelhos"] += 1
                 punicoes.append((fixture, "expulso por dois amarelos"))
-                # Os amarelos deste jogo NÃO entram no acúmulo: a punição já
-                # foi a expulsão.
+                # Os amarelos deste jogo são CANCELADOS pelo regulamento
+                # saudita — "إلغاء الإنذارين اللذين نتج عنهما البطاقة الحمراء".
+                # A punição já foi a expulsão; contá-los de novo puniria duas
+                # vezes o mesmo lance, que é o que estava acontecendo.
                 continue
-            if any("red card" in x.lower() for x in detalhes):
+            if "vermelho" in classes:
+                # Vermelho DIRETO. O amarelo que ele porventura tenha levado
+                # antes no mesmo jogo continua contando: são infrações
+                # distintas, e o regulamento só cancela o par que gera a
+                # expulsão indireta.
                 d["vermelhos"] += 1
                 punicoes.append((fixture, "expulso"))
-            amarelos_no_jogo = sum(1 for x in detalhes if _e_amarelo(x))
             if amarelos_no_jogo:
                 amarelos += amarelos_no_jogo
                 if amarelos % limite == 0:
