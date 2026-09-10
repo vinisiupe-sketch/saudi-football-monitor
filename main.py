@@ -5137,8 +5137,17 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
                 # O motivo vem do cartão VERMELHO, não de qualquer um da
                 # partida: o amarelo por reclamação no minuto 20 não diz nada
                 # sobre a expulsão do minuto 80.
-                bruto = next((c.get("motivo") or "" for c, x in zip(lista, classes)
-                              if x == "vermelho"), "")
+                #
+                # E entre os vermelhos, o primeiro que TENHA motivo — não o
+                # primeiro da lista. Parece a mesma coisa e não é: enquanto o
+                # banco teve o mesmo cartão gravado duas vezes (uma versão
+                # velha sem motivo e uma nova com "Violent conduct"), quem
+                # respondia era a velha, porque vinha antes na ordem. O
+                # espelhamento da partida na releitura resolveu a causa; isto
+                # aqui é para o sintoma não voltar por outro caminho.
+                bruto = next((m for m in (
+                    (c.get("motivo") or "") for c, x in zip(lista, classes)
+                    if x == "vermelho") if m), "")
                 d["motivo_expulsao"] = bruto
                 d["gancho_maior"] = _gancho_pode_ser_maior(bruto)
                 punicoes.append((fixture, "expulso"))
@@ -5242,11 +5251,12 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
     Partida que eu li enquanto ainda rolava é relida: os cartões do segundo
     tempo não existiam na primeira leitura.
     """
-    from database import (marcar_partida_lida, partidas_ja_lidas,
-                          registrar_cartao, salvar_partidas_liga)
+    from database import (apagar_cartoes_da_partida, marcar_partida_lida,
+                          partidas_ja_lidas, registrar_cartao,
+                          salvar_partidas_liga)
     teto = teto or int(ajuste("cartoes_partidas_por_passada") or 12)
     diag = {"temporada": season, "partidas_lidas": 0, "cartoes_novos": 0,
-            "faltam": 0, "calendario": 0, "erros": []}
+            "cartoes_apagados": 0, "faltam": 0, "calendario": 0, "erros": []}
 
     jogos, err = await _af_get("fixtures",
                                {"league": AF_LEAGUE_SPL, "season": season})
@@ -5293,6 +5303,19 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
         if err:
             diag["erros"].append(f"jogo {fid}: {err}")
             continue
+
+        # Apaga ANTES de gravar, e só depois de a chamada ter dado certo.
+        #
+        # A lista de eventos de uma partida encerrada é a verdade sobre ela;
+        # esta tabela é um espelho dela, não um acúmulo do que eu já achei.
+        # Sem isto, a releitura empilhava: o vermelho do Óscar Rodríguez ficou
+        # gravado duas vezes — a versão velha sem motivo e a nova com "Violent
+        # conduct" — e quem respondia era a velha. O alerta não aparecia.
+        #
+        # A ordem importa: se a chamada falha, o `continue` acima já saiu e
+        # nada é apagado. Trocar as duas linhas de lugar transformaria uma
+        # falha de rede em perda de dado.
+        diag["cartoes_apagados"] += apagar_cartoes_da_partida(fid)
         rodada = (f.get("league") or {}).get("round") or ""
         quando = (fx.get("date") or "")[:10]
         for ev in (eventos or {}).get("response", []):
@@ -5822,14 +5845,52 @@ async function atualizar(refazer) {
 // Reler tudo apaga as marcas de "já li" e volta em TODAS as partidas da
 // temporada. É caro (uma chamada da API por jogo) e só faz sentido quando a
 // LEITURA estava errada — foi o caso do acréscimo, em que o segundo amarelo
-// de um mesmo minuto era descartado. Por isso pergunta antes: o botão do lado
-// resolve o dia a dia, e este aqui é para consertar o passado.
+// de um mesmo minuto era descartado.
+//
+// VAI ATÉ O FIM SOZINHO. A primeira versão fazia UMA passada e mostrava
+// "faltam 23, toque de novo" — e o Vini tocou uma vez, viu que nada mudou no
+// jogador que ele foi conferir, e me disse que não tinha funcionado. Estava
+// certo: o jogo dele estava entre os 23 que faltavam. Um botão que precisa
+// ser tocado três vezes para fazer o que promete é um botão que mente.
+//
+// O teto de passadas existe para que um erro meu de contagem não vire um laço
+// que consome a assinatura inteira sem ninguém olhando.
+const PD_MAX_PASSADAS = 12;
+
 async function relerTudo() {
   if (!confirm('Apagar o que já foi lido e buscar todos os jogos da '
-             + 'temporada de novo?\n\nCusta uma chamada da API por partida, e '
-             + 'vai precisar de algumas passadas até o contador de "faltam" '
-             + 'chegar a zero.')) return;
-  await atualizar(1);
+             + 'temporada de novo?\n\nCusta uma chamada da API por partida. '
+             + 'Vou repetir sozinho até acabar.')) return;
+  const b = document.getElementById('pdAtualizar');
+  const b2 = document.getElementById('pdReler');
+  const est = document.getElementById('pdEstado');
+  b.disabled = b2.disabled = true;
+  let lidas = 0, apagados = 0, passada = 0, erros = [];
+  try {
+    for (passada = 1; passada <= PD_MAX_PASSADAS; passada++) {
+      est.textContent = 'relendo… passada ' + passada + ', '
+        + lidas + ' jogo(s) até aqui';
+      const r = await fetch('/api/pendurados/atualizar'
+                            + (passada === 1 ? '?refazer=1' : ''),
+                            {method: 'POST'});
+      const d = await r.json();
+      lidas += d.partidas_lidas || 0;
+      apagados += d.cartoes_apagados || 0;
+      (d.erros || []).forEach(function (e) { if (erros.indexOf(e) < 0) erros.push(e); });
+      // Duas saídas: acabou o que faltava, ou a passada não leu nada (o que
+      // quer dizer que ela não vai ler nada nas próximas também).
+      if (!d.faltam || !d.partidas_lidas) break;
+    }
+    est.textContent = lidas + ' jogo(s) relido(s) em ' + passada + ' passada(s), '
+      + apagados + ' registro(s) antigo(s) substituído(s)'
+      + (erros.length ? ' · ⚠️ ' + erros.join(' | ') : '');
+    await carregar();
+  } catch (e) {
+    est.textContent = 'parou no meio: ' + (e.message || e)
+      + ' — toque de novo para continuar de onde parou';
+  } finally {
+    b.disabled = b2.disabled = false;
+  }
 }
 
 carregar();

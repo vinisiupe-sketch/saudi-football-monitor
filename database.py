@@ -3273,6 +3273,42 @@ def registrar_cartao(fixture_id: int, season: int, jogador_id: int, tipo: str,
         return False
 
 
+def apagar_cartoes_da_partida(fixture_id: int) -> int:
+    """Zera os cartões de uma partida, para a releitura poder regravá-los.
+
+    POR QUE ISTO PRECISOU EXISTIR (10/09/26)
+        A releitura foi desenhada com ON CONFLICT DO NOTHING, no princípio de
+        que "cartão é um fato de um instante e não deve ser reescrito". O
+        princípio está certo e a conclusão estava errada, porque o que muda na
+        releitura não é o fato — é o que eu sei sobre ele.
+
+        Quando o acréscimo entrou na chave única, o vermelho do Óscar
+        Rodríguez, que estava gravado como (minuto 90, extra 0, motivo vazio),
+        deixou de colidir com o mesmo cartão relido como (minuto 90, extra 6,
+        motivo "Violent conduct"). O DO NOTHING não fez nada porque não havia
+        conflito nenhum: ele INSERIU o segundo, ao lado do primeiro.
+
+        Resultado: dois registros do mesmo cartão. E como a regra lê o
+        primeiro vermelho da partida em ordem de minuto e acréscimo, quem
+        respondia era a linha velha — sem motivo. O alerta de conduta violenta
+        simplesmente não aparecia, e os amarelos em acréscimo passaram a
+        contar duas vezes.
+
+        A lista de eventos de uma partida ENCERRADA é a verdade sobre ela.
+        Minha tabela deve ser um espelho dessa lista, não um acúmulo de tudo
+        que já achei sobre ela. Apagar antes de gravar é o que faz a releitura
+        ser idempotente — dá para rodar dez vezes e o resultado é o mesmo.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_cartao(c)
+            c.execute("DELETE FROM cartao WHERE fixture_id = %s", [fixture_id])
+            return c.rowcount
+    except Exception:
+        return 0
+
+
 def esquecer_partidas_lidas(season: int) -> int:
     """Apaga as marcas de "já li" para a temporada, forçando a releitura.
 
