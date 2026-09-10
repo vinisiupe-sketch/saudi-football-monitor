@@ -5177,8 +5177,22 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
         d["motivo"] = ""
         d["jogo_da_pena"] = ""
         d["jogo_da_pena_em"] = ""
+        # O JOGO EM QUE A PUNIÇÃO NASCEU, que não é o mesmo que o último jogo
+        # em que ele levou cartão.
+        #
+        # Ficaram diferentes no caso do Kader Keita, do Al-Riyadh: expulso em
+        # 26/08, e depois disso levou amarelo em outro jogo. `ultimo_fixture`
+        # passou a apontar para o jogo do amarelo, e quem procurava a decisão
+        # da SAFF por ele não achava nada — a decisão é do jogo da EXPULSÃO.
+        # Resultado: um jogador com julgamento publicado aparecia como se não
+        # tivesse nenhum.
+        d["fixture_da_pena"] = None
+        d["pena_em"] = ""
         if punicoes:
             fixture_pena, motivo = punicoes[-1]
+            d["fixture_da_pena"] = fixture_pena
+            d["pena_em"] = str((por_jogo.get(fixture_pena) or [{}])[0]
+                               .get("jogo_em") or "")
             i = posicao.get(fixture_pena)
             # Sem o jogo no calendário eu não sei qual é o seguinte. Digo isso
             # em vez de chutar: marcar como suspenso quem talvez já tenha
@@ -5398,7 +5412,15 @@ def _juntar_decisoes(situacao: list[dict], calendario: list[dict],
         d["decisao_saff"] = None
         if not d.get("vermelhos"):
             continue
-        dia = quando_do_jogo.get(d.get("ultimo_fixture")) or d.get("ultimo_jogo")
+        # A decisão é do jogo em que a PUNIÇÃO nasceu — a expulsão — e não do
+        # último jogo em que o jogador levou cartão. Os dois são o mesmo até o
+        # dia em que ele leva um amarelo depois de cumprir a expulsão, e aí
+        # deixam de ser: foi o que aconteceu com o Kader Keita, que tinha
+        # julgamento publicado e aparecia como se não tivesse.
+        dia = (d.get("pena_em")
+               or quando_do_jogo.get(d.get("fixture_da_pena"))
+               or quando_do_jogo.get(d.get("ultimo_fixture"))
+               or d.get("ultimo_jogo"))
         if not dia:
             continue
         try:
@@ -5425,7 +5447,11 @@ def _juntar_decisoes(situacao: list[dict], calendario: list[dict],
         # ── a conta refeita com o número oficial ────────────────────────
         agenda = _jogos_do_clube(calendario, d.get("clube_id"))
         posicao = {p.get("fixture_id"): i for i, p in enumerate(agenda)}
-        i = posicao.get(d.get("ultimo_fixture"))
+        # Também a partir do jogo da EXPULSÃO: os jogos de gancho começam a
+        # correr dali, não do último amarelo que ele tomou depois.
+        i = posicao.get(d.get("fixture_da_pena"))
+        if i is None:
+            i = posicao.get(d.get("ultimo_fixture"))
         if i is None:
             continue
         punidos = agenda[i + 1:i + 1 + total]
@@ -5494,6 +5520,106 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
         "todos": situacao,
         "coleta": diag,
     }
+
+
+@app.get("/api/diag/pendurado", response_class=PlainTextResponse)
+async def diag_pendurado(nome: str = "", season: int = 0):
+    """Por que ESTE jogador está — ou não está — na guia de pendurados.
+
+    POR QUE EXISTE
+        O Vini perguntou o que tinha acontecido com o Kader Keita, que
+        aparecia numa versão e sumiu na seguinte. Eu não sei responder isso
+        olhando o código: a resposta depende dos cartões dele, do calendário
+        do clube e da decisão da SAFF, e eu não vejo nenhum dos três daqui.
+
+        Sem esta rota, o caminho seria eu chutar uma causa e pedir para ele
+        conferir — e chutar causa sem olhar o dado é exatamente o erro que já
+        me custou dois consertos nesta mesma guia. Aqui a conta aparece
+        inteira: cada cartão, cada jogo do clube depois da punição, e o que
+        cada peça respondeu.
+    """
+    from database import (cartoes_da_temporada, decisoes_do_jogo,
+                          partidas_da_liga)
+    temporada = season or _af_temporada_corrente()
+    limite = int(ajuste("cartoes_para_suspender") or 4)
+    hoje = _dia_de_brasilia()
+    alvo = _chave_de_nome(nome)
+
+    cartoes = cartoes_da_temporada(temporada)
+    calendario = partidas_da_liga(temporada)
+    if not alvo:
+        quem = sorted({(c.get("jogador") or "") for c in cartoes
+                       if c.get("jogador")})
+        return ("Passe ?nome=<parte do nome>. Quem tem cartão nesta "
+                f"temporada ({len(quem)}):\n  " + "\n  ".join(quem))
+
+    situacao = _situacao_dos_cartoes(cartoes, limite, calendario, hoje)
+    _juntar_decisoes(situacao, calendario, hoje)
+    achados = [d for d in situacao if alvo in _chave_de_nome(d.get("jogador"))]
+    if not achados:
+        return (f"Ninguém com cartão nesta temporada bate com {nome!r}.\n"
+                "Sem cartão gravado, o jogador não entra nesta guia de jeito "
+                "nenhum — comece conferindo se os jogos dele já foram lidos.")
+
+    L = [f"POR QUE {nome!r} ESTÁ (OU NÃO) NA GUIA", f"hoje: {hoje} · "
+         f"temporada {temporada} · limite {limite} amarelos", ""]
+    for d in achados:
+        L += ["─" * 66, f"{d['jogador']} ({d['clube']})", "─" * 66]
+        seus = [c for c in cartoes if c.get("jogador_id") == d["jogador_id"]]
+        L.append(f"cartões gravados: {len(seus)}")
+        for c in seus:
+            extra = f"+{c['extra']}" if c.get("extra") else ""
+            L.append(f"   {c.get('jogo_em')}  {c.get('minuto')}{extra}'  "
+                     f"{c.get('detalhe')!r}  motivo={c.get('motivo') or '—'!r}")
+        L += ["",
+              f"amarelos no ciclo : {d['no_ciclo']} de {limite} "
+              f"(total {d['amarelos']})",
+              f"vermelhos         : {d['vermelhos']} "
+              f"(por dois amarelos: {d['dois_amarelos']})",
+              f"jogo da punição   : {d.get('pena_em') or '—'} "
+              f"(fixture {d.get('fixture_da_pena')})",
+              f"ESTADO            : {d['estado'] or '(fora de todas as listas)'}",
+              f"motivo            : {d['motivo'] or '—'}"]
+
+        agenda = _jogos_do_clube(calendario, d.get("clube_id"))
+        L.append(f"jogos do clube no calendário: {len(agenda)}")
+        if d.get("pena_em"):
+            depois = [p for p in agenda
+                      if str(p.get("data") or "") > str(d["pena_em"])][:5]
+            L.append("jogos DEPOIS da punição:")
+            for p in depois:
+                L.append(f"   {p.get('data')}  vs "
+                         f"{_adversario(p, d.get('clube_id'))}  "
+                         f"status={p.get('status')!r}  "
+                         f"já aconteceu={_ja_aconteceu(p, hoje)}")
+            if not depois:
+                L.append("   (nenhum — o calendário pode estar incompleto)")
+
+        dec = d.get("decisao_saff")
+        L.append("")
+        if dec:
+            L += [f"DECISÃO DA SAFF   : {dec.get('numero')}",
+                  f"   jogos de gancho: {dec.get('jogos_total')} "
+                  f"({dec.get('jogos_extras')} além do automático)",
+                  f"   já cumpridos   : "
+                  f"{(dec.get('jogos_perdidos') or 0) - (dec.get('faltam') or 0)}"
+                  f" de {dec.get('jogos_perdidos')}",
+                  f"   ainda faltam   : {dec.get('faltam')}"]
+        elif d.get("decisao_ambigua"):
+            L.append(f"DECISÃO DA SAFF   : {d['decisao_ambigua']} decisões "
+                     "para o mesmo jogo — nenhuma aplicada de propósito")
+        else:
+            L.append("DECISÃO DA SAFF   : nenhuma casada com o jogo da punição")
+            if d.get("pena_em"):
+                try:
+                    tem = decisoes_do_jogo(d["pena_em"], d.get("clube") or "")
+                except Exception:
+                    tem = []
+                L.append(f"   decisões guardadas para {d['pena_em']}: {len(tem)}")
+                L.append("   se a SAFF já publicou e aqui está 0, o coletor "
+                         "ainda não leu aquele dia — toque em 'Buscar na "
+                         "SAFF' na guia Disciplina")
+    return "\n".join(L)
 
 
 @app.get("/api/pendurados/sondar-motivo", response_class=PlainTextResponse)

@@ -665,11 +665,80 @@ def testar():
             d = caso("2026-09-05", [])
             ok(d["estado"] == "fora" and not d["decisao_saff"],
                f"sem decisão o estado não podia mudar: {d['estado']!r}")
+
+            # ── O CASO DO KADER KEITA ────────────────────────────────────
+            # Expulso em 03/09, e DEPOIS disso levou amarelo em outro jogo.
+            #
+            # A decisão da SAFF é do jogo da EXPULSÃO. Enquanto eu procurava
+            # por `ultimo_fixture` — o último jogo em que ele levou QUALQUER
+            # cartão — a busca caía no jogo do amarelo, não achava nada, e um
+            # jogador com julgamento publicado aparecia como se não tivesse
+            # nenhum. Foi assim que o Keita sumiu da tela entre uma versão e
+            # outra: não é que ele tenha cumprido a pena, é que eu deixei de
+            # enxergar a decisão dele.
+            com_banco(DECISAO)
+            keita = {"jogador_id": 11, "jogador": "Abdoul Kader Keita",
+                     "clube": "Al Diriyah", "clube_id": DIRIYAH, "vermelhos": 1,
+                     # o último CARTÃO é do jogo de 08/09 (um amarelo)...
+                     "ultimo_fixture": 2, "ultimo_jogo": "2026-09-08",
+                     # ...mas a PUNIÇÃO nasceu no jogo de 03/09.
+                     "fixture_da_pena": 1, "pena_em": "2026-09-03",
+                     "estado": "", "motivo": "", "pendurado": False,
+                     "jogo_da_pena": "", "jogo_da_pena_em": ""}
+            cal = [dict(p, status=("FT" if p["data"] < "2026-09-09" else "NS"))
+                   for p in cal_d]
+            _juntar([keita], cal, "2026-09-09")
+            ok(keita.get("decisao_saff") is not None,
+               "O CASO DO KEITA: o jogador levou um amarelo DEPOIS da "
+               "expulsão, e a decisão da SAFF deixou de ser encontrada. Ela é "
+               "do jogo da EXPULSÃO, não do último jogo em que ele viu cartão")
+            ok(keita["estado"] == "julgado",
+               f"com a decisão achada ele tem que voltar para os julgados: "
+               f"{keita['estado']!r}")
+            ok(keita["jogo_da_pena_em"] == "2026-09-14",
+               f"os jogos de gancho correm a partir da EXPULSÃO (03/09), "
+               f"então o que falta é o de 14/09: {keita['jogo_da_pena_em']!r}")
+
+            # E a variação que separa as duas leituras de verdade: o amarelo
+            # veio DEPOIS de a pena inteira ter sido cumprida.
+            #
+            # Expulso em 03/09 (2 jogos: 08/09 e 14/09, ambos jogados até
+            # 15/09), e amarelo no próprio 14/09. Contando da expulsão, ele
+            # está LIVRE. Contando do último cartão, os dois jogos seguintes
+            # ainda nem aconteceram e ele apareceria suspenso sem estar — um
+            # titular tirado da escalação por engano.
+            com_banco(DECISAO)
+            keita2 = dict(keita, jogador_id=12, ultimo_fixture=3,
+                          ultimo_jogo="2026-09-14", estado="fora",
+                          motivo="expulso", jogo_da_pena="", jogo_da_pena_em="")
+            cal = [dict(p, status=("FT" if p["data"] < "2026-09-15" else "NS"))
+                   for p in cal_d]
+            _juntar([keita2], cal, "2026-09-15")
+            ok(keita2["estado"] == "",
+               f"cumpridos os dois jogos da pena (08/09 e 14/09), ele tinha "
+               f"que estar livre em 15/09: {keita2['estado']!r} "
+               f"({keita2['motivo']!r}). Contar o gancho a partir do último "
+               "amarelo, e não da expulsão, tira um titular da escalação")
         finally:
             if anterior is not None:
                 sys.modules["database"] = anterior
             else:
                 sys.modules.pop("database", None)
+
+    # E a regra tem que EXPOR em que jogo a punição nasceu — é esse campo que
+    # o casamento com a SAFF consome. Sem ele, quem procura a decisão volta a
+    # cair no último jogo com cartão, que é o defeito do Keita.
+    dois_jogos = [cartao(1, 21, VERMELHO, "2026-08-25", 40),
+                  cartao(3, 21, AMARELO, "2026-09-05", 60)]
+    d = de(dois_jogos)[21]
+    ok(d.get("fixture_da_pena") == 1,
+       f"a regra devia dizer que a punição nasceu no jogo 1 (a expulsão), e "
+       f"disse {d.get('fixture_da_pena')!r}")
+    ok(d.get("pena_em") == "2026-08-25",
+       f"a data do jogo da punição saiu como {d.get('pena_em')!r}")
+    ok(d.get("ultimo_fixture") == 3,
+       "o último jogo COM CARTÃO continua sendo o do amarelo — os dois campos "
+       "são diferentes de propósito, e é por isso que os dois existem")
 
     # A tela: seção nova no topo, e o link para a decisão.
     ok("Suspensos julgados pelo Comitê de Disciplina" in FONTE,
