@@ -150,10 +150,146 @@ PAISES = {
 }
 
 
+# ── A TABELA COMPLETA, EM INGLÊS ────────────────────────────────────────────
+# Por que existe uma SEGUNDA tabela, em vez de eu ir engordando a de cima.
+#
+# A de cima é escrita à mão e cresceu por remendo: toda vez que aparecia um
+# jogador de um país novo, alguém acrescentava a linha. Isso deu no que tinha
+# de dar — em 09/09/26 a escalação do dia acusou sete países sem bandeira
+# ("Lithuania", "Suriname", "Curaçao", "French Guiana", "Comoros", "Togo",
+# "Albania", "Bosnia and Herzegovina", "Congo DR") e o engraçado é que TODOS
+# já estavam lá... em árabe. Só faltava a grafia latina. O remendo seguinte
+# seria acrescentar essas sete e esperar a próxima rodada trazer a oitava.
+#
+# Esta tabela é o mapa inteiro da ISO 3166-1, escrito de uma vez. A de cima
+# continua e continua tendo prioridade: ela guarda o que a ISO não tem —
+# as grafias em árabe, os apelidos que as fontes usam ("KSA", "UAE", "China
+# PR") e as decisões já tomadas (Inglaterra e Escócia saem com a bandeira do
+# Reino Unido, porque as bandeiras de subdivisão não desenham em boa parte
+# dos aparelhos).
+PAISES_ISO = {
+    "afghanistan": "AF", "albania": "AL", "algeria": "DZ",
+    "american samoa": "AS", "andorra": "AD", "angola": "AO",
+    "anguilla": "AI", "antigua and barbuda": "AG", "argentina": "AR",
+    "armenia": "AM", "aruba": "AW", "australia": "AU", "austria": "AT",
+    "azerbaijan": "AZ", "bahamas": "BS", "bahrain": "BH",
+    "bangladesh": "BD", "barbados": "BB", "belarus": "BY", "belgium": "BE",
+    "belize": "BZ", "benin": "BJ", "bermuda": "BM", "bhutan": "BT",
+    "bolivia": "BO", "bosnia and herzegovina": "BA", "botswana": "BW",
+    "brazil": "BR", "brunei": "BN", "bulgaria": "BG", "burkina faso": "BF",
+    "burundi": "BI", "cambodia": "KH", "cameroon": "CM", "canada": "CA",
+    "cape verde": "CV", "cayman islands": "KY",
+    "central african republic": "CF", "chad": "TD", "chile": "CL",
+    "china": "CN", "colombia": "CO", "comoros": "KM", "congo": "CG",
+    "congo dr": "CD", "costa rica": "CR", "croatia": "HR", "cuba": "CU",
+    "curacao": "CW", "cyprus": "CY", "czechia": "CZ",
+    "czech republic": "CZ", "denmark": "DK", "djibouti": "DJ",
+    "dominica": "DM", "dominican republic": "DO", "ecuador": "EC",
+    "egypt": "EG", "el salvador": "SV", "equatorial guinea": "GQ",
+    "eritrea": "ER", "estonia": "EE", "eswatini": "SZ", "ethiopia": "ET",
+    "faroe islands": "FO", "fiji": "FJ", "finland": "FI", "france": "FR",
+    "french guiana": "GF", "french polynesia": "PF", "gabon": "GA",
+    "gambia": "GM", "georgia": "GE", "germany": "DE", "ghana": "GH",
+    "gibraltar": "GI", "greece": "GR", "greenland": "GL", "grenada": "GD",
+    "guadeloupe": "GP", "guam": "GU", "guatemala": "GT", "guinea": "GN",
+    "guinea-bissau": "GW", "guinea bissau": "GW", "guyana": "GY",
+    "haiti": "HT", "honduras": "HN", "hong kong": "HK", "hungary": "HU",
+    "iceland": "IS", "india": "IN", "indonesia": "ID", "iran": "IR",
+    "iraq": "IQ", "ireland": "IE", "israel": "IL", "italy": "IT",
+    "jamaica": "JM", "japan": "JP", "jordan": "JO", "kazakhstan": "KZ",
+    "kenya": "KE", "kiribati": "KI", "kosovo": "XK", "kuwait": "KW",
+    "kyrgyzstan": "KG", "laos": "LA", "latvia": "LV", "lebanon": "LB",
+    "lesotho": "LS", "liberia": "LR", "libya": "LY",
+    "liechtenstein": "LI", "lithuania": "LT", "luxembourg": "LU",
+    "macau": "MO", "madagascar": "MG", "malawi": "MW", "malaysia": "MY",
+    "maldives": "MV", "mali": "ML", "malta": "MT", "martinique": "MQ",
+    "mauritania": "MR", "mauritius": "MU", "mexico": "MX",
+    "moldova": "MD", "monaco": "MC", "mongolia": "MN", "montenegro": "ME",
+    "montserrat": "MS", "morocco": "MA", "mozambique": "MZ",
+    "myanmar": "MM", "namibia": "NA", "nepal": "NP", "netherlands": "NL",
+    "new caledonia": "NC", "new zealand": "NZ", "nicaragua": "NI",
+    "niger": "NE", "nigeria": "NG", "north korea": "KP",
+    "north macedonia": "MK", "norway": "NO", "oman": "OM",
+    "pakistan": "PK", "palestine": "PS", "panama": "PA",
+    "papua new guinea": "PG", "paraguay": "PY", "peru": "PE",
+    "philippines": "PH", "poland": "PL", "portugal": "PT",
+    "puerto rico": "PR", "qatar": "QA", "reunion": "RE", "romania": "RO",
+    "russia": "RU", "rwanda": "RW", "saint kitts and nevis": "KN",
+    "saint lucia": "LC", "saint vincent and the grenadines": "VC",
+    "samoa": "WS", "san marino": "SM", "sao tome and principe": "ST",
+    "saudi arabia": "SA", "senegal": "SN", "serbia": "RS",
+    "seychelles": "SC", "sierra leone": "SL", "singapore": "SG",
+    "slovakia": "SK", "slovenia": "SI", "solomon islands": "SB",
+    "somalia": "SO", "south africa": "ZA", "south korea": "KR",
+    "south sudan": "SS", "spain": "ES", "sri lanka": "LK", "sudan": "SD",
+    "suriname": "SR", "sweden": "SE", "switzerland": "CH", "syria": "SY",
+    "taiwan": "TW", "tajikistan": "TJ", "tanzania": "TZ",
+    "thailand": "TH", "timor-leste": "TL", "togo": "TG", "tonga": "TO",
+    "trinidad and tobago": "TT", "tunisia": "TN", "turkey": "TR",
+    "turkmenistan": "TM", "uganda": "UG", "ukraine": "UA",
+    "united arab emirates": "AE", "united kingdom": "GB",
+    "united states": "US", "uruguay": "UY", "uzbekistan": "UZ",
+    "vanuatu": "VU", "venezuela": "VE", "vietnam": "VN", "yemen": "YE",
+    "zambia": "ZM", "zimbabwe": "ZW",
+
+    # Grafias que só o futebol usa. Ficam aqui, e não na tabela de cima,
+    # porque são regra geral e não remendo de um elenco específico.
+    "congo dr.": "CD", "dr congo": "CD",
+    "democratic republic of the congo": "CD", "congo-brazzaville": "CG",
+    "korea republic": "KR", "korea dpr": "KP", "ir iran": "IR",
+    "chinese taipei": "TW", "china pr": "CN", "cabo verde": "CV",
+    "ivory coast": "CI", "cote d'ivoire": "CI", "côte d'ivoire": "CI",
+    "england": "GB", "scotland": "GB", "wales": "GB",
+    "northern ireland": "GB", "great britain": "GB",
+}
+
+
+def _sem_acento(texto: str) -> str:
+    """A mesma palavra sem os acentos — só para COMPARAR, nunca para exibir.
+
+    Não uso o truque de encode("ascii", "ignore") que aparece em
+    chave_do_arbitro: aqui passa árabe, e aquilo apagaria a palavra inteira.
+    """
+    return "".join(c for c in unicodedata.normalize("NFD", texto)
+                   if unicodedata.category(c) != "Mn")
+
+
+# Um índice sem acento das duas tabelas, montado uma vez. É o que faz
+# "Curaçao" e "Curacao" caírem no mesmo lugar — as fontes escrevem dos dois
+# jeitos, e às vezes a mesma fonte escreve dos dois jeitos no mesmo dia.
+_SEM_ACENTO = {}
+
+
+def _montar_indice():
+    """Refaz o índice sem acento a partir das duas tabelas.
+
+    É função, e não um laço solto no corpo do módulo, por um motivo só: a
+    ordem aqui É a regra de prioridade (PAISES por último, então ele
+    sobrescreve), e regra que só existe dentro de um laço de import não dá
+    para exercitar em teste. Assim o teste injeta uma divergência entre as
+    duas tabelas, chama isto, e confere quem ganhou.
+    """
+    _SEM_ACENTO.clear()
+    for tabela in (PAISES_ISO, PAISES):   # PAISES por último: palavra final
+        for nome, sigla in tabela.items():
+            _SEM_ACENTO[_sem_acento(nome)] = sigla
+
+
+_montar_indice()
+
+
 def bandeira(pais: str) -> str:
-    """A bandeira do país, ou "" se eu não souber qual é."""
+    """A bandeira do país, ou "" se eu não souber qual é.
+
+    Três tentativas, da mais específica para a mais geral: a tabela escrita à
+    mão (que tem o árabe e os apelidos), a tabela da ISO, e por fim as duas
+    ignorando acento.
+    """
     chave = " ".join((pais or "").strip().lower().split())
-    sigla = PAISES.get(chave)
+    if not chave:
+        return ""
+    sigla = PAISES.get(chave) or PAISES_ISO.get(chave) \
+        or _SEM_ACENTO.get(_sem_acento(chave))
     if not sigla:
         return ""
     return "".join(chr(0x1F1E6 + ord(c) - ord("A")) for c in sigla)

@@ -144,16 +144,32 @@ ns3 = {"listar_posts": lambda **k: [
            {"id": 1, "texto": "post que ainda vem", "status": "pendente",
             "criado_em": "2026-08-01T10:00:00", "agendado_para": _em(2)},
            {"id": 4, "texto": "post ja publicado", "status": "publicado",
-            "criado_em": "2026-08-26T23:00:00", "agendado_para": _em(-1)}],
+            "criado_em": "2026-08-26T23:00:00", "agendado_para": _em(-1)},
+           # Aprovado é decisão JÁ TOMADA: o post vai sozinho na hora marcada.
+           # Continuar na fila era pedir a mesma decisão duas vezes.
+           {"id": 5, "texto": "post ja aprovado", "status": "aprovado",
+            "criado_em": "2026-08-27T09:00:00", "agendado_para": _em(3)}],
        "clipes_recentes": lambda h: [
            {"id": 9, "texto": "gol", "atualizado_em": "2026-08-26T10:00:00",
-            "estado": "pronto"}],
+            "estado": "pronto"},
+           # Já está no ar: não espera nada de ninguém.
+           {"id": 10, "texto": "gol ja publicado",
+            "atualizado_em": "2026-08-26T22:00:00", "estado": "publicado"}],
+       # Vem do main.py, e não escrito à mão aqui. Uma cópia da constante no
+       # teste é uma constante a mais para sair do lugar: se lá alguém tirasse
+       # "pronto" da lista, o teste continuaria usando a versão dele e passaria
+       # com o clipe cortado desaparecendo da fila.
+       "CLIPE_ESPERANDO": textos["CLIPE_ESPERANDO"],
        "MARCA_SEPARADA": SEPARADA,
        "HORAS_DE_NOTICIA": 48,
-      "HORAS_DE_NOTICIA": 48,
        "get_all_flags": lambda: {"x": SEPARADA, "y": SEPARADA},
-       "arbitragem_do_dia": lambda d: [],
-       "_dia_de_brasilia": lambda n=0: "2026-08-27",
+       # Ontem tem escala e hoje não. Se a de ontem aparecer, o corte diário
+       # caiu — e a primeira tela do app volta a abrir com trabalho encerrado.
+       "arbitragem_do_dia": lambda d: (
+           [] if d == "2026-08-27"
+           else [{"casa": "Al-Hilal", "fora": "Al-Nassr",
+                  "capturado_em": "2026-08-26T08:00:00"}]),
+       "_dia_de_brasilia": lambda n=0: ("2026-08-27" if not n else "2026-08-26"),
        "get_recent_articles": lambda **k: [
            {"id": "x", "title_pt": "noticia nova", "category": "mercado",
             "collected_at": "2026-08-26T12:00:00"},
@@ -173,7 +189,28 @@ ok(not any(i["titulo"] == "None" for i in log), "artigo sem tradução entrou no
 # porque o filtro caiu — e o sintoma seria a home voltando a encher sozinha.
 ok(not any("nao separei" in i["titulo"] for i in log),
    "notícia não separada entrou no log da home")
-print(f"  log: {len(log)} itens, do mais novo para o mais velho")
+
+# ── a fila só mostra o que ainda espera decisão (09/09/26) ─────────────────
+# A home era um log: listava o que tinha ENTRADO. Virou fila: lista o que
+# ainda pode ser feito. A diferença aparece no que NÃO está aqui.
+ok(not any("ja aprovado" in i["titulo"] for i in log),
+   "post já aprovado continua na fila. Ele já foi decidido e vai sozinho na "
+   "hora marcada — repetir a pergunta é pedir a mesma decisão duas vezes")
+ok(not any("ja publicado" in i["titulo"] for i in log),
+   "clipe já publicado continua na fila — ele não espera nada de ninguém")
+ok(any(i["tipo"] == "clipes" for i in log),
+   "o clipe PRONTO sumiu da fila. Esse é o caso que mais importa: trabalho "
+   "cortado esperando o seu toque para ir ao ar")
+ok(not any(i["tipo"] == "arbitragem" for i in log),
+   "a arbitragem de ONTEM apareceu na fila de hoje. Ela serve para ler antes "
+   "de narrar; depois do jogo não há mais o que fazer com ela")
+# E a notícia arrastada ontem CONTINUA, de propósito: ela é tarefa aberta, e
+# tarefa aberta não vence à meia-noite. Isto já foi defeito uma vez — a home
+# cortava em 24h enquanto a guia mostrava 48h, e a notícia separada no fim da
+# tarde sumia da tela do dia seguinte sem erro nenhum.
+ok(any(i["tipo"] == "mercado" for i in log),
+   "a notícia arrastada sumiu da fila — o corte diário não vale para ela")
+print(f"  fila: {len(log)} itens, do mais novo para o mais velho, só pendências")
 
 js = textos["_HOME_JS"]
 

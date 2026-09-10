@@ -5577,7 +5577,11 @@ async def _montar_fim_de_jogo(fixture_id: int) -> dict:
     if status == "PEN" and pen.get("home") is not None:
         placar += f" ({pen.get('home')}x{pen.get('away')} nos pênaltis)"
 
-    cabecalho = "⏱️ FIM DE JOGO" if encerrado else "⏱️ FIM DE JOGO (parcial)"
+    # Sem "(parcial)" no texto. Ele existia para avisar que o jogo ainda
+    # rolava, mas ia junto no ctrl+C — e um post publicado dizendo "FIM DE
+    # JOGO (parcial)" é pior do que não avisar nada. Quem avisa agora é a
+    # etiqueta verde "Em andamento" no card, que fica na tela e não no texto.
+    cabecalho = "⏱️ FIM DE JOGO"
 
     partes = [cabecalho, ""]
     if narrativa:
@@ -5687,11 +5691,26 @@ _FIMJOGO_CSS = '''    .fj-topo { display:flex; align-items:center; gap:10px; fle
     .fj-status { font-size:0.66rem; color:var(--c-muted-4); }
     .fj-card { margin-bottom:12px; }
     .fj-cab { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
-    .fj-conf { font-weight:800; font-size:0.95rem; }
+    /* min-width:0 e overflow-wrap: o confronto fica num flex, e sem os dois
+       um nome comprido de clube ou de competição estica o card para fora da
+       tela em vez de dobrar. */
+    .fj-conf { font-weight:800; font-size:0.95rem; min-width:0; overflow-wrap:anywhere; }
     .fj-selo { font-size:0.6rem; font-weight:800; text-transform:uppercase; letter-spacing:0.06em; border:1.5px solid var(--c-border-2); border-radius:99px; padding:3px 9px; color:var(--c-muted-4); }
     .fj-selo.fj-vivo { border-color:#B6FF00; color:#B6FF00; }
     .fj-selo.fj-fim { border-color:var(--c-text); color:var(--c-text); }
-    .fj-texto { white-space:pre-wrap; font-family:inherit; font-size:0.9rem; line-height:1.6; margin:0; padding:12px 14px; border-radius:10px; background:var(--c-bg-soft); }
+    /* O minuto anda junto do "Em andamento", em letra menor e sem moldura
+       própria: são a mesma informação, e duas pílulas coladas viravam duas
+       coisas para o olho ler. */
+    .fj-selo .fj-min { margin-left:6px; opacity:.75; font-weight:700; }
+    /* white-space:pre-wrap preserva as quebras que o texto já traz E deixa a
+       linha comprida dobrar. overflow-wrap:anywhere é o complemento: sem ele
+       um nome longo de clube, ou uma URL, empurra o card inteiro para o lado
+       e o celular ganha rolagem horizontal. min-width:0 é o que permite a
+       caixa encolher dentro de um flex/grid — sem ele o navegador respeita o
+       tamanho do conteúdo e a quebra nunca acontece. */
+    .fj-texto { white-space:pre-wrap; overflow-wrap:anywhere; min-width:0;
+      font-family:inherit; font-size:0.9rem; line-height:1.6; margin:0;
+      padding:12px 14px; border-radius:10px; background:var(--c-bg-soft); }
     .fj-aguardando { font-size:0.75rem; color:var(--c-muted-4); padding:6px 0; }'''
 
 _FIMJOGO_JS = r'''// ── FIM DE JOGO ───────────────────────────────────────────────────────────
@@ -5765,165 +5784,46 @@ function fjLegenda(seg, jogos) {
   return hora + ' · próxima checagem em ' + quando;
 }
 
+// O texto vai DIRETO no card, sem caixa de fonte em volta.
+//
+// Havia aqui uma caixa por fonte, lado a lado, cada uma com o seu selo
+// colorido — a tela nasceu para comparar API-Football e Sportmonks. A
+// Sportmonks saiu, e o que sobrou foi uma caixa só, ainda carimbada com o
+// nome de quem trouxe o dado. Selo que aparece em 100% dos casos não informa
+// nada: só encolhe o texto que interessa.
+//
+// E encolhia mesmo. As classes daquela caixa (.duas, .fonte, .fonte pre) são
+// declaradas no CSS da guia POSTS, não no desta página — vieram junto quando
+// esta tela foi copiada de lá. Aqui elas não existiam, então o <pre> caía no
+// padrão do navegador: monoespaçada e SEM quebra de linha. Era esse o texto
+// que estourava o card e parecia de outro app.
 async function preencherTexto(j) {
   const box = document.getElementById('fj-txt-' + j.fixture);
   if (!box) return;
   const b = document.getElementById('fj-btn-' + j.fixture);
-  const liberar = function (texto) {
-    if (b) { b.style.display = ''; b.onclick = function () { copyBlock(b, texto); }; }
-  };
-  // Enquanto durar a comparação, não uso o cache: quero ver as duas fontes
-  // do mesmo instante toda vez, senão a comparação fica velha de um lado.
   try {
-    // As duas fontes na mesma chamada, para a comparação ser do MESMO instante.
     const d = await fetchJSON('/api/fim/comparar?fixture=' + j.fixture);
-    const af = d.api_football || {};
-    const sm = d.sportmonks || {};
-    box.innerHTML = '';
-    box.appendChild(caixaFonte('API-Football', af, '#B6FF00'));
-    box.appendChild(caixaFonte('Sportmonks', sm, '#B6FF00'));
-    box.className = 'duas';
-    // O botão de copiar segue a API-Football, que é a que está no ar hoje.
-    if (af.texto && af.completo) {
-      liberar(af.texto);
-      if (j.encerrado) FJ_PRONTOS[j.fixture] = af.texto;
+    const r = d.api_football || {};
+    if (r.erro) {
+      box.textContent = '— ' + r.erro;
+      box.style.color = 'var(--c-muted-3)';
+      return;
+    }
+    box.style.color = '';
+    box.textContent = (r.texto || '—') + (r.aviso ? '\n\n⚠️ ' + r.aviso : '');
+    if (r.texto && r.completo) {
+      if (b) { b.style.display = ''; b.onclick = function () { copyBlock(b, r.texto); }; }
+      if (j.encerrado) FJ_PRONTOS[j.fixture] = r.texto;
     }
   } catch (e) {}
 }
 
-function caixaFonte(rotulo, r, cor) {
-  const d = document.createElement('div');
-  d.className = 'fonte';
-  const h = document.createElement('h4');
-  h.innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:'
-              + cor + ';display:inline-block"></span>' + rotulo;
-  d.appendChild(h);
-  const p = document.createElement('pre');
-  if (r.erro) {
-    p.textContent = '— ' + r.erro;
-    p.style.color = 'var(--c-muted-3)';
-  } else {
-    p.textContent = (r.texto || '—') + (r.aviso ? '\n\n⚠️ ' + r.aviso : '');
-  }
-  d.appendChild(p);
-  if (r.texto) {
-    const b = document.createElement('button');
-    b.className = 'copy-btn';
-    b.style.marginTop = '8px';
-    b.textContent = '📋 Copiar';
-    b.onclick = function () { copyBlock(b, r.texto); };
-    d.appendChild(b);
-  }
-  return d;
-}
-
-// ── Sub-abas: Fim de jogo | Alertas de gol ────────────────────────────────
-// As duas coisas viviam empilhadas na mesma rolagem e viravam bagunça: o
-// alerta de gol no topo empurrava as partidas para baixo. Separadas, cada uma
-// ocupa a tela inteira. O contador na aba de alertas existe para você não ter
-// que trocar de aba só para descobrir se tem gol novo lá.
-function mostrarAba(qual) {
-  ['fim', 'gols', 'esc'].forEach(function (k) {
-    const p = document.getElementById('painel-' + k);
-    const b = document.getElementById('aba-' + k);
-    if (p) p.style.display = (k === qual) ? '' : 'none';
-    if (b) b.classList.toggle('ativa', k === qual);
-  });
-}
-
-function marcarGols(n) {
-  const p = document.getElementById('abaGolsN');
-  if (!p) return;
-  p.textContent = n > 0 ? String(n) : '';
-  p.classList.toggle('tem', n > 0);
-}
-
-// ── Alerta de GOL, com o carimbo de cada fonte ────────────────────────────
-async function carregarGols() {
-  const alvo = document.getElementById('fjGols');
-  if (!alvo) return;
-  let d;
-  try {
-    const r = await fetch('/api/gols/ao-vivo?horas=8&_=' + Date.now());
-    const bruto = await r.text();
-    if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 300));
-    d = JSON.parse(bruto);
-  } catch (e) {
-    // Antes isto era um "return" mudo, e o painel ficava vazio sem dizer nada.
-    // Um erro invisível é pior que um erro feio: eu passei duas rodadas
-    // chutando porque a tela não me contava que a chamada estava falhando.
-    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#FD5D5D">Falha ao carregar o alerta de gol:\n'
-      + esc(e.message || String(e)) + '</pre></div>';
-    return;
-  }
-
-  if (!(d.gols || []).length) {
-    marcarGols(0);
-    // Não basta dizer "nenhum": preciso saber SE o coletor rodou e o que viu.
-    const g = d.diagnostico || {};
-    const q = g.quando ? new Date(g.quando)
-      .toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : 'nunca';
-    let txt = 'Nenhum gol carimbado. Última coleta às ' + q
-      + ' — Sportmonks: ' + (g.sm_jogos || 0) + ' jogo(s), ' + (g.sm_gols || 0) + ' gol(s)'
-      + ' · API-Football: ' + (g.af_jogos || 0) + ' jogo(s), ' + (g.af_gols || 0) + ' gol(s)'
-      + ' · no banco: ' + (d.carimbos_no_banco || 0);
-    if ((g.erros || []).length) txt += '\n⚠️ ' + g.erros.join(' | ');
-    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem">' + esc(txt) + '</pre></div>';
-    return;
-  }
-  marcarGols(d.gols.length);
-  alvo.innerHTML = '';
-  d.gols.forEach(function (g) {
-    const linha = document.createElement('div');
-    linha.className = 'gol-linha';
-    const cab = document.createElement('div');
-    cab.className = 'gol-cab';
-    let selo = '<span class="dif">só uma fonte</span>';
-    if (g.diferenca_seg !== null && g.diferenca_seg !== undefined) {
-      const s = g.diferenca_seg;
-      const quem = s < 0 ? 'sm' : (s > 0 ? 'af' : '');
-      const txt = s === 0 ? 'empate'
-                : (s < 0 ? 'Sportmonks ' + Math.abs(s) + 's antes'
-                         : 'API-Football ' + s + 's antes');
-      selo = '<span class="dif ' + quem + '">' + txt + '</span>';
-    }
-    cab.innerHTML = '<span class="gol-min">' + (g.minuto || '?') + "'</span>"
-      + '<span>' + esc(g.autor || '') + '</span>'
-      + (g.assistente ? '<span class="conta">🅰️ ' + esc(g.assistente) + '</span>' : '')
-      + '<span class="fj-selo">' + esc(g.placar || '') + '</span>' + selo;
-    linha.appendChild(cab);
-    const duas = document.createElement('div');
-    duas.className = 'duas';
-    // Uma fonte só: a Sportmonks foi desligada. A caixa continua sendo uma
-    // lista para o dia em que voltar a haver com quem comparar.
-    [['API-Football', g.api_football, '#B6FF00']].forEach(function (par) {
-      const c = document.createElement('div');
-      c.className = 'fonte';
-      const quando = par[1] ? new Date(par[1].visto_em)
-        .toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo'}) : '—';
-      c.innerHTML = '<h4><span style="width:8px;height:8px;border-radius:50%;background:'
-        + par[2] + ';display:inline-block"></span>' + par[0]
-        + '<span style="margin-left:auto;font-weight:400">' + quando + '</span></h4>';
-      const p = document.createElement('pre');
-      p.textContent = par[1] ? (par[1].texto || '') : 'não publicou este gol';
-      if (!par[1]) p.style.color = 'var(--c-muted-3)';
-      c.appendChild(p);
-      if (par[1] && par[1].texto) {
-        const b = document.createElement('button');
-        b.className = 'copy-btn';
-        b.style.marginTop = '8px';
-        b.textContent = '📋 Copiar';
-        b.onclick = function () { copyBlock(b, par[1].texto); };
-        c.appendChild(b);
-      }
-      duas.appendChild(c);
-    });
-    linha.appendChild(duas);
-    alvo.appendChild(linha);
-  });
-}
+// As funções do alerta de gol e das escalações moravam aqui e saíram junto
+// com as sub-abas (09/09/26): mostrarAba, marcarGols, carregarGols,
+// carregarEscalacoes, cartaoEscalacao e cicloEscalacoes. As rotas que elas
+// consumiam (/api/gols/ao-vivo e /api/escalacoes) continuam de pé — quem
+// carimba o gol para o clipe automático é a primeira, e apagá-la aqui
+// derrubaria o corte automático numa mudança de tela.
 
 async function carregarJogosDoDia() {
   const lista = document.getElementById('fjLista');
@@ -5941,15 +5841,6 @@ async function carregarJogosDoDia() {
       // durante a partida, para não ter que esperar o apito para ver o formato.
       jogos.filter(function (j) { return j.encerrado || fjEmCampo(j); }).forEach(preencherTexto);
     }
-    // .catch explícito: sem ele, qualquer erro dentro de carregarGols vira
-    // promise rejeitada sem dono e some — foi assim que o esc() faltando
-    // ficou invisível.
-    carregarGols().catch(function (err) {
-      const g = document.getElementById('fjGols');
-      if (g) g.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-        + 'style="font-size:.76rem;color:#FD5D5D">Erro no alerta de gol: '
-        + (err && err.message ? err.message : String(err)) + '</pre></div>';
-    });
     const seg = proximaChecagem(jogos);
     st.textContent = jogos.length ? fjLegenda(seg, jogos) : '';
     clearTimeout(_fjTimer);
@@ -5964,9 +5855,18 @@ async function carregarJogosDoDia() {
 
 function cardDoJogo(j) {
   const placar = (j.gols_casa === null || j.gols_casa === undefined) ? 'x' : j.gols_casa + 'x' + j.gols_fora;
+  // Três estados, três etiquetas com a mesma cara: Encerrado, Em andamento e
+  // a hora do apito para quem ainda não começou.
+  //
+  // "Em andamento" substitui o "(parcial)" que vinha DENTRO do texto copiável.
+  // Aquilo tinha dois problemas: ia junto no ctrl+C e podia parar num post, e
+  // dizia respeito ao estado do jogo, que é coisa de etiqueta e não de
+  // conteúdo. O minuto continua ali, colado na etiqueta, porque é o que
+  // responde "está acabando?" de relance.
   let selo;
-  if (j.encerrado) selo = '<span class="fj-selo fj-fim">encerrado</span>';
-  else if (fjEmCampo(j)) selo = '<span class="fj-selo fj-vivo">' + j.minuto + "'</span>";
+  if (j.encerrado) selo = '<span class="fj-selo fj-fim">Encerrado</span>';
+  else if (fjEmCampo(j)) selo = '<span class="fj-selo fj-vivo">Em andamento'
+    + '<span class="fj-min">' + j.minuto + "'</span></span>";
   else selo = '<span class="fj-selo">' + (j.data || '').slice(11) + '</span>';
   return '<div class="result-card fj-card">' +
     '<div class="fj-cab">' + selo +
@@ -5980,164 +5880,6 @@ function cardDoJogo(j) {
   '</div>';
 }
 
-
-// ── ESCALAÇÕES ────────────────────────────────────────────────────────────
-
-let _escTimer = null;
-
-// A diferença só é confiável até a resolução do coletor, que passa de 40 em
-// 40 segundos. Se as duas fontes já tinham a escalação quando ele passou, o
-// que sobra é a ordem em que eu consultei — e não quem publicou antes. Mostrar
-// "-2s" como se fosse medição seria inventar precisão que não existe.
-const ESC_RESOLUCAO_SEG = 40;
-
-function escHora(iso) {
-  if (!iso) return '';
-  try {
-    return new Date(iso).toLocaleTimeString('pt-BR', {timeZone: 'America/Sao_Paulo',
-                                                     hour: '2-digit', minute: '2-digit',
-                                                     second: '2-digit'});
-  } catch (e) { return ''; }
-}
-
-async function carregarEscalacoes() {
-  const alvo = document.getElementById('fjEsc');
-  if (!alvo) return;
-  let d;
-  try {
-    const r = await fetch('/api/escalacoes?horas=12&_=' + Date.now());
-    const bruto = await r.text();
-    if (!r.ok) throw new Error('HTTP ' + r.status + ' — ' + bruto.slice(0, 200));
-    d = JSON.parse(bruto);
-  } catch (e) {
-    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#FD5D5D">Falha ao carregar as escalações:\n'
-      + esc(e.message || String(e)) + '</pre></div>';
-    return;
-  }
-
-  const lista = d.escalacoes || [];
-  const p = document.getElementById('abaEscN');
-  if (p) {
-    p.textContent = lista.length ? String(lista.length) : '';
-    p.classList.toggle('tem', lista.length > 0);
-  }
-
-  if (!lista.length) {
-    const g = d.diagnostico || {};
-    const q = g.quando ? escHora(g.quando) : 'nunca';
-    let txt = 'Nenhuma escalação ainda. Última olhada às ' + q
-      + ' — Sportmonks: ' + (g.sm_jogos || 0) + ' jogo(s) na janela, '
-      + (g.sm_com || 0) + ' com escalação'
-      + ' · API-Football: ' + (g.af_jogos || 0) + ' jogo(s), '
-      + (g.af_com || 0) + ' com escalação.';
-
-    if ((g.erros || []).length) txt += '\n⚠️ ' + g.erros.join(' | ');
-    alvo.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem">' + esc(txt) + '</pre></div>';
-    return;
-  }
-
-  alvo.innerHTML = '';
-  lista.forEach(function (j) {
-    alvo.appendChild(cartaoEscalacao(j));
-  });
-}
-
-function cartaoEscalacao(j) {
-  const d = document.createElement('div');
-  d.className = 'gol-linha';
-
-  const cab = document.createElement('div');
-  cab.className = 'gol-cab';
-  let selo = '<span class="dif">só uma fonte</span>';
-  if (j.diferenca_seg !== null && j.diferenca_seg !== undefined) {
-    const s = j.diferenca_seg;
-    // A Sportmonks publica uma PROVÁVEL antes da oficial. Enquanto ela não
-    // confirmar, comparar as duas seria dar vantagem a quem chutou primeiro,
-    // então digo que a corrida ainda não terminou em vez de mostrar número.
-    if (j.diferenca_de !== 'oficial') {
-      selo = '<span class="dif">a Sportmonks ainda não confirmou — sem corrida</span>';
-    } else if (Math.abs(s) < ESC_RESOLUCAO_SEG) {
-      // Honestidade sobre o que a medição alcança.
-      selo = '<span class="dif">as duas já tinham (diferença menor que a '
-           + 'passagem do coletor)</span>';
-    } else {
-      const quem = s < 0 ? 'sm' : 'af';
-      const txt = s < 0 ? 'Sportmonks ' + Math.abs(s) + 's antes'
-                        : 'API-Football ' + s + 's antes';
-      selo = '<span class="dif ' + quem + '">' + txt + '</span>';
-    }
-  }
-  cab.innerHTML = '<span>' + esc(j.jogo || '?') + '</span>'
-    + (j.comeca_em ? '<span class="conta">apito ' + esc(escHora(j.comeca_em)) + '</span>' : '')
-    + selo;
-  d.appendChild(cab);
-
-  const duas = document.createElement('div');
-  duas.className = 'duas';
-  [['API-Football', j.api_football, '#B6FF00', null]].forEach(function (par) {
-    const c = document.createElement('div');
-    c.className = 'fonte';
-    // Etiqueta do que está ali. A Sportmonks manda uma escalação PROVÁVEL
-    // antes da oficial — feita com histórico, lesões e suspensões — e troca
-    // pela de verdade perto do apito. Sem dizer isso na tela, a provável
-    // passa por oficial e parece só uma escalação errada que chegou cedo.
-    let etiq = '';
-    if (par[0] === 'Sportmonks') {
-      const conf = ((par[1] || {}).escalacao || {}).confirmada;
-      if (par[3]) etiq = '<span class="marca ok">oficial</span>';
-      else if (conf === false) etiq = '<span class="marca prov">provável</span>';
-      else if (par[1] && conf === undefined) etiq = '<span class="marca">sem marca de confirmação</span>';
-    }
-    let quando = par[1] ? escHora(par[1].visto_em) : '—';
-    if (par[3] && par[1] && par[3].visto_em !== par[1].visto_em) {
-      quando = escHora(par[1].visto_em) + ' → oficial ' + escHora(par[3].visto_em);
-    }
-    c.innerHTML = '<h4><span style="width:8px;height:8px;border-radius:50%;background:'
-      + par[2] + ';display:inline-block"></span>' + par[0] + etiq
-      + '<span style="margin-left:auto;font-weight:400">'
-      + esc(quando) + '</span></h4>';
-    if (!par[1]) {
-      const p = document.createElement('pre');
-      p.textContent = 'ainda não publicou';
-      p.style.color = 'var(--c-muted-3)';
-      c.appendChild(p);
-    } else {
-      const fonte_esc = (par[3] || par[1]).escalacao || {};
-      (fonte_esc.times || []).forEach(function (t) {
-        const bloco = document.createElement('pre');
-        bloco.className = 'fj-texto';
-        bloco.style.marginTop = '8px';
-        const linhas = [t.nome + (t.formacao ? '  (' + t.formacao + ')' : '')];
-        (t.titulares || []).forEach(function (p) {
-          linhas.push('  ' + (p.camisa ? String(p.camisa).padStart(2, ' ') : ' -')
-                      + '  ' + p.nome);
-        });
-        if ((t.banco || []).length) {
-          linhas.push('  banco: ' + t.banco.map(function (p) { return p.nome; }).join(', '));
-        }
-        bloco.textContent = linhas.join('\n');
-        c.appendChild(bloco);
-      });
-    }
-    duas.appendChild(c);
-  });
-  d.appendChild(duas);
-  return d;
-}
-
-function cicloEscalacoes() {
-  carregarEscalacoes().catch(function (err) {
-    const a = document.getElementById('fjEsc');
-    if (a) a.innerHTML = '<div class="result-card"><pre class="fj-texto" '
-      + 'style="font-size:.76rem;color:#FD5D5D">Erro nas escalações: '
-      + (err && err.message ? err.message : String(err)) + '</pre></div>';
-  });
-  clearTimeout(_escTimer);
-  _escTimer = setTimeout(cicloEscalacoes, 20000);
-}
-cicloEscalacoes();
 '''
 
 
@@ -6152,10 +5894,15 @@ __THEME__
 <style>
 __HEADER_CSS__
 *{box-sizing:border-box}
+/* A MESMA pilha de fontes do resto do app. Antes esta página tinha uma pilha
+   só dela, sem o 'Inter' na frente, e o título saía em fonte de corpo
+   enquanto todas as outras guias usam Bebas Neue. Duas telas do mesmo app
+   com tipografia diferente parecem dois apps. */
 body{margin:0;background:var(--c-bg);color:var(--c-text);
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
-.wrap{max-width:820px;margin:0 auto;padding:18px 16px 60px}
-h1{font-size:1.5rem;margin:0 0 4px}
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif}
+.wrap{max-width:820px;margin:0 auto;padding:6px 16px 60px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
+  margin:10px 0 4px}
 .sub{color:var(--c-muted-3);font-size:.8rem;margin:0 0 16px}
 .result-card{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:12px;padding:14px 16px}
@@ -6179,30 +5926,14 @@ __HDR__
     <button class="fj-refresh" onclick="carregarJogosDoDia()">Atualizar</button>
     <span id="fjStatus" class="fj-status"></span>
   </div>
-  <div class="abas">
-    <button class="aba ativa" id="aba-fim" onclick="mostrarAba('fim')">⏱️ Fim de jogo</button>
-    <button class="aba" id="aba-gols" onclick="mostrarAba('gols')">⚽ Alertas<span
-      class="pilula" id="abaGolsN"></span></button>
-    <button class="aba" id="aba-esc" onclick="mostrarAba('esc')">📋 Escalações<span
-      class="pilula" id="abaEscN"></span></button>
-  </div>
-
-  <div id="painel-fim">
-    <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
-  </div>
-
-  <div id="painel-gols" style="display:none">
-    <p class="sub" style="margin:0 0 12px">Cada gol carimbado com o instante em que cada
-       fonte o publicou. Diferença negativa = a Sportmonks chegou antes.</p>
-    <div id="fjGols"></div>
-  </div>
-
-  <div id="painel-esc" style="display:none">
-    <p class="sub" style="margin:0 0 12px">Escalações dos jogos que começam nas
-       próximas 3 horas, com o instante em que cada fonte publicou.
-       Diferença negativa = a Sportmonks chegou antes.</p>
-    <div id="fjEsc"><div class="result-card"><div class="loading-state">Carregando…</div></div></div>
-  </div>
+  <!-- As sub-abas "Alertas" e "Escalações" saíram em 09/09/26.
+       As duas nasceram para comparar duas fontes de dados, e há tempos existe
+       uma só. Sem corrida para medir, o que restava eram duas telas piores do
+       que as que fazem a mesma coisa em outro lugar: o alerta de gol virou o
+       clipe automático, e a escalação virou a guia Escalações, que traz o
+       matchsheet oficial já casado com o jogo. Guia que existe só por inércia
+       cobra atenção sem devolver nada. -->
+  <div id="fjLista"><div class="result-card"><div class="loading-state">Carregando jogos…</div></div></div>
 
 </div>
 <script>
@@ -6296,9 +6027,17 @@ async def coletar_gols_ao_vivo() -> dict:
             "sm_jogos": 0, "sm_gols": 0, "af_jogos": 0, "af_gols": 0, "erros": []}
 
     # ── Sportmonks ────────────────────────────────────────────────────────
-    if not sm.configurado():
-        diag["erros"].append("SPORTMONKS_TOKEN ausente")
-    else:
+    # Sem token configurado isto não é erro, é a situação normal desde que a
+    # assinatura foi encerrada. Enquanto ficou como erro, "SPORTMONKS_TOKEN
+    # ausente" aparecia no /api/diag/clipe-auto TODA vez — inclusive na
+    # conferência de antes do jogo, que é justamente quando um alarme falso
+    # custa caro: você lê a linha vermelha, procura um problema que não
+    # existe, e a linha de verdade fica embaixo dela.
+    #
+    # O bloco continua aqui, e não apagado, porque ele volta a funcionar
+    # sozinho no dia em que houver token — é a diferença entre desligar e
+    # arrancar.
+    if sm.configurado():
         jogos, err = await sm.ao_vivo()
         if err:
             diag["erros"].append(f"sportmonks ao_vivo: {err[:120]}")
@@ -6740,9 +6479,9 @@ async def coletar_escalacoes() -> dict:
     ja = {(l.get("fonte"), l.get("chave")) for l in escalacoes_vistas(24)}
 
     # ── Sportmonks: uma chamada traz o dia inteiro ────────────────────────
-    if not sm.configurado():
-        diag["erros"].append("SPORTMONKS_TOKEN ausente")
-    else:
+    # Mesma coisa do coletor de gols: token ausente é o estado normal desde
+    # que a assinatura acabou, e não um erro para aparecer no diagnóstico.
+    if sm.configurado():
         for dia in (agora.date().isoformat(),
                     (agora + timedelta(days=1)).date().isoformat()):
             jogos, err = await sm.com_escalacao(dia)
@@ -7915,29 +7654,21 @@ async def api_diag_geo_x(executar: str = ""):
 
 
 @app.get("/api/fim/comparar")
-async def api_fim_comparar(fixture: int, fixture_sm: int = 0):
-    """Mesmo jogo pelas duas fontes, lado a lado."""
-    af = await _montar_fim_de_jogo(fixture)
-    saida = {"api_football": af, "sportmonks": None}
-    if not sm.configurado():
-        saida["sportmonks"] = {"erro": "SPORTMONKS_TOKEN não configurada no Railway"}
-        return saida
-    alvo = fixture_sm
-    if not alvo:
-        # Sem o id do lado deles, acho o jogo do dia pelos nomes dos times.
-        jogos, err = await sm.do_dia(datetime.now(timezone.utc).date().isoformat())
-        alvos = {(af.get("casa") or "").lower(), (af.get("fora") or "").lower()}
-        for f in jogos:
-            nomes = {sm._nome_curto(p.get("name")).lower()
-                     for p in (f.get("participants") or [])}
-            if nomes & alvos:
-                alvo = f.get("id")
-                break
-    if not alvo:
-        saida["sportmonks"] = {"erro": "não achei esta partida no catálogo da Sportmonks"}
-        return saida
-    saida["sportmonks"] = await _fim_sportmonks(alvo)
-    return saida
+async def api_fim_comparar(fixture: int):
+    """O texto de fim de jogo da partida.
+
+    O nome ficou de quando havia o que comparar: esta rota devolvia o mesmo
+    jogo pela API-Football e pela Sportmonks, lado a lado, para eu medir qual
+    publicava antes. A Sportmonks saiu (09/09/26) e a comparação com uma fonte
+    só não é comparação — era só uma chamada a mais, um erro a mais para
+    tratar e meia tela ocupada dizendo "não configurada".
+
+    Mantenho o nome da rota e a chave `api_football` na resposta de propósito:
+    é a tela que consome isto, e trocar as duas coisas ao mesmo tempo é como
+    se perde uma página no meio de um jogo. O dia de renomear é um dia sem
+    partida.
+    """
+    return {"api_football": await _montar_fim_de_jogo(fixture)}
 
 
 @app.get("/api/gols/ao-vivo")
@@ -10255,19 +9986,50 @@ def _contar_para_aprovar() -> dict:
     return saida
 
 
+# Estados de clipe que ainda devem alguma coisa a você. Ficam de fora
+# 'publicado' (acabou) e 'erro' (não é decisão sua, é conserto — e a guia
+# Clipes mostra o erro com a mensagem inteira, que é o que serve para
+# consertar; aqui só caberia o título).
+CLIPE_ESPERANDO = ("pedido", "cortando", "pronto", "publicando")
+
+
 def _log_de_entrada(limite: int = 40) -> list:
-    """O que entrou, em ordem de chegada, com de onde veio e quando."""
+    """A FILA: só o que espera uma decisão sua, e só de hoje em diante.
+
+    Isto era um log — "o que entrou" — e virou fila (09/09/26). A diferença
+    não é de nome. Um log é honesto sobre o passado e por isso cresce para
+    sempre; uma fila só serve se o que está nela ainda pode ser feito. A tela
+    inicial pergunta "o que falta?", e post já publicado, clipe já no ar e
+    arbitragem de ontem respondiam a outra pergunta enquanto empurravam para
+    baixo o que ainda pedia atenção.
+
+    O que entra, e por quê:
+      · post PENDENTE — decisão sua, e ainda dá tempo;
+      · clipe cortado e não publicado — trabalho pronto esperando o seu toque;
+      · notícia que você arrastou — você já disse que quer fazer algo com ela;
+      · arbitragem de HOJE — a escala do dia, que você lê antes de narrar.
+
+    Uma exceção deliberada à "renovação diária": a notícia arrastada segue a
+    janela de 48h da guia, e não o corte da meia-noite. Já houve esse defeito
+    aqui — a home cortava em 24h enquanto a guia mostrava 48h, e a notícia que
+    você separava no fim da tarde de ontem sumia da tela de hoje sem erro e
+    sem aviso. Notícia arrastada é tarefa aberta, e tarefa aberta não vence à
+    meia-noite. O que vence à meia-noite (o post agendado, a escala do dia)
+    sai sozinho pelo horário, que é o certo.
+    """
     itens = []
     try:
-        # Só o que ainda vai acontecer. A home listava a fila inteira, e post
-        # publicado e cancelado ficavam empurrando para baixo os que ainda
-        # pediam decisão — que é o oposto do que uma fila serve para fazer.
+        # Só o que ainda vai acontecer, e só o que ainda espera decisão. Post
+        # 'aprovado' também sai: ele já foi decidido e vai sozinho na hora
+        # marcada — continuar na fila era pedir a mesma decisão duas vezes.
         import posts_gerador as pg
         try:
             marcados = transmissoes(jogos_com_transmissao())
         except Exception:
             marcados = {}
         for p in _posts_do_futuro(limite * 3):
+            if (p.get("status") or "") != "pendente":
+                continue
             fid = pg.jogo_da_chave(p.get("chave_unica"))
             itens.append({
                 "tipo": "posts", "titulo": (p.get("texto") or "")[:120],
@@ -10286,6 +10048,8 @@ def _log_de_entrada(limite: int = 40) -> list:
         pass
     try:
         for c in clipes_recentes(24):
+            if (c.get("estado") or "") not in CLIPE_ESPERANDO:
+                continue
             itens.append({
                 "tipo": "clipes",
                 "titulo": (c.get("texto") or c.get("jogo") or "Clipe")[:120],
@@ -10323,8 +10087,13 @@ def _log_de_entrada(limite: int = 40) -> list:
         pass
     try:
         # Uma linha por dia, não uma por jogo: a arbitragem chega toda de uma
-        # vez, e seis linhas iguais empurrariam o resto do log para fora.
-        for dia in (_dia_de_brasilia(), _dia_de_brasilia(-1)):
+        # vez, e seis linhas iguais empurrariam o resto da fila para fora.
+        #
+        # Só HOJE. A de ontem entrava aqui por segurança — a escala às vezes
+        # sai de madrugada — mas ela é para você ler antes de narrar, e depois
+        # do jogo não há mais nada a fazer com ela. Ficava ocupando a primeira
+        # tela do app com trabalho encerrado.
+        for dia in (_dia_de_brasilia(),):
             jogos = arbitragem_do_dia(dia)
             if not jogos:
                 continue
@@ -10458,7 +10227,7 @@ __HDR__
   </h1>
   <div class="numeros" id="numeros"></div>
   <div class="titulo-secao">
-    <h2>Entrou agora</h2>
+    <h2>Esperando voce</h2>
     <a href="/noticias">ver noticias</a>
   </div>
   <div id="log">carregando...</div>
@@ -10544,7 +10313,12 @@ async function carregar() {
   alvo.innerHTML = '';
   const log = d.log || [];
   if (!log.length) {
-    alvo.innerHTML = '<div class="vazio">Nada entrou nas ultimas 24 horas.</div>';
+    // Fila vazia e um dia de trabalho pela frente sao coisas diferentes de
+    // "nada entrou". O texto antigo dizia que a coleta nao trouxe nada, e o
+    // que a tela mostra agora e outra coisa: nao ha nada a decidir.
+    alvo.innerHTML = '<div class="vazio">Nada esperando decisao. '
+      + 'Post agendado, clipe publicado e a escala de ontem saem daqui '
+      + 'sozinhos.</div>';
     return;
   }
   log.forEach(function (i) { alvo.appendChild(linha(i)); });
