@@ -206,6 +206,17 @@ def create_scheduler() -> AsyncIOScheduler:
         id="cartoes_diario",
         replace_existing=True,
     )
+    # Decisões disciplinares: 8h e 15h UTC (5h e 12h de Brasília). A SAFF
+    # publica sem hora marcada, e o gancho de um titular é informação de
+    # véspera — chegar meio dia atrasado já custou pauta.
+    scheduler.add_job(
+        run_disciplina,
+        trigger="cron",
+        hour="8,15",
+        minute=10,
+        id="disciplina_saff",
+        replace_existing=True,
+    )
     # 8h de Brasília = 11h UTC. A escala de arbitragem do SAFF sai no dia, em
     # horário que eles não anunciam. Uma passada só, como combinado; se o SAFF
     # atrasar, o botão "Buscar no SAFF agora" na guia resolve na hora.
@@ -275,6 +286,27 @@ async def run_cartoes():
         return r
     except Exception as e:
         print(f"❌ Erro na leitura de cartões: {e}")
+        return {"erro": str(e)}
+
+
+async def run_disciplina():
+    """Lê as decisões da Comissão de Disciplina da SAFF.
+
+    Duas vezes por dia porque a SAFF não tem hora: a decisão do jogo de 08/09
+    saiu em 10/09, e o site não anuncia quando publica. Duas passadas custam
+    duas leituras de uma página estática — nada perto de perder o gancho de um
+    titular na véspera da rodada.
+    """
+    try:
+        import asyncio as _asyncio
+        from main import _coletar_disciplina
+        r = await _asyncio.to_thread(_coletar_disciplina, 8)
+        print(f"⚖️ Disciplina SAFF: {r.get('nova')} nova(s), "
+              f"{r.get('mudou')} corrigida(s), {r.get('ignoradas')} de outras "
+              f"competições")
+        return r
+    except Exception as e:
+        print(f"❌ Erro nas decisões disciplinares: {e}")
         return {"erro": str(e)}
 
 

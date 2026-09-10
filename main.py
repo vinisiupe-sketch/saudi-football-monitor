@@ -269,6 +269,12 @@ _ICO_CARTAO  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke-linejoin="round"><rect x="3" y="5" width="10" height="14" rx="1.6" '
                 'transform="rotate(-9 8 12)"/><rect x="12" y="5" width="9" height="14" rx="1.6" '
                 'transform="rotate(9 16.5 12)"/></svg>')
+# Martelo de juiz: a comissão que decide a punição.
+_ICO_MARTELO = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><path d="m14 12-8.5 8.5a2.12 2.12 0 0 1-3-3L11 9"/>'
+                '<path d="m12.8 6.8 4.4 4.4"/><path d="m16.5 3.1 4.4 4.4"/>'
+                '<path d="m14.6 5 4.4 4.4"/><path d="M4 21h9"/></svg>')
 _ICO_PREVIA  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/>'
@@ -576,6 +582,7 @@ _NAV_MAIS = [
     ("/previa",      _ICO_PREVIA,  "Prévia",     "", "#B6FF00"),
     ("/escalacao-pdf", _ICO_ESCALACAO, "Escalações", "", "#B6FF00"),
     ("/pendurados",  _ICO_CARTAO,  "Pendurados", "", "#FFBE5D"),
+    ("/disciplina",  _ICO_MARTELO, "Disciplina", "", "#FD5D5D"),
     ("/numeros",     _ICO_NUMEROS, "Números",    "", "#B6FF00"),
     ("/descartadas", _ICO_ARCHIVE, "Descartadas","", "#FFBE5D"),
     ("/lixeira",     _ICO_TRASH2,  "Lixeira",    "", "#FFBE5D"),
@@ -5350,6 +5357,62 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
     return diag
 
 
+def _juntar_decisoes(situacao: list[dict], calendario: list[dict]) -> int:
+    """Casa cada expulsão com a decisão da SAFF, quando ela já saiu.
+
+    O CASAMENTO É PELO JOGO, NÃO PELO NOME
+        O nome vem em árabe na SAFF ("أوسكار رودريغيز") e em latim na
+        API-Football ("Óscar Rodríguez"). Casar os dois seria transliteração,
+        que erra — e errar aqui põe a suspensão de um jogador no nome de
+        outro, que é o pior estrago possível numa tela de escalação.
+
+        A decisão diz a DATA DA PARTIDA. O cartão também. Isso basta, porque
+        dois jogadores do mesmo clube expulsos no mesmo jogo é raro. Quando
+        acontecer, prefiro marcar a dúvida a escolher no escuro: se houver
+        mais de uma decisão para o mesmo jogo e clube, nenhuma é aplicada e o
+        jogador fica em "confira".
+
+    O QUE ISTO MUDA NA TELA
+        Sem decisão, a guia continua supondo um jogo — é a regra automática do
+        vermelho, e ela acerta na maioria. Com decisão, o número vira o
+        oficial: o Óscar Rodríguez pegou DOIS, e a tela passa a dizer dois, com
+        a decisão citada pelo número.
+    """
+    from database import decisoes_do_jogo
+    if not situacao:
+        return 0
+    quando_do_jogo = {p.get("fixture_id"): (p.get("data") or "")
+                      for p in (calendario or [])}
+    casadas = 0
+    for d in situacao:
+        d["decisao_saff"] = None
+        if not d.get("vermelhos"):
+            continue
+        dia = quando_do_jogo.get(d.get("ultimo_fixture")) or d.get("ultimo_jogo")
+        if not dia:
+            continue
+        try:
+            achadas = decisoes_do_jogo(dia, d.get("clube") or "")
+        except Exception:
+            continue
+        # Duas decisões do mesmo jogo: não sei qual é dele. Digo isso.
+        if len(achadas) > 1:
+            d["decisao_ambigua"] = len(achadas)
+            continue
+        if not achadas:
+            continue
+        dec = achadas[0]
+        d["decisao_saff"] = {
+            "numero": dec.get("numero"), "nome_arabe": dec.get("nome"),
+            "jogos_total": dec.get("jogos_total"),
+            "jogos_extras": dec.get("jogos_extras"),
+            "cabe_recurso": dec.get("cabe_recurso"),
+            "texto": dec.get("decisao"),
+        }
+        casadas += 1
+    return casadas
+
+
 @app.get("/api/pendurados")
 async def api_pendurados(season: int = 0, coletar: int = 0):
     """Quem está pendurado, quem está fora, e o que falta ler.
@@ -5370,6 +5433,7 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
     calendario = partidas_da_liga(temporada)
     situacao = _situacao_dos_cartoes(cartoes, limite, calendario,
                                      _dia_de_brasilia())
+    _juntar_decisoes(situacao, calendario)
     # O escudo entra AQUI, e não na função da regra: aquela função é sobre
     # contagem de cartão e precisa continuar testável sem saber que existe
     # servidor de imagem. O endereço é o padrão da API-Football, o mesmo que
@@ -5563,6 +5627,257 @@ async def api_pendurados_atualizar_get(season: int = 0, refazer: int = 0):
     return await _atualizar_cartoes(season, refazer)
 
 
+def _coletar_disciplina(quantas_datas: int = 8) -> dict:
+    """Lê as decisões publicadas nas últimas datas e guarda as que interessam.
+
+    Roda em thread separada porque `disciplina` usa httpx SÍNCRONO, igual ao
+    arbitragem.py. Chamar direto de uma rota async travaria o servidor
+    inteiro pelo tempo do download — e são até nove páginas.
+    """
+    import disciplina
+    from database import salvar_decisao
+    r = disciplina.buscar_recentes(quantas_datas)
+    contagem = {"nova": 0, "mudou": 0, "igual": 0}
+    for d in r.get("decisoes", []):
+        contagem[salvar_decisao(d)] += 1
+    return {"dias": r.get("dias", []), "erros": r.get("erros", []),
+            "ignoradas": len(r.get("ignoradas", [])),
+            "competicoes_ignoradas": sorted(
+                {i.get("competicao", "") for i in r.get("ignoradas", [])}),
+            **contagem}
+
+
+@app.get("/api/disciplina")
+async def api_disciplina(limite: int = 200):
+    """As decisões guardadas. NÃO vai à SAFF — quem busca é o botão."""
+    from database import decisoes_disciplinares
+    lista = decisoes_disciplinares(limite)
+    clubes = sorted({d.get("clube") or "" for d in lista if d.get("clube")})
+    return {"decisoes": lista, "clubes": clubes, "total": len(lista)}
+
+
+@app.post("/api/disciplina/atualizar")
+async def api_disciplina_atualizar(datas: int = 8):
+    return await asyncio.to_thread(_coletar_disciplina, datas)
+
+
+@app.get("/api/disciplina/atualizar")
+async def api_disciplina_atualizar_get(datas: int = 8):
+    """A mesma coisa, acionável colando o endereço. Ver o par em
+    /api/pendurados/atualizar e o porquê descrito lá."""
+    return await asyncio.to_thread(_coletar_disciplina, datas)
+
+
+_DISCIPLINA_CSS = """
+body{background:var(--c-bg);color:var(--c-text);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
+.wrap{max-width:820px;margin:0 auto;padding:6px 16px 90px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
+  margin:10px 0 4px}
+.sub{font-size:.76rem;color:var(--c-muted-3);line-height:1.55;margin:0 0 14px}
+.ds-barra{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.ds-btn{background:transparent;border:1.5px solid var(--c-border-2);border-radius:99px;
+  padding:6px 15px;font-size:.68rem;font-weight:800;color:var(--c-muted-4);
+  cursor:pointer;font-family:inherit}
+.ds-btn:hover{border-color:var(--c-text);color:var(--c-text)}
+.ds-btn:disabled{opacity:.5;cursor:default}
+.ds-estado{font-size:.68rem;color:var(--c-muted-4)}
+.ds-filtro{display:flex;align-items:center;gap:7px;margin-left:auto}
+.ds-filtro > span{font-size:.66rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--c-muted-3)}
+.ds-filtro select{background:var(--c-bg-card);color:var(--c-text);
+  border:1.5px solid var(--c-border-2);border-radius:10px;padding:7px 10px;
+  font-family:inherit;font-size:.78rem;max-width:55vw}
+.ds-card{background:var(--c-bg-card);border:1px solid var(--c-border);
+  border-radius:12px;padding:13px 15px;margin-bottom:10px}
+.ds-card.gancho{border-color:#FD5D5D66}
+.ds-topo{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:7px}
+.ds-quem{font-weight:800;font-size:.94rem;overflow-wrap:anywhere}
+.ds-tag{font-size:.6rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.06em;border-radius:99px;padding:3px 9px;
+  border:1.5px solid var(--c-border-2);color:var(--c-muted-4);flex:0 0 auto}
+.ds-tag.jogos{border-color:#FD5D5D;color:#FD5D5D}
+.ds-tag.multa{border-color:#FFBE5D;color:#FFBE5D}
+.ds-tag.recurso{border-color:#B6FF00;color:#B6FF00}
+.ds-meta{font-size:.7rem;color:var(--c-muted-3);line-height:1.55}
+.ds-arabe{margin-top:9px;white-space:pre-wrap;overflow-wrap:anywhere;
+  direction:rtl;text-align:right;font-size:.82rem;line-height:1.85;
+  background:var(--c-bg-soft);border-radius:10px;padding:11px 13px}
+.ds-card summary{cursor:pointer;font-size:.68rem;font-weight:800;
+  color:var(--c-muted-4);list-style:none;margin-top:9px}
+.ds-card summary::-webkit-details-marker{display:none}
+.ds-card summary:hover{color:var(--c-text)}
+.ds-vazio{font-size:.76rem;color:var(--c-muted-3);padding:16px 0}
+.ds-nota{font-size:.7rem;color:var(--c-muted-4);line-height:1.6;
+  background:var(--c-bg-soft);border-radius:10px;padding:11px 13px;margin-top:22px}
+"""
+
+_DISCIPLINA_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Disciplina · IARABÃO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__DS_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Decisões disciplinares</h1>
+  <p class="sub">Comissão de Disciplina e Ética da SAFF — Roshn, Copa do Rei e
+     Supercopa. O gancho oficial vem daqui; a API só conta que houve expulsão.</p>
+
+  <div class="ds-barra">
+    <button class="ds-btn" id="dsBuscar" onclick="buscar()">⟳ Buscar na SAFF</button>
+    <span class="ds-estado" id="dsEstado">carregando…</span>
+    <label class="ds-filtro">
+      <span>Clube</span>
+      <select id="dsClube" onchange="desenhar()"><option value="">Todos</option></select>
+    </label>
+  </div>
+
+  <div id="dsLista"></div>
+
+  <div class="ds-nota">
+    Os campos em português (jogos, multa, artigo, recurso) são <b>extraídos por
+    regra fixa</b> do texto oficial — sem IA e sem tradução. O texto árabe
+    original fica em “ver decisão original”, sempre, para você conferir.<br><br>
+    Um detalhe que muda tudo na leitura: quando a SAFF escreve
+    “(2) مباراتين <b>بما في ذلك</b> الإيقاف التلقائي”, o número é o
+    <b>total</b>, já <b>incluindo</b> a partida automática do vermelho. Dois
+    jogos quer dizer um a mais, não dois a mais.
+  </div>
+</div>
+<script>
+__DS_JS__
+</script>
+</body>
+</html>"""
+
+_DISCIPLINA_JS = r"""
+let DECISOES = [];
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function dia(iso) {
+  if (!iso) return '';
+  const p = String(iso).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] : String(iso);
+}
+
+async function carregar() {
+  const est = document.getElementById('dsEstado');
+  try {
+    const r = await fetch('/api/disciplina');
+    const d = await r.json();
+    DECISOES = d.decisoes || [];
+    const sel = document.getElementById('dsClube');
+    const antes = sel.value;
+    sel.innerHTML = '<option value="">Todos</option>'
+      + (d.clubes || []).map(function (c) {
+          return '<option value="' + esc(c) + '">' + esc(c) + '</option>';
+        }).join('');
+    sel.value = antes;
+    est.textContent = DECISOES.length + ' decisão(ões) guardada(s)';
+  } catch (e) {
+    est.textContent = 'não consegui carregar: ' + (e.message || e);
+    return;
+  }
+  desenhar();
+}
+
+function card(d) {
+  const temGancho = d.jogos_extras > 0;
+  let tags = '';
+  if (d.jogos_total) {
+    tags += '<span class="ds-tag jogos">' + d.jogos_total + ' jogo(s)'
+      + (temGancho ? ' · ' + d.jogos_extras + ' além do automático' : ' · só o automático')
+      + '</span>';
+  }
+  if (d.multa) {
+    tags += '<span class="ds-tag multa">' + Number(d.multa).toLocaleString('pt-BR')
+      + ' riais</span>';
+  }
+  if (d.cabe_recurso === true) tags += '<span class="ds-tag recurso">cabe recurso</span>';
+  if (d.cabe_recurso === false) tags += '<span class="ds-tag">sem recurso</span>';
+
+  return '<div class="ds-card' + (temGancho ? ' gancho' : '') + '">'
+    + '<div class="ds-topo">'
+    + '<span class="ds-quem">' + esc(d.nome || d.clube || d.contra) + '</span>'
+    + '<span class="ds-tag">' + esc(d.tipo || '—') + '</span>'
+    + tags + '</div>'
+    + '<div class="ds-meta">'
+    + esc(d.clube || '—') + ' · ' + esc(d.confronto || '')
+    + (d.jogo_em ? ' (' + dia(d.jogo_em) + ')' : '')
+    + '<br>' + esc(d.competicao_pt || d.competicao || '')
+    + ' · decisão ' + esc(d.numero || '') + ' de ' + dia(d.data)
+    + ((d.artigos || []).length ? ' · artigo ' + esc(d.artigos[0]) : '')
+    + '</div>'
+    // O texto oficial fica fechado, mas SEMPRE presente. É a fonte do número
+    // que aparece na etiqueta — e o dia em que a minha leitura errar, é aqui
+    // que dá para ver o que a SAFF realmente escreveu.
+    + '<details><summary>ver decisão original (árabe) ▾</summary>'
+    + '<div class="ds-arabe">' + esc(d.infracao || '') + '</div>'
+    + '<div class="ds-arabe">' + esc(d.decisao || '') + '</div>'
+    + '</details>'
+    + '</div>';
+}
+
+function desenhar() {
+  const clube = document.getElementById('dsClube').value;
+  const lista = DECISOES.filter(function (d) { return !clube || d.clube === clube; });
+  document.getElementById('dsLista').innerHTML = lista.length
+    ? lista.map(card).join('')
+    : '<div class="ds-vazio">Nada guardado ainda. Toque em “Buscar na SAFF”.</div>';
+}
+
+async function buscar() {
+  const b = document.getElementById('dsBuscar');
+  const est = document.getElementById('dsEstado');
+  b.disabled = true;
+  est.textContent = 'lendo o site da SAFF…';
+  try {
+    const r = await fetch('/api/disciplina/atualizar', {method: 'POST'});
+    const d = await r.json();
+    est.textContent = d.nova + ' nova(s), ' + d.mudou + ' corrigida(s), '
+      + d.igual + ' sem mudança'
+      // As ignoradas aparecem CONTADAS. Num dia sem nada da Roshn, saber que
+      // havia seis decisões e todas eram do sub-21 é diferente de "não saiu".
+      + (d.ignoradas ? ' · ' + d.ignoradas + ' de outras competições' : '')
+      + ((d.erros || []).length ? ' · ⚠️ ' + d.erros.join(' | ') : '');
+    await carregar();
+  } catch (e) {
+    est.textContent = 'não deu: ' + (e.message || e);
+  } finally {
+    b.disabled = false;
+  }
+}
+
+carregar();
+"""
+
+
+@app.get("/disciplina", response_class=HTMLResponse)
+async def pagina_disciplina():
+    return HTMLResponse(
+        _DISCIPLINA_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__DS_CSS__", _DISCIPLINA_CSS)
+        .replace("__DS_JS__", _DISCIPLINA_JS)
+        .replace("__HDR__", _header("/disciplina"))
+    )
+
+
 _PENDURADOS_CSS = """
 body{background:var(--c-bg);color:var(--c-text);
   font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
@@ -5585,9 +5900,14 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
   font-family:inherit;font-size:.78rem;max-width:60vw}
 .pd-secao{font-size:.7rem;font-weight:800;text-transform:uppercase;
   letter-spacing:.08em;color:var(--c-muted-3);margin:20px 0 10px}
+.pd-item{margin-bottom:8px}
 .pd-linha{display:flex;align-items:center;gap:11px;background:var(--c-bg-card);
-  border:1px solid var(--c-border);border-radius:12px;padding:11px 13px;
-  margin-bottom:8px}
+  border:1px solid var(--c-border);border-radius:12px;padding:11px 13px}
+/* A nota da SAFF pendura embaixo da linha, recuada, para se ler como
+   complemento daquele jogador e não como um item novo da lista. */
+.pd-saff{font-size:.68rem;font-weight:700;color:#B6FF00;margin:5px 0 0 37px;
+  line-height:1.5}
+.pd-saff.duvida{color:#FFBE5D}
 .pd-linha.fora{border-color:#FD5D5D66}
 .pd-linha.quase{border-color:#FFBE5D66}
 .pd-linha.volta{border-color:#B6FF0066}
@@ -5762,8 +6082,42 @@ function contexto(d, classe) {
   return esc(d.motivo || '');
 }
 
+// A decisão da SAFF, quando ela já saiu para aquele jogo.
+//
+// Por enquanto ela APARECE, mas ainda NÃO manda na conta de quantos jogos o
+// jogador fica fora — a conta segue supondo um, que é a regra automática do
+// vermelho. É de propósito, e foi o próprio Vini quem propôs a ordem:
+// primeiro ter o controle das decisões, depois abastecer esta guia com ele.
+//
+// O motivo de não atropelar: o casamento entre decisão e cartão é novo, e é
+// feito pela DATA DO JOGO e pelo clube. Antes de deixar esse casamento mexer
+// na tela que decide escalação, quero vê-lo acertar por algumas rodadas com
+// o Vini olhando. Um número oficial aplicado ao jogador errado é pior que um
+// número suposto aplicado ao jogador certo.
+function daSaff(d) {
+  if (d.decisao_ambigua) {
+    return '<div class="pd-saff duvida">A SAFF publicou ' + d.decisao_ambigua
+      + ' decisões para este jogo e não sei qual é a dele — abra a guia '
+      + 'Disciplina</div>';
+  }
+  const s = d.decisao_saff;
+  if (!s) return '';
+  const extra = s.jogos_extras > 0
+    ? s.jogos_total + ' jogo(s) no total, ' + s.jogos_extras + ' além do automático'
+    : 'só a partida automática, mais multa';
+  return '<div class="pd-saff">SAFF · ' + extra
+    + ' · decisão ' + esc(s.numero || '')
+    + (s.cabe_recurso === true ? ' · cabe recurso' : '')
+    + '</div>';
+}
+
 function linha(d, classe, selo) {
-  return '<div class="pd-linha ' + classe + '">'
+  // A linha do jogador é um flex; a nota da SAFF é um bloco embaixo dela.
+  // Por isso as duas vivem dentro de um invólucro: pendurar a nota como
+  // filha do flex a transformaria em mais uma coluna, espremida ao lado do
+  // escudo.
+  return '<div class="pd-item">'
+    + '<div class="pd-linha ' + classe + '">'
     + '<span class="pd-escudo">' + (d.escudo
         ? '<img src="' + esc(d.escudo) + '" alt="">' : '') + '</span>'
     + '<span class="pd-quem"><span class="pd-nome">' + esc(d.jogador) + '</span>'
@@ -5772,6 +6126,8 @@ function linha(d, classe, selo) {
     + '</div></span>'
     + cartas(d)
     + '<span class="pd-selo ' + classe + '">' + selo + '</span>'
+    + '</div>'
+    + daSaff(d)
     + '</div>';
 }
 

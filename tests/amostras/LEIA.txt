@@ -7,3 +7,17 @@ com os estilos e escudos removidos para caber no repositório. O que sobrou
 
 Servem para o teste bater contra a marcação que o site realmente entrega, e
 não contra a que eu imaginei que ele entregava.
+
+──────────────────────────────────────────────────────────────────────────
+saff_disciplina_2026-09-07.html — capturado em 10/09/2026 de
+https://www.saff.com.sa/about.php?id=3&menu=4&type=13&mdate=2026-09-07
+
+A tabela de decisões da Comissão de Disciplina, inteira e sem retoque. São
+as duas decisões da Roshn daquele dia: o tradutor do Al-Ahli (4 jogos) e o
+Óscar Rodríguez, do Diriyah (2 jogos). É o mesmo Óscar Rodríguez que a
+API-Football registrou como expulso por "Violent conduct" em 03/09 — e é
+por isso que este recorte vale: ele liga as duas fontes num caso conferível.
+
+A página é servida em windows-1256; este arquivo está em UTF-8, porque o
+teste exercita a LEITURA do HTML e não o download. Quem cuida do charset é
+o disciplina._baixar, com o mesmo remendo do arbitragem.py.

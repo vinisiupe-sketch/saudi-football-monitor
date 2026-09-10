@@ -3273,6 +3273,150 @@ def registrar_cartao(fixture_id: int, season: int, jogador_id: int, tipo: str,
         return False
 
 
+# ── DECISÕES DISCIPLINARES DA SAFF ──────────────────────────────────────────
+#
+# Guardar aqui não é cache: é a única cópia que eu controlo. A SAFF publica
+# por data e o site é o que é — pode sair do ar, mudar de endereço ou de
+# marcação a qualquer momento, e a decisão de uma rodada antiga não volta.
+#
+# O TEXTO ÁRABE ORIGINAL FICA GRAVADO, sempre, ao lado dos campos que eu
+# extraí dele. É a diferença entre "o app diz que são 2 jogos" e "o app diz
+# que são 2 jogos, e aqui está a frase de onde ele tirou isso". No dia em que
+# a minha leitura errar — e ela vai errar, é prosa jurídica em árabe — o Vini
+# consegue ver o original sem sair da tela e sem depender de eu ter acertado.
+def _cria_decisao(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS decisao_disciplinar (
+            numero        TEXT PRIMARY KEY,
+            data          TEXT,
+            competicao    TEXT,
+            competicao_pt TEXT,
+            confronto     TEXT,
+            jogo_em       TEXT,
+            contra        TEXT,
+            tipo          TEXT,
+            cargo         TEXT,
+            clube         TEXT,
+            nome          TEXT,
+            infracao      TEXT,
+            decisao       TEXT,
+            jogos_total   INTEGER,
+            jogos_extras  INTEGER,
+            multa         INTEGER,
+            artigos       TEXT,
+            cabe_recurso  BOOLEAN,
+            por_vermelho  BOOLEAN,
+            visto_em      TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS decisao_por_jogo "
+              "ON decisao_disciplinar (jogo_em, clube)")
+
+
+def salvar_decisao(d: dict) -> str:
+    """Grava (ou atualiza) uma decisão. Devolve "nova", "mudou" ou "igual".
+
+    UPDATE no conflito, ao contrário do cartão: uma decisão pode ser
+    corrigida pela própria SAFF, e a versão nova é a que vale. Devolver QUAL
+    dos três casos aconteceu é o que permite a tela dizer "3 decisões novas"
+    em vez de "27 decisões", que é o número de sempre e não informa nada.
+    """
+    numero = (d.get("numero") or "").strip()
+    if not numero:
+        return "igual"
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_decisao(c)
+            c.execute("SELECT decisao FROM decisao_disciplinar WHERE numero = %s",
+                      [numero])
+            antes = c.fetchone()
+            c.execute("""
+                INSERT INTO decisao_disciplinar (
+                    numero, data, competicao, competicao_pt, confronto, jogo_em,
+                    contra, tipo, cargo, clube, nome, infracao, decisao,
+                    jogos_total, jogos_extras, multa, artigos, cabe_recurso,
+                    por_vermelho)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (numero) DO UPDATE SET
+                    data = EXCLUDED.data, competicao = EXCLUDED.competicao,
+                    competicao_pt = EXCLUDED.competicao_pt,
+                    confronto = EXCLUDED.confronto, jogo_em = EXCLUDED.jogo_em,
+                    contra = EXCLUDED.contra, tipo = EXCLUDED.tipo,
+                    cargo = EXCLUDED.cargo, clube = EXCLUDED.clube,
+                    nome = EXCLUDED.nome, infracao = EXCLUDED.infracao,
+                    decisao = EXCLUDED.decisao,
+                    jogos_total = EXCLUDED.jogos_total,
+                    jogos_extras = EXCLUDED.jogos_extras,
+                    multa = EXCLUDED.multa, artigos = EXCLUDED.artigos,
+                    cabe_recurso = EXCLUDED.cabe_recurso,
+                    por_vermelho = EXCLUDED.por_vermelho, visto_em = NOW()
+            """, [numero, d.get("data"), d.get("competicao"),
+                  d.get("competicao_pt"), d.get("confronto"), d.get("jogo_em"),
+                  d.get("contra"), d.get("tipo"), d.get("cargo"),
+                  d.get("clube"), d.get("nome"), d.get("infracao"),
+                  d.get("decisao"), d.get("jogos_total"), d.get("jogos_extras"),
+                  d.get("multa"), _json.dumps(d.get("artigos") or [],
+                                              ensure_ascii=False),
+                  d.get("cabe_recurso"), d.get("por_vermelho")])
+            if antes is None:
+                return "nova"
+            return "igual" if (antes[0] or "") == (d.get("decisao") or "") else "mudou"
+    except Exception:
+        return "igual"
+
+
+def decisoes_disciplinares(limite: int = 200) -> list[dict]:
+    """As decisões guardadas, da mais recente para a mais antiga."""
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_decisao(c)
+            c.execute("""SELECT * FROM decisao_disciplinar
+                          ORDER BY data DESC NULLS LAST, numero DESC
+                          LIMIT %s""", [limite])
+            saida = []
+            for r in c.fetchall():
+                d = dict(r)
+                try:
+                    d["artigos"] = _json.loads(d.get("artigos") or "[]")
+                except Exception:
+                    d["artigos"] = []
+                d["visto_em"] = str(d.get("visto_em") or "")
+                saida.append(d)
+            return saida
+    except Exception:
+        return []
+
+
+def decisoes_do_jogo(jogo_em: str, clube: str) -> list[dict]:
+    """As decisões de um jogo e clube — o casamento com o cartão.
+
+    O casamento NÃO é pelo nome do jogador, e isso é de propósito. O nome vem
+    em árabe na SAFF ("أوسكار رودريغيز") e em latim na API-Football ("Óscar
+    Rodríguez"); casar os dois seria transliteração, que erra, e errar aqui
+    põe a suspensão de um jogador no nome de outro.
+
+    A decisão diz a PARTIDA e a DATA dela. O cartão também. Isso basta: é
+    raro dois jogadores do mesmo clube serem expulsos no mesmo jogo, e
+    quando for, a tela mostra as duas decisões em vez de escolher uma.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_decisao(c)
+            c.execute("""SELECT numero, nome, clube, jogos_total, jogos_extras,
+                                decisao, cabe_recurso, tipo
+                           FROM decisao_disciplinar
+                          WHERE jogo_em = %s AND tipo = 'jogador'
+                            AND por_vermelho = TRUE""", [jogo_em])
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
 def apagar_cartoes_da_partida(fixture_id: int) -> int:
     """Zera os cartões de uma partida, para a releitura poder regravá-los.
 
