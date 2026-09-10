@@ -4914,16 +4914,72 @@ def _e_vermelho(detalhe: str) -> bool:
     return "red card" in d or _e_segundo_amarelo(detalhe)
 
 
-def _situacao_dos_cartoes(cartoes: list[dict], limite: int) -> list[dict]:
-    """De uma lista de cartões para a lista de quem está pendurado ou fora.
+def _jogos_do_clube(calendario: list[dict], clube_id) -> list[dict]:
+    """Os jogos de um clube, em ordem de data."""
+    if clube_id is None:
+        return []
+    seus = [p for p in calendario
+            if p.get("casa_id") == clube_id or p.get("fora_id") == clube_id]
+    return sorted(seus, key=lambda p: (str(p.get("data") or ""),
+                                       p.get("fixture_id") or 0))
 
-    Função pura, fora da rota, porque é aqui que mora a regra — e regra que
-    depende de banco e de rede não dá para testar com a partida imaginada que
-    eu preciso imaginar (o cara que levou o quarto amarelo na rodada passada,
-    o que foi expulso por dois amarelos, o que já cumpriu e recomeçou).
+
+def _adversario(partida: dict, clube_id) -> str:
+    if not partida:
+        return ""
+    return (partida.get("fora") if partida.get("casa_id") == clube_id
+            else partida.get("casa")) or ""
+
+
+_JOGO_ENCERRADO = ("FT", "AET", "PEN", "WO", "AWD")
+
+
+def _ja_aconteceu(partida: dict, hoje: str) -> bool:
+    """Este jogo já foi jogado?
+
+    O status manda; a data é o desempate para quando ele vem vazio (jogo que
+    entrou no calendário antes de a API publicar o estado). Uso data ESTRITA
+    menor que hoje: o jogo de hoje ainda pode não ter começado, e tratar
+    'hoje' como passado devolveria ao Vini um suspenso a menos justamente no
+    dia em que ele precisa da lista.
+    """
+    st = (partida.get("status") or "").upper()
+    if st:
+        return st in _JOGO_ENCERRADO
+    return bool(partida.get("data")) and str(partida["data"]) < hoje
+
+
+def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
+                          calendario: list[dict] | None = None,
+                          hoje: str = "") -> list[dict]:
+    """De uma lista de cartões para quem está fora, pendurado ou voltando.
+
+    A PUNIÇÃO É SOBRE O JOGO SEGUINTE DO CLUBE, NÃO SOBRE O JOGO DO CARTÃO
+        Foi o defeito da primeira versão, e o Vini achou com um caso concreto:
+        o Bento foi expulso contra o Ettifaq em 25/08, cumpriu a suspensão
+        contra o Al-Taawoun em 28/08, voltou ao banco em 05/09 e foi titular
+        em 09/09 — e seguia na lista de suspensos. O motivo: eu comparava com
+        o "último jogo em que ele levou cartão", e como ele não levou mais
+        nenhum, esse jogo continuou sendo o de 25/08 para sempre.
+
+        Agora cada punição aponta para o PRÓXIMO JOGO DO CLUBE depois dela.
+        Se esse jogo ainda não aconteceu, ele está fora dele — e a tela diz
+        contra quem. Se já aconteceu, a suspensão foi cumprida e acabou.
+
+    TRÊS ESTADOS
+        fora        — a punição aponta para um jogo que ainda vai acontecer;
+        retornando  — cumpriu no ÚLTIMO jogo do clube, então volta no próximo;
+        pendurado   — está a um amarelo do limite, e o risco é o próximo jogo.
+
+    Continua função pura, e agora recebe o calendário como argumento em vez de
+    ir buscá-lo: é o que permite testar o caso do Bento inteiro sem banco e
+    sem rede, com as datas que eu preciso inventar.
     """
     if limite < 2:
         limite = 2
+    calendario = calendario or []
+    hoje = hoje or _dia_de_brasilia()
+
     por_jogador: dict = {}
     for c in cartoes:
         jid = c.get("jogador_id")
@@ -4954,15 +5010,12 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int) -> list[dict]:
             por_jogo.items(),
             key=lambda par: (str((par[1][0] or {}).get("jogo_em") or ""), par[0] or 0))
 
+        agenda = _jogos_do_clube(calendario, d["clube_id"])
+        posicao = {p.get("fixture_id"): i for i, p in enumerate(agenda)}
+
         amarelos = 0
-        marcos = []          # em que jogo ele completou um ciclo
+        punicoes = []      # (fixture do castigo, motivo)
         for fixture, lista in jogos_ordenados:
-            # O "último jogo com cartão" é anotado ANTES de qualquer desvio.
-            # Na primeira versão isto ficava no fim do laço, depois de um
-            # `continue` — e o expulso por dois amarelos, que cai justamente
-            # nesse continue, ficava com `ultimo_fixture` vazio e aparecia
-            # como não suspenso. O jogador mais claramente fora de campo era o
-            # único que a tela não marcava.
             d["ultimo_jogo"] = str((lista[0] or {}).get("jogo_em") or "")
             d["ultimo_fixture"] = fixture
 
@@ -4970,37 +5023,73 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int) -> list[dict]:
             if any(_e_segundo_amarelo(x) for x in detalhes):
                 d["dois_amarelos"] += 1
                 d["vermelhos"] += 1
+                punicoes.append((fixture, "expulso por dois amarelos"))
                 # Os amarelos deste jogo NÃO entram no acúmulo: a punição já
                 # foi a expulsão.
                 continue
             if any("red card" in x.lower() for x in detalhes):
                 d["vermelhos"] += 1
+                punicoes.append((fixture, "expulso"))
             amarelos_no_jogo = sum(1 for x in detalhes if _e_amarelo(x))
             if amarelos_no_jogo:
                 amarelos += amarelos_no_jogo
                 if amarelos % limite == 0:
-                    marcos.append(fixture)
+                    punicoes.append((fixture, f"{limite}º amarelo"))
 
         d["amarelos"] = amarelos
         d["no_ciclo"] = amarelos % limite
         d["faltam"] = (limite - d["no_ciclo"]) if d["no_ciclo"] else limite
-        # Pendurado: mais um amarelo e ele fica de fora.
-        d["pendurado"] = d["no_ciclo"] == limite - 1
-        # Suspenso: fechou o ciclo — ou foi expulso — no ÚLTIMO jogo que ele
-        # tem cartão registrado. É dedução, não confirmação. Ver o cabeçalho.
-        ultimo = d["ultimo_fixture"]
-        fechou_agora = bool(marcos) and marcos[-1] == ultimo
-        expulso_agora = any(_e_vermelho(c.get("detalhe") or "")
-                            for c in por_jogo.get(ultimo, []))
-        d["suspenso"] = bool(fechou_agora or expulso_agora)
-        d["motivo"] = ("expulso no último jogo" if expulso_agora
-                       else f"{limite}º amarelo no último jogo" if fechou_agora
-                       else "")
+
+        # ── o próximo jogo do clube que ainda não aconteceu ──────────────
+        proximo = next((p for p in agenda if not _ja_aconteceu(p, hoje)), None)
+        d["proximo_jogo"] = _adversario(proximo, d["clube_id"])
+        d["proximo_em"] = (proximo or {}).get("data") or ""
+
+        # ── a última punição, e o jogo que ela custou ───────────────────
+        d["estado"] = ""
+        d["motivo"] = ""
+        d["jogo_da_pena"] = ""
+        d["jogo_da_pena_em"] = ""
+        if punicoes:
+            fixture_pena, motivo = punicoes[-1]
+            i = posicao.get(fixture_pena)
+            # Sem o jogo no calendário eu não sei qual é o seguinte. Digo isso
+            # em vez de chutar: marcar como suspenso quem talvez já tenha
+            # cumprido tira do Vini um jogador que ele podia escalar.
+            cumpre_em = agenda[i + 1] if i is not None and i + 1 < len(agenda) else None
+            if cumpre_em:
+                d["jogo_da_pena"] = _adversario(cumpre_em, d["clube_id"])
+                d["jogo_da_pena_em"] = cumpre_em.get("data") or ""
+                if not _ja_aconteceu(cumpre_em, hoje):
+                    d["estado"] = "fora"
+                    d["motivo"] = motivo
+                else:
+                    # Cumpriu. Só é notícia se foi no ÚLTIMO jogo do clube —
+                    # aí ele volta no próximo, e isso o Vini quer saber. Duas
+                    # rodadas depois não é mais informação, é ruído.
+                    ultimo_jogado = next(
+                        (p for p in reversed(agenda) if _ja_aconteceu(p, hoje)), None)
+                    if ultimo_jogado and \
+                            ultimo_jogado.get("fixture_id") == cumpre_em.get("fixture_id"):
+                        d["estado"] = "retornando"
+                        d["motivo"] = f"cumpriu ({motivo})"
+            elif i is None:
+                d["estado"] = "indefinido"
+                d["motivo"] = f"{motivo} — jogo fora do calendário que eu tenho"
+
+        # Pendurado: mais um amarelo e ele fica de fora do PRÓXIMO jogo. Não
+        # se acumula com "fora": quem já está suspenso não precisa da segunda
+        # etiqueta, e ela só tiraria espaço da que importa.
+        d["pendurado"] = (d["no_ciclo"] == limite - 1) and d["estado"] != "fora"
+        if d["pendurado"] and not d["estado"]:
+            d["estado"] = "pendurado"
+
+        d["suspenso"] = d["estado"] == "fora"
         d.pop("eventos", None)
         saida.append(d)
 
-    # Suspenso primeiro, pendurado depois, e dentro de cada grupo por clube.
-    saida.sort(key=lambda d: (not d["suspenso"], not d["pendurado"],
+    ORDEM = {"fora": 0, "pendurado": 1, "retornando": 2, "indefinido": 3}
+    saida.sort(key=lambda d: (ORDEM.get(d["estado"], 9),
                               (d["clube"] or "").lower(),
                               -d["amarelos"], (d["jogador"] or "").lower()))
     return saida
@@ -5018,16 +5107,33 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
     tempo não existiam na primeira leitura.
     """
     from database import (marcar_partida_lida, partidas_ja_lidas,
-                          registrar_cartao)
+                          registrar_cartao, salvar_partidas_liga)
     teto = teto or int(ajuste("cartoes_partidas_por_passada") or 12)
     diag = {"temporada": season, "partidas_lidas": 0, "cartoes_novos": 0,
-            "faltam": 0, "erros": []}
+            "faltam": 0, "calendario": 0, "erros": []}
 
     jogos, err = await _af_get("fixtures",
                                {"league": AF_LEAGUE_SPL, "season": season})
     if err:
         diag["erros"].append(err)
         return diag
+
+    # O calendário INTEIRO, e não só os jogos que vou ler. Já paguei a chamada
+    # que traz a temporada toda; guardar os jogos futuros aqui é de graça e é
+    # o que permite dizer "fora do jogo contra o Al-Hilal" em vez de só "fora
+    # do próximo".
+    diag["calendario"] = salvar_partidas_liga([{
+        "fixture_id": (f.get("fixture") or {}).get("id"),
+        "season": season, "liga_id": AF_LEAGUE_SPL,
+        "data": ((f.get("fixture") or {}).get("date") or "")[:10],
+        "status": (((f.get("fixture") or {}).get("status")) or {}).get("short"),
+        "rodada": (f.get("league") or {}).get("round") or "",
+        "casa_id": ((f.get("teams") or {}).get("home") or {}).get("id"),
+        "casa": ((f.get("teams") or {}).get("home") or {}).get("name"),
+        "fora_id": ((f.get("teams") or {}).get("away") or {}).get("id"),
+        "fora": ((f.get("teams") or {}).get("away") or {}).get("name"),
+    } for f in (jogos or {}).get("response", [])
+        if (f.get("fixture") or {}).get("id")])
 
     ja = partidas_ja_lidas(season)
     ENCERRADOS = ("FT", "AET", "PEN")
@@ -5084,14 +5190,17 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
     agendada. Tela que gasta cota só por ser olhada é tela que a gente
     aprende a não abrir.
     """
-    from database import cartoes_da_temporada, partidas_ja_lidas
+    from database import (cartoes_da_temporada, partidas_da_liga,
+                          partidas_ja_lidas)
     temporada = season or _af_temporada_corrente()
     limite = int(ajuste("cartoes_para_suspender") or 4)
     diag = {}
     if coletar:
         diag = await _coletar_cartoes(temporada)
     cartoes = cartoes_da_temporada(temporada)
-    situacao = _situacao_dos_cartoes(cartoes, limite)
+    calendario = partidas_da_liga(temporada)
+    situacao = _situacao_dos_cartoes(cartoes, limite, calendario,
+                                     _dia_de_brasilia())
     # O escudo entra AQUI, e não na função da regra: aquela função é sobre
     # contagem de cartão e precisa continuar testável sem saber que existe
     # servidor de imagem. O endereço é o padrão da API-Football, o mesmo que
@@ -5103,12 +5212,15 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
                     key=lambda c: c.lower())
     return {
         "temporada": temporada, "limite": limite,
+        "hoje": _dia_de_brasilia(),
         "partidas_lidas": len(partidas_ja_lidas(temporada)),
         "cartoes_no_banco": len(cartoes),
+        "jogos_no_calendario": len(calendario),
         "clubes": clubes,
-        "suspensos": [d for d in situacao if d["suspenso"]],
-        "pendurados": [d for d in situacao
-                       if d["pendurado"] and not d["suspenso"]],
+        "suspensos": [d for d in situacao if d["estado"] == "fora"],
+        "pendurados": [d for d in situacao if d["estado"] == "pendurado"],
+        "retornando": [d for d in situacao if d["estado"] == "retornando"],
+        "indefinidos": [d for d in situacao if d["estado"] == "indefinido"],
         "todos": situacao,
         "coleta": diag,
     }
@@ -5147,6 +5259,8 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
   margin-bottom:8px}
 .pd-linha.fora{border-color:#FD5D5D66}
 .pd-linha.quase{border-color:#FFBE5D66}
+.pd-linha.volta{border-color:#B6FF0066}
+.pd-linha.solto{border-color:var(--c-border-2)}
 .pd-escudo{width:26px;height:26px;flex:0 0 26px;display:flex;align-items:center;
   justify-content:center}
 .pd-escudo img{max-width:26px;max-height:26px;object-fit:contain}
@@ -5163,6 +5277,8 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
   flex:0 0 auto}
 .pd-selo.fora{border-color:#FD5D5D;color:#FD5D5D}
 .pd-selo.quase{border-color:#FFBE5D;color:#FFBE5D}
+.pd-selo.volta{border-color:#B6FF00;color:#B6FF00}
+.pd-selo.solto{border-color:var(--c-border-2);color:var(--c-muted-4)}
 .pd-vazio{font-size:.76rem;color:var(--c-muted-3);padding:14px 0}
 .pd-nota{font-size:.7rem;color:var(--c-muted-4);line-height:1.6;
   background:var(--c-bg-soft);border-radius:10px;padding:11px 13px;margin-top:22px}
@@ -5202,12 +5318,14 @@ __HDR__
   <div id="pdListas"></div>
 
   <div class="pd-nota">
-    Isto é uma <b>dedução a partir da regra</b>, e não a lista oficial: eu conto
-    cartões, não escalações, então não sei se quem fechou o ciclo realmente
-    cumpriu a suspensão no jogo seguinte. Dois amarelos na mesma partida contam
-    como expulsão e <b>não</b> entram no acúmulo. Para conferir o oficial, veja
-    a aba “Conferir na API” na guia Lesões — lá vêm as suspensões que a
-    API-Football publica.
+    A suspensão vale para o <b>jogo seguinte do clube</b>, e é assim que a conta
+    é feita aqui: quando esse jogo já aconteceu, a pena foi cumprida e o
+    jogador sai da lista. Dois amarelos na mesma partida contam como expulsão e
+    <b>não</b> entram no acúmulo.<br><br>
+    Ainda é uma <b>dedução a partir da regra</b>: eu vejo o calendário, não a
+    súmula. Punição por outro motivo (indisciplina, gestos, tribunal) não
+    aparece aqui, e um adiamento que eu ainda não tenha lido desloca a conta.
+    Para o oficial, veja a aba “Conferir na API” na guia Lesões.
   </div>
 </div>
 <script>
@@ -5248,8 +5366,19 @@ async function carregar() {
   // O estado da leitura fica na cara. Sem isso, uma tela com poucos nomes
   // parece "quase ninguém pendurado" quando na verdade é "quase nada lido".
   est.textContent = DADOS.partidas_lidas + ' jogo(s) lido(s) · '
-    + DADOS.cartoes_no_banco + ' cartão(ões) no banco'
+    + DADOS.cartoes_no_banco + ' cartão(ões) no banco · '
+    + DADOS.jogos_no_calendario + ' no calendário'
     + (DADOS.coleta && DADOS.coleta.faltam ? ' · faltam ' + DADOS.coleta.faltam : '');
+  // Sem calendário a conta não fecha: é ele que diz qual é o próximo jogo de
+  // cada clube, e sem isso eu não sei se a suspensão já foi cumprida. Melhor
+  // dizer isso do que exibir uma lista que parece certa.
+  if (!DADOS.jogos_no_calendario) {
+    document.getElementById('pdListas').innerHTML =
+      '<div class="pd-vazio">Ainda não tenho o calendário da temporada, e sem '
+      + 'ele não dá para saber qual é o próximo jogo de cada clube — nem se '
+      + 'uma suspensão já foi cumprida. Toque em “Ler mais jogos”.</div>';
+    return;
+  }
   desenhar();
 }
 
@@ -5262,18 +5391,55 @@ function cartas(d) {
   return h + '</span>';
 }
 
+function dia(iso) {
+  if (!iso) return '';
+  const p = String(iso).split('-');
+  return p.length === 3 ? p[2] + '/' + p[1] : '';
+}
+
+// A linha do jogo: contra QUEM e QUANDO. É a diferença entre "fulano está
+// suspenso", que não ajuda a montar nada, e "fulano está fora do jogo contra
+// o Al-Hilal, dia 16" — que é a frase que o Vini precisa no ar.
+function contexto(d, classe) {
+  if (classe === 'fora') {
+    return d.jogo_da_pena
+      ? 'Fora do jogo contra o ' + esc(d.jogo_da_pena)
+        + (d.jogo_da_pena_em ? ' (' + dia(d.jogo_da_pena_em) + ')' : '')
+      : 'Fora do próximo jogo';
+  }
+  if (classe === 'volta') {
+    return 'Cumpriu contra o ' + esc(d.jogo_da_pena || '—')
+      + (d.jogo_da_pena_em ? ' (' + dia(d.jogo_da_pena_em) + ')' : '')
+      + (d.proximo_jogo ? ' · liberado contra o ' + esc(d.proximo_jogo) : '');
+  }
+  if (classe === 'quase') {
+    return d.proximo_jogo
+      ? 'Pendurado para o jogo contra o ' + esc(d.proximo_jogo)
+        + (d.proximo_em ? ' (' + dia(d.proximo_em) + ')' : '')
+      : 'Pendurado para o próximo jogo';
+  }
+  return esc(d.motivo || '');
+}
+
 function linha(d, classe, selo) {
   return '<div class="pd-linha ' + classe + '">'
     + '<span class="pd-escudo">' + (d.escudo
         ? '<img src="' + esc(d.escudo) + '" alt="">' : '') + '</span>'
     + '<span class="pd-quem"><span class="pd-nome">' + esc(d.jogador) + '</span>'
-    + '<div class="pd-clube">' + esc(d.clube)
-    + (d.motivo ? ' · ' + esc(d.motivo) : '')
-    + (!d.motivo && d.faltam === 1 ? ' · mais um amarelo e fica fora' : '')
+    + '<div class="pd-clube">' + esc(d.clube) + ' · ' + contexto(d, classe)
+    + (d.motivo && classe === 'fora' ? ' · ' + esc(d.motivo) : '')
     + '</div></span>'
     + cartas(d)
     + '<span class="pd-selo ' + classe + '">' + selo + '</span>'
     + '</div>';
+}
+
+function bloco(titulo, lista, classe, selo, vazio, clube) {
+  let h = '<div class="pd-secao">' + titulo + ' (' + lista.length + ')</div>';
+  h += lista.length
+    ? lista.map(function (d) { return linha(d, classe, selo); }).join('')
+    : '<div class="pd-vazio">' + vazio + (clube ? ' neste clube' : '') + '.</div>';
+  return h;
 }
 
 function desenhar() {
@@ -5282,18 +5448,29 @@ function desenhar() {
   const filtra = function (lista) {
     return (lista || []).filter(function (d) { return !clube || d.clube === clube; });
   };
-  const fora = filtra(DADOS.suspensos);
-  const quase = filtra(DADOS.pendurados);
 
-  let h = '<div class="pd-secao">Fora do próximo jogo (' + fora.length + ')</div>';
-  h += fora.length
-    ? fora.map(function (d) { return linha(d, 'fora', 'Suspenso'); }).join('')
-    : '<div class="pd-vazio">Ninguém suspenso' + (clube ? ' neste clube' : '') + '.</div>';
+  let h = bloco('Fora do próximo jogo', filtra(DADOS.suspensos), 'fora',
+                'Suspenso', 'Ninguém suspenso', clube);
+  h += bloco('Pendurados — um amarelo do limite', filtra(DADOS.pendurados),
+             'quase', 'Pendurado', 'Ninguém pendurado', clube);
 
-  h += '<div class="pd-secao">Pendurados — um amarelo do limite (' + quase.length + ')</div>';
-  h += quase.length
-    ? quase.map(function (d) { return linha(d, 'quase', 'Pendurado'); }).join('')
-    : '<div class="pd-vazio">Ninguém pendurado' + (clube ? ' neste clube' : '') + '.</div>';
+  // Quem acabou de cumprir. Só aparece se houver alguém: uma seção vazia
+  // permanente é uma linha que você aprende a pular, e aí ela não serve nem
+  // quando tem gente.
+  const voltando = filtra(DADOS.retornando);
+  if (voltando.length) {
+    h += bloco('Voltando de suspensão', voltando, 'volta', 'Liberado',
+               'Ninguém', clube);
+  }
+
+  // Punição que eu não consegui amarrar a um jogo do calendário. Some quando
+  // não há nenhuma — mas quando há, tem que aparecer: silenciar seria dizer
+  // que o jogador está liberado sem ter conferido.
+  const soltos = filtra(DADOS.indefinidos);
+  if (soltos.length) {
+    h += bloco('Não consegui conferir', soltos, 'solto', 'Confira',
+               'Nenhum', clube);
+  }
 
   document.getElementById('pdListas').innerHTML = h;
 }

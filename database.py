@@ -3104,6 +3104,100 @@ def _cria_cartao(c) -> None:
     """)
 
 
+# O calendário da temporada, guardado.
+#
+# NASCEU DE UM DEFEITO. A primeira versão da guia de pendurados decidia quem
+# estava suspenso olhando o "último jogo em que o jogador levou cartão". Isso
+# funciona no dia seguinte à expulsão e erra para sempre depois: o Bento foi
+# expulso contra o Ettifaq em 25/08, cumpriu contra o Al-Taawoun em 28/08,
+# voltou ao banco em 05/09 e foi titular em 09/09 — e continuava na lista de
+# suspensos, porque nunca mais levou cartão nenhum e o "último jogo com
+# cartão" dele seguia sendo o de 25/08.
+#
+# A suspensão não é sobre o jogo em que o cartão saiu. É sobre O JOGO
+# SEGUINTE DO CLUBE. Para saber qual é, e se ele já aconteceu, é preciso ter
+# o calendário — que é o que mora aqui.
+#
+# Guardo a rodada inteira, e não só os jogos passados: o valor da tela está
+# em dizer "fora do jogo contra o Al-Hilal", e para isso o jogo que ainda vai
+# acontecer também precisa estar aqui.
+def _cria_partida_liga(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS partida_liga (
+            fixture_id  INTEGER PRIMARY KEY,
+            season      INTEGER NOT NULL,
+            liga_id     INTEGER,
+            data        TEXT,
+            status      TEXT,
+            rodada      TEXT,
+            casa_id     INTEGER,
+            casa        TEXT,
+            fora_id     INTEGER,
+            fora        TEXT,
+            visto_em    TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS partida_liga_temporada "
+              "ON partida_liga (season, data)")
+
+
+def salvar_partidas_liga(linhas: list[dict]) -> int:
+    """Grava (ou atualiza) o calendário. Devolve quantas linhas entraram.
+
+    UPDATE no conflito, ao contrário do cartão: o jogo muda de estado (NS →
+    FT) e pode mudar de data — adiamento existe, e um calendário congelado
+    apontaria o suspenso para uma partida que não aconteceu naquele dia.
+    """
+    if not linhas:
+        return 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_partida_liga(c)
+            n = 0
+            for l in linhas:
+                c.execute("""
+                    INSERT INTO partida_liga (fixture_id, season, liga_id, data,
+                                              status, rodada, casa_id, casa,
+                                              fora_id, fora)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (fixture_id) DO UPDATE SET
+                        data = EXCLUDED.data, status = EXCLUDED.status,
+                        rodada = EXCLUDED.rodada, casa = EXCLUDED.casa,
+                        fora = EXCLUDED.fora, visto_em = NOW()
+                """, [l.get("fixture_id"), l.get("season"), l.get("liga_id"),
+                      l.get("data"), l.get("status"), l.get("rodada"),
+                      l.get("casa_id"), l.get("casa"),
+                      l.get("fora_id"), l.get("fora")])
+                n += 1
+            return n
+    except Exception:
+        return 0
+
+
+def partidas_da_liga(season: int) -> list[dict]:
+    """O calendário da temporada, em ordem de data.
+
+    A ordem sai do SQL porque é ela que define "o jogo seguinte" — deixar
+    cada tela ordenar do seu jeito seria deixar cada tela ter a sua ideia de
+    quem está suspenso.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_partida_liga(c)
+            c.execute("""
+                SELECT fixture_id, data, status, rodada,
+                       casa_id, casa, fora_id, fora
+                  FROM partida_liga
+                 WHERE season = %s
+                 ORDER BY data NULLS LAST, fixture_id
+            """, [season])
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
 def registrar_cartao(fixture_id: int, season: int, jogador_id: int, tipo: str,
                      minuto=None, jogador=None, clube_id=None, clube=None,
                      detalhe=None, rodada=None, jogo_em=None,
