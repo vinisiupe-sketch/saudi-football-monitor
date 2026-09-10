@@ -197,6 +197,55 @@ def testar():
            and tradutor["tipo"] == "dirigente",
            f"o tradutor do Al-Ahli saiu errado: {tradutor}")
 
+    # ── 7b. A LEITURA EM PORTUGUÊS ───────────────────────────────────────
+    # A primeira versão desta guia entregou só o árabe. Eu tinha medo de a
+    # tradução estragar o número de jogos, e o resultado foi uma tela que o
+    # Vini não conseguia ler — o que é uma forma pior de errar. O conserto foi
+    # separar o que NÃO PODE errar (o número) do que pode ser aproximado (a
+    # narrativa), e é isso que estes testes vigiam.
+    d = {"jogos_total": 2, "jogos_extras": 1, "multa": 20000,
+         "artigos": ["48-1-2", "144"], "cabe_recurso": False}
+    resumo = disciplina.resumo_em_portugues(d)
+    ok("2 jogo" in resumo and "1 além" in resumo,
+       f"o resumo não diz o total nem o extra: {resumo!r}")
+    ok("20.000" in resumo, f"a multa saiu sem separador de milhar: {resumo!r}")
+    ok("48-1-2" in resumo and "144" not in resumo,
+       f"o resumo devia citar o artigo da INFRAÇÃO (o primeiro) e não o 144, "
+       f"que é o de recurso: {resumo!r}")
+    ok("não cabe recurso" in resumo.lower(), f"recurso sumiu: {resumo!r}")
+    # O resumo é montado dos MESMOS campos que viram etiqueta na tela. É essa
+    # origem comum que impede a tela de dizer 2 numa etiqueta e 3 na frase.
+    ok(disciplina.resumo_em_portugues(
+        {"jogos_total": 1, "jogos_extras": 0}).lower().startswith("suspenso pela"),
+       "quando não há gancho extra, o resumo tem que dizer isso com todas as "
+       "letras — 'suspenso por 1 jogo' faz pensar que houve punição a mais")
+    ok("original" in disciplina.resumo_em_portugues({}).lower(),
+       "sem suspensão nem multa reconhecidas, o resumo tem que mandar ler o "
+       "texto original em vez de ficar em branco")
+
+    # Os termos que eu sei traduzir são a rede para quando a IA não estiver
+    # disponível: pouco, mas legível.
+    termos = disciplina.termos_reconhecidos(COM_GANCHO)
+    ok("cartão vermelho direto" in termos,
+       f"o termo mais básico não foi reconhecido: {termos}")
+    ok(disciplina.termos_reconhecidos("texto sem termo nenhum") == [],
+       "inventou termo onde não há")
+
+    # Clubes e confronto pelo glossário que o app JÁ tem — um segundo mapa de
+    # clubes aqui seria um segundo mapa para sair do lugar.
+    ok(disciplina.clube_em_latim("الهلال") == "Al Hilal",
+       f"clube não traduzido: {disciplina.clube_em_latim('الهلال')!r}")
+    ok(disciplina.clube_em_latim("نادي الهلال") == "Al Hilal",
+       "o prefixo نادي (clube) atrapalhou a busca no glossário")
+    ok(disciplina.confronto_em_latim("الهلال - الأهلي") == "Al Hilal - Al Ahli",
+       f"confronto: {disciplina.confronto_em_latim('الهلال - الأهلي')!r}")
+    # Clube desconhecido volta em árabe, e não some nem vira outro clube.
+    desconhecido = disciplina.clube_em_latim("نادي وكاندا")
+    ok(desconhecido and "وكاندا" in desconhecido,
+       f"clube fora do glossário virou {desconhecido!r} — devia voltar como "
+       "veio. Meio confronto legível é melhor que um confronto inventado")
+    ok(disciplina.clube_em_latim("") == "", "texto vazio virou clube")
+
     # ── 8. o filtro de competição conta o que deixou de fora ─────────────
     # Mesmo princípio da guia de Arbitragem: num dia sem nada da Roshn, saber
     # que havia seis decisões e todas eram do sub-21 é uma informação
@@ -228,6 +277,32 @@ def testar():
         '<a href="y&mdate=2026-09-10">2</a> <a href="z&mdate=2026-09-07">3</a>')
     ok(d == ["2026-09-10", "2026-09-07"],
        f"datas do índice erradas (ou repetidas): {d}")
+
+    # ── 11. a tradução por IA não pode mexer nos números ─────────────────
+    # Ela traduz o PARECER, para o caso ficar legível. Os números continuam
+    # saindo do texto oficial, por regra fixa. O prompt precisa dizer isso, e
+    # a tela precisa dizer isso a quem lê — senão, no dia em que a tradução
+    # arredondar um valor, ninguém vai saber em qual dos dois acreditar.
+    fonte = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
+    prompt = fonte[fonte.find("_SISTEMA_TRADUCAO_SAFF"):]
+    prompt = prompt[:prompt.find("\n\n\n")]
+    ok("NÃO altere" in prompt and "número" in prompt.lower(),
+       "o prompt de tradução perdeu a proibição de mexer em número. Multa "
+       "arredondada ou jogo a mais numa tradução é pior que texto em árabe")
+    ok("NÃO acrescente" in prompt,
+       "o prompt perdeu a proibição de acrescentar informação — tradução que "
+       "'ajuda' inventando o que faltou é a pior de todas")
+    ok("NÃO vêm da tradução" in fonte,
+       "a tela parou de avisar que os números não saem da tradução. Sem esse "
+       "aviso, o leitor não sabe em qual das duas acreditar quando elas "
+       "discordarem")
+    ok("infracao_pt" in fonte and "decisao_pt" in fonte,
+       "sumiram os campos de tradução")
+    # E a leitura da SAFF não pode depender da IA: sem tradução, o card ainda
+    # tem resumo e termos.
+    ok("d.termos_pt" in fonte,
+       "a tela deixou de cair nos termos reconhecidos quando não há tradução "
+       "— aí um card sem tradução volta a ser um bloco de árabe")
 
     for f in falhas:
         print("  ✗", f)

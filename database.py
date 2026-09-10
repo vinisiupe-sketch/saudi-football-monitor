@@ -3300,6 +3300,8 @@ def _cria_decisao(c) -> None:
             nome          TEXT,
             infracao      TEXT,
             decisao       TEXT,
+            infracao_pt   TEXT,
+            decisao_pt    TEXT,
             jogos_total   INTEGER,
             jogos_extras  INTEGER,
             multa         INTEGER,
@@ -3311,6 +3313,13 @@ def _cria_decisao(c) -> None:
     """)
     c.execute("CREATE INDEX IF NOT EXISTS decisao_por_jogo "
               "ON decisao_disciplinar (jogo_em, clube)")
+    # As colunas de tradução nasceram depois da tabela (11/09/26), quando
+    # ficou claro que entregar só o árabe é o mesmo que não entregar.
+    for coluna, tipo in (("infracao_pt", "TEXT"), ("decisao_pt", "TEXT"),
+                         ("clube_pt", "TEXT"), ("resumo_pt", "TEXT"),
+                         ("confronto_pt", "TEXT")):
+        c.execute(f"ALTER TABLE decisao_disciplinar "
+                  f"ADD COLUMN IF NOT EXISTS {coluna} {tipo}")
 
 
 def salvar_decisao(d: dict) -> str:
@@ -3337,9 +3346,11 @@ def salvar_decisao(d: dict) -> str:
                     numero, data, competicao, competicao_pt, confronto, jogo_em,
                     contra, tipo, cargo, clube, nome, infracao, decisao,
                     jogos_total, jogos_extras, multa, artigos, cabe_recurso,
-                    por_vermelho)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    por_vermelho, clube_pt, resumo_pt, confronto_pt)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 ON CONFLICT (numero) DO UPDATE SET
+                    clube_pt = EXCLUDED.clube_pt, resumo_pt = EXCLUDED.resumo_pt,
+                    confronto_pt = EXCLUDED.confronto_pt,
                     data = EXCLUDED.data, competicao = EXCLUDED.competicao,
                     competicao_pt = EXCLUDED.competicao_pt,
                     confronto = EXCLUDED.confronto, jogo_em = EXCLUDED.jogo_em,
@@ -3359,7 +3370,9 @@ def salvar_decisao(d: dict) -> str:
                   d.get("decisao"), d.get("jogos_total"), d.get("jogos_extras"),
                   d.get("multa"), _json.dumps(d.get("artigos") or [],
                                               ensure_ascii=False),
-                  d.get("cabe_recurso"), d.get("por_vermelho")])
+                  d.get("cabe_recurso"), d.get("por_vermelho"),
+                  d.get("clube_pt"), d.get("resumo_pt"),
+                  d.get("confronto_pt")])
             if antes is None:
                 return "nova"
             return "igual" if (antes[0] or "") == (d.get("decisao") or "") else "mudou"
@@ -3389,6 +3402,43 @@ def decisoes_disciplinares(limite: int = 200) -> list[dict]:
             return saida
     except Exception:
         return []
+
+
+def decisoes_sem_traducao(limite: int = 12) -> list[dict]:
+    """As decisões cujo texto ainda não foi traduzido.
+
+    Traduzir é a única parte disto que custa dinheiro, então ela roda por
+    último, sobre o que já está guardado, e só uma vez por decisão. A leitura
+    da SAFF não depende dela: se a tradução falhar, o card continua com o
+    resumo mecânico e com os termos reconhecidos.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_decisao(c)
+            c.execute("""SELECT numero, infracao, decisao
+                           FROM decisao_disciplinar
+                          WHERE (decisao_pt IS NULL OR decisao_pt = '')
+                            AND decisao IS NOT NULL AND decisao <> ''
+                          ORDER BY data DESC NULLS LAST
+                          LIMIT %s""", [limite])
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
+def guardar_traducao(numero: str, infracao_pt: str, decisao_pt: str) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_decisao(c)
+            c.execute("""UPDATE decisao_disciplinar
+                            SET infracao_pt = %s, decisao_pt = %s
+                          WHERE numero = %s""",
+                      [infracao_pt, decisao_pt, numero])
+            return c.rowcount > 0
+    except Exception:
+        return False
 
 
 def decisoes_do_jogo(jogo_em: str, clube: str) -> list[dict]:

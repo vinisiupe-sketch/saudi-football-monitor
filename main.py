@@ -5640,11 +5640,81 @@ def _coletar_disciplina(quantas_datas: int = 8) -> dict:
     contagem = {"nova": 0, "mudou": 0, "igual": 0}
     for d in r.get("decisoes", []):
         contagem[salvar_decisao(d)] += 1
+    # A tradução vem logo atrás, no mesmo toque do botão — senão o Vini teria
+    # que apertar dois botões para ver uma tela legível, e o segundo é
+    # exatamente o que ele esqueceria de apertar.
     return {"dias": r.get("dias", []), "erros": r.get("erros", []),
             "ignoradas": len(r.get("ignoradas", [])),
             "competicoes_ignoradas": sorted(
                 {i.get("competicao", "") for i in r.get("ignoradas", [])}),
             **contagem}
+
+
+_SISTEMA_TRADUCAO_SAFF = (
+    "Você traduz decisões da Comissão de Disciplina e Ética da federação "
+    "saudita de futebol, do árabe para o português do Brasil, para um "
+    "comentarista esportivo ler no ar.\n\n"
+    "REGRAS:\n"
+    "1. Traduza o SENTIDO, em português corrente. Não faça tradução literal "
+    "de fórmula jurídica: 'أولاً/ثانياً/ثالثاً' viram itens numerados.\n"
+    "2. NÃO altere, arredonde nem converta NENHUM número: quantidade de "
+    "jogos, valores de multa e números de artigo saem exatamente como estão.\n"
+    "3. Nomes de pessoas: transcreva para o alfabeto latino do jeito mais "
+    "comum na imprensa esportiva. Se não tiver certeza, mantenha o árabe.\n"
+    "4. Nomes de clubes: use a forma usual em português (Al-Hilal, Al-Nassr, "
+    "Al-Ahli, Al-Ittihad, Al-Taawoun, Al-Fateh, Al-Qadsiah, Al-Riyadh...).\n"
+    "5. NÃO acrescente informação, opinião ou explicação que não esteja no "
+    "texto. Não diga de quantos jogos é a suspensão se o texto não disser.\n"
+    "6. Responda SOMENTE com um JSON: "
+    '{"infracao_pt": "...", "decisao_pt": "..."}'
+)
+
+
+async def _traduzir_decisoes(quantas: int = 12) -> dict:
+    """Traduz o texto das decisões que ainda não têm tradução.
+
+    Roda DEPOIS de guardar, sobre o que está no banco, e uma vez por decisão.
+    Assim a leitura da SAFF não fica refém da IA: se isto falhar, o card
+    continua de pé com o resumo mecânico e os termos reconhecidos, que não
+    passam por tradutor nenhum.
+    """
+    from database import decisoes_sem_traducao, guardar_traducao
+    pendentes = decisoes_sem_traducao(quantas)
+    feito = {"traduzidas": 0, "pendentes": len(pendentes), "erros": []}
+    if not pendentes:
+        return feito
+    try:
+        from processor import call_claude
+    except Exception as e:
+        feito["erros"].append(f"tradutor indisponível: {type(e).__name__}: {e}")
+        return feito
+
+    async with httpx.AsyncClient(timeout=60.0) as cli:
+        for d in pendentes:
+            pedido = (f"INFRAÇÃO:\n{d.get('infracao') or ''}\n\n"
+                      f"DECISÃO:\n{d.get('decisao') or ''}")
+            try:
+                bruto = await call_claude(pedido, _SISTEMA_TRADUCAO_SAFF, cli,
+                                          max_tokens=1200)
+                dados = json.loads(bruto[bruto.find("{"):bruto.rfind("}") + 1])
+                if guardar_traducao(d["numero"],
+                                    (dados.get("infracao_pt") or "").strip(),
+                                    (dados.get("decisao_pt") or "").strip()):
+                    feito["traduzidas"] += 1
+            except Exception as e:
+                feito["erros"].append(f"{d.get('numero')}: {type(e).__name__}")
+    feito["pendentes"] = max(0, feito["pendentes"] - feito["traduzidas"])
+    return feito
+
+
+@app.post("/api/disciplina/traduzir")
+async def api_disciplina_traduzir(quantas: int = 12):
+    return await _traduzir_decisoes(quantas)
+
+
+@app.get("/api/disciplina/traduzir")
+async def api_disciplina_traduzir_get(quantas: int = 12):
+    return await _traduzir_decisoes(quantas)
 
 
 @app.get("/api/disciplina")
@@ -5656,16 +5726,22 @@ async def api_disciplina(limite: int = 200):
     return {"decisoes": lista, "clubes": clubes, "total": len(lista)}
 
 
+async def _buscar_e_traduzir(datas: int) -> dict:
+    r = await asyncio.to_thread(_coletar_disciplina, datas)
+    r["traducao"] = await _traduzir_decisoes()
+    return r
+
+
 @app.post("/api/disciplina/atualizar")
 async def api_disciplina_atualizar(datas: int = 8):
-    return await asyncio.to_thread(_coletar_disciplina, datas)
+    return await _buscar_e_traduzir(datas)
 
 
 @app.get("/api/disciplina/atualizar")
 async def api_disciplina_atualizar_get(datas: int = 8):
     """A mesma coisa, acionável colando o endereço. Ver o par em
     /api/pendurados/atualizar e o porquê descrito lá."""
-    return await asyncio.to_thread(_coletar_disciplina, datas)
+    return await _buscar_e_traduzir(datas)
 
 
 _DISCIPLINA_CSS = """
@@ -5700,6 +5776,15 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
 .ds-tag.multa{border-color:#FFBE5D;color:#FFBE5D}
 .ds-tag.recurso{border-color:#B6FF00;color:#B6FF00}
 .ds-meta{font-size:.7rem;color:var(--c-muted-3);line-height:1.55}
+/* O resumo montado dos campos — a linha que responde "o que aconteceu" sem
+   depender de a tradução ter acertado. Fica em destaque porque é a que o
+   Vini lê no ar. */
+.ds-resumo{margin-top:9px;font-size:.85rem;line-height:1.6;font-weight:700}
+.ds-fez{margin-top:5px;font-size:.78rem;line-height:1.6;color:var(--c-muted-3)}
+.ds-pt{margin-top:9px;white-space:pre-wrap;overflow-wrap:anywhere;
+  font-size:.82rem;line-height:1.7;background:var(--c-bg-soft);
+  border-radius:10px;padding:11px 13px}
+.ds-aviso{margin-top:7px;font-size:.66rem;color:var(--c-muted-4);line-height:1.5}
 .ds-arabe{margin-top:9px;white-space:pre-wrap;overflow-wrap:anywhere;
   direction:rtl;text-align:right;font-size:.82rem;line-height:1.85;
   background:var(--c-bg-soft);border-radius:10px;padding:11px 13px}
@@ -5744,9 +5829,12 @@ __HDR__
   <div id="dsLista"></div>
 
   <div class="ds-nota">
-    Os campos em português (jogos, multa, artigo, recurso) são <b>extraídos por
-    regra fixa</b> do texto oficial — sem IA e sem tradução. O texto árabe
-    original fica em “ver decisão original”, sempre, para você conferir.<br><br>
+    A tela tem três camadas, e vale saber qual é qual. Os <b>números</b>
+    (jogos, multa, artigo, recurso) e a linha de resumo são <b>extraídos por
+    regra fixa</b> do texto oficial — não passam por tradutor, então não têm
+    como discordar entre si. O <b>parecer traduzido</b> é tradução automática,
+    boa para entender o caso e não para citar número. E o <b>original em
+    árabe</b> fica sempre a um toque, para conferir.<br><br>
     Um detalhe que muda tudo na leitura: quando a SAFF escreve
     “(2) مباراتين <b>بما في ذلك</b> الإيقاف التلقائي”, o número é o
     <b>total</b>, já <b>incluindo</b> a partida automática do vermelho. Dois
@@ -5810,22 +5898,44 @@ function card(d) {
   if (d.cabe_recurso === true) tags += '<span class="ds-tag recurso">cabe recurso</span>';
   if (d.cabe_recurso === false) tags += '<span class="ds-tag">sem recurso</span>';
 
+  // O NOME em latim quando eu tiver: a tradução por IA transcreve, e ela é a
+  // melhor fonte disponível para nome próprio em árabe. Sem ela, mostro o
+  // árabe — que é ruim de ler, mas é verdade.
+  const quem = d.nome_pt || d.nome || d.clube_pt || d.clube || d.contra;
+  const clube = d.clube_pt || d.clube || '—';
+
+  // A infração traduzida é o que responde "o que ele fez". Sem tradução,
+  // caem os termos que eu reconheço por tabela — pouco, mas legível.
+  const oQueFez = d.infracao_pt
+    || ((d.termos_pt || []).length ? d.termos_pt.join(' · ') : '');
+
   return '<div class="ds-card' + (temGancho ? ' gancho' : '') + '">'
     + '<div class="ds-topo">'
-    + '<span class="ds-quem">' + esc(d.nome || d.clube || d.contra) + '</span>'
+    + '<span class="ds-quem">' + esc(quem) + '</span>'
     + '<span class="ds-tag">' + esc(d.tipo || '—') + '</span>'
     + tags + '</div>'
     + '<div class="ds-meta">'
-    + esc(d.clube || '—') + ' · ' + esc(d.confronto || '')
+    + esc(clube) + ' · ' + esc(d.confronto_pt || d.confronto || '')
     + (d.jogo_em ? ' (' + dia(d.jogo_em) + ')' : '')
     + '<br>' + esc(d.competicao_pt || d.competicao || '')
     + ' · decisão ' + esc(d.numero || '') + ' de ' + dia(d.data)
-    + ((d.artigos || []).length ? ' · artigo ' + esc(d.artigos[0]) : '')
     + '</div>'
+    // O RESUMO é montado dos campos extraídos, sem tradutor no meio. Ele e a
+    // etiqueta lá em cima saem do mesmo número, então não têm como discordar.
+    + (d.resumo_pt ? '<div class="ds-resumo">' + esc(d.resumo_pt) + '</div>' : '')
+    + (oQueFez ? '<div class="ds-fez">' + esc(oQueFez) + '</div>' : '')
+    + (d.decisao_pt
+        ? '<details><summary>ver o parecer traduzido ▾</summary>'
+          + '<div class="ds-pt">' + esc(d.decisao_pt) + '</div>'
+          + '<div class="ds-aviso">Tradução automática. Os números acima '
+          + '(jogos, multa, artigo) NÃO vêm da tradução: são lidos direto do '
+          + 'texto oficial.</div></details>'
+        : '<div class="ds-aviso">Ainda sem tradução do parecer — toque em '
+          + '“Buscar na SAFF” para traduzir.</div>')
     // O texto oficial fica fechado, mas SEMPRE presente. É a fonte do número
     // que aparece na etiqueta — e o dia em que a minha leitura errar, é aqui
     // que dá para ver o que a SAFF realmente escreveu.
-    + '<details><summary>ver decisão original (árabe) ▾</summary>'
+    + '<details><summary>ver original em árabe ▾</summary>'
     + '<div class="ds-arabe">' + esc(d.infracao || '') + '</div>'
     + '<div class="ds-arabe">' + esc(d.decisao || '') + '</div>'
     + '</details>'
@@ -5848,8 +5958,11 @@ async function buscar() {
   try {
     const r = await fetch('/api/disciplina/atualizar', {method: 'POST'});
     const d = await r.json();
+    const t = d.traducao || {};
     est.textContent = d.nova + ' nova(s), ' + d.mudou + ' corrigida(s), '
       + d.igual + ' sem mudança'
+      + (t.traduzidas ? ' · ' + t.traduzidas + ' traduzida(s)' : '')
+      + (t.pendentes ? ' · ' + t.pendentes + ' sem tradução, toque de novo' : '')
       // As ignoradas aparecem CONTADAS. Num dia sem nada da Roshn, saber que
       // havia seis decisões e todas eram do sub-21 é diferente de "não saiu".
       + (d.ignoradas ? ' · ' + d.ignoradas + ' de outras competições' : '')

@@ -218,6 +218,129 @@ def por_vermelho(infracao: str, decisao: str) -> bool:
     return _CARTAO_VERMELHO in junto or _AUTOMATICA in junto
 
 
+# ── A LEITURA EM PORTUGUÊS ──────────────────────────────────────────────────
+#
+# Em três camadas, e a ordem entre elas é a regra:
+#
+#   1. o RESUMO, montado por conta a partir dos campos já extraídos. Não passa
+#      por tradutor nenhum, então não tem como discordar da etiqueta que está
+#      ao lado — os dois saem do mesmo número;
+#   2. os NOMES, pelo glossário de clubes que o app já tem, e pelo nome latino
+#      do jogador quando a expulsão casou com o cartão da API-Football;
+#   3. o TEXTO CORRIDO, traduzido por IA, marcado como tradução automática e
+#      sempre ao lado do árabe original.
+#
+# A primeira versão desta guia entregou só o árabe. Eu tinha medo de a
+# tradução estragar o número de jogos — e o resultado foi uma tela que o Vini
+# não conseguia ler. Medo de errar uma parte não justifica não entregar o
+# resto: o jeito certo era separar o que não pode errar (o número) do que pode
+# ser aproximado (a narrativa), e é isso que estas três camadas fazem.
+
+# O que a SAFF escreve, e o que isso quer dizer. Não é um dicionário de
+# árabe: são as frases FEITAS que aparecem em toda decisão, e é por isso que
+# um punhado delas cobre quase tudo.
+INFRACOES = {
+    "البطاقة الحمراء المباشرة": "cartão vermelho direto",
+    "الإنذار الثاني": "segundo amarelo",
+    "اللعب العنيف": "jogo violento",
+    "السلوك المشين": "conduta indecorosa",
+    "سلوك عنيف": "conduta violenta",
+    "إعاقة هجمة": "interrupção de ataque promissor",
+    "ألفاظ بذيئة": "linguagem obscena",
+    "أفعال عدوانية": "atos agressivos",
+    "الاعتراض": "reclamação",
+    "إنذارات": "cartões amarelos",
+    "طرد": "expulsão",
+    "تقرير حكم المباراة": "relatório do árbitro",
+    "الحكم المساعد": "árbitro assistente",
+    "الفريق المنافس": "equipe adversária",
+    "الجمهور": "torcida",
+    "تأخر": "atraso",
+}
+
+
+def resumo_em_portugues(d: dict) -> str:
+    """A decisão em uma frase, montada dos campos — sem tradutor no meio.
+
+    É o texto que responde "o que aconteceu com esse cara" sem depender de a
+    IA ter acertado. Se um dia a tradução automática disser uma coisa e esta
+    frase disser outra, é nesta que se acredita: ela e a etiqueta da tela
+    saem do mesmo número.
+    """
+    partes = []
+    total, extras = d.get("jogos_total"), d.get("jogos_extras")
+    if total:
+        if extras:
+            partes.append(f"Suspenso por {total} jogo(s) — {extras} além da "
+                          "partida automática do vermelho")
+        else:
+            partes.append("Suspenso pela partida automática do vermelho, sem "
+                          "jogo a mais")
+    multa = d.get("multa")
+    if multa:
+        partes.append(f"multa de {multa:,}".replace(",", ".") + " riais")
+    arts = d.get("artigos") or []
+    if arts:
+        partes.append(f"artigo {arts[0]} do regulamento disciplinar")
+    recurso = d.get("cabe_recurso")
+    if recurso is True:
+        partes.append("cabe recurso")
+    elif recurso is False:
+        partes.append("não cabe recurso")
+    if not partes:
+        return "A decisão não traz suspensão nem multa que eu tenha "\
+               "reconhecido — veja o texto original."
+    # Maiúscula em cada frase, e não só na primeira: o `.capitalize()` do
+    # Python derruba o resto da string para minúscula, e "Artigo 48-1-2"
+    # virava "artigo 48-1-2" no meio de um ponto final.
+    return ". ".join(p[0].upper() + p[1:] for p in partes) + "."
+
+
+def termos_reconhecidos(texto: str) -> list[str]:
+    """Os termos da decisão que eu sei traduzir, em português.
+
+    Serve de rede quando a tradução por IA não estiver disponível: mesmo sem
+    ela, o card mostra "cartão vermelho direto · jogo violento" em vez de um
+    bloco de árabe. Pouco, mas legível.
+    """
+    t = _limpo(texto)
+    return [pt for ar, pt in INFRACOES.items() if ar in t]
+
+
+def clube_em_latim(arabe: str) -> str:
+    """O nome do clube como o resto do app o escreve.
+
+    Usa o glossário que já existe — o mesmo que resolve "Al-Hilal", "alhilal"
+    e "الهلال" para a mesma coisa. Um segundo mapa de clubes aqui seria um
+    segundo mapa para sair do lugar.
+    """
+    bruto = _limpo(arabe or "")
+    if not bruto:
+        return ""
+    for tentativa in (bruto, bruto.replace("نادي ", ""), "نادي " + bruto):
+        try:
+            import glossary
+            achado = glossary.padronizar_clube(tentativa)
+        except Exception:
+            return bruto
+        if achado and achado != tentativa:
+            return achado
+    return bruto
+
+
+def confronto_em_latim(confronto: str) -> str:
+    """"الهلال - الأهلي" vira "Al Hilal - Al Ahli".
+
+    Cada lado passa pelo mesmo glossário do clube. O lado que o glossário não
+    conhecer volta em árabe, e não some: meio confronto legível é melhor que
+    um confronto inteiro que eu inventei.
+    """
+    bruto = _limpo(confronto or "")
+    if not bruto or " - " not in bruto:
+        return clube_em_latim(bruto) if bruto else ""
+    return " - ".join(clube_em_latim(p) for p in bruto.split(" - ", 1))
+
+
 def ler_decisoes(html: str) -> dict:
     """Do HTML da página para a lista de decisões.
 
@@ -278,6 +401,10 @@ def ler_decisoes(html: str) -> dict:
             "cabe_recurso": cabe_recurso(decisao),
             "por_vermelho": por_vermelho(infracao, decisao),
         }
+        registro["clube_pt"] = clube_em_latim(registro.get("clube") or "")
+        registro["confronto_pt"] = confronto_em_latim(confronto)
+        registro["resumo_pt"] = resumo_em_portugues(registro)
+        registro["termos_pt"] = termos_reconhecidos(infracao + " " + decisao)
         if competicao in COMPETICOES:
             saida["decisoes"].append(registro)
         else:
