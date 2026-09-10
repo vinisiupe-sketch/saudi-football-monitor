@@ -5282,6 +5282,133 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
     }
 
 
+@app.get("/api/pendurados/sondar-motivo", response_class=PlainTextResponse)
+async def api_pendurados_sondar_motivo(season: int = 0, quantos: int = 4):
+    """A API diz POR QUE o jogador foi expulso, e por quantos jogos?
+
+    POR QUE ISTO É UMA SONDAGEM, E NÃO UMA FUNCIONALIDADE
+        O Vini quer um alerta para o gancho maior: "conduta violenta" costuma
+        dar mais de um jogo, e a guia hoje supõe sempre um. A pergunta é se a
+        API tem esse dado — e a resposta não está na documentação, que fica
+        atrás de verificação anti-bot, nem em busca na web, que só devolve
+        páginas de terceiros repetindo o que acham.
+
+        Então esta rota vai PERGUNTAR À FONTE, com a chave dele e os jogos
+        dele, e imprimir o JSON CRU. Sem interpretar, sem resumir, sem
+        traduzir: exatamente o que chegou. Foi assim que o defeito do
+        "Yellow-Red Card" nasceu — eu supus o formato em vez de olhar — e não
+        pretendo repetir a receita.
+
+    DOIS LUGARES ONDE O DADO PODE ESTAR
+        1. fixtures/events — o campo `comments` de cada cartão. É onde caberia
+           "Violent conduct". Pode vir nulo na maior parte das ligas.
+        2. injuries — o campo `reason` das entradas com type=Suspension. A
+           documentação da própria API dá como exemplo "Suspended 3 matches",
+           que seria a resposta perfeita: a duração pronta, sem eu ter que
+           deduzir do motivo.
+
+    Rota autenticada de propósito: ela gasta chamadas da assinatura, e as
+    rotas /api/diag/ são abertas a quem souber o endereço.
+    """
+    from database import cartoes_da_temporada
+    temporada = season or _af_temporada_corrente()
+    linhas = [f"SONDAGEM — o que a API conta sobre uma expulsão",
+              f"temporada: {temporada}", ""]
+
+    # ── 1. as expulsões que eu já tenho no banco ────────────────────────
+    cartoes = cartoes_da_temporada(temporada)
+    expulsoes = [c for c in cartoes
+                 if _classificar_cartao(c.get("detalhe") or "")
+                 in ("vermelho", "amarelo_vermelho")]
+    expulsoes.sort(key=lambda c: str(c.get("jogo_em") or ""), reverse=True)
+    linhas.append(f"expulsões no banco: {len(expulsoes)}")
+    if not expulsoes:
+        linhas += ["", "Não tenho nenhuma expulsão gravada ainda. Abra a guia "
+                   "Pendurados e toque em 'Ler mais jogos' algumas vezes, "
+                   "depois volte aqui."]
+        return "\n".join(linhas)
+
+    vistos, alvos = set(), []
+    for c in expulsoes:
+        if c.get("fixture_id") in vistos:
+            continue
+        vistos.add(c.get("fixture_id"))
+        alvos.append(c)
+        if len(alvos) >= max(1, min(quantos, 8)):
+            break
+
+    linhas += ["", "─" * 66,
+               "1) fixtures/events — TODO o evento de cartão, como veio",
+               "─" * 66]
+    for c in alvos:
+        fid = c.get("fixture_id")
+        linhas.append(f"\njogo {fid} · {c.get('jogo_em')} · "
+                      f"{c.get('jogador')} ({c.get('clube')})")
+        eventos, err = await _af_get("fixtures/events", {"fixture": fid})
+        if err:
+            linhas.append(f"   erro: {err}")
+            continue
+        cards = [e for e in (eventos or {}).get("response", [])
+                 if (e.get("type") or "").lower() == "card"]
+        if not cards:
+            linhas.append("   (a API não devolveu nenhum evento de cartão)")
+        for e in cards:
+            # JSON cru, indentado. Se houver um campo que eu não conheço, é
+            # aqui que ele aparece — e é justamente o que eu vim procurar.
+            linhas.append("   " + json.dumps(e, ensure_ascii=False))
+
+    # ── 2. as suspensões oficiais, com o motivo e talvez a duração ──────
+    linhas += ["", "─" * 66,
+               "2) injuries — as entradas de SUSPENSÃO, como vieram",
+               "─" * 66]
+    cobertura = None
+    ligas, err_liga = await _af_get("leagues", {"id": AF_LEAGUE_SPL})
+    if not err_liga:
+        for item in (ligas or {}).get("response", []):
+            for t in item.get("seasons") or []:
+                if t.get("year") == temporada:
+                    cobertura = bool((t.get("coverage") or {}).get("injuries"))
+    linhas.append(f"coverage.injuries desta liga/temporada: {cobertura}")
+    if cobertura is False:
+        linhas.append("   → a API NÃO cobre ausências nesta liga. A lista "
+                      "abaixo vem vazia por isso, e não porque não há "
+                      "ninguém suspenso.")
+
+    dados, err = await _af_get("injuries",
+                               {"league": AF_LEAGUE_SPL, "season": temporada})
+    if err:
+        linhas.append(f"erro: {err}")
+    else:
+        todos = (dados or {}).get("response", [])
+        susp = [r for r in todos
+                if "suspend" in ((r.get("player") or {}).get("type") or "").lower()]
+        linhas.append(f"entradas no total: {len(todos)} · suspensões: {len(susp)}")
+        # Os `type` e `reason` DISTINTOS que aparecem, que é o vocabulário
+        # real da fonte — mais útil que ver a mesma frase cem vezes.
+        vocab = sorted({((r.get("player") or {}).get("type") or "",
+                         (r.get("player") or {}).get("reason") or "")
+                        for r in todos})
+        linhas.append("\nvocabulário (type · reason):")
+        for t, r in vocab[:40]:
+            linhas.append(f"   {t!r} · {r!r}")
+        linhas.append("\namostra crua de suspensão:")
+        for r in susp[:5]:
+            linhas.append("   " + json.dumps(r, ensure_ascii=False))
+
+    linhas += ["", "─" * 66,
+               "O QUE PROCURAR NISSO",
+               "─" * 66,
+               "· em fixtures/events, um campo `comments` preenchido no cartão",
+               "  vermelho (algo como 'Violent conduct'): dá o MOTIVO;",
+               "· em injuries, um `reason` do tipo 'Suspended 3 matches': dá a",
+               "  DURAÇÃO pronta, que é melhor ainda — não preciso deduzir o",
+               "  gancho a partir do motivo.",
+               "",
+               "Se os dois vierem nulos ou genéricos, não dá para construir o",
+               "alerta em cima desta API, e é melhor saber agora."]
+    return "\n".join(linhas)
+
+
 @app.post("/api/pendurados/atualizar")
 async def api_pendurados_atualizar(season: int = 0):
     """Lê mais um punhado de partidas. É o botão da tela."""
