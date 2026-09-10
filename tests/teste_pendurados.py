@@ -648,17 +648,12 @@ def testar():
                f"a pena devia apontar para o jogo que ele AINDA vai perder: "
                f"{d['jogo_da_pena']!r} em {d['jogo_da_pena_em']!r}")
 
-            # Cumpriu os dois: passa por "Voltando de suspensão" ANTES de
-            # sumir. Foi o que confundiu o Vini com o Kader Keita — ele
-            # acompanhava o caso, a decisão foi aplicada e o jogador evaporou
-            # da tela. O app estava certo (o Keita tinha cumprido os dois
-            # jogos e já voltado a jogar), mas "certo e mudo" parece defeito.
+            # Cumpriu os dois: sai da lista. O aviso de 'confira' some junto —
+            # ele existia porque eu não sabia a duração, e agora sei.
             d = caso("2026-09-15")
-            ok(d["estado"] == "retornando",
-               f"logo depois de cumprir, o jogador tem que aparecer como "
-               f"liberado em vez de sumir: {d['estado']!r}")
-            ok("cumpriu os 2" in d["motivo"],
-               f"o motivo devia dizer quantos jogos ele cumpriu: {d['motivo']!r}")
+            ok(d["estado"] == "" and not d["motivo"],
+               f"cumpridos os 2 jogos, o Óscar tinha que sair da lista: "
+               f"{d['estado']!r} / {d['motivo']!r}")
 
             # Duas decisões para o mesmo jogo: não sei qual é dele, e digo.
             d = caso("2026-09-05", DECISAO + [dict(DECISAO[0], numero="15")])
@@ -719,29 +714,11 @@ def testar():
             cal = [dict(p, status=("FT" if p["data"] < "2026-09-15" else "NS"))
                    for p in cal_d]
             _juntar([keita2], cal, "2026-09-15")
-            ok(keita2["estado"] != "julgado",
-               f"cumpridos os dois jogos da pena (08/09 e 14/09), ele NÃO "
-               f"podia continuar suspenso em 15/09: {keita2['estado']!r} "
+            ok(keita2["estado"] == "",
+               f"cumpridos os dois jogos da pena (08/09 e 14/09), ele tinha "
+               f"que estar livre em 15/09: {keita2['estado']!r} "
                f"({keita2['motivo']!r}). Contar o gancho a partir do último "
                "amarelo, e não da expulsão, tira um titular da escalação")
-
-            # ── e a janela de "liberado" fecha sozinha ───────────────────
-            # Caso resolvido há três rodadas não é notícia, é entulho. O
-            # aviso vale enquanto o clube não jogar mais de UMA partida
-            # depois da pena cumprida.
-            longo = cal_d + [jd(5, "2026-09-27", DIRIYAH, 201, "FT"),
-                             jd(6, "2026-10-04", 202, DIRIYAH, "FT")]
-            com_banco(DECISAO)
-            velho = {"jogador_id": 13, "jogador": "Óscar Rodríguez",
-                     "clube": "Al Diriyah", "clube_id": DIRIYAH, "vermelhos": 1,
-                     "ultimo_fixture": 1, "ultimo_jogo": "2026-09-03",
-                     "fixture_da_pena": 1, "pena_em": "2026-09-03",
-                     "estado": "fora", "motivo": "expulso", "pendurado": False,
-                     "jogo_da_pena": "", "jogo_da_pena_em": ""}
-            _juntar([velho], [dict(p, status="FT") for p in longo], "2026-10-10")
-            ok(velho["estado"] == "",
-               f"três rodadas depois de cumprida, a suspensão devia ter saído "
-               f"da tela: {velho['estado']!r} ({velho['motivo']!r})")
         finally:
             if anterior is not None:
                 sys.modules["database"] = anterior

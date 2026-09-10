@@ -5469,24 +5469,7 @@ def _juntar_decisoes(situacao: list[dict], calendario: list[dict],
             # Cumpriu tudo que a SAFF mandou. O aviso de "confira" sai: ele
             # existia porque eu NÃO sabia a duração, e agora sei. Manter o
             # alerta depois de ter a resposta é ruído com cara de cuidado.
-            #
-            # MAS NÃO SOME NO MESMO INSTANTE. Foi o que confundiu o Vini com o
-            # Kader Keita: ele acompanhava o caso, a decisão foi aplicada, e o
-            # jogador simplesmente evaporou da tela. O app estava certo — o
-            # Keita tinha cumprido os dois jogos e até já voltado a jogar —
-            # mas "certo e mudo" parece defeito.
-            #
-            # Então quem acabou de cumprir passa pela seção "Voltando de
-            # suspensão", com a decisão citada, enquanto o clube não jogar
-            # mais que UMA partida depois da pena. Aí sim ele sai: caso
-            # resolvido há três rodadas não é notícia, é entulho.
-            jogados_depois = sum(
-                1 for p in agenda[i + 1 + total:] if _ja_aconteceu(p, hoje))
-            if jogados_depois <= 1:
-                d["estado"] = "retornando"
-                d["motivo"] = (f"cumpriu os {total} jogo(s) da decisão da SAFF"
-                               + (" · já voltou a jogar" if jogados_depois else ""))
-            elif d.get("estado") in ("fora", "indefinido", "retornando"):
+            if d.get("estado") in ("fora", "indefinido", "retornando"):
                 d["estado"] = ""
                 d["motivo"] = ""
     return casadas
@@ -6401,13 +6384,6 @@ function contexto(d, classe) {
       : 'Fora do próximo jogo';
   }
   if (classe === 'volta') {
-    // Com decisão do comitê, o texto é o dela — o motivo já diz quantos
-    // jogos foram e que ele cumpriu. Repetir "cumpriu contra o X" ao lado
-    // seria dizer a mesma coisa duas vezes, com menos precisão.
-    if (d.decisao_saff) {
-      return esc(d.motivo || 'Cumpriu a suspensão')
-        + (d.proximo_jogo ? ' · liberado contra o ' + esc(d.proximo_jogo) : '');
-    }
     return 'Cumpriu contra o ' + esc(d.jogo_da_pena || '—')
       + (d.jogo_da_pena_em ? ' (' + dia(d.jogo_da_pena_em) + ')' : '')
       + (d.proximo_jogo ? ' · liberado contra o ' + esc(d.proximo_jogo) : '');
