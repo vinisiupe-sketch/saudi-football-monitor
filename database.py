@@ -3049,6 +3049,139 @@ def obter_escudo_extra(chave: str) -> bytes | None:
         return None
 
 
+# ── CARTÕES ─────────────────────────────────────────────────────────────────
+#
+# Um registro por cartão mostrado, e não um contador por jogador.
+#
+# O contador seria uma tabela muito menor e daria a resposta errada. A regra
+# saudita suspende no QUARTO amarelo e recomeça a contagem depois da suspensão
+# cumprida — então "quantos amarelos ele tem" não é um número, é uma sequência
+# com marcos no meio. Guardando cartão a cartão eu consigo refazer a conta
+# quando a regra mudar (ela já mudou de 3 para 4), corrigir um cartão que a
+# API publicou errado, e mostrar de que jogo veio cada um. Guardando só o
+# total, nada disso volta.
+#
+# A chave única inclui o MINUTO porque um jogador pode receber dois amarelos
+# na mesma partida — que é justamente o caso que vira vermelho e muda tudo.
+# Sem o minuto na chave, o segundo amarelo sobrescreveria o primeiro e o
+# expulso apareceria como quem levou um cartão só.
+def _cria_cartao(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS cartao (
+            id          SERIAL PRIMARY KEY,
+            fixture_id  INTEGER NOT NULL,
+            season      INTEGER NOT NULL,
+            liga_id     INTEGER,
+            jogador_id  INTEGER NOT NULL,
+            jogador     TEXT,
+            clube_id    INTEGER,
+            clube       TEXT,
+            tipo        TEXT NOT NULL,
+            detalhe     TEXT,
+            minuto      INTEGER NOT NULL DEFAULT -1,
+            rodada      TEXT,
+            jogo_em     TEXT,
+            visto_em    TIMESTAMPTZ DEFAULT NOW(),
+            UNIQUE (fixture_id, jogador_id, tipo, minuto)
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS cartao_temporada "
+              "ON cartao (season, jogador_id)")
+    # Que partidas já foram lidas. Sem isto eu reconsultaria a API pelos
+    # mesmos jogos a cada passagem — e cada partida é uma chamada da
+    # assinatura. Uma temporada tem 306 jogos; reler tudo toda vez seria
+    # queimar a cota inteira para descobrir o que eu já sabia.
+    #
+    # Guarda o STATUS junto: um jogo lido enquanto ainda rolava precisa ser
+    # relido no fim, senão os cartões do segundo tempo nunca entram.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS cartao_partida_lida (
+            fixture_id  INTEGER PRIMARY KEY,
+            season      INTEGER NOT NULL,
+            status      TEXT,
+            lida_em     TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+
+def registrar_cartao(fixture_id: int, season: int, jogador_id: int, tipo: str,
+                     minuto=None, jogador=None, clube_id=None, clube=None,
+                     detalhe=None, rodada=None, jogo_em=None,
+                     liga_id=None) -> bool:
+    """Grava um cartão. Devolve True só na primeira vez.
+
+    ON CONFLICT DO NOTHING, e não UPDATE: o cartão é um fato de um instante
+    do jogo, e reler a mesma partida não deve mexer no que já está gravado.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_cartao(c)
+            c.execute("""
+                INSERT INTO cartao (fixture_id, season, liga_id, jogador_id,
+                                    jogador, clube_id, clube, tipo, detalhe,
+                                    minuto, rodada, jogo_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (fixture_id, jogador_id, tipo, minuto) DO NOTHING
+            """, [fixture_id, season, liga_id, jogador_id, jogador, clube_id,
+                  clube, tipo, detalhe,
+                  -1 if minuto is None else int(minuto), rodada, jogo_em])
+            return c.rowcount > 0
+    except Exception:
+        return False
+
+
+def marcar_partida_lida(fixture_id: int, season: int, status: str) -> None:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_cartao(c)
+            c.execute("""
+                INSERT INTO cartao_partida_lida (fixture_id, season, status)
+                VALUES (%s,%s,%s)
+                ON CONFLICT (fixture_id)
+                DO UPDATE SET status = EXCLUDED.status, lida_em = NOW()
+            """, [fixture_id, season, status])
+    except Exception:
+        pass
+
+
+def partidas_ja_lidas(season: int) -> dict:
+    """{fixture_id: status} do que já foi lido nesta temporada."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_cartao(c)
+            c.execute("SELECT fixture_id, status FROM cartao_partida_lida "
+                      "WHERE season = %s", [season])
+            return {r[0]: (r[1] or "") for r in c.fetchall()}
+    except Exception:
+        return {}
+
+
+def cartoes_da_temporada(season: int) -> list[dict]:
+    """Todos os cartões da temporada, do mais antigo para o mais novo.
+
+    A ORDEM É A REGRA. A suspensão sai do quarto amarelo, e "quarto" só existe
+    numa sequência — por isso ordeno por data do jogo e minuto aqui, no SQL,
+    e não deixo cada tela ordenar do seu jeito.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_cartao(c)
+            c.execute("""
+                SELECT fixture_id, jogador_id, jogador, clube_id, clube,
+                       tipo, detalhe, minuto, rodada, jogo_em
+                  FROM cartao
+                 WHERE season = %s
+                 ORDER BY jogo_em NULLS FIRST, fixture_id, minuto
+            """, [season])
+            return [dict(r) for r in c.fetchall()]
+    except Exception:
+        return []
+
+
 def _cria_gol_visto(c) -> None:
     c.execute("""
         CREATE TABLE IF NOT EXISTS gol_visto (

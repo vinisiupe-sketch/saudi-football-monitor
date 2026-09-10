@@ -262,6 +262,13 @@ _ICO_ARBITRO = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M13 8h6a3 3 0 0 1 0 6h-1.2A6 6 0 1 1 13 8Z"/>'
                 '<circle cx="9" cy="11" r="2"/><path d="M13 8 9.5 4.5"/></svg>')
+# Dois retângulos inclinados, um atrás do outro: o amarelo e o vermelho.
+# Sem cor fixa (currentColor) para acompanhar o tema como os outros ícones.
+_ICO_CARTAO  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><rect x="3" y="5" width="10" height="14" rx="1.6" '
+                'transform="rotate(-9 8 12)"/><rect x="12" y="5" width="9" height="14" rx="1.6" '
+                'transform="rotate(9 16.5 12)"/></svg>')
 _ICO_PREVIA  = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M4 4h11l5 5v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/>'
@@ -568,6 +575,7 @@ _NAV_MAIS = [
     ("/arbitragem",  _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
     ("/previa",      _ICO_PREVIA,  "Prévia",     "", "#B6FF00"),
     ("/escalacao-pdf", _ICO_ESCALACAO, "Escalações", "", "#B6FF00"),
+    ("/pendurados",  _ICO_CARTAO,  "Pendurados", "", "#FFBE5D"),
     ("/numeros",     _ICO_NUMEROS, "Números",    "", "#B6FF00"),
     ("/descartadas", _ICO_ARCHIVE, "Descartadas","", "#FFBE5D"),
     ("/lixeira",     _ICO_TRASH2,  "Lixeira",    "", "#FFBE5D"),
@@ -4286,8 +4294,12 @@ async def _page_lesoes_impl(request: Request):
         escudo_html = ('<img class="lsn-escudo" src="' + escudo + '" alt="" loading="lazy">'
                        if escudo else "")
         detalhe = tipo_full + retorno_html
+        # data-clube: é por ele que o filtro esconde e mostra. Vai escapado
+        # porque `club` vem de notícia raspada — nome com aspas fecharia o
+        # atributo cedo e quebraria o card inteiro.
+        import html as _html
         return (
-            '<div class="injury-card">'
+            '<div class="injury-card" data-clube="' + _html.escape(club, quote=True) + '">'
             + '<div class="lsn-topo">'
             + rosto_html
             + '<div class="lsn-quem">'
@@ -4306,6 +4318,20 @@ async def _page_lesoes_impl(request: Request):
 
     cards_active    = "".join(_card(i) for i in active)    if active    else '<div class="empty-state">Nenhuma lesão ativa registrada.</div>'
     cards_recovered = "".join(_card(i) for i in recovered) if recovered else '<div class="empty-state">Nenhuma recuperação registrada.</div>'
+
+    # ── O filtro por clube ─────────────────────────────────────────────
+    # A lista sai das lesões que ESTÃO na tela, e não do elenco da liga. Duas
+    # razões: clube sem ninguém machucado viraria uma opção que só devolve
+    # tela vazia; e a lesão às vezes é de gente que a liga não lista (jogador
+    # recém-chegado, categoria de base), e essa não poderia ficar de fora do
+    # próprio filtro.
+    import html as _html
+    clubes = sorted({(i.get("club") or "").strip()
+                     for i in injuries if (i.get("club") or "").strip()},
+                    key=lambda c: c.lower())
+    opcoes_clube = "".join(
+        '<option value="' + _html.escape(c, quote=True) + '">'
+        + _html.escape(c) + "</option>" for c in clubes)
 
     count_active    = len(active)
     count_recovered = len(recovered)
@@ -4551,6 +4577,25 @@ details summary {{
 details summary::-webkit-details-marker {{ display: none; }}
 details summary::before {{ content: "▶"; font-size: .6rem; transition: transform .2s; }}
 details[open] summary::before {{ transform: rotate(90deg); }}
+.lsn-barra {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 4px; }}
+.lsn-filtro {{ display: flex; align-items: center; gap: 7px; margin-left: auto; }}
+.lsn-filtro > span {{ font-size: .66rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--c-muted-3); }}
+.lsn-filtro select {{ background: var(--c-bg-card); color: var(--c-text);
+  border: 1.5px solid var(--c-border-2); border-radius: 10px; padding: 7px 10px;
+  font-family: inherit; font-size: .78rem; max-width: 60vw; }}
+.lsn-abas {{ display: flex; gap: 8px; margin: 16px 0 14px;
+  border-bottom: 1px solid var(--c-border); }}
+.lsn-aba {{ background: none; border: none; border-bottom: 2px solid transparent;
+  color: var(--c-muted-3); font-size: .82rem; font-weight: 700;
+  padding: 8px 14px 10px; cursor: pointer; margin-bottom: -1px;
+  font-family: inherit; transition: color .15s, border-color .15s; }}
+.lsn-aba:hover {{ color: var(--c-text); }}
+.lsn-aba.ativa {{ color: var(--c-text); border-bottom-color: #B6FF00; }}
+.lsn-so-api {{ font-size: .68rem; font-weight: 700; color: #FFBE5D;
+  background: rgba(255,190,93,.12); border: 1px solid rgba(255,190,93,.33);
+  border-radius: 8px; padding: 6px 9px; margin-top: 8px; line-height: 1.4; }}
 </style>
 </head>
 <body>
@@ -4559,19 +4604,158 @@ details[open] summary::before {{ transform: rotate(90deg); }}
   <div class="lesoes-title">Monitor de Lesões</div>
   <div class="lesoes-subtitle">Atualizado automaticamente com base nas notícias coletadas com category=lesao.</div>
 
-  <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
-  <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted);margin-left:8px;"></span>
+  <div class="lsn-barra">
+    <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
+    <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted);"></span>
+    <label class="lsn-filtro">
+      <span>Clube</span>
+      <select id="filtroClube" onchange="filtrarPorClube()">
+        <option value="">Todos os clubes</option>
+        {opcoes_clube}
+      </select>
+    </label>
+  </div>
 
-  <div class="section-label">Ativas <span class="section-count">({count_active})</span></div>
-  <div class="injury-grid">{cards_active}</div>
+  <div class="lsn-abas">
+    <button class="lsn-aba ativa" id="lsnAba-noticias"
+            onclick="mostrarLesoes('noticias')">📰 Pela imprensa</button>
+    <button class="lsn-aba" id="lsnAba-api"
+            onclick="mostrarLesoes('api')">🔎 Conferir na API</button>
+  </div>
 
-  <details>
-    <summary>Recuperados <span class="section-count" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
-    <div class="injury-grid" style="margin-top:12px">{cards_recovered}</div>
-  </details>
+  <div id="lsnPainel-noticias">
+    <div class="section-label">Ativas <span class="section-count" id="contaAtivas">({count_active})</span></div>
+    <div class="injury-grid" id="gradeAtivas">{cards_active}</div>
+
+    <details>
+      <summary>Recuperados <span class="section-count" id="contaRecuperados" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
+      <div class="injury-grid" style="margin-top:12px" id="gradeRecuperados">{cards_recovered}</div>
+    </details>
+  </div>
+
+  <div id="lsnPainel-api" style="display:none">
+    <div class="lesoes-subtitle">A lista oficial de ausentes da API-Football —
+      lesionados e suspensos. Serve para conferir o que a imprensa não
+      noticiou: aqui aparece o reserva que ninguém escreveu.</div>
+    <div id="lsnApi"><div class="empty-state">Carregando…</div></div>
+  </div>
 </div>
 
 <script>
+// ── Filtro por clube ──────────────────────────────────────────────────────
+// Esconde e mostra o que JÁ ESTÁ na página, sem ir ao servidor: a tela é
+// montada inteira no Python e recarregar para filtrar custaria uma consulta ao
+// banco e uma volta de rede para uma decisão que é só de exibição.
+//
+// A contagem ao lado do título muda junto. Sem isso ela viraria mentira — a
+// tela mostrando três cards e o título dizendo "Ativas (37)".
+function filtrarPorClube() {{
+  const alvo = document.getElementById('filtroClube').value;
+  [['gradeAtivas', 'contaAtivas'], ['gradeRecuperados', 'contaRecuperados']]
+    .forEach(function (par) {{
+      const grade = document.getElementById(par[0]);
+      const conta = document.getElementById(par[1]);
+      if (!grade) return;
+      let visiveis = 0;
+      grade.querySelectorAll('.injury-card').forEach(function (c) {{
+        const mostra = !alvo || c.dataset.clube === alvo;
+        c.style.display = mostra ? '' : 'none';
+        if (mostra) visiveis++;
+      }});
+      if (conta) conta.textContent = '(' + visiveis + ')';
+      // Um recado quando o filtro esvazia a seção. Sem ele o clube sem
+      // ninguém machucado devolve um branco que parece tela quebrada.
+      let vazio = grade.querySelector('.lsn-filtro-vazio');
+      if (!visiveis && !vazio) {{
+        vazio = document.createElement('div');
+        vazio.className = 'empty-state lsn-filtro-vazio';
+        grade.appendChild(vazio);
+      }}
+      if (vazio) {{
+        vazio.textContent = 'Ninguém deste clube nesta lista.';
+        vazio.style.display = visiveis ? 'none' : '';
+      }}
+    }});
+}}
+
+// ── Sub-abas: imprensa | API ──────────────────────────────────────────────
+let _lsnApiCarregada = false;
+function mostrarLesoes(qual) {{
+  ['noticias', 'api'].forEach(function (k) {{
+    const p = document.getElementById('lsnPainel-' + k);
+    const b = document.getElementById('lsnAba-' + k);
+    if (p) p.style.display = (k === qual) ? '' : 'none';
+    if (b) b.classList.toggle('ativa', k === qual);
+  }});
+  // Só busca quando você abre a aba, e uma vez só. A consulta gasta chamada
+  // da assinatura, e gastar em quem nem olhou a aba é gastar à toa.
+  if (qual === 'api' && !_lsnApiCarregada) {{ _lsnApiCarregada = true; carregarAusencias(); }}
+}}
+
+function lsnEsc(s) {{
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}}
+
+async function carregarAusencias() {{
+  const alvo = document.getElementById('lsnApi');
+  let d;
+  try {{
+    const r = await fetch('/api/ausencias/api-football');
+    d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+  }} catch (e) {{
+    alvo.innerHTML = '<div class="empty-state">Não consegui consultar a API: '
+      + lsnEsc(e.message || e) + '</div>';
+    return;
+  }}
+
+  const lista = d.ausencias || [];
+  if (!lista.length) {{
+    // A distinção que importa. Lista vazia com cobertura ligada quer dizer
+    // "ninguém fora". Lista vazia SEM cobertura quer dizer "a API não sabe" —
+    // e as duas apareceriam igualzinhas se eu só escrevesse "nenhum".
+    alvo.innerHTML = '<div class="empty-state">'
+      + (d.cobertura === false
+         ? 'A API-Football não cobre ausências nesta liga/temporada '
+           + '(coverage.injuries = false). A lista vazia aqui NÃO quer dizer '
+           + 'que não há ninguém fora — quer dizer que esta fonte não sabe.'
+         : 'A API não lista ninguém fora na temporada ' + lsnEsc(d.temporada) + '.')
+      + '</div>';
+    return;
+  }}
+
+  let html = '<div class="section-label">A API lista '
+    + lista.length + ' ausente(s) <span class="section-count">temporada '
+    + lsnEsc(d.temporada) + '</span></div><div class="injury-grid">';
+  lista.forEach(function (a) {{
+    const so_api = !a.no_nosso_monitor;
+    html += '<div class="injury-card" data-clube="' + lsnEsc(a.clube) + '">'
+      + '<div class="lsn-topo">'
+      + (a.foto ? '<img class="lsn-rosto" src="' + lsnEsc(a.foto) + '" alt="" loading="lazy">'
+                : '<div class="lsn-semrosto">?</div>')
+      + '<div class="lsn-quem">'
+      + '<div class="lsn-nome">' + lsnEsc(a.jogador) + '</div>'
+      + '<div class="lsn-clube">'
+      + (a.escudo ? '<img class="lsn-escudo" src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
+      + '<span>' + lsnEsc(a.clube) + '</span></div>'
+      + '<div class="lsn-detalhe">' + lsnEsc(a.motivo || '—')
+      + (a.jogo_em ? ' · jogo de ' + lsnEsc(a.jogo_em) : '') + '</div>'
+      + '</div>'
+      + '<span class="status-pill status-' + (a.tipo === 'Suspensão' ? 'retornando' : 'lesionado')
+      + '">' + lsnEsc(a.tipo) + '</span>'
+      + '</div>'
+      // O valor da aba está nesta linha: quem a API vê e a imprensa não.
+      + (so_api ? '<div class="lsn-so-api">Só a API tem — não saiu na imprensa '
+                  + 'que eu coleto</div>' : '')
+      + '</div>';
+  }});
+  html += '</div>';
+  alvo.innerHTML = html;
+  filtrarPorClube();
+}}
+
 async function rebuild() {{
   const btn = document.querySelector('.rebuild-btn');
   const st  = document.getElementById('rebuild-status');
@@ -4596,6 +4780,558 @@ async function rebuild() {{
 @app.get("/api/injuries")
 async def api_injuries():
     return get_injuries(include_recovered=True)
+
+
+def _chave_de_nome(nome: str) -> str:
+    """Nome reduzido ao que dá para comparar entre duas fontes.
+
+    Sem acento, sem pontuação, sem caixa. "N. Fekir" e "Nabil Fekir" continuam
+    diferentes de propósito — inventar que são a mesma pessoa por causa do
+    sobrenome é o tipo de palpite que põe o jogador errado na tela.
+    """
+    t = unicodedata.normalize("NFKD", nome or "").encode("ascii", "ignore").decode()
+    return " ".join(re.sub(r"[^a-zA-Z ]+", " ", t).lower().split())
+
+
+@app.get("/api/ausencias/api-football")
+async def api_ausencias_af(season: int = 0, team: int = 0):
+    """Quem a API-Football diz que está fora — lesão E suspensão.
+
+    POR QUE ISTO EXISTE, SENDO QUE JÁ HÁ UM MONITOR DE LESÕES
+        O monitor de lesões lê NOTÍCIA. Ele é bom no que a imprensa cobre — o
+        titular do Al-Hilal que rompeu o ligamento sai em todo lugar — e cego
+        no que ela não cobre: o reserva do Al-Fayha que ninguém noticiou
+        simplesmente não existe para ele. A API vê a lista oficial de
+        ausentes, sem passar pelo interesse editorial de ninguém.
+
+        Nenhuma das duas manda na outra. Por isso a tela mostra as duas lado a
+        lado e marca a diferença, em vez de escolher uma e fingir que é a
+        verdade. Fonte que discorda da outra é informação, não defeito.
+
+    UM AVISO SOBRE COBERTURA
+        A API-Football só devolve ausências para as ligas em que o campo
+        `coverage.injuries` é verdadeiro. Se a Saudi Pro League não estiver
+        entre elas, esta rota devolve lista vazia SEM erro — que é o pior
+        jeito de falhar, porque parece "ninguém machucado". Por isso a
+        resposta traz `cobertura`, e a tela diz qual dos dois casos é.
+    """
+    temporada = season or _af_temporada_corrente()
+    params = {"league": AF_LEAGUE_SPL, "season": temporada}
+    if team:
+        params["team"] = team
+
+    cobertura = None
+    ligas, err_liga = await _af_get("leagues", {"id": AF_LEAGUE_SPL})
+    if not err_liga:
+        for item in (ligas or {}).get("response", []):
+            for temp in item.get("seasons") or []:
+                if temp.get("year") == temporada:
+                    cobertura = bool((temp.get("coverage") or {}).get("injuries"))
+
+    dados, err = await _af_get("injuries", params)
+    if err:
+        return JSONResponse({"erro": err, "cobertura": cobertura,
+                             "temporada": temporada, "ausencias": []}, 502)
+
+    # O que o NOSSO monitor já sabe, para marcar quem só uma das fontes viu.
+    try:
+        nossos = {_chave_de_nome(i.get("player_name") or "")
+                  for i in get_injuries(include_recovered=False)}
+    except Exception:
+        nossos = set()
+
+    ausencias = []
+    for r in (dados or {}).get("response", []):
+        jogador = r.get("player") or {}
+        time_ = r.get("team") or {}
+        partida = r.get("fixture") or {}
+        tipo_bruto = (jogador.get("type") or "").strip()
+        nome = jogador.get("name") or ""
+        ausencias.append({
+            "jogador": nome,
+            "foto": jogador.get("photo") or "",
+            "clube": time_.get("name") or "",
+            "escudo": time_.get("logo") or "",
+            "clube_id": time_.get("id"),
+            # A API escreve "Missing Fixture" e "Questionable" além de
+            # "Injury"/"Suspended". Guardo o texto cru junto: traduzir o que
+            # eu não previ apagaria a informação.
+            "tipo": ("Suspensão" if "suspend" in tipo_bruto.lower()
+                     else "Lesão" if "injur" in tipo_bruto.lower()
+                     else tipo_bruto or "—"),
+            "tipo_bruto": tipo_bruto,
+            "motivo": jogador.get("reason") or "",
+            "jogo_em": (partida.get("date") or "")[:10],
+            "no_nosso_monitor": _chave_de_nome(nome) in nossos,
+        })
+    ausencias.sort(key=lambda a: (a["clube"].lower(), a["jogador"].lower()))
+    return {"temporada": temporada, "cobertura": cobertura,
+            "total": len(ausencias), "ausencias": ausencias,
+            "so_no_monitor": sorted(
+                nossos - {_chave_de_nome(a["jogador"]) for a in ausencias})}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PENDURADOS E SUSPENSOS
+#
+# A REGRA, e de onde ela veio
+#     Na Saudi Pro League o jogador é suspenso da partida seguinte ao QUARTO
+#     amarelo em jogos diferentes da mesma competição. Confirmei na imprensa
+#     saudita: a federação mudou de três para quatro, alinhando com o formato
+#     do Roshn. Como já mudou uma vez, o número mora nos Ajustes
+#     (`cartoes_para_suspender`) e não aqui — no dia em que mudar de novo, o
+#     Vini acerta sozinho.
+#
+# O QUE ESTA CONTA NÃO SABE, e por que ela diz isso na tela
+#     Eu conto cartões, não escalações. Não sei se o suspenso realmente ficou
+#     de fora do jogo seguinte — para saber, eu teria que buscar a escalação
+#     de cada partida, uma chamada por jogo, e ainda assim erraria quando o
+#     jogador ficasse fora por lesão. Então a contagem por ciclo é uma
+#     DEDUÇÃO a partir da regra, e a tela diz isso.
+#
+#     A conferência de verdade é a aba da API na guia Lesões: o endpoint
+#     `injuries` devolve as suspensões oficiais. Quando as duas discordam,
+#     quem manda é a API — e esta tela mostra a discordância em vez de
+#     escondê-la.
+#
+# DOIS AMARELOS NA MESMA PARTIDA
+#     Viram vermelho, e nas regras alinhadas à FIFA não contam para o
+#     acúmulo: a punição já foi a expulsão. Trato assim, e marco o caso na
+#     resposta (`dois_amarelos`) para dar para conferir. Se a SAFF fizer
+#     diferente, o conserto é uma linha — e está isolado numa função só.
+
+def _e_amarelo(detalhe: str) -> bool:
+    return "yellow" in (detalhe or "").lower() and not _e_segundo_amarelo(detalhe)
+
+
+def _e_segundo_amarelo(detalhe: str) -> bool:
+    d = (detalhe or "").lower()
+    return "second yellow" in d
+
+
+def _e_vermelho(detalhe: str) -> bool:
+    d = (detalhe or "").lower()
+    return "red card" in d or _e_segundo_amarelo(detalhe)
+
+
+def _situacao_dos_cartoes(cartoes: list[dict], limite: int) -> list[dict]:
+    """De uma lista de cartões para a lista de quem está pendurado ou fora.
+
+    Função pura, fora da rota, porque é aqui que mora a regra — e regra que
+    depende de banco e de rede não dá para testar com a partida imaginada que
+    eu preciso imaginar (o cara que levou o quarto amarelo na rodada passada,
+    o que foi expulso por dois amarelos, o que já cumpriu e recomeçou).
+    """
+    if limite < 2:
+        limite = 2
+    por_jogador: dict = {}
+    for c in cartoes:
+        jid = c.get("jogador_id")
+        if jid is None:
+            continue
+        d = por_jogador.setdefault(jid, {
+            "jogador_id": jid, "jogador": c.get("jogador") or "",
+            "clube": c.get("clube") or "", "clube_id": c.get("clube_id"),
+            "amarelos": 0, "vermelhos": 0, "dois_amarelos": 0,
+            "eventos": [], "ultimo_jogo": "", "ultimo_fixture": None,
+        })
+        # O nome e o clube mais RECENTES ganham: jogador que trocou de time no
+        # meio da temporada tem que aparecer no clube em que joga agora.
+        if c.get("jogador"):
+            d["jogador"] = c["jogador"]
+        if c.get("clube"):
+            d["clube"], d["clube_id"] = c["clube"], c.get("clube_id")
+        d["eventos"].append(c)
+
+    saida = []
+    for d in por_jogador.values():
+        # Agrupo por partida: a regra dos dois amarelos é sobre O JOGO.
+        por_jogo: dict = {}
+        for c in d["eventos"]:
+            por_jogo.setdefault(c.get("fixture_id"), []).append(c)
+
+        jogos_ordenados = sorted(
+            por_jogo.items(),
+            key=lambda par: (str((par[1][0] or {}).get("jogo_em") or ""), par[0] or 0))
+
+        amarelos = 0
+        marcos = []          # em que jogo ele completou um ciclo
+        for fixture, lista in jogos_ordenados:
+            # O "último jogo com cartão" é anotado ANTES de qualquer desvio.
+            # Na primeira versão isto ficava no fim do laço, depois de um
+            # `continue` — e o expulso por dois amarelos, que cai justamente
+            # nesse continue, ficava com `ultimo_fixture` vazio e aparecia
+            # como não suspenso. O jogador mais claramente fora de campo era o
+            # único que a tela não marcava.
+            d["ultimo_jogo"] = str((lista[0] or {}).get("jogo_em") or "")
+            d["ultimo_fixture"] = fixture
+
+            detalhes = [c.get("detalhe") or "" for c in lista]
+            if any(_e_segundo_amarelo(x) for x in detalhes):
+                d["dois_amarelos"] += 1
+                d["vermelhos"] += 1
+                # Os amarelos deste jogo NÃO entram no acúmulo: a punição já
+                # foi a expulsão.
+                continue
+            if any("red card" in x.lower() for x in detalhes):
+                d["vermelhos"] += 1
+            amarelos_no_jogo = sum(1 for x in detalhes if _e_amarelo(x))
+            if amarelos_no_jogo:
+                amarelos += amarelos_no_jogo
+                if amarelos % limite == 0:
+                    marcos.append(fixture)
+
+        d["amarelos"] = amarelos
+        d["no_ciclo"] = amarelos % limite
+        d["faltam"] = (limite - d["no_ciclo"]) if d["no_ciclo"] else limite
+        # Pendurado: mais um amarelo e ele fica de fora.
+        d["pendurado"] = d["no_ciclo"] == limite - 1
+        # Suspenso: fechou o ciclo — ou foi expulso — no ÚLTIMO jogo que ele
+        # tem cartão registrado. É dedução, não confirmação. Ver o cabeçalho.
+        ultimo = d["ultimo_fixture"]
+        fechou_agora = bool(marcos) and marcos[-1] == ultimo
+        expulso_agora = any(_e_vermelho(c.get("detalhe") or "")
+                            for c in por_jogo.get(ultimo, []))
+        d["suspenso"] = bool(fechou_agora or expulso_agora)
+        d["motivo"] = ("expulso no último jogo" if expulso_agora
+                       else f"{limite}º amarelo no último jogo" if fechou_agora
+                       else "")
+        d.pop("eventos", None)
+        saida.append(d)
+
+    # Suspenso primeiro, pendurado depois, e dentro de cada grupo por clube.
+    saida.sort(key=lambda d: (not d["suspenso"], not d["pendurado"],
+                              (d["clube"] or "").lower(),
+                              -d["amarelos"], (d["jogador"] or "").lower()))
+    return saida
+
+
+async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
+    """Lê os cartões das partidas encerradas que ainda não li.
+
+    UMA CHAMADA POR PARTIDA, e é por isso que existe o controle do que já foi
+    lido. Uma temporada tem 306 jogos; reler tudo a cada passagem queimaria a
+    cota inteira da assinatura para redescobrir o que já está no banco. Em
+    regime normal são os 9 jogos da rodada.
+
+    Partida que eu li enquanto ainda rolava é relida: os cartões do segundo
+    tempo não existiam na primeira leitura.
+    """
+    from database import (marcar_partida_lida, partidas_ja_lidas,
+                          registrar_cartao)
+    teto = teto or int(ajuste("cartoes_partidas_por_passada") or 12)
+    diag = {"temporada": season, "partidas_lidas": 0, "cartoes_novos": 0,
+            "faltam": 0, "erros": []}
+
+    jogos, err = await _af_get("fixtures",
+                               {"league": AF_LEAGUE_SPL, "season": season})
+    if err:
+        diag["erros"].append(err)
+        return diag
+
+    ja = partidas_ja_lidas(season)
+    ENCERRADOS = ("FT", "AET", "PEN")
+    pendentes = []
+    for f in (jogos or {}).get("response", []):
+        fx = f.get("fixture") or {}
+        st = ((fx.get("status") or {}).get("short") or "")
+        if st not in ENCERRADOS:
+            continue
+        anterior = ja.get(fx.get("id"))
+        # Já lido E já estava encerrado quando li: não muda mais.
+        if anterior in ENCERRADOS:
+            continue
+        pendentes.append(f)
+
+    diag["faltam"] = max(0, len(pendentes) - teto)
+    for f in pendentes[:teto]:
+        fx = f.get("fixture") or {}
+        fid = fx.get("id")
+        eventos, err = await _af_get("fixtures/events", {"fixture": fid})
+        if err:
+            diag["erros"].append(f"jogo {fid}: {err}")
+            continue
+        rodada = (f.get("league") or {}).get("round") or ""
+        quando = (fx.get("date") or "")[:10]
+        for ev in (eventos or {}).get("response", []):
+            if (ev.get("type") or "").lower() != "card":
+                continue
+            jogador = ev.get("player") or {}
+            if jogador.get("id") is None:
+                continue
+            detalhe = ev.get("detail") or ""
+            time_ = ev.get("team") or {}
+            novo = registrar_cartao(
+                fixture_id=fid, season=season, liga_id=AF_LEAGUE_SPL,
+                jogador_id=jogador.get("id"), jogador=jogador.get("name"),
+                clube_id=time_.get("id"), clube=time_.get("name"),
+                tipo="vermelho" if _e_vermelho(detalhe) else "amarelo",
+                detalhe=detalhe, minuto=(ev.get("time") or {}).get("elapsed"),
+                rodada=rodada, jogo_em=quando)
+            if novo:
+                diag["cartoes_novos"] += 1
+        marcar_partida_lida(fid, season, (fx.get("status") or {}).get("short"))
+        diag["partidas_lidas"] += 1
+    return diag
+
+
+@app.get("/api/pendurados")
+async def api_pendurados(season: int = 0, coletar: int = 0):
+    """Quem está pendurado, quem está fora, e o que falta ler.
+
+    `coletar` é 0 por padrão DE PROPÓSITO. Abrir a tela não pode disparar
+    dezenas de chamadas da API — quem manda ler é o botão, e a rotina
+    agendada. Tela que gasta cota só por ser olhada é tela que a gente
+    aprende a não abrir.
+    """
+    from database import cartoes_da_temporada, partidas_ja_lidas
+    temporada = season or _af_temporada_corrente()
+    limite = int(ajuste("cartoes_para_suspender") or 4)
+    diag = {}
+    if coletar:
+        diag = await _coletar_cartoes(temporada)
+    cartoes = cartoes_da_temporada(temporada)
+    situacao = _situacao_dos_cartoes(cartoes, limite)
+    # O escudo entra AQUI, e não na função da regra: aquela função é sobre
+    # contagem de cartão e precisa continuar testável sem saber que existe
+    # servidor de imagem. O endereço é o padrão da API-Football, o mesmo que
+    # a guia de Elencos já usa.
+    for d in situacao:
+        d["escudo"] = (f"https://media.api-sports.io/football/teams/"
+                       f"{d['clube_id']}.png" if d.get("clube_id") else "")
+    clubes = sorted({d["clube"] for d in situacao if d["clube"]},
+                    key=lambda c: c.lower())
+    return {
+        "temporada": temporada, "limite": limite,
+        "partidas_lidas": len(partidas_ja_lidas(temporada)),
+        "cartoes_no_banco": len(cartoes),
+        "clubes": clubes,
+        "suspensos": [d for d in situacao if d["suspenso"]],
+        "pendurados": [d for d in situacao
+                       if d["pendurado"] and not d["suspenso"]],
+        "todos": situacao,
+        "coleta": diag,
+    }
+
+
+@app.post("/api/pendurados/atualizar")
+async def api_pendurados_atualizar(season: int = 0):
+    """Lê mais um punhado de partidas. É o botão da tela."""
+    return await _coletar_cartoes(season or _af_temporada_corrente())
+
+
+_PENDURADOS_CSS = """
+body{background:var(--c-bg);color:var(--c-text);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
+.wrap{max-width:820px;margin:0 auto;padding:6px 16px 90px}
+h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
+  margin:10px 0 4px}
+.sub{font-size:.76rem;color:var(--c-muted-3);line-height:1.55;margin:0 0 14px}
+.pd-barra{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.pd-btn{background:transparent;border:1.5px solid var(--c-border-2);border-radius:99px;
+  padding:6px 15px;font-size:.68rem;font-weight:800;color:var(--c-muted-4);
+  cursor:pointer;font-family:inherit}
+.pd-btn:hover{border-color:var(--c-text);color:var(--c-text)}
+.pd-btn:disabled{opacity:.5;cursor:default}
+.pd-estado{font-size:.68rem;color:var(--c-muted-4)}
+.pd-filtro{display:flex;align-items:center;gap:7px;margin-left:auto}
+.pd-filtro > span{font-size:.66rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--c-muted-3)}
+.pd-filtro select{background:var(--c-bg-card);color:var(--c-text);
+  border:1.5px solid var(--c-border-2);border-radius:10px;padding:7px 10px;
+  font-family:inherit;font-size:.78rem;max-width:60vw}
+.pd-secao{font-size:.7rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.08em;color:var(--c-muted-3);margin:20px 0 10px}
+.pd-linha{display:flex;align-items:center;gap:11px;background:var(--c-bg-card);
+  border:1px solid var(--c-border);border-radius:12px;padding:11px 13px;
+  margin-bottom:8px}
+.pd-linha.fora{border-color:#FD5D5D66}
+.pd-linha.quase{border-color:#FFBE5D66}
+.pd-escudo{width:26px;height:26px;flex:0 0 26px;display:flex;align-items:center;
+  justify-content:center}
+.pd-escudo img{max-width:26px;max-height:26px;object-fit:contain}
+.pd-quem{flex:1;min-width:0}
+.pd-nome{font-weight:800;font-size:.9rem;overflow-wrap:anywhere}
+.pd-clube{font-size:.7rem;color:var(--c-muted-3);margin-top:2px}
+.pd-cartoes{display:flex;align-items:center;gap:4px;flex:0 0 auto}
+.pd-carta{width:11px;height:15px;border-radius:2px;display:inline-block}
+.pd-carta.a{background:#FFCE31}
+.pd-carta.v{background:#FD5D5D}
+.pd-carta.vazia{background:transparent;border:1.5px dashed var(--c-border-2)}
+.pd-selo{font-size:.6rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.06em;border-radius:99px;padding:3px 9px;border:1.5px solid;
+  flex:0 0 auto}
+.pd-selo.fora{border-color:#FD5D5D;color:#FD5D5D}
+.pd-selo.quase{border-color:#FFBE5D;color:#FFBE5D}
+.pd-vazio{font-size:.76rem;color:var(--c-muted-3);padding:14px 0}
+.pd-nota{font-size:.7rem;color:var(--c-muted-4);line-height:1.6;
+  background:var(--c-bg-soft);border-radius:10px;padding:11px 13px;margin-top:22px}
+"""
+
+_PENDURADOS_HTML = """<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pendurados · IARABÃO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+__PD_CSS__
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Pendurados e suspensos</h1>
+  <p class="sub">Amarelos contados cartão a cartão, dos jogos da temporada.
+     Suspende no <b id="pdLimite">4º</b> amarelo em partidas diferentes.</p>
+
+  <div class="pd-barra">
+    <button class="pd-btn" id="pdAtualizar" onclick="atualizar()">⟳ Ler mais jogos</button>
+    <span class="pd-estado" id="pdEstado">carregando…</span>
+    <label class="pd-filtro">
+      <span>Equipe</span>
+      <select id="pdClube" onchange="desenhar()">
+        <option value="">Todas</option>
+      </select>
+    </label>
+  </div>
+
+  <div id="pdListas"></div>
+
+  <div class="pd-nota">
+    Isto é uma <b>dedução a partir da regra</b>, e não a lista oficial: eu conto
+    cartões, não escalações, então não sei se quem fechou o ciclo realmente
+    cumpriu a suspensão no jogo seguinte. Dois amarelos na mesma partida contam
+    como expulsão e <b>não</b> entram no acúmulo. Para conferir o oficial, veja
+    a aba “Conferir na API” na guia Lesões — lá vêm as suspensões que a
+    API-Football publica.
+  </div>
+</div>
+<script>
+__PD_JS__
+</script>
+</body>
+</html>"""
+
+_PENDURADOS_JS = r"""
+let DADOS = null;
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function carregar() {
+  const est = document.getElementById('pdEstado');
+  try {
+    const r = await fetch('/api/pendurados');
+    DADOS = await r.json();
+    if (DADOS.erro) throw new Error(DADOS.erro);
+  } catch (e) {
+    est.textContent = 'não consegui carregar: ' + (e.message || e);
+    return;
+  }
+  document.getElementById('pdLimite').textContent = DADOS.limite + 'º';
+
+  const sel = document.getElementById('pdClube');
+  const antes = sel.value;
+  sel.innerHTML = '<option value="">Todas</option>'
+    + (DADOS.clubes || []).map(function (c) {
+        return '<option value="' + esc(c) + '">' + esc(c) + '</option>';
+      }).join('');
+  sel.value = antes;
+
+  // O estado da leitura fica na cara. Sem isso, uma tela com poucos nomes
+  // parece "quase ninguém pendurado" quando na verdade é "quase nada lido".
+  est.textContent = DADOS.partidas_lidas + ' jogo(s) lido(s) · '
+    + DADOS.cartoes_no_banco + ' cartão(ões) no banco'
+    + (DADOS.coleta && DADOS.coleta.faltam ? ' · faltam ' + DADOS.coleta.faltam : '');
+  desenhar();
+}
+
+function cartas(d) {
+  let h = '<span class="pd-cartoes">';
+  for (let i = 0; i < DADOS.limite; i++) {
+    h += '<span class="pd-carta ' + (i < d.no_ciclo ? 'a' : 'vazia') + '"></span>';
+  }
+  if (d.vermelhos) h += '<span class="pd-carta v"></span>';
+  return h + '</span>';
+}
+
+function linha(d, classe, selo) {
+  return '<div class="pd-linha ' + classe + '">'
+    + '<span class="pd-escudo">' + (d.escudo
+        ? '<img src="' + esc(d.escudo) + '" alt="">' : '') + '</span>'
+    + '<span class="pd-quem"><span class="pd-nome">' + esc(d.jogador) + '</span>'
+    + '<div class="pd-clube">' + esc(d.clube)
+    + (d.motivo ? ' · ' + esc(d.motivo) : '')
+    + (!d.motivo && d.faltam === 1 ? ' · mais um amarelo e fica fora' : '')
+    + '</div></span>'
+    + cartas(d)
+    + '<span class="pd-selo ' + classe + '">' + selo + '</span>'
+    + '</div>';
+}
+
+function desenhar() {
+  if (!DADOS) return;
+  const clube = document.getElementById('pdClube').value;
+  const filtra = function (lista) {
+    return (lista || []).filter(function (d) { return !clube || d.clube === clube; });
+  };
+  const fora = filtra(DADOS.suspensos);
+  const quase = filtra(DADOS.pendurados);
+
+  let h = '<div class="pd-secao">Fora do próximo jogo (' + fora.length + ')</div>';
+  h += fora.length
+    ? fora.map(function (d) { return linha(d, 'fora', 'Suspenso'); }).join('')
+    : '<div class="pd-vazio">Ninguém suspenso' + (clube ? ' neste clube' : '') + '.</div>';
+
+  h += '<div class="pd-secao">Pendurados — um amarelo do limite (' + quase.length + ')</div>';
+  h += quase.length
+    ? quase.map(function (d) { return linha(d, 'quase', 'Pendurado'); }).join('')
+    : '<div class="pd-vazio">Ninguém pendurado' + (clube ? ' neste clube' : '') + '.</div>';
+
+  document.getElementById('pdListas').innerHTML = h;
+}
+
+async function atualizar() {
+  const b = document.getElementById('pdAtualizar');
+  const est = document.getElementById('pdEstado');
+  b.disabled = true;
+  est.textContent = 'lendo jogos na API…';
+  try {
+    const r = await fetch('/api/pendurados/atualizar', {method: 'POST'});
+    const d = await r.json();
+    est.textContent = d.partidas_lidas + ' jogo(s) lido(s) agora, '
+      + d.cartoes_novos + ' cartão(ões) novo(s)'
+      + (d.faltam ? ' · ainda faltam ' + d.faltam : ' · nada pendente')
+      + ((d.erros || []).length ? ' · ⚠️ ' + d.erros.join(' | ') : '');
+    await carregar();
+  } catch (e) {
+    est.textContent = 'não deu: ' + (e.message || e);
+  } finally {
+    b.disabled = false;
+  }
+}
+
+carregar();
+"""
+
+
+@app.get("/pendurados", response_class=HTMLResponse)
+async def pagina_pendurados():
+    return HTMLResponse(
+        _PENDURADOS_HTML
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__PD_CSS__", _PENDURADOS_CSS)
+        .replace("__PD_JS__", _PENDURADOS_JS)
+        .replace("__HDR__", _header("/pendurados"))
+    )
 
 
 @app.post("/api/injuries/rebuild")

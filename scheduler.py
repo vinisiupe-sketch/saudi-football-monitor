@@ -193,6 +193,19 @@ def create_scheduler() -> AsyncIOScheduler:
         id="varrer_jogadores_semanal",
         replace_existing=True,
     )
+    # Cartões: de hora em hora, das 2h às 6h UTC (23h–3h de Brasília), depois
+    # que a rodada saudita já acabou. São quatro passadas curtas em vez de uma
+    # longa — cada uma lê um punhado de jogos (o teto está nos Ajustes), então
+    # quatro passadas dão conta da rodada com folga e, no começo, vão
+    # preenchendo a temporada aos poucos sem estourar a cota num pico.
+    scheduler.add_job(
+        run_cartoes,
+        trigger="cron",
+        hour="2-6",
+        minute=20,
+        id="cartoes_diario",
+        replace_existing=True,
+    )
     # 8h de Brasília = 11h UTC. A escala de arbitragem do SAFF sai no dia, em
     # horário que eles não anunciam. Uma passada só, como combinado; se o SAFF
     # atrasar, o botão "Buscar no SAFF agora" na guia resolve na hora.
@@ -244,6 +257,25 @@ def create_scheduler() -> AsyncIOScheduler:
         "+ varredura de competições às 05h30 + scrape janela às 07h"
     )
     return scheduler
+
+
+async def run_cartoes():
+    """Lê os cartões das partidas encerradas que ainda não foram lidas.
+
+    De madrugada, e não durante o jogo: cada partida custa uma chamada da
+    API-Football, e disputar cota com o placar ao vivo seria trocar uma coisa
+    que o Vini usa no ar por uma que ele consulta antes da rodada.
+    """
+    try:
+        from main import _coletar_cartoes, _af_temporada_corrente
+        r = await _coletar_cartoes(_af_temporada_corrente())
+        print(f"🟨 Cartões: {r.get('partidas_lidas')} jogo(s) lido(s), "
+              f"{r.get('cartoes_novos')} cartão(ões) novo(s), "
+              f"faltam {r.get('faltam')}")
+        return r
+    except Exception as e:
+        print(f"❌ Erro na leitura de cartões: {e}")
+        return {"erro": str(e)}
 
 
 async def run_varredura_competicoes():

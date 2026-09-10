@@ -28,6 +28,31 @@ SOBRE OS GRUPOS
 
 # tipo: "int" | "texto" | "escolha"
 AJUSTES = [
+    # ── Suspensões ────────────────────────────────────────────────────────
+    {
+        "chave": "cartoes_para_suspender",
+        "grupo": "Pendurados e suspensos",
+        "rotulo": "Amarelos que suspendem",
+        "unidade": "cartões",
+        "tipo": "int", "min": 2, "max": 10, "padrao": 4,
+        "ajuda": "Quantos amarelos em jogos diferentes deixam o jogador de "
+                 "fora da próxima partida. Na Saudi Pro League são 4 — a "
+                 "federação mudou de 3 para 4 e pode mudar de novo, e é por "
+                 "isso que este número está aqui e não escrito no código: "
+                 "no dia em que mudar, você acerta sozinho.",
+    },
+    {
+        "chave": "cartoes_partidas_por_passada",
+        "grupo": "Pendurados e suspensos",
+        "rotulo": "Jogos lidos por atualização",
+        "unidade": "jogos",
+        "tipo": "int", "min": 1, "max": 60, "padrao": 12,
+        "ajuda": "Cada jogo custa uma chamada da API. Numa rodada normal são "
+                 "9 jogos novos, então 12 dá conta com folga. Subir só "
+                 "adianta quando você está preenchendo uma temporada inteira "
+                 "pela primeira vez — e aí é melhor subir por um dia e voltar.",
+    },
+
     # ── Clipes: a janela ──────────────────────────────────────────────────
     {
         "chave": "clipe_atraso_transmissao",
