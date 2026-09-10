@@ -5466,9 +5466,19 @@ def _juntar_decisoes(situacao: list[dict], calendario: list[dict],
                            + (f" · falta(m) {len(faltam)}" if len(faltam) > 1 else ""))
             d["pendurado"] = False
         else:
-            # Cumpriu tudo que a SAFF mandou. O aviso de "confira" sai: ele
-            # existia porque eu NÃO sabia a duração, e agora sei. Manter o
-            # alerta depois de ter a resposta é ruído com cara de cuidado.
+            # Cumpriu tudo que a SAFF mandou: SAI DA TELA, direto.
+            #
+            # O aviso de "confira" existia porque eu NÃO sabia a duração, e
+            # agora sei. Manter o alerta depois de ter a resposta é ruído com
+            # cara de cuidado.
+            #
+            # Cheguei a pôr aqui uma passagem por "voltando de suspensão",
+            # achando que o jogador sumir de repente parecia defeito. O Vini
+            # cortou, e tem razão: esta guia responde "quem eu NÃO posso
+            # escalar". Jogador liberado não é resposta para essa pergunta —
+            # é uma linha a mais para varrer com o olho, num dia de rodada,
+            # procurando os que importam. Quem quiser o histórico tem a guia
+            # Disciplina, que guarda a decisão inteira.
             if d.get("estado") in ("fora", "indefinido", "retornando"):
                 d["estado"] = ""
                 d["motivo"] = ""
