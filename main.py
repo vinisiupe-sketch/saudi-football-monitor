@@ -5499,9 +5499,8 @@ async def api_pendurados_sondar_motivo(season: int = 0, quantos: int = 4):
     return "\n".join(linhas)
 
 
-@app.post("/api/pendurados/atualizar")
-async def api_pendurados_atualizar(season: int = 0, refazer: int = 0):
-    """Lê mais um punhado de partidas. É o botão da tela.
+async def _atualizar_cartoes(season: int, refazer: int) -> dict:
+    """Lê mais um punhado de partidas.
 
     `refazer=1` apaga as marcas de "já li" e faz o coletor voltar em TODOS os
     jogos da temporada. Custa uma chamada por partida, então não é o padrão —
@@ -5517,6 +5516,28 @@ async def api_pendurados_atualizar(season: int = 0, refazer: int = 0):
     r = await _coletar_cartoes(temporada)
     r["marcas_apagadas"] = apagadas
     return r
+
+
+@app.post("/api/pendurados/atualizar")
+async def api_pendurados_atualizar(season: int = 0, refazer: int = 0):
+    """O botão da tela."""
+    return await _atualizar_cartoes(season, refazer)
+
+
+@app.get("/api/pendurados/atualizar")
+async def api_pendurados_atualizar_get(season: int = 0, refazer: int = 0):
+    """A MESMA coisa, acionável colando o endereço no navegador.
+
+    Existe porque eu mandei o Vini "rodar POST /api/pendurados/atualizar" e
+    ele fez a única coisa possível com um endereço: colou na barra. A barra
+    de endereço só sabe GET, e ele levou um "Method Not Allowed" — nada
+    rodou, e o pior é que parecia ter rodado.
+
+    O app já tem esse par em /api/admin/fix-article, pelo mesmo motivo. GET
+    que muda estado não é bonito, mas a alternativa era ele abrir o console do
+    navegador para escrever um fetch no meio de um dia de jogo.
+    """
+    return await _atualizar_cartoes(season, refazer)
 
 
 _PENDURADOS_CSS = """
@@ -5593,6 +5614,8 @@ __HDR__
 
   <div class="pd-barra">
     <button class="pd-btn" id="pdAtualizar" onclick="atualizar()">⟳ Ler mais jogos</button>
+    <button class="pd-btn" id="pdReler" onclick="relerTudo()"
+            title="Apaga o que já foi lido e busca todos os jogos de novo. Custa uma chamada da API por partida.">↺ Reler tudo</button>
     <span class="pd-estado" id="pdEstado">carregando…</span>
     <label class="pd-filtro">
       <span>Equipe</span>
@@ -5773,24 +5796,40 @@ function desenhar() {
   document.getElementById('pdListas').innerHTML = h;
 }
 
-async function atualizar() {
+async function atualizar(refazer) {
   const b = document.getElementById('pdAtualizar');
+  const b2 = document.getElementById('pdReler');
   const est = document.getElementById('pdEstado');
-  b.disabled = true;
-  est.textContent = 'lendo jogos na API…';
+  b.disabled = b2.disabled = true;
+  est.textContent = refazer ? 'apagando as marcas e relendo…' : 'lendo jogos na API…';
   try {
-    const r = await fetch('/api/pendurados/atualizar', {method: 'POST'});
+    const r = await fetch('/api/pendurados/atualizar' + (refazer ? '?refazer=1' : ''),
+                          {method: 'POST'});
     const d = await r.json();
-    est.textContent = d.partidas_lidas + ' jogo(s) lido(s) agora, '
+    est.textContent = (d.marcas_apagadas ? d.marcas_apagadas + ' marca(s) apagada(s) · ' : '')
+      + d.partidas_lidas + ' jogo(s) lido(s) agora, '
       + d.cartoes_novos + ' cartão(ões) novo(s)'
-      + (d.faltam ? ' · ainda faltam ' + d.faltam : ' · nada pendente')
+      + (d.faltam ? ' · ainda faltam ' + d.faltam + ', toque de novo' : ' · nada pendente')
       + ((d.erros || []).length ? ' · ⚠️ ' + d.erros.join(' | ') : '');
     await carregar();
   } catch (e) {
     est.textContent = 'não deu: ' + (e.message || e);
   } finally {
-    b.disabled = false;
+    b.disabled = b2.disabled = false;
   }
+}
+
+// Reler tudo apaga as marcas de "já li" e volta em TODAS as partidas da
+// temporada. É caro (uma chamada da API por jogo) e só faz sentido quando a
+// LEITURA estava errada — foi o caso do acréscimo, em que o segundo amarelo
+// de um mesmo minuto era descartado. Por isso pergunta antes: o botão do lado
+// resolve o dia a dia, e este aqui é para consertar o passado.
+async function relerTudo() {
+  if (!confirm('Apagar o que já foi lido e buscar todos os jogos da '
+             + 'temporada de novo?\n\nCusta uma chamada da API por partida, e '
+             + 'vai precisar de algumas passadas até o contador de "faltam" '
+             + 'chegar a zero.')) return;
+  await atualizar(1);
 }
 
 carregar();
