@@ -3065,7 +3065,11 @@ def obter_escudo_extra(chave: str) -> bytes | None:
 # na mesma partida — que é justamente o caso que vira vermelho e muda tudo.
 # Sem o minuto na chave, o segundo amarelo sobrescreveria o primeiro e o
 # expulso apareceria como quem levou um cartão só.
+_CARTAO_MIGRADO = False
+
+
 def _cria_cartao(c) -> None:
+    global _CARTAO_MIGRADO
     c.execute("""
         CREATE TABLE IF NOT EXISTS cartao (
             id          SERIAL PRIMARY KEY,
@@ -3078,15 +3082,53 @@ def _cria_cartao(c) -> None:
             clube       TEXT,
             tipo        TEXT NOT NULL,
             detalhe     TEXT,
+            motivo      TEXT,
             minuto      INTEGER NOT NULL DEFAULT -1,
+            extra       INTEGER NOT NULL DEFAULT 0,
             rodada      TEXT,
             jogo_em     TEXT,
-            visto_em    TIMESTAMPTZ DEFAULT NOW(),
-            UNIQUE (fixture_id, jogador_id, tipo, minuto)
+            visto_em    TIMESTAMPTZ DEFAULT NOW()
         )
     """)
     c.execute("CREATE INDEX IF NOT EXISTS cartao_temporada "
               "ON cartao (season, jogador_id)")
+    if _CARTAO_MIGRADO:
+        return
+
+    # ── O ACRÉSCIMO PRECISA ENTRAR NA CHAVE ─────────────────────────────
+    #
+    # A primeira versão desta tabela tinha UNIQUE (fixture_id, jogador_id,
+    # tipo, minuto) e guardava só o `elapsed` da API, jogando fora o `extra`.
+    # Parecia inofensivo até aparecer isto, num jogo de verdade (Al-Ahli x
+    # Al-Hilal, 01/09):
+    #
+    #     45+4  Yellow Card  Merih Demiral
+    #     45+7  Yellow Card  Merih Demiral
+    #     45+7  Red Card     Merih Demiral
+    #
+    # Os dois amarelos viram "minuto 45" e o segundo era DESCARTADO pela
+    # chave única. Com um amarelo só no jogo, a regra não reconhecia a
+    # expulsão por dois amarelos, tratava o vermelho como direto e deixava
+    # aquele amarelo no acúmulo — o mesmo estrago do caso do Dion Lopy, por
+    # outro caminho. Cartão em acréscimo não é raro; é onde eles se
+    # concentram.
+    #
+    # A migração é idempotente e roda uma vez por processo: as colunas novas
+    # entram com ADD COLUMN IF NOT EXISTS, a chave antiga é derrubada pelo
+    # nome que o Postgres tiver dado a ela (por isso a consulta ao catálogo,
+    # em vez de chutar o nome padrão), e a nova entra como índice único.
+    c.execute("ALTER TABLE cartao ADD COLUMN IF NOT EXISTS extra INTEGER NOT NULL DEFAULT 0")
+    c.execute("ALTER TABLE cartao ADD COLUMN IF NOT EXISTS motivo TEXT")
+    c.execute("""
+        SELECT con.conname FROM pg_constraint con
+          JOIN pg_class rel ON rel.oid = con.conrelid
+         WHERE rel.relname = 'cartao' AND con.contype = 'u'
+    """)
+    for (nome,) in c.fetchall():
+        c.execute(f'ALTER TABLE cartao DROP CONSTRAINT IF EXISTS "{nome}"')
+    c.execute("""CREATE UNIQUE INDEX IF NOT EXISTS cartao_evento_unico
+                 ON cartao (fixture_id, jogador_id, tipo, minuto, extra)""")
+    _CARTAO_MIGRADO = True
     # Que partidas já foram lidas. Sem isto eu reconsultaria a API pelos
     # mesmos jogos a cada passagem — e cada partida é uma chamada da
     # assinatura. Uma temporada tem 306 jogos; reler tudo toda vez seria
@@ -3201,11 +3243,15 @@ def partidas_da_liga(season: int) -> list[dict]:
 def registrar_cartao(fixture_id: int, season: int, jogador_id: int, tipo: str,
                      minuto=None, jogador=None, clube_id=None, clube=None,
                      detalhe=None, rodada=None, jogo_em=None,
-                     liga_id=None) -> bool:
+                     liga_id=None, extra=None, motivo=None) -> bool:
     """Grava um cartão. Devolve True só na primeira vez.
 
     ON CONFLICT DO NOTHING, e não UPDATE: o cartão é um fato de um instante
     do jogo, e reler a mesma partida não deve mexer no que já está gravado.
+
+    `extra` é o acréscimo (o "+7" de 45+7). Ele entra na chave única porque
+    dois cartões no mesmo minuto de acréscimo são dois cartões — ver o
+    comentário longo em _cria_cartao.
     """
     try:
         with get_conn() as conn:
@@ -3214,15 +3260,39 @@ def registrar_cartao(fixture_id: int, season: int, jogador_id: int, tipo: str,
             c.execute("""
                 INSERT INTO cartao (fixture_id, season, liga_id, jogador_id,
                                     jogador, clube_id, clube, tipo, detalhe,
-                                    minuto, rodada, jogo_em)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                ON CONFLICT (fixture_id, jogador_id, tipo, minuto) DO NOTHING
+                                    motivo, minuto, extra, rodada, jogo_em)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (fixture_id, jogador_id, tipo, minuto, extra)
+                DO NOTHING
             """, [fixture_id, season, liga_id, jogador_id, jogador, clube_id,
-                  clube, tipo, detalhe,
-                  -1 if minuto is None else int(minuto), rodada, jogo_em])
+                  clube, tipo, detalhe, motivo,
+                  -1 if minuto is None else int(minuto),
+                  0 if extra is None else int(extra), rodada, jogo_em])
             return c.rowcount > 0
     except Exception:
         return False
+
+
+def esquecer_partidas_lidas(season: int) -> int:
+    """Apaga as marcas de "já li" para a temporada, forçando a releitura.
+
+    Existe porque um defeito de LEITURA não se conserta sozinho: se eu
+    guardei um cartão errado (ou deixei de guardar um), a partida continua
+    marcada como lida e o coletor nunca mais volta nela. Foi o caso do
+    acréscimo — os cartões perdidos só voltam relendo.
+
+    Não apaga os cartões: o ON CONFLICT cuida de não duplicar, e o que já
+    está certo continua certo.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_cartao(c)
+            c.execute("DELETE FROM cartao_partida_lida WHERE season = %s",
+                      [season])
+            return c.rowcount
+    except Exception:
+        return 0
 
 
 def marcar_partida_lida(fixture_id: int, season: int, status: str) -> None:
@@ -3266,10 +3336,10 @@ def cartoes_da_temporada(season: int) -> list[dict]:
             _cria_cartao(c)
             c.execute("""
                 SELECT fixture_id, jogador_id, jogador, clube_id, clube,
-                       tipo, detalhe, minuto, rodada, jogo_em
+                       tipo, detalhe, motivo, minuto, extra, rodada, jogo_em
                   FROM cartao
                  WHERE season = %s
-                 ORDER BY jogo_em NULLS FIRST, fixture_id, minuto
+                 ORDER BY jogo_em NULLS FIRST, fixture_id, minuto, extra
             """, [season])
             return [dict(r) for r in c.fetchall()]
     except Exception:

@@ -62,12 +62,13 @@ def _carregar_regra():
     mod = ast.parse(FONTE)
     alvos = {"_classificar_cartao", "_e_amarelo", "_e_segundo_amarelo",
              "_e_vermelho", "_situacao_dos_cartoes", "_jogos_do_clube",
-             "_adversario", "_ja_aconteceu"}
+             "_adversario", "_ja_aconteceu", "_gancho_pode_ser_maior"}
     corpo = [n for n in mod.body
              if isinstance(n, ast.FunctionDef) and n.name in alvos]
     achadas = {n.name for n in corpo}
     corpo += [n for n in mod.body if isinstance(n, ast.Assign)
-              and getattr(n.targets[0], "id", "") == "_JOGO_ENCERRADO"]
+              and getattr(n.targets[0], "id", "")
+              in ("_JOGO_ENCERRADO", "MOTIVOS_DE_GANCHO_MAIOR")]
     ns = {}
     exec(compile(ast.Module(body=corpo, type_ignores=[]), "<regra>", "exec"), ns)
     return ns, achadas
@@ -152,7 +153,7 @@ def testar():
     ns, achadas = _carregar_regra()
     esperadas = {"_classificar_cartao", "_e_amarelo", "_e_segundo_amarelo",
                  "_e_vermelho", "_situacao_dos_cartoes", "_jogos_do_clube",
-                 "_adversario", "_ja_aconteceu"}
+                 "_adversario", "_ja_aconteceu", "_gancho_pode_ser_maior"}
     ok(achadas == esperadas,
        f"sumiu alguma função da regra: falta {esperadas - achadas}")
     if achadas != esperadas:
@@ -362,6 +363,95 @@ def testar():
                   for p in cal_itt], "2026-08-22")[0]
     ok(d["estado"] == "fora" and d["jogo_da_pena"] == "Al-Hazem",
        f"em 22/08 o Lopy devia estar fora do jogo contra o Al-Hazem: {d}")
+
+    # ── 5c. O ACRÉSCIMO: 45+4 e 45+7 são dois cartões ────────────────────
+    # Achado nos dados reais dele (Al-Ahli x Al-Hilal, 01/09):
+    #
+    #     45+4  Yellow Card  Merih Demiral
+    #     45+7  Yellow Card  Merih Demiral
+    #     45+7  Red Card     Merih Demiral
+    #
+    # Guardando só o `elapsed`, os dois amarelos viram "minuto 45" e o segundo
+    # some pela chave única do banco. Com UM amarelo no jogo, a regra não
+    # reconhece a expulsão por dois amarelos, trata o vermelho como direto e
+    # deixa aquele amarelo no acúmulo — o estrago do caso do Lopy, por outro
+    # caminho. Aqui a regra recebe os dois e tem que enxergar os dois.
+    demiral = [cartao(4, 12, AMARELO, "2026-09-09", 45),
+               cartao(4, 12, AMARELO, "2026-09-09", 45),
+               cartao(4, 12, VERMELHO, "2026-09-09", 45)]
+    for c in demiral:
+        c["extra"] = 4 if c is demiral[0] else 7
+    d = de(demiral)[12]
+    ok(d["dois_amarelos"] == 1 and d["amarelos"] == 0,
+       f"os dois amarelos em acréscimo não foram reconhecidos como expulsão "
+       f"por dois amarelos: {d}. Se o banco tiver descartado um deles pela "
+       "chave única, a conta fica com um amarelo a mais para sempre")
+    ok(d["estado"] == "fora",
+       "o expulso em acréscimo não ficou fora do jogo seguinte")
+
+    # E o que garante que o banco não descarte: a chave única inclui o extra.
+    bd = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+    ok("ON CONFLICT (fixture_id, jogador_id, tipo, minuto, extra)" in bd,
+       "a chave única dos cartões voltou a ignorar o acréscimo. 45+4 e 45+7 "
+       "viram o mesmo cartão e o segundo é descartado em silêncio")
+    ok("cartao_evento_unico" in bd and "ADD COLUMN IF NOT EXISTS extra" in bd,
+       "sumiu a migração que acrescenta a coluna `extra` e troca a chave "
+       "única — sem ela, o banco que já existe continua com a chave antiga")
+
+    # ── 5d. O ALERTA DE GANCHO MAIOR ─────────────────────────────────────
+    # A API preenche o `comments` do cartão: "Foul", "Argument", "Violent
+    # conduct" (conferido nos jogos da liga em 10/09). O que ela NÃO dá é a
+    # duração — o endpoint `injuries`, que traria "Suspended 3 matches", não
+    # cobre esta liga (coverage.injuries = false, conferido).
+    #
+    # Então o alerta é um SINAL, não um número: quando o motivo sugere gancho
+    # longo, o jogador fica em "confira" em vez de eu liberá-lo sozinho.
+    gancho = ns["_gancho_pode_ser_maior"]
+    ok(gancho("Violent conduct") == "conduta violenta",
+       f'"Violent conduct" devia virar um alerta: {gancho("Violent conduct")!r}')
+    ok(gancho("Serious foul play") and gancho("Spitting"),
+       "sumiram motivos graves da tabela de alerta")
+    for comum in ("Foul", "Argument", "", None, "Handball"):
+        ok(gancho(comum) == "",
+           f'"{comum}" virou alerta de gancho maior e não devia — alarme que '
+           "toca em todo vermelho é alarme que se aprende a ignorar")
+
+    # Um vermelho por conduta violenta em 09/09. O jogo seguinte do Nassr no
+    # calendário é 16/09.
+    violento = [dict(cartao(4, 13, VERMELHO, "2026-09-09", 88),
+                     motivo="Violent conduct")]
+    d = de(violento)[13]
+    ok(d["estado"] == "fora" and "conduta violenta" in d["motivo"],
+       f"o motivo da expulsão não apareceu enquanto ele está fora: {d}")
+    ok("mais de um jogo" in d["motivo"],
+       f"o aviso de gancho maior não apareceu: {d['motivo']!r}")
+
+    # Depois de cumprir UM jogo ele NÃO é liberado: fica em "confira".
+    d = de(violento, hoje="2026-09-17", cal=_calendario_em("2026-09-17"))[13]
+    ok(d["estado"] == "indefinido",
+       f"depois de um jogo cumprido, o expulso por conduta violenta foi dado "
+       f"como liberado ({d['estado']!r}). Eu não sei de quantos jogos foi o "
+       "gancho — liberar por conta própria põe em campo alguém suspenso")
+    ok("conduta violenta" in d["motivo"],
+       f"o alerta não diz o motivo: {d['motivo']!r}")
+
+    # Mas o alerta EXPIRA. Um aviso que nunca some vira parte do cenário.
+    longo = CAL + [jogo(20, "2026-09-30", NASSR, HILAL),
+                   jogo(21, "2026-10-07", TAAWOUN, NASSR),
+                   jogo(22, "2026-10-14", NASSR, ITTIHAD)]
+    tarde = [dict(p, status=("FT" if p["data"] < "2026-10-20" else "NS"))
+             for p in longo]
+    d = situacao(violento, 4, tarde, "2026-10-20")[0]
+    ok(d["estado"] == "",
+       f"o alerta de gancho maior não expirou: {d['estado']!r}. Cinco rodadas "
+       "depois, qualquer suspensão plausível já acabou — e um aviso "
+       "permanente é um aviso que ninguém lê")
+
+    # Vermelho comum continua saindo da lista depois de cumprir.
+    comum = [dict(cartao(4, 14, VERMELHO, "2026-09-09", 70), motivo="Foul")]
+    d = de(comum, hoje="2026-09-17", cal=_calendario_em("2026-09-17"))[14]
+    ok(d["estado"] == "retornando",
+       f"vermelho comum devia estar como 'retornando' e está {d['estado']!r}")
 
     # ── 6. vermelho direto, e vermelho antigo ────────────────────────────
     d = de([cartao(4, 4, VERMELHO, "2026-09-09", 30)])[4]

@@ -4954,6 +4954,54 @@ def _e_vermelho(detalhe: str) -> bool:
     return _classificar_cartao(detalhe) in ("vermelho", "amarelo_vermelho")
 
 
+# Motivos de expulsão que costumam custar mais de um jogo.
+#
+# A API preenche o campo `comments` do cartão — conferido nos jogos da liga em
+# 10/09: aparecem "Foul", "Argument" e "Violent conduct". O que ela NÃO dá é a
+# duração: o endpoint `injuries`, que traria "Suspended 3 matches", não cobre
+# a Saudi Pro League (coverage.injuries = false).
+#
+# Então isto aqui é um ALERTA, e não um número. A tela diz "pode passar de um
+# jogo, confira" e mostra o motivo como veio. Escrever "3 jogos" seria
+# inventar: o Código Disciplinar da FIFA sugere três para conduta violenta,
+# mas quem decide é a comissão da SAFF, caso a caso, e o Vini iria ao ar com
+# um número que não saiu de lugar nenhum.
+#
+# Chaves em minúsculas, comparadas por "contém" — a fonte escreve em inglês e
+# eu não vi a lista completa dela.
+MOTIVOS_DE_GANCHO_MAIOR = {
+    "violent conduct": "conduta violenta",
+    "serious foul play": "jogada violenta",
+    "spitting": "cuspir",
+    "offensive language": "linguagem ofensiva",
+    "abusive language": "linguagem ofensiva",
+    "racism": "racismo",
+    "racist": "racismo",
+    "biting": "morder",
+    "elbow": "cotovelada",
+    "headbutt": "cabeçada",
+    "assault": "agressão",
+    "insult": "insulto",
+}
+
+
+def _gancho_pode_ser_maior(motivo: str) -> str:
+    """O motivo traduzido, quando ele sugere suspensão longa. Senão, "".
+
+    Devolve texto em vez de True/False porque a tela precisa DIZER qual foi o
+    motivo. "Pode pegar mais de um jogo" sem o porquê é um alarme que não dá
+    para conferir — e alarme que não dá para conferir é alarme que se aprende
+    a ignorar.
+    """
+    m = (motivo or "").strip().lower()
+    if not m:
+        return ""
+    for chave, traducao in MOTIVOS_DE_GANCHO_MAIOR.items():
+        if chave in m:
+            return traducao
+    return ""
+
+
 def _jogos_do_clube(calendario: list[dict], clube_id) -> list[dict]:
     """Os jogos de um clube, em ordem de data."""
     if clube_id is None:
@@ -5029,7 +5077,7 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
             "jogador_id": jid, "jogador": c.get("jogador") or "",
             "clube": c.get("clube") or "", "clube_id": c.get("clube_id"),
             "amarelos": 0, "vermelhos": 0, "dois_amarelos": 0,
-            "desconhecidos": 0,
+            "desconhecidos": 0, "motivo_expulsao": "", "gancho_maior": "",
             "eventos": [], "ultimo_jogo": "", "ultimo_fixture": None,
         })
         # O nome e o clube mais RECENTES ganham: jogador que trocou de time no
@@ -5086,6 +5134,13 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
                 # distintas, e o regulamento só cancela o par que gera a
                 # expulsão indireta.
                 d["vermelhos"] += 1
+                # O motivo vem do cartão VERMELHO, não de qualquer um da
+                # partida: o amarelo por reclamação no minuto 20 não diz nada
+                # sobre a expulsão do minuto 80.
+                bruto = next((c.get("motivo") or "" for c, x in zip(lista, classes)
+                              if x == "vermelho"), "")
+                d["motivo_expulsao"] = bruto
+                d["gancho_maior"] = _gancho_pode_ser_maior(bruto)
                 punicoes.append((fixture, "expulso"))
             if amarelos_no_jogo:
                 amarelos += amarelos_no_jogo
@@ -5119,16 +5174,41 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
                 if not _ja_aconteceu(cumpre_em, hoje):
                     d["estado"] = "fora"
                     d["motivo"] = motivo
+                    if d["gancho_maior"]:
+                        d["motivo"] += (f" por {d['gancho_maior']} — pode "
+                                        "pegar mais de um jogo")
                 else:
-                    # Cumpriu. Só é notícia se foi no ÚLTIMO jogo do clube —
-                    # aí ele volta no próximo, e isso o Vini quer saber. Duas
-                    # rodadas depois não é mais informação, é ruído.
+                    # Cumpriu UM jogo. Só é notícia se foi no ÚLTIMO jogo do
+                    # clube — aí ele volta no próximo, e isso o Vini quer
+                    # saber. Duas rodadas depois não é mais informação.
                     ultimo_jogado = next(
                         (p for p in reversed(agenda) if _ja_aconteceu(p, hoje)), None)
                     if ultimo_jogado and \
                             ultimo_jogado.get("fixture_id") == cumpre_em.get("fixture_id"):
                         d["estado"] = "retornando"
                         d["motivo"] = f"cumpriu ({motivo})"
+
+                    # ── o alerta de gancho maior ────────────────────────
+                    # Quando a expulsão foi por algo que costuma custar mais
+                    # de um jogo, eu NÃO posso dizer que ele voltou: a API dá
+                    # o motivo, mas não a duração (o endpoint que traria
+                    # "Suspended 3 matches" não cobre esta liga). Liberar por
+                    # conta própria seria o pior dos erros aqui — o Vini
+                    # escala alguém que ainda está de gancho.
+                    #
+                    # Então ele fica em "confira", com o motivo à vista, pelas
+                    # três partidas seguintes. Depois disso o alerta sai
+                    # sozinho: qualquer suspensão plausível já terminou, e um
+                    # aviso que nunca some vira parte do cenário.
+                    if d["gancho_maior"]:
+                        i_pena = posicao.get(cumpre_em.get("fixture_id"))
+                        jogados = sum(1 for p in agenda[i_pena:]
+                                      if _ja_aconteceu(p, hoje)) if i_pena is not None else 0
+                        if jogados <= 3:
+                            d["estado"] = "indefinido"
+                            d["motivo"] = (
+                                f"expulso por {d['gancho_maior']} — o gancho "
+                                "pode ter passado de um jogo")
             elif i is None:
                 d["estado"] = "indefinido"
                 d["motivo"] = f"{motivo} — jogo fora do calendário que eu tenho"
@@ -5223,12 +5303,22 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
                 continue
             detalhe = ev.get("detail") or ""
             time_ = ev.get("team") or {}
+            quando_ev = ev.get("time") or {}
             novo = registrar_cartao(
                 fixture_id=fid, season=season, liga_id=AF_LEAGUE_SPL,
                 jogador_id=jogador.get("id"), jogador=jogador.get("name"),
                 clube_id=time_.get("id"), clube=time_.get("name"),
                 tipo="vermelho" if _e_vermelho(detalhe) else "amarelo",
-                detalhe=detalhe, minuto=(ev.get("time") or {}).get("elapsed"),
+                detalhe=detalhe,
+                # `comments` é onde a API escreve POR QUE o cartão saiu:
+                # "Foul", "Argument", "Violent conduct". Conferido nos jogos
+                # da liga em 10/09 — vem preenchido, inclusive nos vermelhos.
+                motivo=ev.get("comments") or "",
+                minuto=quando_ev.get("elapsed"),
+                # O acréscimo. Guardá-lo não é capricho: sem ele, 45+4 e 45+7
+                # viram o mesmo minuto e o segundo cartão some pela chave
+                # única. Ver o comentário em database._cria_cartao.
+                extra=quando_ev.get("extra"),
                 rodada=rodada, jogo_em=quando)
             if novo:
                 diag["cartoes_novos"] += 1
@@ -5410,9 +5500,23 @@ async def api_pendurados_sondar_motivo(season: int = 0, quantos: int = 4):
 
 
 @app.post("/api/pendurados/atualizar")
-async def api_pendurados_atualizar(season: int = 0):
-    """Lê mais um punhado de partidas. É o botão da tela."""
-    return await _coletar_cartoes(season or _af_temporada_corrente())
+async def api_pendurados_atualizar(season: int = 0, refazer: int = 0):
+    """Lê mais um punhado de partidas. É o botão da tela.
+
+    `refazer=1` apaga as marcas de "já li" e faz o coletor voltar em TODOS os
+    jogos da temporada. Custa uma chamada por partida, então não é o padrão —
+    mas é o único jeito de consertar um defeito de leitura no que já foi
+    lido. Foi preciso quando o acréscimo passou a entrar na chave: os cartões
+    que a chave antiga descartou só voltam relendo.
+    """
+    temporada = season or _af_temporada_corrente()
+    apagadas = 0
+    if refazer:
+        from database import esquecer_partidas_lidas
+        apagadas = esquecer_partidas_lidas(temporada)
+    r = await _coletar_cartoes(temporada)
+    r["marcas_apagadas"] = apagadas
+    return r
 
 
 _PENDURADOS_CSS = """
@@ -5443,7 +5547,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
 .pd-linha.fora{border-color:#FD5D5D66}
 .pd-linha.quase{border-color:#FFBE5D66}
 .pd-linha.volta{border-color:#B6FF0066}
-.pd-linha.solto{border-color:var(--c-border-2)}
+.pd-linha.solto{border-color:#FFBE5D66;background:rgba(255,190,93,.05)}
 .pd-escudo{width:26px;height:26px;flex:0 0 26px;display:flex;align-items:center;
   justify-content:center}
 .pd-escudo img{max-width:26px;max-height:26px;object-fit:contain}
@@ -5461,7 +5565,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
 .pd-selo.fora{border-color:#FD5D5D;color:#FD5D5D}
 .pd-selo.quase{border-color:#FFBE5D;color:#FFBE5D}
 .pd-selo.volta{border-color:#B6FF00;color:#B6FF00}
-.pd-selo.solto{border-color:var(--c-border-2);color:var(--c-muted-4)}
+.pd-selo.solto{border-color:#FFBE5D;color:#FFBE5D}
 .pd-vazio{font-size:.76rem;color:var(--c-muted-3);padding:14px 0}
 .pd-nota{font-size:.7rem;color:var(--c-muted-4);line-height:1.6;
   background:var(--c-bg-soft);border-radius:10px;padding:11px 13px;margin-top:22px}
@@ -5508,7 +5612,15 @@ __HDR__
     Ainda é uma <b>dedução a partir da regra</b>: eu vejo o calendário, não a
     súmula. Punição por outro motivo (indisciplina, gestos, tribunal) não
     aparece aqui, e um adiamento que eu ainda não tenha lido desloca a conta.
-    Para o oficial, veja a aba “Conferir na API” na guia Lesões.
+    <br><br>
+    <b>Sobre o gancho maior:</b> a API diz por que o cartão saiu
+    (“Violent conduct”, “Foul”, “Argument”), mas <b>não</b> diz de quantos
+    jogos foi a suspensão — o endpoint que traria isso não cobre a liga
+    saudita. Então, quando a expulsão foi por algo que costuma passar de um
+    jogo, o jogador fica em <b>“Confira antes de escalar”</b> pelas três
+    rodadas seguintes, com o motivo à vista, em vez de eu liberá-lo por conta
+    própria. Não escrevo o número de jogos porque não tenho de onde tirá-lo:
+    quem decide é a comissão da SAFF, caso a caso.
   </div>
 </div>
 <script>
@@ -5646,12 +5758,15 @@ function desenhar() {
                'Ninguém', clube);
   }
 
-  // Punição que eu não consegui amarrar a um jogo do calendário. Some quando
-  // não há nenhuma — mas quando há, tem que aparecer: silenciar seria dizer
-  // que o jogador está liberado sem ter conferido.
+  // Dois casos caem aqui, e os dois pedem o seu olho:
+  //   · a expulsão foi por algo que costuma custar mais de um jogo, e eu não
+  //     tenho a duração (a API dá o motivo, não o gancho);
+  //   · o cartão saiu num jogo que não está no calendário que eu tenho.
+  // Some quando não há nenhum — mas quando há, tem que aparecer. Silenciar
+  // seria dizer que o jogador está liberado sem ter conferido.
   const soltos = filtra(DADOS.indefinidos);
   if (soltos.length) {
-    h += bloco('Não consegui conferir', soltos, 'solto', 'Confira',
+    h += bloco('Confira antes de escalar', soltos, 'solto', 'Confira',
                'Nenhum', clube);
   }
 
