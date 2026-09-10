@@ -5240,7 +5240,8 @@ def _situacao_dos_cartoes(cartoes: list[dict], limite: int,
         d.pop("eventos", None)
         saida.append(d)
 
-    ORDEM = {"fora": 0, "pendurado": 1, "retornando": 2, "indefinido": 3}
+    ORDEM = {"julgado": 0, "fora": 1, "pendurado": 2, "retornando": 3,
+             "indefinido": 4}
     saida.sort(key=lambda d: (ORDEM.get(d["estado"], 9),
                               (d["clube"] or "").lower(),
                               -d["amarelos"], (d["jogador"] or "").lower()))
@@ -5357,7 +5358,8 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
     return diag
 
 
-def _juntar_decisoes(situacao: list[dict], calendario: list[dict]) -> int:
+def _juntar_decisoes(situacao: list[dict], calendario: list[dict],
+                     hoje: str = "") -> int:
     """Casa cada expulsão com a decisão da SAFF, quando ela já saiu.
 
     O CASAMENTO É PELO JOGO, NÃO PELO NOME
@@ -5372,15 +5374,23 @@ def _juntar_decisoes(situacao: list[dict], calendario: list[dict]) -> int:
         mais de uma decisão para o mesmo jogo e clube, nenhuma é aplicada e o
         jogador fica em "confira".
 
-    O QUE ISTO MUDA NA TELA
-        Sem decisão, a guia continua supondo um jogo — é a regra automática do
+    O QUE ISTO MUDA NA CONTA
+        Sem decisão, a guia supõe UM jogo — é a suspensão automática do
         vermelho, e ela acerta na maioria. Com decisão, o número vira o
-        oficial: o Óscar Rodríguez pegou DOIS, e a tela passa a dizer dois, com
-        a decisão citada pelo número.
+        oficial e a conta é refeita: o Óscar Rodríguez pegou DOIS, então ele
+        perde os DOIS jogos seguintes do Diriyah, e sai da lista quando os
+        dois tiverem sido jogados.
+
+        Esta parte ficou de fora de propósito na primeira versão — eu queria
+        ver o casamento acertar antes de deixá-lo mexer na tela que decide
+        escalação. Acertou nos casos que o Vini conferiu, e o aviso vago ("o
+        gancho pode ter passado de um jogo") passou a ser pior do que o
+        número oficial que eu já tinha em mãos.
     """
     from database import decisoes_do_jogo
     if not situacao:
         return 0
+    hoje = hoje or _dia_de_brasilia()
     quando_do_jogo = {p.get("fixture_id"): (p.get("data") or "")
                       for p in (calendario or [])}
     casadas = 0
@@ -5402,14 +5412,40 @@ def _juntar_decisoes(situacao: list[dict], calendario: list[dict]) -> int:
         if not achadas:
             continue
         dec = achadas[0]
+        total = dec.get("jogos_total") or 1
         d["decisao_saff"] = {
             "numero": dec.get("numero"), "nome_arabe": dec.get("nome"),
-            "jogos_total": dec.get("jogos_total"),
+            "jogos_total": total,
             "jogos_extras": dec.get("jogos_extras"),
             "cabe_recurso": dec.get("cabe_recurso"),
             "texto": dec.get("decisao"),
         }
         casadas += 1
+
+        # ── a conta refeita com o número oficial ────────────────────────
+        agenda = _jogos_do_clube(calendario, d.get("clube_id"))
+        posicao = {p.get("fixture_id"): i for i, p in enumerate(agenda)}
+        i = posicao.get(d.get("ultimo_fixture"))
+        if i is None:
+            continue
+        punidos = agenda[i + 1:i + 1 + total]
+        faltam = [p for p in punidos if not _ja_aconteceu(p, hoje)]
+        d["decisao_saff"]["jogos_perdidos"] = len(punidos)
+        d["decisao_saff"]["faltam"] = len(faltam)
+        if faltam:
+            d["estado"] = "julgado"
+            d["jogo_da_pena"] = _adversario(faltam[0], d.get("clube_id"))
+            d["jogo_da_pena_em"] = faltam[0].get("data") or ""
+            d["motivo"] = (f"{total} jogo(s) por decisão da SAFF"
+                           + (f" · falta(m) {len(faltam)}" if len(faltam) > 1 else ""))
+            d["pendurado"] = False
+        else:
+            # Cumpriu tudo que a SAFF mandou. O aviso de "confira" sai: ele
+            # existia porque eu NÃO sabia a duração, e agora sei. Manter o
+            # alerta depois de ter a resposta é ruído com cara de cuidado.
+            if d.get("estado") in ("fora", "indefinido", "retornando"):
+                d["estado"] = ""
+                d["motivo"] = ""
     return casadas
 
 
@@ -5433,7 +5469,7 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
     calendario = partidas_da_liga(temporada)
     situacao = _situacao_dos_cartoes(cartoes, limite, calendario,
                                      _dia_de_brasilia())
-    _juntar_decisoes(situacao, calendario)
+    _juntar_decisoes(situacao, calendario, _dia_de_brasilia())
     # O escudo entra AQUI, e não na função da regra: aquela função é sobre
     # contagem de cartão e precisa continuar testável sem saber que existe
     # servidor de imagem. O endereço é o padrão da API-Football, o mesmo que
@@ -5450,6 +5486,7 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
         "cartoes_no_banco": len(cartoes),
         "jogos_no_calendario": len(calendario),
         "clubes": clubes,
+        "julgados": [d for d in situacao if d["estado"] == "julgado"],
         "suspensos": [d for d in situacao if d["estado"] == "fora"],
         "pendurados": [d for d in situacao if d["estado"] == "pendurado"],
         "retornando": [d for d in situacao if d["estado"] == "retornando"],
@@ -5767,6 +5804,10 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
 .ds-card{background:var(--c-bg-card);border:1px solid var(--c-border);
   border-radius:12px;padding:13px 15px;margin-bottom:10px}
 .ds-card.gancho{border-color:#FD5D5D66}
+.ds-card.apontada{border-color:#B6FF00;border-width:1.5px;
+  box-shadow:0 0 0 3px rgba(182,255,0,.10)}
+.ds-veio{font-size:.62rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.07em;color:#B6FF00;margin-bottom:7px}
 .ds-topo{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:7px}
 .ds-quem{font-weight:800;font-size:.94rem;overflow-wrap:anywhere}
 .ds-tag{font-size:.6rem;font-weight:800;text-transform:uppercase;
@@ -5883,7 +5924,7 @@ async function carregar() {
   desenhar();
 }
 
-function card(d) {
+function card(d, apontada) {
   const temGancho = d.jogos_extras > 0;
   let tags = '';
   if (d.jogos_total) {
@@ -5909,7 +5950,9 @@ function card(d) {
   const oQueFez = d.infracao_pt
     || ((d.termos_pt || []).length ? d.termos_pt.join(' · ') : '');
 
-  return '<div class="ds-card' + (temGancho ? ' gancho' : '') + '">'
+  return '<div class="ds-card' + (temGancho ? ' gancho' : '')
+    + (apontada ? ' apontada' : '') + '">'
+    + (apontada ? '<div class="ds-veio">Você veio da guia Pendurados</div>' : '')
     + '<div class="ds-topo">'
     + '<span class="ds-quem">' + esc(quem) + '</span>'
     + '<span class="ds-tag">' + esc(d.tipo || '—') + '</span>'
@@ -5942,12 +5985,33 @@ function card(d) {
     + '</div>';
 }
 
+// ?decisao=<numero> — de onde a guia Pendurados manda quem clica no link do
+// comitê. A decisão apontada sobe para o topo e fica destacada, em vez de o
+// Vini ter que procurá-la numa lista de trinta.
+function decisaoPedida() {
+  try {
+    return new URLSearchParams(location.search).get('decisao') || '';
+  } catch (e) { return ''; }
+}
+
 function desenhar() {
   const clube = document.getElementById('dsClube').value;
-  const lista = DECISOES.filter(function (d) { return !clube || d.clube === clube; });
+  const alvo = decisaoPedida();
+  let lista = DECISOES.filter(function (d) { return !clube || d.clube === clube; });
+  if (alvo) {
+    // A pedida na frente, o resto atrás — e não FILTRADA. Esconder as outras
+    // tiraria o contexto da rodada, que é metade do valor desta tela.
+    const dela = lista.filter(function (d) { return d.numero === alvo; });
+    const resto = lista.filter(function (d) { return d.numero !== alvo; });
+    lista = dela.concat(resto);
+  }
   document.getElementById('dsLista').innerHTML = lista.length
-    ? lista.map(card).join('')
+    ? lista.map(function (d) { return card(d, d.numero === alvo); }).join('')
     : '<div class="ds-vazio">Nada guardado ainda. Toque em “Buscar na SAFF”.</div>';
+  if (alvo) {
+    const primeiro = document.querySelector('.ds-card.apontada');
+    if (primeiro) primeiro.scrollIntoView({block: 'center'});
+  }
 }
 
 async function buscar() {
@@ -6018,13 +6082,18 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
   border:1px solid var(--c-border);border-radius:12px;padding:11px 13px}
 /* A nota da SAFF pendura embaixo da linha, recuada, para se ler como
    complemento daquele jogador e não como um item novo da lista. */
-.pd-saff{font-size:.68rem;font-weight:700;color:#B6FF00;margin:5px 0 0 37px;
-  line-height:1.5}
-.pd-saff.duvida{color:#FFBE5D}
+.pd-saff{font-size:.68rem;font-weight:700;margin:5px 0 0 37px;line-height:1.5}
+.pd-saff a{color:#B6FF00;text-decoration:none;border-bottom:1px dotted #B6FF0066}
+.pd-saff a:hover{border-bottom-style:solid}
+.pd-saff.duvida, .pd-saff.duvida a{color:#FFBE5D}
 .pd-linha.fora{border-color:#FD5D5D66}
 .pd-linha.quase{border-color:#FFBE5D66}
 .pd-linha.volta{border-color:#B6FF0066}
 .pd-linha.solto{border-color:#FFBE5D66;background:rgba(255,190,93,.05)}
+/* Julgado tem a borda mais forte da tela: é o único estado em que o número
+   não é dedução minha, e sim o que o comitê decidiu. */
+.pd-linha.julgado{border-color:#FD5D5D;border-width:1.5px;
+  background:rgba(253,93,93,.06)}
 .pd-escudo{width:26px;height:26px;flex:0 0 26px;display:flex;align-items:center;
   justify-content:center}
 .pd-escudo img{max-width:26px;max-height:26px;object-fit:contain}
@@ -6042,6 +6111,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
 .pd-selo.fora{border-color:#FD5D5D;color:#FD5D5D}
 .pd-selo.quase{border-color:#FFBE5D;color:#FFBE5D}
 .pd-selo.volta{border-color:#B6FF00;color:#B6FF00}
+.pd-selo.julgado{border-color:#FD5D5D;color:#FD5D5D;background:rgba(253,93,93,.12)}
 .pd-selo.solto{border-color:#FFBE5D;color:#FFBE5D}
 .pd-vazio{font-size:.76rem;color:var(--c-muted-3);padding:14px 0}
 .pd-nota{font-size:.7rem;color:var(--c-muted-4);line-height:1.6;
@@ -6175,6 +6245,12 @@ function dia(iso) {
 // suspenso", que não ajuda a montar nada, e "fulano está fora do jogo contra
 // o Al-Hilal, dia 16" — que é a frase que o Vini precisa no ar.
 function contexto(d, classe) {
+  if (classe === 'julgado') {
+    const s = d.decisao_saff || {};
+    return 'Fora do jogo contra o ' + esc(d.jogo_da_pena || '—')
+      + (d.jogo_da_pena_em ? ' (' + dia(d.jogo_da_pena_em) + ')' : '')
+      + (s.faltam > 1 ? ' · e de mais ' + (s.faltam - 1) + ' depois desse' : '');
+  }
   if (classe === 'fora') {
     return d.jogo_da_pena
       ? 'Fora do jogo contra o ' + esc(d.jogo_da_pena)
@@ -6197,31 +6273,28 @@ function contexto(d, classe) {
 
 // A decisão da SAFF, quando ela já saiu para aquele jogo.
 //
-// Por enquanto ela APARECE, mas ainda NÃO manda na conta de quantos jogos o
-// jogador fica fora — a conta segue supondo um, que é a regra automática do
-// vermelho. É de propósito, e foi o próprio Vini quem propôs a ordem:
-// primeiro ter o controle das decisões, depois abastecer esta guia com ele.
-//
-// O motivo de não atropelar: o casamento entre decisão e cartão é novo, e é
-// feito pela DATA DO JOGO e pelo clube. Antes de deixar esse casamento mexer
-// na tela que decide escalação, quero vê-lo acertar por algumas rodadas com
-// o Vini olhando. Um número oficial aplicado ao jogador errado é pior que um
-// número suposto aplicado ao jogador certo.
+// Ela MANDA na conta: o número de jogos vem do comitê, não da minha suposição
+// de um jogo. E ela é um LINK para a guia Disciplina, na decisão exata — de
+// lá dá para ler o parecer traduzido e o original em árabe sem procurar.
 function daSaff(d) {
   if (d.decisao_ambigua) {
     return '<div class="pd-saff duvida">A SAFF publicou ' + d.decisao_ambigua
-      + ' decisões para este jogo e não sei qual é a dele — abra a guia '
-      + 'Disciplina</div>';
+      + ' decisões para este jogo e não sei qual é a dele — '
+      + '<a href="/disciplina">abra a guia Disciplina</a></div>';
   }
   const s = d.decisao_saff;
   if (!s) return '';
   const extra = s.jogos_extras > 0
-    ? s.jogos_total + ' jogo(s) no total, ' + s.jogos_extras + ' além do automático'
+    ? s.jogos_total + ' jogo(s), ' + s.jogos_extras + ' além do automático'
     : 'só a partida automática, mais multa';
-  return '<div class="pd-saff">SAFF · ' + extra
-    + ' · decisão ' + esc(s.numero || '')
+  // O número da decisão tem barra e árabe ("14/ ل ض / 2026"), então vai
+  // codificado — sem isso a barra vira separador de caminho e o link cai
+  // numa página que não existe.
+  return '<div class="pd-saff">'
+    + '<a href="/disciplina?decisao=' + encodeURIComponent(s.numero || '') + '">'
+    + 'Comitê de Disciplina · ' + extra
     + (s.cabe_recurso === true ? ' · cabe recurso' : '')
-    + '</div>';
+    + ' ›</a></div>';
 }
 
 function linha(d, classe, selo) {
@@ -6259,8 +6332,17 @@ function desenhar() {
     return (lista || []).filter(function (d) { return !clube || d.clube === clube; });
   };
 
-  let h = bloco('Fora do próximo jogo', filtra(DADOS.suspensos), 'fora',
-                'Suspenso', 'Ninguém suspenso', clube);
+  // Julgados PRIMEIRO. É a informação mais firme da tela — o número saiu do
+  // comitê, não da minha dedução — e é a que muda uma escalação. O resto
+  // desta lista é regra automática aplicada por mim.
+  let h = '';
+  const julgados = filtra(DADOS.julgados);
+  if (julgados.length) {
+    h += bloco('Suspensos julgados pelo Comitê de Disciplina', julgados,
+               'julgado', 'Julgado', 'Nenhum', clube);
+  }
+  h += bloco('Fora do próximo jogo', filtra(DADOS.suspensos), 'fora',
+             'Suspenso', 'Ninguém suspenso', clube);
   h += bloco('Pendurados — um amarelo do limite', filtra(DADOS.pendurados),
              'quase', 'Pendurado', 'Ninguém pendurado', clube);
 

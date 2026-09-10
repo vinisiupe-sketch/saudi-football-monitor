@@ -62,14 +62,18 @@ def _carregar_regra():
     mod = ast.parse(FONTE)
     alvos = {"_classificar_cartao", "_e_amarelo", "_e_segundo_amarelo",
              "_e_vermelho", "_situacao_dos_cartoes", "_jogos_do_clube",
-             "_adversario", "_ja_aconteceu", "_gancho_pode_ser_maior"}
+             "_adversario", "_ja_aconteceu", "_gancho_pode_ser_maior",
+             "_juntar_decisoes"}
     corpo = [n for n in mod.body
              if isinstance(n, ast.FunctionDef) and n.name in alvos]
     achadas = {n.name for n in corpo}
     corpo += [n for n in mod.body if isinstance(n, ast.Assign)
               and getattr(n.targets[0], "id", "")
               in ("_JOGO_ENCERRADO", "MOTIVOS_DE_GANCHO_MAIOR")]
-    ns = {}
+    # `_juntar_decisoes` chama _dia_de_brasilia quando não recebe a data. Nos
+    # testes eu SEMPRE passo a data, mas o nome precisa existir no espaço —
+    # senão a função nem carrega.
+    ns = {"_dia_de_brasilia": lambda *a, **k: "2026-09-10"}
     exec(compile(ast.Module(body=corpo, type_ignores=[]), "<regra>", "exec"), ns)
     return ns, achadas
 
@@ -153,7 +157,8 @@ def testar():
     ns, achadas = _carregar_regra()
     esperadas = {"_classificar_cartao", "_e_amarelo", "_e_segundo_amarelo",
                  "_e_vermelho", "_situacao_dos_cartoes", "_jogos_do_clube",
-                 "_adversario", "_ja_aconteceu", "_gancho_pode_ser_maior"}
+                 "_adversario", "_ja_aconteceu", "_gancho_pode_ser_maior",
+                 "_juntar_decisoes"}
     ok(achadas == esperadas,
        f"sumiu alguma função da regra: falta {esperadas - achadas}")
     if achadas != esperadas:
@@ -567,6 +572,125 @@ def testar():
     ok(lista[0]["estado"] == "fora",
        "a lista não começa pelos suspensos — é a informação que decide a "
        "escalação e ela tem que estar no topo")
+
+    # ── 9b. A DECISÃO DO COMITÊ MANDA NA CONTA ───────────────────────────
+    # Enquanto não havia decisão, a guia supunha UM jogo — a suspensão
+    # automática do vermelho — e avisava "o gancho pode ter passado de um
+    # jogo, confira". Com a decisão em mãos, esse aviso vago virou pior que
+    # inútil: eu tinha o número oficial e continuava mandando o Vini conferir.
+    #
+    # O caso é o real: Óscar Rodríguez, expulso em 03/09 contra o Al-Qadsiah,
+    # DOIS jogos pela decisão 14/ ل ض / 2026.
+    import types
+    _juntar = ns.get("_juntar_decisoes")
+    ok(_juntar is not None,
+       "sumiu a função que casa a decisão da SAFF com o cartão")
+    if _juntar:
+        DIRIYAH = 26738
+        nomes_d = {DIRIYAH: "Al Diriyah", 2933: "Al Qadsiah",
+                   201: "Time A", 202: "Time B"}
+
+        def jd(fid, data, casa, fora, status):
+            return {"fixture_id": fid, "data": data, "status": status,
+                    "casa_id": casa, "casa": nomes_d[casa],
+                    "fora_id": fora, "fora": nomes_d[fora]}
+
+        cal_d = [jd(1, "2026-09-03", DIRIYAH, 2933, "FT"),
+                 jd(2, "2026-09-08", DIRIYAH, 201, "FT"),
+                 jd(3, "2026-09-14", 202, DIRIYAH, "NS"),
+                 jd(4, "2026-09-20", DIRIYAH, 201, "NS")]
+
+        def com_banco(decisoes):
+            """Troca o database por um dublê que devolve a decisão que eu quero."""
+            falso = types.ModuleType("database")
+            falso.decisoes_do_jogo = lambda dia, clube: (
+                decisoes if dia == "2026-09-03" else [])
+            sys.modules["database"] = falso
+
+        DECISAO = [{"numero": "14/ ل ض / 2026", "nome": "أوسكار رودريغيز",
+                    "clube": "الدرعية", "jogos_total": 2, "jogos_extras": 1,
+                    "cabe_recurso": False, "decisao": "..."}]
+
+        def caso(hoje, decisoes=DECISAO):
+            com_banco(decisoes)
+            d = {"jogador_id": 9, "jogador": "Óscar Rodríguez",
+                 "clube": "Al Diriyah", "clube_id": DIRIYAH, "vermelhos": 1,
+                 "ultimo_fixture": 1, "ultimo_jogo": "2026-09-03",
+                 "estado": "fora", "motivo": "expulso", "pendurado": False,
+                 "jogo_da_pena": "Time A", "jogo_da_pena_em": "2026-09-08"}
+            cal = [dict(p, status=("FT" if p["data"] < hoje else "NS"))
+                   for p in cal_d]
+            _juntar([d], cal, hoje)
+            return d
+
+        anterior = sys.modules.get("database")
+        try:
+            d = caso("2026-09-05")
+            ok(d["estado"] == "julgado",
+               f"com decisão do comitê o estado devia ser 'julgado': "
+               f"{d['estado']!r}")
+            ok("2 jogo" in d["motivo"] and "SAFF" in d["motivo"],
+               f"o motivo devia citar os 2 jogos do comitê: {d['motivo']!r}")
+            ok("pode ter passado" not in d["motivo"],
+               "voltou o aviso vago de 'pode ter passado de um jogo' num caso "
+               "em que eu TENHO o número oficial. Mandar conferir o que já "
+               "está decidido é pior que não avisar")
+            ok((d["decisao_saff"] or {}).get("faltam") == 2,
+               f"faltam errado: {d.get('decisao_saff')}")
+
+            # Cumpriu um dos dois: continua fora, e a pena aponta para o
+            # PRÓXIMO jogo perdido, não para o que já passou.
+            d = caso("2026-09-09")
+            ok(d["estado"] == "julgado"
+               and (d["decisao_saff"] or {}).get("faltam") == 1,
+               f"depois de um jogo cumprido ainda falta um: {d}")
+            ok(d["jogo_da_pena"] == "Time B" and d["jogo_da_pena_em"] == "2026-09-14",
+               f"a pena devia apontar para o jogo que ele AINDA vai perder: "
+               f"{d['jogo_da_pena']!r} em {d['jogo_da_pena_em']!r}")
+
+            # Cumpriu os dois: sai da lista. O aviso de 'confira' some junto —
+            # ele existia porque eu não sabia a duração, e agora sei.
+            d = caso("2026-09-15")
+            ok(d["estado"] == "" and not d["motivo"],
+               f"cumpridos os 2 jogos, o Óscar tinha que sair da lista: "
+               f"{d['estado']!r} / {d['motivo']!r}")
+
+            # Duas decisões para o mesmo jogo: não sei qual é dele, e digo.
+            d = caso("2026-09-05", DECISAO + [dict(DECISAO[0], numero="15")])
+            ok(d.get("decisao_ambigua") == 2 and not d.get("decisao_saff"),
+               "com duas decisões para o mesmo jogo, nenhuma pode ser "
+               f"aplicada: {d.get('decisao_saff')}")
+
+            # Sem decisão, nada muda: a regra automática continua valendo.
+            d = caso("2026-09-05", [])
+            ok(d["estado"] == "fora" and not d["decisao_saff"],
+               f"sem decisão o estado não podia mudar: {d['estado']!r}")
+        finally:
+            if anterior is not None:
+                sys.modules["database"] = anterior
+            else:
+                sys.modules.pop("database", None)
+
+    # A tela: seção nova no topo, e o link para a decisão.
+    ok("Suspensos julgados pelo Comitê de Disciplina" in FONTE,
+       "sumiu a seção dos julgados pelo comitê")
+    i_julgados = FONTE.find("Suspensos julgados pelo Comitê")
+    i_fora = FONTE.find("bloco('Fora do próximo jogo'")
+    ok(-1 < i_julgados < i_fora,
+       "os julgados pelo comitê têm que vir ANTES de 'Fora do próximo jogo' "
+       "— é a informação mais firme da tela, e é a que muda uma escalação")
+    # O número codificado tem que estar COLADO no link, e não só existir em
+    # algum lugar do arquivo: a primeira versão procurava as duas coisas
+    # separadamente e passava com o encodeURIComponent arrancado dali.
+    ok("/disciplina?decisao=' + encodeURIComponent(" in FONTE,
+       "o link para a decisão sumiu, ou parou de codificar o número. O "
+       "número tem barra e árabe ('14/ ل ض / 2026'): sem codificar, a barra "
+       "vira separador de caminho e o link cai numa página que não existe")
+    # `in FONTE` com o nome cru também casa com "_decisaoPedida" — o mesmo
+    # tipo de armadilha de substring que o "Yellow-Red Card" explorou. Vou de
+    # declaração inteira.
+    ok("function decisaoPedida()" in FONTE and "' apontada'" in FONTE,
+       "a guia Disciplina parou de destacar a decisão apontada pelo link")
 
     # ── 10. o ajuste existe e tem o valor certo ──────────────────────────
     aj = open(os.path.join(RAIZ, "ajustes.py"), encoding="utf-8").read()
