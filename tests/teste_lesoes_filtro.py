@@ -123,9 +123,20 @@ def testar():
        "— e não é: é a mesma lista")
     ok("lsn-tag-tm" in tela,
        "sumiu a tag (TM) — sem ela não dá para saber qual fonte disse o quê")
-    ok("injury-timeline" in tela and "Transfermarkt <span" in tela,
-       "o Transfermarkt parou de entrar no histórico do card. A tag diz que "
-       "ele confirmou; o histórico é onde se lê o que ele disse")
+    # E entra DENTRO do histórico que já existe, não numa gaveta própria:
+    # duas gavetas no mesmo card obrigam a abrir as duas para saber o que se
+    # sabe sobre o jogador, e a pergunta é uma só.
+    ok("extra.querySelector('.injury-timeline')" in tela,
+       "o Transfermarkt parou de procurar o histórico que já existe no card "
+       "— ele volta a criar uma gaveta só dele")
+    ok("linha.insertBefore(item, linha.firstChild)" in tela,
+       "a entrada do Transfermarkt deixou de ser inserida na linha do tempo")
+    # O link tem que estar no ÂNCORA emitida, e não só na variável: trocar o
+    # <a> por um <span> deixava o endereço montado e nunca clicável.
+    ok("+ '<a href=\"' + link + '\"" in tela
+       and "transfermarkt.com/-/profil/spieler/" in tela,
+       "a entrada do Transfermarkt perdeu o link para a página do jogador — "
+       "sem ele, a fonte não dá para conferir")
     # E quem só o TM conhece entra na MESMA lista, sem seção própria: a tag
     # já diz de onde veio, e uma segunda seção era redundância.
     ok("Só no Transfermarkt" not in tela,
@@ -298,6 +309,34 @@ def testar():
     ok("Cadastro manual" in manual,
        "a fonte manual parou de se identificar no histórico — daqui a um mês "
        "não dá para saber o que veio da imprensa e o que foi você que pôs")
+
+    # ── 8. ordem de ocorrência, e os chips de estado ─────────────────────
+    # A data da LESÃO manda, não a da última notícia. Um caso de três semanas
+    # atrás que ganhou uma nota hoje subia ao topo e empurrava para baixo
+    # quem se machucou ontem.
+    ok("def _quando(" in tela and 'i.get("injury_date")' in tela,
+       "a lista voltou a ser ordenada pela última atualização em vez da data "
+       "da lesão — notícia velha com nota nova sobe ao topo")
+    ok("active.sort(key=_quando, reverse=True)" in tela,
+       "sumiu a ordenação por ocorrência")
+    ok("lsn-chips" in tela and "filtrarEstado(" in tela,
+       "sumiram os filtros de estado no topo")
+    # Os dois filtros valem juntos: "quem do Al-Hilal está lesionado" é a
+    # pergunta mais comum, e exigir escolher um dos dois a deixaria sem
+    # resposta.
+    ok("doClube && doEstado" in tela,
+       "os filtros de clube e de estado deixaram de valer ao mesmo tempo")
+
+    # ── 9. o celular não pode reescalar a letra sozinho ──────────────────
+    # O rodapé "ATUALIZADO" é 10px fixos no CSS e mesmo assim saía enorme no
+    # celular — duas vezes o Vini apontou. Não era o CSS: Android Chrome e
+    # iOS Safari incham por conta própria a letra que julgam pequena demais,
+    # e escolhem o que inchar, o que faz o sintoma parecer arbitrário.
+    ok("text-size-adjust: 100%" in FONTE,
+       "voltou o inchaço automático de letra no celular. O CSS pode dizer "
+       "10px e o navegador desenhar o dobro — e só num pedaço da tela")
+    ok("_HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD + _SEM_ZOOM_NO_TOQUE" in FONTE,
+       "a regra saiu do _HEAD_COMUM e deixou de valer em todas as telas")
 
     for f in falhas:
         print("  ✗", f)

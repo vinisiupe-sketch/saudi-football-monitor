@@ -486,6 +486,22 @@ _SEM_ZOOM_NO_TOQUE = """<style>
 @media (hover: none) and (pointer: coarse) {
   input, select, textarea { font-size: 16px !important; }
 }
+/* O celular NÃO pode reescalar a letra por conta própria.
+ *
+ * O Vini disse duas vezes que o "ATUALIZADO" do card de lesões saía gigante
+ * no celular, e eu fui olhar o CSS — que diz 10px, fixos. Não era o CSS.
+ *
+ * Android Chrome e iOS Safari aumentam sozinhos a letra de blocos que julgam
+ * pequenos demais para ler, e escolhem O QUE aumentar por conta deles: numa
+ * mesma tela, o rodapé de 10px incha e o nome de 0.9rem fica igual. Daí o
+ * sintoma parecer arbitrário — um pedaço só, e justo o menor.
+ *
+ * text-size-adjust:100% desliga isso e devolve o tamanho que está escrito.
+ * Não prejudica quem precisa de letra grande: o zoom de pinça continua
+ * funcionando, e é ele o caminho de acessibilidade de verdade — o inchaço
+ * automático não respeita escolha nenhuma, só adivinha.
+ */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 </style>"""
 
 _HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD + _SEM_ZOOM_NO_TOQUE
@@ -4227,26 +4243,50 @@ async def _page_lesoes_impl(request: Request):
         print(f"⚠️ lesões, rosto: {type(e).__name__}: {e}")
         _indice, _por_id, _escudos = {"chave": {}}, {}, {}
 
-    def _do_elenco(nome: str) -> dict:
+    # Elenco agrupado por clube, para a segunda tentativa de identificação.
+    def _chave_clube(nome: str) -> str:
+        try:
+            import glossary
+            return (glossary.padronizar_clube(nome or "") or nome or "").lower()
+        except Exception:
+            return (nome or "").lower()
+
+    _por_clube: dict = {}
+    for _j in _gente:
+        _por_clube.setdefault(_chave_clube(_j.get("clube")), []).append(_j)
+
+    def _do_elenco(nome: str, clube: str = "") -> dict:
         """O jogador do elenco que corresponde a este nome, ou {}.
 
-        Este índice já existia aqui — era ele que achava a FOTO. O nome, no
-        entanto, continuava saindo como a IA o transliterou da notícia, e o
-        Vini reclamou com razão: "Faris Abdi" numa tela e "Fares Abdy" na
-        outra são a mesma pessoa parecendo duas.
+        DUAS TENTATIVAS, e a segunda existe por causa do Bergwijn.
+            A primeira é o índice geral de nomes — o mesmo que acha a foto.
+            Ele exige NO MÍNIMO DUAS PALAVRAS, de propósito: ele foi feito
+            para varrer notícia, e num texto solto "Silva" não identifica
+            ninguém.
 
-        Se o índice é bom o bastante para escolher a foto certa — e é, porque
-        exige correspondência ÚNICA —, ele é bom o bastante para dar o nome.
-        Passar a usá-lo para as duas coisas não é uma fonte nova: é parar de
-        desperdiçar a que já estava aberta.
+            Só que aqui o texto não é solto. A notícia dizia "Bergwijn" e
+            "Steven Bergwijn"; "Rajkovic" e "Predrag Rajković". O índice
+            resolvia os nomes completos e recusava os sobrenomes sozinhos —
+            e o mesmo jogador aparecia duas vezes na tela. O Vini perguntou
+            se o glossário era inútil. Não é: é que eu estava pedindo a ele
+            uma coisa que ele recusa fazer, com razão, no lugar errado.
+
+            A segunda tentativa usa o que eu tenho aqui e o índice não tinha
+            lá: O CLUBE. Dentro de um elenco de trinta pessoas, "Bergwijn" é
+            único, e "Rajkovic" também. Fora dele, não seriam — por isso a
+            busca é ESCOPADA, e desiste se mais de um jogador daquele clube
+            responder pelo mesmo pedaço de nome.
         """
         achados = elos.jogadores_no_texto("", nome or "", _indice)
-        if len(achados) != 1:
-            return {}
-        return _por_id.get(next(iter(achados))) or {}
+        if len(achados) == 1:
+            return _por_id.get(next(iter(achados))) or {}
 
-    def _rosto(nome: str) -> str:
-        foto = (_do_elenco(nome) or {}).get("foto") or ""
+        if not clube:
+            return {}
+        return _jogador_do_elenco_do_clube(nome, _por_clube.get(_chave_clube(clube), []))
+
+    def _rosto(nome: str, clube: str = "") -> str:
+        foto = (_do_elenco(nome, clube) or {}).get("foto") or ""
         return (foto if foto.startswith("http") else liga_spl.MEDIA + foto) if foto else ""
 
     # ── JUNTAR O QUE É DA MESMA PESSOA ──────────────────────────────────
@@ -4265,8 +4305,9 @@ async def _page_lesoes_impl(request: Request):
     # certo: juntar dois desconhecidos porque não sei quem são seria inventar
     # uma identidade em cima da ignorância.
     def _identidade(inj: dict):
+        clube = inj.get("club") or ""
         for nome in (inj.get("player_name"), inj.get("player_name_orig")):
-            j = _do_elenco(nome or "")
+            j = _do_elenco(nome or "", clube)
             if j:
                 return ("elenco", j.get("spl_id"))
         return ("nome", _chave_de_nome(inj.get("player_name") or ""),
@@ -4328,7 +4369,8 @@ async def _page_lesoes_impl(request: Request):
         # melhor do que qualquer transliteração feita a partir de um texto
         # em árabe. O clube também: a notícia diz "Al Ahli" e o elenco diz
         # "Al-Ahli Jeddah", e é o segundo que casa com o escudo.
-        do_elenco = _do_elenco(bruto)
+        do_elenco = _do_elenco(bruto, club) or _do_elenco(
+            inj.get("player_name_orig") or "", club)
         player = (do_elenco.get("nome") or "").strip() or bruto
         club = (do_elenco.get("clube") or "").strip() or club
 
@@ -4447,8 +4489,21 @@ async def _page_lesoes_impl(request: Request):
     # jogador que se machucou de novo depois de recuperado tem duas histórias
     # distintas, e juntá-las esconderia a que está valendo hoje.
     active, recovered = _juntar(active), _juntar(recovered)
-    active.sort(key=lambda i: str(i.get("last_updated") or ""), reverse=True)
-    recovered.sort(key=lambda i: str(i.get("last_updated") or ""), reverse=True)
+
+    # ORDEM DE OCORRÊNCIA: a data da LESÃO manda, não a da última notícia.
+    # São coisas diferentes e a diferença aparece todo dia — um caso de três
+    # semanas atrás que ganhou uma nota hoje subia para o topo e empurrava
+    # para baixo quem se machucou ontem. Numa lista de lesionados, o que
+    # importa é quando o jogador saiu de campo.
+    #
+    # Sem data de lesão, cai para a última atualização: é o melhor palpite
+    # que eu tenho, e melhor que jogar a linha para o fim da lista.
+    def _quando(i: dict) -> str:
+        return (str(i.get("injury_date") or "")[:10]
+                or str(i.get("last_updated") or "")[:10])
+
+    active.sort(key=_quando, reverse=True)
+    recovered.sort(key=_quando, reverse=True)
     cards_active    = "".join(_card(i) for i in active)    if active    else '<div class="empty-state">Nenhuma lesão ativa registrada.</div>'
     cards_recovered = "".join(_card(i) for i in recovered) if recovered else '<div class="empty-state">Nenhuma recuperação registrada.</div>'
 
@@ -4758,8 +4813,19 @@ details[open] summary::before {{ transform: rotate(90deg); }}
    pessoa procurar na tela um botão que ninguém desenha. */
 /* A tag (TM), embaixo do estado. Diz de onde veio a confirmação sem ocupar
    uma linha no meio da lista — o detalhe fica no histórico, a um toque. */
+/* No verde da casa: é a cor que o app usa para "isto está confirmado". */
 .lsn-tag-tm {{ font-size: .54rem; padding: 2px 7px;
-  border-color: var(--c-border-2); color: var(--c-muted-3); }}
+  border-color: #B6FF00; color: #B6FF00; }}
+/* Chips de estado, no topo. Mesma gramática dos chips que a guia de Notícias
+   já usa: o escolhido fica sólido, os outros vazados. */
+.lsn-chips {{ display: flex; gap: 7px; flex-wrap: wrap; margin: 14px 0 10px; }}
+.lsn-chip {{ background: transparent; border: 1.5px solid var(--c-border-2);
+  border-radius: 99px; padding: 5px 13px; font-size: .68rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--c-muted-4);
+  cursor: pointer; font-family: inherit; }}
+.lsn-chip:hover {{ border-color: var(--c-text); color: var(--c-text); }}
+.lsn-chip.ativo {{ background: var(--c-text); color: var(--c-bg);
+  border-color: var(--c-text); }}
 /* ── Cadastro manual ──────────────────────────────────────────────────── */
 .lsn-novo {{ margin: 14px 0 4px; }}
 .lsn-novo > summary {{ list-style: none; cursor: pointer; display: inline-block;
@@ -4828,6 +4894,16 @@ details[open] summary::before {{ transform: rotate(90deg); }}
     </div>
   </details>
 
+  <!-- Filtros de estado, no topo, como chips. O de clube continua à direita:
+       são duas perguntas diferentes ("o que é grave?" e "quem do meu time?") e
+       elas se combinam. -->
+  <div class="lsn-chips" id="lsnChips">
+    <button class="lsn-chip ativo" data-estado="" onclick="filtrarEstado(this)">Todas</button>
+    <button class="lsn-chip" data-estado="lesionado" onclick="filtrarEstado(this)">Lesionado</button>
+    <button class="lsn-chip" data-estado="em_recuperacao" onclick="filtrarEstado(this)">Em recuperação</button>
+    <button class="lsn-chip" data-estado="retornando" onclick="filtrarEstado(this)">Retornando</button>
+  </div>
+
   <div class="lsn-barra">
     <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
     <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted);"></span>
@@ -4858,6 +4934,17 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 //
 // A contagem ao lado do título muda junto. Sem isso ela viraria mentira — a
 // tela mostrando três cards e o título dizendo "Ativas (37)".
+// Estado escolhido nos chips. Vazio = todos.
+let _lsnEstado = '';
+
+function filtrarEstado(botao) {{
+  _lsnEstado = botao.dataset.estado || '';
+  document.querySelectorAll('#lsnChips .lsn-chip').forEach(function (b) {{
+    b.classList.toggle('ativo', b === botao);
+  }});
+  filtrarPorClube();
+}}
+
 function filtrarPorClube() {{
   const alvo = document.getElementById('filtroClube').value;
   [['gradeAtivas', 'contaAtivas'], ['gradeRecuperados', 'contaRecuperados']]
@@ -4867,7 +4954,12 @@ function filtrarPorClube() {{
       if (!grade) return;
       let visiveis = 0;
       grade.querySelectorAll('.injury-card').forEach(function (c) {{
-        const mostra = !alvo || c.dataset.clube === alvo;
+        // Os dois filtros valem ao mesmo tempo: "quem do Al-Hilal está
+        // lesionado" é uma pergunta comum, e exigir escolher um dos dois
+        // deixaria justamente essa sem resposta.
+        const doClube = !alvo || c.dataset.clube === alvo;
+        const doEstado = !_lsnEstado || c.classList.contains('status-' + _lsnEstado);
+        const mostra = doClube && doEstado;
         c.style.display = mostra ? '' : 'none';
         if (mostra) visiveis++;
       }});
@@ -4983,7 +5075,20 @@ async function juntarTransfermarkt() {{
   filtrarPorClube();
 }}
 
-// A tag (TM) embaixo do estado, e a linha no histórico.
+// A tag (TM) embaixo do estado, e o Transfermarkt DENTRO do histórico que já
+// existe — como mais uma notícia, não como um bloco próprio.
+//
+// Tinha ficado num <details> separado ("TRANSFERMARKT (1)") e o Vini cortou:
+// "não precisa de outra abertura só pra transfermkt". Ele tem razão. Duas
+// gavetas no mesmo card obrigam a abrir as duas para saber o que se sabe
+// sobre o jogador — e a pergunta é uma só.
+//
+// SOBRE A DATA: a página de lesionados da competição publica o "until" (a
+// previsão de retorno), não o "since". Então eu NÃO tenho a data em que a
+// lesão começou segundo o TM, e não vou inventar uma: a entrada entra no topo
+// do histórico, com a data de hoje, dizendo que é o estado ATUAL da fonte.
+// Se um dia quisermos o "since", ele está na página de cada jogador — uma
+// chamada por lesionado, o que é caro para o que acrescenta.
 function marcarTM(card, a, sozinho) {{
   const selos = card.querySelector('.lsn-selos');
   if (selos && !selos.querySelector('.lsn-tag-tm')) {{
@@ -4995,23 +5100,45 @@ function marcarTM(card, a, sozinho) {{
   }}
   const extra = card.querySelector('.lsn-extra');
   if (!extra) return;
-  const texto = lsnEsc(a.lesao || 'lesão não detalhada')
+
+  const hoje = new Date().toISOString().slice(0, 10);
+  const titulo = lsnEsc(a.lesao || 'lesão não detalhada')
     + (a.ate_texto && a.ate_texto !== '?'
-        ? ' · retorno previsto ' + lsnEsc(a.ate_texto)
-        : ' · sem previsão de retorno')
+        ? ' — retorno previsto ' + lsnEsc(a.ate_texto)
+        : ' — sem previsão de retorno')
     + (sozinho ? ' · não saiu na imprensa que eu coleto' : '')
     // Sem casar com o elenco, o nome é o do TM e pode estar escrito diferente
     // do resto do app. Dizer isso é mais honesto que esconder.
     + (a.no_elenco ? '' : ' · não achei no elenco guardado, nome como o TM escreve');
-  const bloco = document.createElement('details');
-  bloco.className = 'injury-timeline';
-  bloco.innerHTML = '<summary>Transfermarkt <span class="section-count">(1)'
-    + '</span></summary><div class="timeline"><div class="timeline-item">'
-    + '<span class="timeline-dot status-lesionado"></span>'
+  const link = a.tm_id
+    ? 'https://www.transfermarkt.com/-/profil/spieler/' + encodeURIComponent(a.tm_id)
+    : 'https://www.transfermarkt.com/saudi-professional-league/verletztespieler/'
+      + 'wettbewerb/SA1';
+
+  const item = document.createElement('div');
+  item.className = 'timeline-item';
+  item.innerHTML = '<span class="timeline-dot status-lesionado"></span>'
     + '<div class="timeline-content"><div class="timeline-top">'
-    + '<span class="status-pill sm">Transfermarkt</span></div>'
-    + '<span class="timeline-title">' + texto + '</span></div></div></div>';
-  extra.insertBefore(bloco, extra.firstChild);
+    + '<span class="status-pill sm status-lesionado">Lesionado</span>'
+    + '<span class="timeline-date">' + hoje + '</span></div>'
+    + '<a href="' + link + '" target="_blank" rel="noopener" class="timeline-title">'
+    + titulo + ' · Transfermarkt</a></div>';
+
+  // Procuro o histórico que JÁ existe no card e entro nele, no topo. Só crio
+  // um quando o card não tem nenhum — o caso do jogador que só o TM conhece.
+  let gaveta = extra.querySelector('.injury-timeline');
+  if (!gaveta) {{
+    gaveta = document.createElement('details');
+    gaveta.className = 'injury-timeline';
+    gaveta.innerHTML = '<summary>Histórico <span class="section-count">(0)'
+      + '</span></summary><div class="timeline"></div>';
+    extra.insertBefore(gaveta, extra.firstChild);
+  }}
+  const linha = gaveta.querySelector('.timeline');
+  if (!linha) return;
+  linha.insertBefore(item, linha.firstChild);
+  const conta = gaveta.querySelector('summary .section-count');
+  if (conta) conta.textContent = '(' + linha.querySelectorAll('.timeline-item').length + ')';
 }}
 
 juntarTransfermarkt();
@@ -5120,6 +5247,44 @@ async function rebuild() {{
 @app.get("/api/injuries")
 async def api_injuries():
     return get_injuries(include_recovered=True)
+
+
+def _jogador_do_elenco_do_clube(nome: str, elenco: list[dict]) -> dict:
+    """Quem, DENTRO deste elenco, atende por este nome. {} se não der para dizer.
+
+    POR QUE ISTO EXISTE, E POR QUE MORA AQUI FORA
+        O índice geral de nomes exige no mínimo DUAS palavras. É a regra
+        certa para varrer notícia: num texto solto, "Silva" não identifica
+        ninguém. Mas na guia de Lesões o texto não é solto — a notícia dizia
+        "Bergwijn" e "Steven Bergwijn", "Rajkovic" e "Predrag Rajković", e o
+        índice resolvia os completos e recusava os sobrenomes. O mesmo
+        jogador aparecia duas vezes, e o Vini perguntou se o glossário era
+        inútil. Não é: eu é que estava pedindo a ele, no lugar errado, uma
+        coisa que ele recusa fazer com razão.
+
+        Aqui eu tenho o que faltava lá: O CLUBE. Num elenco de trinta,
+        "Bergwijn" é único. Na liga inteira, não seria — por isso a busca é
+        escopada, e desiste quando mais de um responde.
+
+        Está no corpo do módulo, e não dentro da página, para poder ser
+        exercitada em teste com um elenco inventado. A primeira versão vivia
+        numa closure, e o teste só conseguia procurar o texto dela no
+        arquivo — o que deixou passar um `return` posto na frente.
+    """
+    alvo = _chave_de_nome(nome)
+    if not alvo:
+        return {}
+    candidatos = []
+    for j in elenco or []:
+        partes = set(_chave_de_nome(j.get("nome") or "").split())
+        partes |= set(_chave_de_nome(j.get("nome_curto") or "").split())
+        # TODO pedaço do nome procurado tem que existir no nome do jogador.
+        # "Bergwijn" bate com "Steven Bergwijn"; "Steven Silva" não bate,
+        # porque "silva" não está lá. Com interseção em vez de subconjunto,
+        # bastaria o "steven" coincidir e o card iria para a pessoa errada.
+        if partes and set(alvo.split()) <= partes:
+            candidatos.append(j)
+    return candidatos[0] if len(candidatos) == 1 else {}
 
 
 def _chave_de_nome(nome: str) -> str:

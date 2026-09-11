@@ -153,9 +153,59 @@ def testar():
     ok("elos.jogadores_no_texto" in lesoes,
        "a identificação da lesão deixou de usar o índice de nomes — se voltar "
        "a casar por conta própria, volta a errar de pessoa")
-    ok("len(achados) != 1" in lesoes,
+    ok("len(achados) == 1" in lesoes,
        "a identificação passou a aceitar nome que cai em mais de uma pessoa")
-    ok("_do_elenco(bruto)" in lesoes and 'do_elenco.get("nome")' in lesoes,
+    # A SEGUNDA tentativa, escopada ao clube. O índice geral exige duas
+    # palavras — regra certa para varrer notícia, onde "Silva" não identifica
+    # ninguém. Mas aqui eu tenho o CLUBE: dentro de um elenco de trinta,
+    # "Bergwijn" e "Rajkovic" são únicos. Sem isso, "Steven Bergwijn" e
+    # "Bergwijn" viravam dois lesionados.
+    ok("_jogador_do_elenco_do_clube(" in lesoes and "_por_clube" in lesoes,
+       "sumiu a segunda tentativa de identificação, escopada ao elenco do "
+       "clube. Sem ela, sobrenome sozinho não identifica ninguém e o mesmo "
+       "jogador volta a aparecer duas vezes")
+
+    # E a regra, EXERCITADA — não procurada no texto. A primeira versão deste
+    # teste só lia o código, e passou com um `return {}` posto na frente da
+    # busca: o trecho continuava escrito e nunca rodava. Por isso a função
+    # saiu da closure e virou módulo.
+    regra = _corpo("_jogador_do_elenco_do_clube")
+    ok(regra, "sumiu a função da busca escopada ao clube")
+    if regra:
+        import re as _re
+        import unicodedata as _ud
+        chave_src = _corpo("_chave_de_nome")
+        ns = {"re": _re, "unicodedata": _ud}
+        for pedaco in (chave_src, regra):
+            exec(compile(ast.Module(body=[ast.parse(pedaco).body[0]],
+                                    type_ignores=[]), "<x>", "exec"), ns)
+        achar = ns["_jogador_do_elenco_do_clube"]
+
+        ITTIHAD = [{"nome": "Steven Bergwijn", "nome_curto": "Bergwijn"},
+                   {"nome": "Predrag Rajković", "nome_curto": "Rajković"},
+                   {"nome": "Houssem Aouar", "nome_curto": "Aouar"}]
+        # O CASO DO VINI: sobrenome sozinho tem que achar a pessoa.
+        ok(achar("Bergwijn", ITTIHAD).get("nome") == "Steven Bergwijn",
+           "'Bergwijn' sozinho não achou o Steven Bergwijn no elenco do "
+           "Al-Ittihad. É o caso que fazia o mesmo jogador aparecer em dois "
+           "cards")
+        ok(achar("Rajkovic", ITTIHAD).get("nome") == "Predrag Rajković",
+           "'Rajkovic' sem acento não achou o Predrag Rajković")
+        ok(achar("Predrag Rajković", ITTIHAD).get("nome") == "Predrag Rajković",
+           "o nome completo deixou de achar")
+        # E o limite: pedaço que não existe no jogador não pode casar.
+        ok(achar("Steven Silva", ITTIHAD) == {},
+           "'Steven Silva' casou com 'Steven Bergwijn'. Todo pedaço do nome "
+           "procurado tem que existir no jogador — com interseção em vez de "
+           "subconjunto, bastaria o 'steven' coincidir")
+        ok(achar("Bergwijn", []) == {}, "elenco vazio devolveu alguém")
+        ok(achar("", ITTIHAD) == {}, "nome vazio devolveu alguém")
+        # Dois jogadores do mesmo clube com o mesmo sobrenome: desiste.
+        dois = ITTIHAD + [{"nome": "Lucas Bergwijn", "nome_curto": "Bergwijn"}]
+        ok(achar("Bergwijn", dois) == {},
+           "com dois Bergwijn no mesmo elenco, a busca escolheu um. Juntar "
+           "duas lesões pela dúvida é pior que deixá-las separadas")
+    ok("_do_elenco(bruto, club)" in lesoes and 'do_elenco.get("nome")' in lesoes,
        "o card voltou a exibir o nome que a IA transliterou da notícia em vez "
        "do nome do elenco. É o mesmo jogador aparecendo com dois nomes "
        "diferentes em duas guias do mesmo app")
