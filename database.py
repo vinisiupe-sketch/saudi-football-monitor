@@ -1934,6 +1934,41 @@ def _normalize(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
 
+def _quem_e(nome: str, indice=None) -> str:
+    """O jogador do elenco que este nome designa — ou "" se não der para dizer.
+
+    POR QUE ISTO PRECISOU EXISTIR (11/09/26)
+        O casamento de lesões era por SEMELHANÇA DE TEXTO, com corte em 0,75.
+        Funciona quando as duas fontes escrevem parecido, e falha exatamente
+        quando mais importa: a IA transliterou "Roger Fernandes" como "Rúger
+        Fernández" numa notícia e "Rojer" noutra. Os dois nomes não se parecem
+        com nada, e o mesmo jogador virou três lesões diferentes na tela.
+
+        O app tem 573 jogadores com nome, apelido e grafia árabe, e um índice
+        que resolve nome para pessoa — o mesmo que a guia de Mercado usa. O
+        Vini perguntou se todo aquele mapeamento tinha sido feito à toa. Tinha
+        sido feito, e não estava sendo consultado aqui.
+
+        Agora a identidade vem primeiro: se os dois nomes resolvem para a
+        MESMA pessoa, é a mesma lesão, por mais diferentes que os textos
+        sejam. A semelhança de texto continua como segunda tentativa, para
+        quem o elenco não conhece.
+    """
+    if not (nome or "").strip():
+        return ""
+    try:
+        import elos
+        if indice is None:
+            indice, _ = elos.indice_de_jogadores(listar_jogadores(limite=2000))
+        achados = elos.jogadores_no_texto("", nome, indice)
+    except Exception:
+        return ""
+    # Correspondência ÚNICA, como no resto do app: nome que cai em duas
+    # pessoas não identifica ninguém, e juntar duas lesões pela dúvida é pior
+    # do que deixá-las separadas.
+    return next(iter(achados)) if len(achados) == 1 else ""
+
+
 def upsert_injury(data: dict) -> str:
     """Insere ou atualiza registro de lesão.
     data keys: player_name, player_name_orig, club, injury_date, injury_type,
@@ -1962,15 +1997,32 @@ def upsert_injury(data: dict) -> str:
         """, (club,))
         candidates = [dict(r) for r in c.fetchall()]
 
-        # Fuzzy match por nome de jogador
-        player_norm = _normalize(player_name)
-        best_match, best_ratio = None, 0.0
-        for cand in candidates:
-            ratio = SequenceMatcher(None, player_norm, _normalize(cand["player_name"])).ratio()
-            if ratio > best_ratio:
-                best_ratio, best_match = ratio, cand
+        # 1ª TENTATIVA: a IDENTIDADE, pelo índice de jogadores do app.
+        #
+        # Vem antes da semelhança de texto porque é ela que resolve o caso em
+        # que os nomes NÃO se parecem: "Rúger Fernández", "Rojer" e "Roger
+        # Fernandes" são a mesma pessoa, e nenhuma comparação de string diria
+        # isso. Ver o comentário longo em _quem_e.
+        existing = None
+        eu = _quem_e(player_name) or _quem_e(data.get("player_name_orig") or "")
+        if eu:
+            for cand in candidates:
+                if (_quem_e(cand.get("player_name")) == eu
+                        or _quem_e(cand.get("player_name_orig") or "") == eu):
+                    existing = cand
+                    break
 
-        existing = best_match if best_ratio >= 0.75 else None
+        # 2ª TENTATIVA: semelhança de texto, para quem o elenco não conhece —
+        # recém-contratado, jogador de base, nome que o índice não resolve.
+        if existing is None:
+            player_norm = _normalize(player_name)
+            best_match, best_ratio = None, 0.0
+            for cand in candidates:
+                ratio = SequenceMatcher(None, player_norm,
+                                        _normalize(cand["player_name"])).ratio()
+                if ratio > best_ratio:
+                    best_ratio, best_match = ratio, cand
+            existing = best_match if best_ratio >= 0.75 else None
 
         if existing:
             sources = json.loads(existing["sources"] or "[]")
@@ -2030,6 +2082,32 @@ def upsert_injury(data: dict) -> str:
                 data.get("notes"),
             ))
             return "created"
+
+
+def apagar_lesao(ids) -> int:
+    """Apaga uma ou mais lesões, de vez.
+
+    Existe porque a coleta é automática e às vezes erra: a notícia é velha, o
+    jogador já voltou, ou o extrator entendeu errado. Sem um jeito de tirar da
+    tela, o jeito de "consertar" seria o Vini aprender a ignorar linhas — e um
+    monitor que se aprende a ignorar não monitora mais nada.
+
+    Aceita lista porque um card na tela pode ser mais de uma linha no banco:
+    depois que a identidade passou a juntar o que é da mesma pessoa, apagar só
+    uma deixaria as irmãs de volta na próxima carga.
+    """
+    if isinstance(ids, str):
+        ids = [ids]
+    ids = [i for i in (ids or []) if i]
+    if not ids:
+        return 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM injuries WHERE id = ANY(%s)", [ids])
+            return c.rowcount
+    except Exception:
+        return 0
 
 
 def get_injuries(include_recovered: bool = True) -> list[dict]:

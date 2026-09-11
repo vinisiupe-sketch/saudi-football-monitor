@@ -4249,6 +4249,62 @@ async def _page_lesoes_impl(request: Request):
         foto = (_do_elenco(nome) or {}).get("foto") or ""
         return (foto if foto.startswith("http") else liga_spl.MEDIA + foto) if foto else ""
 
+    # ── JUNTAR O QUE É DA MESMA PESSOA ──────────────────────────────────
+    #
+    # O banco guarda uma linha por incidente, e o casamento era por semelhança
+    # de TEXTO. A IA transliterou o mesmo jogador como "Rúger Fernández" numa
+    # notícia, "Rojer" noutra e "Roger Fernandes" numa terceira — nomes que
+    # não se parecem com nada — e ele apareceu três vezes na tela, como três
+    # lesionados.
+    #
+    # A identidade resolve isso, e ela já existia: é o mesmo índice que acha a
+    # foto. O conserto no upsert impede que novos dupliquem; este aqui junta o
+    # que JÁ está no banco, sem precisar de migração.
+    #
+    # Quem o elenco não conhece continua sozinho, com a própria chave. É o
+    # certo: juntar dois desconhecidos porque não sei quem são seria inventar
+    # uma identidade em cima da ignorância.
+    def _identidade(inj: dict):
+        for nome in (inj.get("player_name"), inj.get("player_name_orig")):
+            j = _do_elenco(nome or "")
+            if j:
+                return ("elenco", j.get("spl_id"))
+        return ("nome", _chave_de_nome(inj.get("player_name") or ""),
+                (inj.get("club") or "").lower())
+
+    def _juntar(lista: list[dict]) -> list[dict]:
+        grupos: dict = {}
+        for inj in lista:
+            grupos.setdefault(_identidade(inj), []).append(inj)
+        saida = []
+        for pedacos in grupos.values():
+            # O mais recente manda no estado e no tipo; os outros viram
+            # histórico. É a ordem certa: a última notícia é a que sabe se
+            # ele voltou.
+            pedacos.sort(key=lambda i: str(i.get("last_updated") or ""), reverse=True)
+            base = dict(pedacos[0])
+            fontes = []
+            vistas = set()
+            for p in pedacos:
+                for s in (p.get("sources") or []):
+                    url = s.get("url") or ""
+                    if url and url in vistas:
+                        continue
+                    if url:
+                        vistas.add(url)
+                    fontes.append(s)
+                # Campo que falta no mais recente pode estar num anterior —
+                # a notícia de ontem dizia a parte do corpo, a de hoje não.
+                for campo in ("injury_type", "body_part", "expected_return",
+                              "injury_date", "notes"):
+                    if not base.get(campo) and p.get(campo):
+                        base[campo] = p[campo]
+            base["sources"] = fontes
+            base["ids"] = [p.get("id") for p in pedacos if p.get("id")]
+            base["juntadas"] = len(pedacos)
+            saida.append(base)
+        return saida
+
     def _iniciais(nome: str) -> str:
         partes = [p for p in (nome or "?").split() if p][:2]
         return "".join(p[0] for p in partes).upper() or "?"
@@ -4354,26 +4410,45 @@ async def _page_lesoes_impl(request: Request):
         if not resumo and injury_dt and injury_dt != "—":
             resumo = "Lesão registrada em " + injury_dt
         import html as _html
+        ids = _html.escape(",".join(inj.get("ids") or [inj.get("id") or ""]),
+                           quote=True)
         return (
             '<div class="injury-card status-' + status + '" data-clube="'
-            + _html.escape(club, quote=True) + '">'
+            + _html.escape(club, quote=True) + '" data-ids="' + ids + '">'
             + '<div class="lsn-linha">'
             + '<span class="lsn-escudo">' + escudo_html + "</span>"
             + '<span class="lsn-quem">'
-            + '<span class="lsn-nome">' + player + orig_html + "</span>"
+            + '<span class="lsn-nome">' + player + "</span>"
             + '<span class="lsn-sub">' + club
             + ('<span class="lsn-sep">·</span>' + resumo if resumo else "")
             + "</span></span>"
             + '<span class="lsn-tipo">' + detalhe + "</span>"
-            + '<span class="status-pill status-' + status + '">' + emoji + " " + slabel + "</span>"
+            + '<span class="lsn-selos">'
+            + '<span class="status-pill status-' + status + '">' + slabel + "</span>"
+            + "</span>"
+            # O X fica no fim da linha, discreto, e pergunta antes. A coleta é
+            # automática e às vezes erra — notícia velha, jogador que já
+            # voltou. Sem jeito de tirar, o conserto seria aprender a ignorar
+            # linhas, e monitor que se aprende a ignorar não monitora nada.
+            + '<button class="lsn-x" title="Excluir esta lesão" '
+            + "onclick=\"excluirLesao(this)\">&times;</button>"
             + "</div>"
             + '<div class="lsn-extra">'
             + timeline_section
-            + '<div class="lsn-rodape">Atualizado ' + updated + "</div>"
+            + '<div class="lsn-rodape">Atualizado ' + updated
+            + (' · ' + str(inj.get("juntadas")) + ' registros unidos'
+               if (inj.get("juntadas") or 1) > 1 else "")
+            + "</div>"
             + "</div>"
             + "</div>"
         )
 
+    # O agrupamento acontece DEPOIS de separar ativas de recuperadas: um
+    # jogador que se machucou de novo depois de recuperado tem duas histórias
+    # distintas, e juntá-las esconderia a que está valendo hoje.
+    active, recovered = _juntar(active), _juntar(recovered)
+    active.sort(key=lambda i: str(i.get("last_updated") or ""), reverse=True)
+    recovered.sort(key=lambda i: str(i.get("last_updated") or ""), reverse=True)
     cards_active    = "".join(_card(i) for i in active)    if active    else '<div class="empty-state">Nenhuma lesão ativa registrada.</div>'
     cards_recovered = "".join(_card(i) for i in recovered) if recovered else '<div class="empty-state">Nenhuma recuperação registrada.</div>'
 
@@ -4474,12 +4549,25 @@ async def _page_lesoes_impl(request: Request):
   border-radius: 12px;
   padding: 11px 13px;
 }}
-/* A MOLDURA SEGUE O ESTADO, como em pendurados e suspensos. Dá para varrer
-   a lista sem ler uma palavra e saber onde estão os casos graves. */
+/* SÓ A MOLDURA muda de cor — o fundo continua o mesmo do resto do app.
+   Eu tinha pintado o interior também, e o Vini apontou: em pendurados é só a
+   linha. Card com fundo colorido vira um bloco de cor na tela e cansa a
+   leitura de uma lista longa; a moldura marca o estado sem gritar. */
 .injury-card.status-lesionado {{ border-color: #FD5D5D66; }}
 .injury-card.status-em_recuperacao {{ border-color: #FFBE5D66; }}
 .injury-card.status-retornando {{ border-color: #B6FF0066; }}
 .injury-card.status-recuperado {{ border-color: var(--c-border); opacity: .72; }}
+.lsn-selos {{ display: flex; flex-direction: column; align-items: flex-end;
+  gap: 3px; flex: 0 0 auto; }}
+/* O X de excluir. Some até o mouse passar por cima do card — está ali para
+   quando precisar, não para disputar atenção com o que importa. */
+.lsn-x {{ background: none; border: none; color: var(--c-muted-2);
+  font-size: 1.15rem; line-height: 1; cursor: pointer; padding: 0 2px;
+  flex: 0 0 auto; opacity: 0; transition: opacity .15s, color .15s; }}
+.injury-card:hover .lsn-x {{ opacity: 1; }}
+.lsn-x:hover {{ color: #FD5D5D; }}
+/* Em tela de toque não existe passar o mouse: lá ele fica sempre visível. */
+@media (hover: none) {{ .lsn-x {{ opacity: .6; }} }}
 /* ── O card no padrão da guia Pendurados ──────────────────────────────
    escudo · nome e clube · tipo da lesão · estado, tudo numa linha.
    A foto do jogador saiu: numa lista de lesionados o olho procura de que
@@ -4490,8 +4578,10 @@ async def _page_lesoes_impl(request: Request):
   align-items: center; justify-content: center; }}
 .lsn-escudo img {{ max-width: 26px; max-height: 26px; object-fit: contain; }}
 .lsn-quem {{ flex: 1; min-width: 0; }}
+/* Nome em branco, como em Pendurados. Estava herdando a cor do estado do
+   card e saía vermelho — o nome não é o alarme; o alarme é a moldura. */
 .lsn-nome {{ display: block; font-weight: 800; font-size: .9rem;
-  overflow-wrap: anywhere; }}
+  color: var(--c-text); overflow-wrap: anywhere; }}
 /* Uma linha só, cortada com reticências. A descrição da lesão pode vir
    longa, e deixá-la quebrar em três linhas devolveria o card alto que a
    lista veio resolver — o texto inteiro está no histórico, logo abaixo. */
@@ -4505,8 +4595,11 @@ async def _page_lesoes_impl(request: Request):
 .lsn-tipo {{ font-size: .68rem; color: var(--c-muted-3); text-align: right;
   flex: 0 0 auto; max-width: 34%; }}
 @media (max-width: 560px) {{ .lsn-tipo {{ display: none; }} }}
-.lsn-rodape {{ font-size: .62rem; color: var(--c-muted-2);
-  text-transform: uppercase; letter-spacing: .05em; }}
+/* O rodapé estava saindo grande porque a regra .lesoes-wrap define um
+   font-size maior e o .62rem herdava daí. Fixo em px: é uma nota de pé de
+   página e tem que se parecer com uma. */
+.lsn-rodape {{ font-size: 10px; color: var(--c-muted-2);
+  text-transform: uppercase; letter-spacing: .05em; line-height: 1.5; }}
 .injury-card-top {{
   display: flex;
   align-items: center;
@@ -4593,24 +4686,28 @@ async def _page_lesoes_impl(request: Request):
 .status-pill.sm {{ font-size: .62rem; padding: 2px 6px; }}
 .status-pill.status-desconhecido {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
 
+/* O SELO, exatamente como o de Pendurados: vazado, contornado, em CAPS e
+   sem emoji. A bolinha colorida antes do texto dizia a mesma coisa que a cor
+   do contorno já diz — e emoji desenha diferente em cada aparelho, então a
+   mesma tela ficava com o alinhamento dançando de um celular para o outro. */
 .status-pill {{
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: .72rem;
-  font-weight: 600;
-  padding: 3px 8px;
+  font-size: .6rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: 3px 9px;
   border-radius: 99px;
+  border: 1.5px solid var(--c-border-2);
+  color: var(--c-muted-4);
+  background: transparent;
   white-space: nowrap;
 }}
-.status-lesionado      {{ background: #fef2f2; color: #b91c1c; }}
-.status-em_recuperacao {{ background: #FFBE5D1a; color: #92400e; }}
-.status-retornando     {{ background: #f0fdf4; color: #B6FF00; }}
-.status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
-[data-theme=dark] .status-lesionado      {{ background: #3f1212; color: #fca5a5; }}
-[data-theme=dark] .status-em_recuperacao {{ background: #3f2d00; color: #FFBE5D33; }}
-[data-theme=dark] .status-retornando     {{ background: #052e16; color: #B6FF0033; }}
-[data-theme=dark] .status-recuperado     {{ background: var(--c-muted-2); color: var(--c-muted-3); }}
+.status-lesionado      {{ border-color: #FD5D5D; color: #FD5D5D; }}
+.status-em_recuperacao {{ border-color: #FFBE5D; color: #FFBE5D; }}
+.status-retornando     {{ border-color: #B6FF00; color: #B6FF00; }}
+.status-recuperado     {{ border-color: var(--c-border-2); color: var(--c-muted-3); }}
 
 .src-chip {{
   display: inline-flex;
@@ -4659,11 +4756,46 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 /* As regras .lsn-abas e .lsn-aba saíram junto com as sub-abas (11/09/26).
    CSS de elemento que não existe mais é o tipo de sobra que faz a próxima
    pessoa procurar na tela um botão que ninguém desenha. */
-/* A linha do Transfermarkt dentro do card — recuada como as do histórico,
-   para se ler como "mais uma fonte falou disto" e não como um item novo. */
-.lsn-fonte-tm {{ font-size: .68rem; color: var(--c-muted-3); line-height: 1.5;
-  margin-bottom: 6px; padding-left: 37px; }}
-.lsn-fonte-tm b {{ color: var(--c-muted-4); }}
+/* A tag (TM), embaixo do estado. Diz de onde veio a confirmação sem ocupar
+   uma linha no meio da lista — o detalhe fica no histórico, a um toque. */
+.lsn-tag-tm {{ font-size: .54rem; padding: 2px 7px;
+  border-color: var(--c-border-2); color: var(--c-muted-3); }}
+/* ── Cadastro manual ──────────────────────────────────────────────────── */
+.lsn-novo {{ margin: 14px 0 4px; }}
+.lsn-novo > summary {{ list-style: none; cursor: pointer; display: inline-block;
+  font-size: .68rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--c-muted-4);
+  border: 1.5px dashed var(--c-border-2); border-radius: 99px;
+  padding: 6px 14px; }}
+.lsn-novo > summary::-webkit-details-marker {{ display: none; }}
+.lsn-novo > summary:hover {{ color: var(--c-text); border-color: var(--c-text); }}
+.lsn-form {{ background: var(--c-bg-card); border: 1px solid var(--c-border);
+  border-radius: 12px; padding: 13px 15px; margin-top: 10px;
+  display: flex; flex-direction: column; gap: 10px; }}
+.lsn-form label {{ display: block; font-size: .66rem; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--c-muted-3);
+  position: relative; }}
+.lsn-form input, .lsn-form textarea {{ display: block; width: 100%;
+  box-sizing: border-box; margin-top: 5px; background: var(--c-bg);
+  border: 1.5px solid var(--c-border-2); border-radius: 10px;
+  padding: 9px 11px; color: var(--c-text); font-family: inherit;
+  font-size: .82rem; font-weight: 400; text-transform: none;
+  letter-spacing: normal; resize: vertical; }}
+.lsn-sugestoes {{ display: flex; flex-direction: column; gap: 2px;
+  margin-top: 4px; }}
+.lsn-sugestoes button {{ text-align: left; background: var(--c-bg-soft);
+  border: 1px solid var(--c-border); border-radius: 8px; padding: 7px 10px;
+  color: var(--c-text); font-family: inherit; font-size: .78rem;
+  font-weight: 600; text-transform: none; letter-spacing: normal;
+  cursor: pointer; }}
+.lsn-sugestoes button:hover {{ border-color: var(--c-text); }}
+.lsn-sugestoes button small {{ color: var(--c-muted-3); font-weight: 400;
+  margin-left: 6px; }}
+.lsn-nada {{ font-size: .72rem; color: var(--c-muted-3); font-weight: 400;
+  text-transform: none; letter-spacing: normal; }}
+.lsn-form-pe {{ display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }}
+.lsn-clube-achado {{ font-size: .72rem; color: var(--c-muted-3); }}
+.lsn-status-form {{ font-size: .72rem; color: var(--c-muted-4); }}
 </style>
 </head>
 <body>
@@ -4671,6 +4803,30 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 <div class="lesoes-wrap">
   <div class="lesoes-title">Monitor de Lesões</div>
   <div class="lesoes-subtitle">Atualizado automaticamente com base nas notícias coletadas com category=lesao.</div>
+
+  <!-- Cadastro manual, no topo: a coleta depende de a imprensa escrever, e
+       às vezes o Vini sabe antes dela. O que ele põe aqui entra pelo mesmo
+       caminho das automáticas, então se junta ao mesmo jogador quando a
+       notícia chegar. -->
+  <details class="lsn-novo">
+    <summary>+ Adicionar lesionado</summary>
+    <div class="lsn-form">
+      <label>Jogador
+        <input id="novoNome" autocomplete="off" placeholder="comece a digitar o nome"
+               oninput="buscarJogador()">
+        <div id="novoSugestoes" class="lsn-sugestoes"></div>
+      </label>
+      <label>O que houve
+        <textarea id="novoDesc" rows="2"
+                  placeholder="Ex.: Lesão muscular na coxa direita sofrida contra o Al-Fayha"></textarea>
+      </label>
+      <div class="lsn-form-pe">
+        <span class="lsn-clube-achado" id="novoClube"></span>
+        <button class="rebuild-btn" onclick="salvarLesao()">Salvar</button>
+        <span class="lsn-status-form" id="novoStatus"></span>
+      </div>
+    </div>
+  </details>
 
   <div class="lsn-barra">
     <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
@@ -4686,7 +4842,7 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 
   <div class="section-label">Ativas <span class="section-count" id="contaAtivas">({count_active})</span></div>
   <div class="injury-grid" id="gradeAtivas">{cards_active}</div>
-  <div id="lsnSoTM"></div>
+  <div id="lsnAviso"></div>
 
   <details>
     <summary>Recuperados <span class="section-count" id="contaRecuperados" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
@@ -4760,7 +4916,7 @@ async function juntarTransfermarkt() {{
   }} catch (e) {{ return; }}
 
   const lista = d.lesoes || [];
-  const alvo = document.getElementById('lsnSoTM');
+  const alvo = document.getElementById('lsnAviso');
   if (!lista.length) {{
     // Distinguir "ninguém machucado" de "não consegui ler" continua sendo a
     // regra. Lista vazia aqui quase sempre quer dizer bloqueio do TM.
@@ -4772,7 +4928,10 @@ async function juntarTransfermarkt() {{
     return;
   }}
 
-  // 1. quem já está na tela ganha a linha do TM dentro do próprio card
+  // 1. quem já está na tela ganha uma TAG (TM) embaixo do estado, e a
+  //    informação inteira dentro do histórico. O card não cresce: o
+  //    Transfermarkt é mais uma fonte confirmando, e fonte que confirma não
+  //    precisa de linha própria no meio da lista.
   const naTela = {{}};
   document.querySelectorAll('.injury-card .lsn-nome').forEach(function (n) {{
     naTela[lsnChave(n.textContent)] = n.closest('.injury-card');
@@ -4783,53 +4942,159 @@ async function juntarTransfermarkt() {{
     const nome = a.nome_elenco || a.nome;
     const card = naTela[lsnChave(nome)];
     if (!card) {{ soTM.push(a); return; }}
-    const linha = document.createElement('div');
-    linha.className = 'lsn-fonte-tm';
-    linha.innerHTML = '<b>Transfermarkt</b> · ' + lsnEsc(a.lesao || '—')
-      + (a.ate_texto && a.ate_texto !== '?' ? ' · retorno previsto '
-          + lsnEsc(a.ate_texto) : ' · sem previsão de retorno');
-    const extra = card.querySelector('.lsn-extra') || card;
-    extra.insertBefore(linha, extra.firstChild);
+    marcarTM(card, a);
   }});
 
-  // 2. quem só o TM conhece vira card novo — é o reserva que ninguém noticiou
-  if (!soTM.length) return;
-  let html = '<div class="section-label">Só no Transfermarkt '
-    + '<span class="section-count">(' + soTM.length + ')</span></div>'
-    + '<div class="injury-grid" id="gradeSoTM">';
-  soTM.forEach(function (a) {{
-    const nome = a.nome_elenco || a.nome;
-    const clube = a.clube_elenco || a.clube;
-    html += '<div class="injury-card status-lesionado" data-clube="'
-      + lsnEsc(clube) + '">'
-      + '<div class="lsn-linha">'
-      + '<span class="lsn-escudo">'
-      + (a.escudo ? '<img src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
-      + '</span>'
-      + '<span class="lsn-quem">'
-      + '<span class="lsn-nome">' + lsnEsc(nome) + '</span>'
-      + '<span class="lsn-sub">' + lsnEsc(clube)
-      + '<span class="lsn-sep">·</span>' + lsnEsc(a.lesao || 'lesão não detalhada')
-      + (a.ate_texto && a.ate_texto !== '?'
-          ? ', retorno previsto ' + lsnEsc(a.ate_texto) : '')
-      + '</span></span>'
-      + '<span class="lsn-tipo">' + lsnEsc(a.posicao || '') + '</span>'
-      + '<span class="status-pill status-lesionado">🔴 Lesionado</span>'
-      + '</div>'
-      + '<div class="lsn-extra"><div class="lsn-fonte-tm"><b>Transfermarkt</b>'
-      + ' · não saiu na imprensa que eu coleto'
-      // Sem casar com o elenco, o nome é o do TM e pode estar escrito
-      // diferente do resto do app. Dizer isso é mais honesto que esconder.
-      + (a.no_elenco ? '' : ' · não achei no elenco guardado, nome como o TM escreve')
-      + '</div></div>'
-      + '</div>';
-  }});
-  html += '</div>';
-  alvo.innerHTML = html;
+  // 2. quem só o TM conhece entra na MESMA lista de ativas, com a mesma tag.
+  //    Seção separada seria redundante: a tag já diz de onde veio, e uma
+  //    lista só é o que responde "quem do meu time está fora".
+  const grade = document.getElementById('gradeAtivas');
+  if (grade) {{
+    soTM.forEach(function (a) {{
+      const nome = a.nome_elenco || a.nome;
+      const clube = a.clube_elenco || a.clube;
+      const card = document.createElement('div');
+      card.className = 'injury-card status-lesionado';
+      card.dataset.clube = clube;
+      card.innerHTML = '<div class="lsn-linha">'
+        + '<span class="lsn-escudo">'
+        + (a.escudo ? '<img src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
+        + '</span>'
+        + '<span class="lsn-quem">'
+        + '<span class="lsn-nome">' + lsnEsc(nome) + '</span>'
+        + '<span class="lsn-sub">' + lsnEsc(clube)
+        + '<span class="lsn-sep">·</span>' + lsnEsc(a.lesao || 'lesão não detalhada')
+        + (a.ate_texto && a.ate_texto !== '?'
+            ? ', retorno previsto ' + lsnEsc(a.ate_texto) : '')
+        + '</span></span>'
+        + '<span class="lsn-tipo">' + lsnEsc(a.posicao || '') + '</span>'
+        + '<span class="lsn-selos">'
+        + '<span class="status-pill status-lesionado">Lesionado</span></span>'
+        + '</div>'
+        + '<div class="lsn-extra"></div>';
+      grade.appendChild(card);
+      marcarTM(card, a, true);
+    }});
+    const conta = document.getElementById('contaAtivas');
+    if (conta && soTM.length) {{
+      conta.textContent = '(' + grade.querySelectorAll('.injury-card').length + ')';
+    }}
+  }}
   filtrarPorClube();
 }}
 
+// A tag (TM) embaixo do estado, e a linha no histórico.
+function marcarTM(card, a, sozinho) {{
+  const selos = card.querySelector('.lsn-selos');
+  if (selos && !selos.querySelector('.lsn-tag-tm')) {{
+    const tag = document.createElement('span');
+    tag.className = 'status-pill lsn-tag-tm';
+    tag.title = 'Confirmado no Transfermarkt';
+    tag.textContent = 'TM';
+    selos.appendChild(tag);
+  }}
+  const extra = card.querySelector('.lsn-extra');
+  if (!extra) return;
+  const texto = lsnEsc(a.lesao || 'lesão não detalhada')
+    + (a.ate_texto && a.ate_texto !== '?'
+        ? ' · retorno previsto ' + lsnEsc(a.ate_texto)
+        : ' · sem previsão de retorno')
+    + (sozinho ? ' · não saiu na imprensa que eu coleto' : '')
+    // Sem casar com o elenco, o nome é o do TM e pode estar escrito diferente
+    // do resto do app. Dizer isso é mais honesto que esconder.
+    + (a.no_elenco ? '' : ' · não achei no elenco guardado, nome como o TM escreve');
+  const bloco = document.createElement('details');
+  bloco.className = 'injury-timeline';
+  bloco.innerHTML = '<summary>Transfermarkt <span class="section-count">(1)'
+    + '</span></summary><div class="timeline"><div class="timeline-item">'
+    + '<span class="timeline-dot status-lesionado"></span>'
+    + '<div class="timeline-content"><div class="timeline-top">'
+    + '<span class="status-pill sm">Transfermarkt</span></div>'
+    + '<span class="timeline-title">' + texto + '</span></div></div></div>';
+  extra.insertBefore(bloco, extra.firstChild);
+}}
+
 juntarTransfermarkt();
+
+// ── Excluir ───────────────────────────────────────────────────────────────
+// Pergunta antes, e diz o nome de quem vai sair. "Tem certeza?" sozinho não
+// protege de nada: a pessoa confirma sem ler. Com o nome no meio, um clique
+// no card errado se revela ali.
+async function excluirLesao(botao) {{
+  const card = botao.closest('.injury-card');
+  const nome = (card.querySelector('.lsn-nome') || {{}}).textContent || 'esta lesão';
+  const ids = (card.dataset.ids || '').split(',').filter(Boolean);
+  if (!ids.length) {{
+    // Card do Transfermarkt, que não existe no banco: some só da tela.
+    card.remove();
+    return;
+  }}
+  if (!confirm('Tem certeza que deseja excluir a lesão de ' + nome.trim() + '?'))
+    return;
+  botao.disabled = true;
+  try {{
+    const r = await fetch('/api/injuries/apagar', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{ids: ids}})
+    }});
+    const d = await r.json();
+    if (!d.apagadas) throw new Error('o banco não apagou nada');
+    card.remove();
+    filtrarPorClube();
+  }} catch (e) {{
+    alert('não deu para excluir: ' + (e.message || e));
+    botao.disabled = false;
+  }}
+}}
+
+// ── Cadastro manual ───────────────────────────────────────────────────────
+let _buscaTimer = null;
+function buscarJogador() {{
+  clearTimeout(_buscaTimer);
+  // Espera a digitação parar. Sem isso, cada tecla vira uma consulta.
+  _buscaTimer = setTimeout(async function () {{
+    const q = document.getElementById('novoNome').value.trim();
+    const caixa = document.getElementById('novoSugestoes');
+    document.getElementById('novoClube').textContent = '';
+    if (q.length < 2) {{ caixa.innerHTML = ''; return; }}
+    try {{
+      const r = await fetch('/api/injuries/buscar-jogador?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      caixa.innerHTML = (d.jogadores || []).map(function (j) {{
+        return '<button type="button" onclick="escolherJogador(this)" '
+          + 'data-nome="' + lsnEsc(j.nome) + '" data-clube="' + lsnEsc(j.clube) + '">'
+          + lsnEsc(j.nome) + ' <small>' + lsnEsc(j.clube) + '</small></button>';
+      }}).join('') || '<span class="lsn-nada">ninguém com esse nome no elenco</span>';
+    }} catch (e) {{ caixa.innerHTML = ''; }}
+  }}, 250);
+}}
+
+function escolherJogador(b) {{
+  document.getElementById('novoNome').value = b.dataset.nome;
+  document.getElementById('novoClube').textContent = b.dataset.clube;
+  document.getElementById('novoSugestoes').innerHTML = '';
+}}
+
+async function salvarLesao() {{
+  const nome = document.getElementById('novoNome').value.trim();
+  const desc = document.getElementById('novoDesc').value.trim();
+  const clube = document.getElementById('novoClube').textContent.trim();
+  const st = document.getElementById('novoStatus');
+  if (!nome) {{ st.textContent = 'diga o nome do jogador'; return; }}
+  st.textContent = 'salvando…';
+  try {{
+    const r = await fetch('/api/injuries/manual', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{nome: nome, descricao: desc, clube: clube}})
+    }});
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    st.textContent = 'salvo. recarregando…';
+    setTimeout(function () {{ location.reload(); }}, 700);
+  }} catch (e) {{
+    st.textContent = 'não deu: ' + (e.message || e);
+  }}
+}}
 
 async function rebuild() {{
   const btn = document.querySelector('.rebuild-btn');
@@ -6708,6 +6973,103 @@ async def pagina_pendurados():
         .replace("__PD_JS__", _PENDURADOS_JS)
         .replace("__HDR__", _header("/pendurados"))
     )
+
+
+@app.post("/api/injuries/apagar")
+async def api_injuries_apagar(request: Request):
+    """Tira uma lesão da tela, de vez.
+
+    A coleta é automática e às vezes erra — notícia velha, jogador que já
+    voltou, extrator que entendeu torto. Sem um jeito de tirar, o conserto
+    seria o Vini aprender a ignorar linhas; e monitor que se aprende a
+    ignorar deixa de monitorar.
+    """
+    from database import apagar_lesao
+    corpo = await request.json()
+    ids = corpo.get("ids") or []
+    if isinstance(ids, str):
+        ids = [x for x in ids.split(",") if x]
+    n = await asyncio.to_thread(apagar_lesao, ids)
+    return {"apagadas": n}
+
+
+@app.post("/api/injuries/manual")
+async def api_injuries_manual(request: Request):
+    """Lesão cadastrada à mão, quando a coleta ainda não pegou.
+
+    Entra pelo MESMO caminho das automáticas (`upsert_injury`), e não por uma
+    porta lateral. Assim ela se junta ao que já existe daquele jogador em vez
+    de criar um card paralelo — e quando a notícia chegar depois, a
+    identidade reconhece que é a mesma pessoa e as duas viram uma só.
+
+    A fonte fica marcada como manual: daqui a um mês, olhando o histórico,
+    tem que dar para saber o que veio da imprensa e o que foi você que pôs.
+    """
+    from database import upsert_injury
+    corpo = await request.json()
+    nome = (corpo.get("nome") or "").strip()
+    descricao = (corpo.get("descricao") or "").strip()
+    clube = (corpo.get("clube") or "").strip()
+    if not nome:
+        return JSONResponse({"erro": "diga o nome do jogador"}, 400)
+    if not clube:
+        # Sem clube o upsert recusa (ele casa por clube + nome). Tento achar
+        # pelo elenco antes de desistir: o Vini escolheu o jogador numa
+        # busca, então o clube quase sempre dá para deduzir.
+        try:
+            import elos
+            from database import listar_jogadores
+            gente = listar_jogadores(limite=2000)
+            indice, _ = elos.indice_de_jogadores(gente)
+            achados = elos.jogadores_no_texto("", nome, indice)
+            if len(achados) == 1:
+                por_id = {j["spl_id"]: j for j in gente}
+                clube = (por_id.get(next(iter(achados))) or {}).get("clube") or ""
+        except Exception:
+            clube = ""
+    if not clube:
+        return JSONResponse(
+            {"erro": "não descobri o clube deste jogador — escolha um nome da "
+                     "busca, que ela traz o clube junto"}, 400)
+
+    agora = datetime.now(timezone.utc).isoformat()
+    r = await asyncio.to_thread(upsert_injury, {
+        "player_name": nome, "player_name_orig": nome, "club": clube,
+        "status": corpo.get("status") or "lesionado",
+        "injury_type": corpo.get("injury_type") or "",
+        "notes": descricao,
+        "injury_date": (corpo.get("data") or "")[:10] or agora[:10],
+        "source_info": {"source_name": "Cadastro manual", "url": "",
+                        "title": descricao or "Lesão cadastrada à mão",
+                        "published_at": agora[:10],
+                        "status": corpo.get("status") or "lesionado"},
+    })
+    return {"resultado": r, "clube": clube}
+
+
+@app.get("/api/injuries/buscar-jogador")
+async def api_injuries_buscar_jogador(q: str = ""):
+    """Busca jogador para o cadastro manual.
+
+    Procura no ELENCO guardado — que é o mesmo índice que identifica o
+    jogador no resto da guia. Buscar direto na API-Football devolveria nomes
+    que o app não reconhece depois, e a lesão nasceria órfã.
+    """
+    termo = _chave_de_nome(q)
+    if len(termo) < 2:
+        return {"jogadores": []}
+    from database import listar_jogadores
+    gente = await asyncio.to_thread(listar_jogadores, "", 2000)
+    saida = []
+    for j in gente:
+        alvo = _chave_de_nome(j.get("nome") or "")
+        curto = _chave_de_nome(j.get("nome_curto") or "")
+        if termo in alvo or (curto and termo in curto):
+            saida.append({"nome": j.get("nome"), "clube": j.get("clube") or "",
+                          "posicao": j.get("posicao") or ""})
+        if len(saida) >= 12:
+            break
+    return {"jogadores": saida}
 
 
 @app.post("/api/injuries/rebuild")

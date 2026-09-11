@@ -105,12 +105,34 @@ def testar():
     ok("\njuntarTransfermarkt();" in tela,
        "sumiu a CHAMADA que junta o Transfermarkt à lista principal — o "
        "nome da função pode estar aí e ela nunca rodar")
-    ok("linha.className = 'lsn-fonte-tm';" in tela,
-       "sumiu a linha que marca o que veio do Transfermarkt dentro do card — "
-       "sem ela, não dá para saber qual fonte disse o quê")
-    ok("lsnSoTM" in tela,
-       "sumiu a seção de quem SÓ o Transfermarkt conhece. É o reserva que "
-       "ninguém noticiou, e é metade do valor de ter a segunda fonte")
+    # O TM entra como TAG e como item do HISTÓRICO, não como linha no meio do
+    # card. "Transfermarkt é mais uma fonte" — fonte que confirma não precisa
+    # engordar a lista; precisa ser rastreável.
+    # Outra vez a chamada, e não o nome: comentar `marcarTM(card, a);` deixa
+    # a função definida e o card sem tag nenhuma.
+    # Com a quebra de linha e o recuo exatos: comentar a linha insere "// "
+    # depois do recuo, e aí o trecho procurado deixa de casar. Sem isso, o
+    # teste passava com a chamada comentada.
+    ok("\n    marcarTM(card, a);" in tela
+       and "\n      marcarTM(card, a, true);" in tela,
+       "sumiu a CHAMADA que marca o card com a tag do Transfermarkt — nos "
+       "dois casos: no card que já existia e no que só o TM conhece")
+    ok("card.className = 'injury-card status-lesionado';" in tela,
+       "o card que só o Transfermarkt conhece perdeu a moldura de estado. "
+       "Ele fica visualmente diferente dos outros, como se fosse outra coisa "
+       "— e não é: é a mesma lista")
+    ok("lsn-tag-tm" in tela,
+       "sumiu a tag (TM) — sem ela não dá para saber qual fonte disse o quê")
+    ok("injury-timeline" in tela and "Transfermarkt <span" in tela,
+       "o Transfermarkt parou de entrar no histórico do card. A tag diz que "
+       "ele confirmou; o histórico é onde se lê o que ele disse")
+    # E quem só o TM conhece entra na MESMA lista, sem seção própria: a tag
+    # já diz de onde veio, e uma segunda seção era redundância.
+    ok("Só no Transfermarkt" not in tela,
+       "voltou a seção separada 'Só no Transfermarkt'. A tag (TM) já diz a "
+       "origem, e uma lista só é o que responde 'quem do meu time está fora'")
+    ok("grade.appendChild(card)" in tela,
+       "quem só o Transfermarkt conhece deixou de entrar na lista principal")
 
     # ── 3. a fonte é o TM, não a API ─────────────────────────────────────
     # A API-Football NÃO cobre ausências nesta liga (coverage.injuries =
@@ -173,8 +195,8 @@ def testar():
     # o jogador que o TM conhece e a imprensa não vira card próprio.
     ok("no_nosso_monitor" in rota,
        "a rota parou de marcar quem o nosso monitor já conhece")
-    ok("Só no Transfermarkt" in tela,
-       "sumiu a separação de quem só a segunda fonte viu — é o reserva que "
+    ok("não saiu na imprensa que eu coleto" in tela,
+       "sumiu o aviso de quem só a segunda fonte viu — é o reserva que "
        "ninguém noticiou, e é metade do valor de ter duas fontes")
     # A normalização de nome, exercitada de verdade — e não procurada no
     # texto. Rodo só ESTA função, num espaço com re e unicodedata, porque ela
@@ -205,6 +227,77 @@ def testar():
         ok(chave("") == "" and chave(None) == "",
            "nome vazio deixou de virar chave vazia e pode casar com qualquer "
            "outro nome vazio")
+
+    # ── 6. A MESMA PESSOA VIRA UM CARD SÓ ────────────────────────────────
+    # O banco guarda uma linha por incidente e o casamento era por
+    # SEMELHANÇA DE TEXTO, com corte em 0,75. A IA transliterou o mesmo
+    # jogador como "Rúger Fernández" numa notícia, "Rojer" noutra e "Roger
+    # Fernandes" numa terceira — nomes que não se parecem com nada — e ele
+    # apareceu três vezes na tela, como três lesionados.
+    #
+    # O Vini perguntou se todo o mapeamento de nomes tinha sido feito à toa.
+    # Tinha sido feito; não estava sendo consultado aqui.
+    # A CHAMADA, não a definição. Procurar "_juntar(" casa com o `def
+    # _juntar(` e o teste passa com a função definida e nunca usada — que é
+    # exatamente o defeito. Já caí nisso três vezes neste projeto.
+    ok("active, recovered = _juntar(active), _juntar(recovered)" in tela,
+       "sumiu a CHAMADA que une as lesões da mesma pessoa. Sem ela, o mesmo "
+       "jogador volta a aparecer três vezes, uma por transliteração da IA")
+    ok("def _identidade(" in tela,
+       "sumiu a função que resolve a identidade do lesionado")
+    ok('for nome in (inj.get("player_name"), inj.get("player_name_orig"))' in tela,
+       "a identidade parou de tentar também o nome ORIGINAL da notícia. No "
+       "caso do Roger Fernandes o nome certo era justamente o original: a "
+       "transliteração da IA foi a que errou")
+    ok("_do_elenco(nome" in tela,
+       "a identidade deixou de passar pelo índice de jogadores")
+    ok('grupos.setdefault(_identidade(inj), [])' in tela,
+       "o agrupamento deixou de usar a identidade como chave")
+    # Quem o elenco NÃO conhece continua sozinho: juntar dois desconhecidos
+    # porque não sei quem são seria inventar identidade em cima de ignorância.
+    ok('return ("nome", _chave_de_nome' in tela,
+       "quem o elenco não conhece deixou de ter chave própria — dois "
+       "desconhecidos passariam a ser tratados como a mesma pessoa")
+    # E o conserto na origem, para não depender só da tela.
+    banco2 = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+    ok("def _quem_e(" in banco2,
+       "sumiu a resolução de identidade do banco — sem ela, cada notícia nova "
+       "volta a criar uma linha por grafia")
+    upsert = banco2[banco2.find("def upsert_injury"):]
+    upsert = upsert[:upsert.find("\ndef ", 10)]
+    i_id = upsert.find("_quem_e(")
+    i_txt = upsert.find("SequenceMatcher(None")
+    ok(-1 < i_id < i_txt,
+       "a semelhança de texto voltou a vir ANTES da identidade. A ordem é a "
+       "regra: 'Rúger Fernández' e 'Rojer' nunca se parecerão, e só a "
+       "identidade sabe que são a mesma pessoa")
+
+    # ── 7. excluir, e o cadastro manual ──────────────────────────────────
+    ok("excluirLesao(" in tela and "/api/injuries/apagar" in tela,
+       "sumiu o botão de excluir. A coleta é automática e às vezes erra; sem "
+       "um jeito de tirar, o conserto seria aprender a ignorar linhas — e "
+       "monitor que se aprende a ignorar não monitora mais nada")
+    ok("confirm('Tem certeza que deseja excluir a lesão de '" in tela,
+       "o excluir parou de perguntar antes")
+    ok("nome.trim()" in tela,
+       "a pergunta de exclusão parou de dizer QUEM vai sair. 'Tem certeza?' "
+       "sozinho não protege de nada: a pessoa confirma sem ler")
+    ok("data-ids=" in tela,
+       "o card perdeu os ids. Depois que a identidade passou a juntar "
+       "registros, apagar só um deixaria os irmãos de volta na próxima carga")
+
+    ok("/api/injuries/manual" in tela and "salvarLesao(" in tela,
+       "sumiu o cadastro manual de lesão")
+    ok("/api/injuries/buscar-jogador" in tela,
+       "a busca de jogador do cadastro manual sumiu")
+    manual = _corpo("api_injuries_manual")
+    ok("upsert_injury" in manual,
+       "o cadastro manual deixou de entrar pelo mesmo caminho das "
+       "automáticas. Por uma porta lateral, ele criaria um card paralelo em "
+       "vez de se juntar ao que já existe daquele jogador")
+    ok("Cadastro manual" in manual,
+       "a fonte manual parou de se identificar no histórico — daqui a um mês "
+       "não dá para saber o que veio da imprensa e o que foi você que pôs")
 
     for f in falhas:
         print("  ✗", f)
