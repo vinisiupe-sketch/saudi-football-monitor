@@ -295,6 +295,10 @@ class Monitor:
                 break
             total_texto = await self.page.get_by_role("heading", name=re.compile(r"^\d+ results?$")).inner_text()
             total = int(total_texto.split()[0])
+            print(json.dumps({"pagina_busca": numero, "total_portal": total,
+                              "titulos_lidos": len(titulos),
+                              "team_sheets": [t for t in titulos if re.search(r"Team Sheets?", t, re.I)]},
+                             ensure_ascii=False), flush=True)
             vistos += len(titulos)
             for titulo in titulos:
                 if not re.search(r"Team Sheets?", titulo, re.I):
