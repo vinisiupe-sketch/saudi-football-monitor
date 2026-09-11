@@ -319,7 +319,12 @@ class Monitor:
         await self.context.storage_state(path=str(self.estado.pasta / "sessao.json"))
         if erros:
             raise MonitorError(erros[0])
-        await self.status(cli, "monitorando", "Verificação concluída. Aguardando novos PDFs ou correções.")
+        if vistos == 0:
+            await self.status(
+                cli, "monitorando",
+                "Media Hub consultado: nenhuma escalação publicada hoje. Nova tentativa em 1 minuto.")
+        else:
+            await self.status(cli, "monitorando", "Verificação concluída. Aguardando novos PDFs ou correções.")
 
 
 async def executar(args):
