@@ -24,6 +24,7 @@ O QUE MAIS ME PREOCUPA AQUI
     sobrescrevesse a outra com vazio, cada varredura apagaria metade do que a
     anterior tinha ganhado.
 """
+import re
 import ast
 import os
 import sys
@@ -152,8 +153,12 @@ def testar():
     # Uma tabela `jogador` só. Já houve duas ao mesmo tempo, com colunas
     # diferentes: o Postgres obedece o primeiro CREATE e o Python a última
     # função, então o INSERT ia procurar coluna que não existia.
+    # Com FRONTEIRA DE PALAVRA. Contar o prefixo "jogador" fazia a tabela
+    # `jogador_apelido` — o glossário de nomes corrigidos à mão — ser contada
+    # como uma segunda tabela `jogador`, e o teste acusava um problema que
+    # não existia. O alvo aqui é a tabela chamada exatamente `jogador`.
     conferir("uma tabela jogador",
-             fonte.count("CREATE TABLE IF NOT EXISTS jogador"), 1)
+             len(re.findall(r"CREATE TABLE IF NOT EXISTS jogador\b(?!_)", fonte)), 1)
     for nome in ("salvar_jogadores", "listar_jogadores", "contar_jogadores"):
         quantas = sum(1 for n in arvore.body
                       if isinstance(n, ast.FunctionDef) and n.name == nome)

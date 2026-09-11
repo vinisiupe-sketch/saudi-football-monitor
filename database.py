@@ -6,6 +6,7 @@ import os
 import time
 import hashlib
 import json
+import re
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import psycopg2
@@ -1934,6 +1935,94 @@ def _normalize(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", s) if unicodedata.category(c) != "Mn")
 
 
+# ── GLOSSÁRIO DE APELIDOS DE JOGADOR ────────────────────────────────────────
+#
+# A IDEIA É DO VINI, e ela é melhor que tudo que eu tentei automatizar aqui.
+#
+# Passei três rodadas tentando fazer a máquina adivinhar que "Rúger Fernández",
+# "Rojer" e "Roger Fernandes" são a mesma pessoa. Cada tentativa resolveu uma
+# parte e deixou outra: comparação de texto não junta "Rojer" com "Roger
+# Fernandes"; o índice de nomes recusa sobrenome solto, com razão; a busca
+# escopada ao clube exige que os pedaços do nome existam no jogador, e
+# "ruger fernandez" não existe em "roger fernandes".
+#
+# Não existe regra automática que acerte isso, porque a transliteração está
+# ERRADA — não é uma variação, é outro nome. Adivinhar aqui seria chutar, e
+# chutar identidade põe a lesão de um jogador no card de outro.
+#
+# O que resolve é uma decisão humana, tomada UMA vez e guardada para sempre.
+# É o mesmo padrão que o app já usa para os nomes de árbitro do SAFF: o Vini
+# corrige na tela, o app aprende, e ninguém mais precisa corrigir aquilo.
+#
+# E o efeito é cumulativo: cada correção vira uma linha de glossário que vale
+# para toda notícia futura, de qualquer guia.
+def _cria_apelido(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS jogador_apelido (
+            chave     TEXT PRIMARY KEY,
+            spl_id    TEXT NOT NULL,
+            escrito   TEXT,
+            criado_em TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+
+def _chave_apelido(nome: str) -> str:
+    """A forma de comparação: sem acento, sem pontuação, sem caixa."""
+    import unicodedata as _u
+    t = _u.normalize("NFKD", nome or "").encode("ascii", "ignore").decode()
+    return " ".join(re.sub(r"[^a-zA-Z ]+", " ", t).lower().split())
+
+
+def definir_apelido(nome: str, spl_id: str) -> bool:
+    """Ensina ao app que este nome designa este jogador.
+
+    Sobrescreve de propósito: se o Vini corrigir duas vezes, a segunda é a
+    que vale. Ele está olhando a tela; eu não.
+    """
+    chave = _chave_apelido(nome)
+    if not chave or not spl_id:
+        return False
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_apelido(c)
+            c.execute("""INSERT INTO jogador_apelido (chave, spl_id, escrito)
+                         VALUES (%s,%s,%s)
+                         ON CONFLICT (chave) DO UPDATE SET
+                            spl_id = EXCLUDED.spl_id,
+                            escrito = EXCLUDED.escrito,
+                            criado_em = NOW()""",
+                      [chave, spl_id, " ".join((nome or "").split())])
+            return True
+    except Exception:
+        return False
+
+
+def apelidos_de_jogador() -> dict:
+    """{chave normalizada: spl_id}. Tudo que o Vini já corrigiu."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_apelido(c)
+            c.execute("SELECT chave, spl_id FROM jogador_apelido")
+            return {r[0]: r[1] for r in c.fetchall()}
+    except Exception:
+        return {}
+
+
+def esquecer_apelido(nome: str) -> bool:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_apelido(c)
+            c.execute("DELETE FROM jogador_apelido WHERE chave = %s",
+                      [_chave_apelido(nome)])
+            return c.rowcount > 0
+    except Exception:
+        return False
+
+
 def _quem_e(nome: str, indice=None) -> str:
     """O jogador do elenco que este nome designa — ou "" se não der para dizer.
 
@@ -1956,6 +2045,14 @@ def _quem_e(nome: str, indice=None) -> str:
     """
     if not (nome or "").strip():
         return ""
+    # O GLOSSÁRIO PRIMEIRO. O que o Vini corrigiu à mão vale mais que
+    # qualquer dedução minha — ele estava olhando a tela quando decidiu.
+    try:
+        apelido = apelidos_de_jogador().get(_chave_apelido(nome))
+        if apelido:
+            return apelido
+    except Exception:
+        pass
     try:
         import elos
         if indice is None:

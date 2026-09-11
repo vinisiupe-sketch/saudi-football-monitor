@@ -140,6 +140,39 @@ def testar():
     ok(vazia["erros"],
        "tabela sem linhas legíveis devia acusar mudança de layout")
 
+    # ── 4b. A VISÃO DETALHADA, com o `since` ─────────────────────────────
+    # Foi o Vini quem apontou o /plus/1. A visão simples tem 5 colunas e só a
+    # previsão de retorno; a detalhada tem 8 — com Idade e Nacionalidade no
+    # meio — e a data em que a lesão COMEÇOU, que é o que põe a entrada no
+    # lugar certo da linha do tempo.
+    #
+    # As colunas são achadas pelo CABEÇALHO, e não pela posição: contando a
+    # partir do fim, a leitura funcionava numa versão e lia a nacionalidade
+    # como lesão na outra — sem erro nenhum, porque texto é texto.
+    DETALHADA = os.path.join(RAIZ, "tests", "amostras",
+                             "tm_lesionados_SA1_detalhado.html")
+    ok(os.path.exists(DETALHADA), f"sumiu a amostra detalhada: {DETALHADA}")
+    if os.path.exists(DETALHADA):
+        d = lesoes_tm.ler_lesionados(open(DETALHADA, encoding="utf-8").read())
+        ok(not d["erros"], f"erros na visão detalhada: {d['erros']}")
+        ok(len(d["lesoes"]) == 2, f"saíram {len(d['lesoes'])} de 2")
+        por = {x["tm_id"]: x for x in d["lesoes"]}
+        r1 = por.get("906329") or {}
+        ok(r1.get("desde") == "2026-09-05",
+           f"o `since` saiu como {r1.get('desde')!r} — é ele que diz quando a "
+           "lesão começou, e sem ele a entrada no histórico ia carimbada com "
+           "a data de hoje")
+        ok(r1.get("ate") == "2027-03-31", f"o `until`: {r1.get('ate')!r}")
+        ok(r1.get("lesao") == "Cruciate ligament tear",
+           f"a lesão saiu como {r1.get('lesao')!r}. Se vier '20' ou "
+           "'Portugal', a leitura voltou a contar coluna a partir do fim e "
+           "está lendo idade ou nacionalidade no lugar")
+        ok(r1.get("clube") == "Al-Ittihad Club", f"clube: {r1.get('clube')!r}")
+        # Sem previsão de retorno: campo vazio, e não data inventada.
+        r2 = por.get("111111") or {}
+        ok(r2.get("desde") == "2026-08-14" and r2.get("ate") == "",
+           f"o caso sem previsão de retorno saiu errado: {r2}")
+
     # ── 5. o download não mora junto com a leitura ───────────────────────
     # httpx importado no topo faria a leitura do HTML depender de biblioteca
     # de rede — e é a leitura que erra, não o download. Mesmo princípio do

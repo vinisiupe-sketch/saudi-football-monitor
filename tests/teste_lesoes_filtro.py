@@ -338,6 +338,67 @@ def testar():
     ok("_HEAD_COMUM = _THEME_INIT_SCRIPT + _PWA_HEAD + _SEM_ZOOM_NO_TOQUE" in FONTE,
        "a regra saiu do _HEAD_COMUM e deixou de valer em todas as telas")
 
+    # ── 10. O GLOSSÁRIO DE APELIDOS — a ideia do Vini ────────────────────
+    # Passei três rodadas tentando fazer a máquina adivinhar que "Rúger
+    # Fernández", "Rojer" e "Roger Fernandes" são a mesma pessoa. Não existe
+    # regra automática que acerte: a transliteração está ERRADA, não é uma
+    # variação. Adivinhar ali seria chutar identidade — e chutar identidade
+    # põe a lesão de um jogador no card de outro.
+    #
+    # O que resolve é uma decisão humana, tomada uma vez e guardada para
+    # sempre. É o mesmo padrão que o app já usa para nome de árbitro.
+    # A LIGAÇÃO, e não o nome da função: o botão precisa CHAMAR a abertura, e
+    # o salvar precisa CHAMAR a rota. Procurar "abrirCorrecao(" casa com o
+    # `function abrirCorrecao(` e passa com o onclick vazio.
+    ok('onclick=\\"abrirCorrecao(this)\\"' in tela and "lsn-corrigir" in tela,
+       "sumiu o campo de corrigir o nome no card. Sem ele, o nome que a IA "
+       "transliterou errado não tem conserto nenhum")
+    ok("onclick=\"salvarCorrecao(this)\"" in tela
+       and "fetch('/api/jogador/apelido'" in tela,
+       "a correção deixou de ser gravada — corrigir na tela e não guardar é "
+       "pedir para o Vini corrigir a mesma coisa toda semana")
+    ok('"spl_id": j.get("spl_id")' in FONTE,
+       "a busca de jogador parou de devolver o spl_id. Sem ele, o glossário "
+       "teria de casar por NOME de novo — o problema que veio resolver")
+    # Dentro do salvarCorrecao, e não em qualquer lugar do arquivo: o
+    # recarregar existe em outros pontos da página.
+    salvar = tela[tela.find("async function salvarCorrecao"):]
+    salvar = salvar[:salvar.find("\n}}") + 3]
+    ok("location.reload();" in salvar,
+       "depois de corrigir, a tela não recarrega — a união dos cards "
+       "acontece no servidor, e o resultado não apareceria")
+
+    ok("def definir_apelido(" in banco2 and "def apelidos_de_jogador(" in banco2,
+       "sumiu o glossário de apelidos do banco")
+    # E ele tem que ser consultado ANTES de qualquer dedução: o que o Vini
+    # corrigiu olhando a tela vale mais que o meu palpite.
+    quem = banco2[banco2.find("def _quem_e("):]
+    quem = quem[:quem.find("\ndef ", 10)]
+    i_glo = quem.find("apelidos_de_jogador()")
+    i_idx = quem.find("elos.jogadores_no_texto")
+    ok(-1 < i_glo < i_idx,
+       "o glossário deixou de vir antes do índice automático. O que foi "
+       "corrigido à mão tem que ganhar: quem corrigiu estava olhando a tela")
+    ok("_apelidos.get(" in tela,
+       "a tela parou de consultar o glossário na hora de identificar")
+
+    # ── 11. o `since` do Transfermarkt ───────────────────────────────────
+    # O Vini achou a visão detalhada (/plus/1), que traz a data de INÍCIO da
+    # lesão. Sem ela eu só tinha a previsão de retorno, e a entrada no
+    # histórico ia carimbada com a data de hoje.
+    tm = open(os.path.join(RAIZ, "lesoes_tm.py"), encoding="utf-8").read()
+    ok('CAMINHO = "/saudi-pro-league/verletztespieler/wettbewerb/SA1/plus/1"' in tm,
+       "a raspagem voltou para a visão simples do Transfermarkt, que não tem "
+       "a data de início da lesão")
+    ok('"desde"' in tm,
+       "o campo `desde` (o since do TM) sumiu da leitura")
+    # As colunas mudam entre as duas visões — 5 na simples, 8 na detalhada.
+    # Contar a partir do fim lia a nacionalidade como lesão, sem erro nenhum.
+    ok("_indice_das_colunas" in tm,
+       "a leitura voltou a achar as colunas por posição. As duas versões da "
+       "página têm número diferente de colunas, e contar do fim lê a coluna "
+       "errada sem dar erro")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else

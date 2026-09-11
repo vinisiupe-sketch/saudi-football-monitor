@@ -4228,9 +4228,10 @@ async def _page_lesoes_impl(request: Request):
     try:
         import elos
         import liga_spl
-        from database import (escudos_da_liga, escudos_por_clube,
-                              listar_jogadores)
+        from database import (apelidos_de_jogador, escudos_da_liga,
+                              escudos_por_clube, listar_jogadores)
         _gente = listar_jogadores(limite=2000)
+        _apelidos = apelidos_de_jogador()
         _indice, _ = elos.indice_de_jogadores(_gente)
         _por_id = {j["spl_id"]: j for j in _gente}
         # O da LIGA primeiro, e o geral só como reserva. Sem essa ordem, o
@@ -4241,7 +4242,7 @@ async def _page_lesoes_impl(request: Request):
         _escudos.update(escudos_da_liga(_af_temporada_corrente()))
     except Exception as e:
         print(f"⚠️ lesões, rosto: {type(e).__name__}: {e}")
-        _indice, _por_id, _escudos = {"chave": {}}, {}, {}
+        _indice, _por_id, _escudos, _apelidos = {"chave": {}}, {}, {}, {}
 
     # Elenco agrupado por clube, para a segunda tentativa de identificação.
     def _chave_clube(nome: str) -> str:
@@ -4277,6 +4278,13 @@ async def _page_lesoes_impl(request: Request):
             busca é ESCOPADA, e desiste se mais de um jogador daquele clube
             responder pelo mesmo pedaço de nome.
         """
+        # O GLOSSÁRIO PRIMEIRO: o que o Vini corrigiu à mão vale mais que
+        # qualquer dedução minha. Ele estava olhando a tela quando decidiu.
+        import database as _db
+        corrigido = _apelidos.get(_db._chave_apelido(nome or ""))
+        if corrigido and corrigido in _por_id:
+            return _por_id[corrigido]
+
         achados = elos.jogadores_no_texto("", nome or "", _indice)
         if len(achados) == 1:
             return _por_id.get(next(iter(achados))) or {}
@@ -4460,7 +4468,16 @@ async def _page_lesoes_impl(request: Request):
             + '<div class="lsn-linha">'
             + '<span class="lsn-escudo">' + escudo_html + "</span>"
             + '<span class="lsn-quem">'
-            + '<span class="lsn-nome">' + player + "</span>"
+            + '<span class="lsn-nome">' + player
+            # O lápis abre a busca de jogador. Quando o Vini escolhe, o app
+            # aprende que ESTE nome é AQUELE jogador — para sempre, e para
+            # toda notícia futura. É a ideia dele, e é o único caminho que
+            # funciona quando a transliteração não erra por pouco: erra por
+            # inteiro ("Rúger Fernández" para "Roger Fernandes").
+            + ' <button class="lsn-corrigir" title="Corrigir o nome deste jogador"'
+            + ' data-bruto="' + _html.escape(bruto, quote=True) + '"'
+            + " onclick=\"abrirCorrecao(this)\">&#9998;</button>"
+            + "</span>"
             + '<span class="lsn-sub">' + club
             + ('<span class="lsn-sep">·</span>' + resumo if resumo else "")
             + "</span></span>"
@@ -4816,6 +4833,22 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 /* No verde da casa: é a cor que o app usa para "isto está confirmado". */
 .lsn-tag-tm {{ font-size: .54rem; padding: 2px 7px;
   border-color: #B6FF00; color: #B6FF00; }}
+/* O lápis de corrigir o nome. Discreto como o X: só aparece no card sob o
+   cursor, e fica sempre visível em tela de toque. */
+.lsn-corrigir {{ background: none; border: none; color: var(--c-muted-2);
+  font-size: .8rem; cursor: pointer; padding: 0 3px; opacity: 0;
+  transition: opacity .15s, color .15s; }}
+.injury-card:hover .lsn-corrigir {{ opacity: 1; }}
+.lsn-corrigir:hover {{ color: #B6FF00; }}
+@media (hover: none) {{ .lsn-corrigir {{ opacity: .5; }} }}
+.lsn-correcao {{ background: var(--c-bg-soft); border: 1px solid var(--c-border);
+  border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }}
+.lsn-correcao-tit {{ font-size: .68rem; color: var(--c-muted-3);
+  margin-bottom: 7px; }}
+.lsn-correcao input {{ width: 100%; box-sizing: border-box;
+  background: var(--c-bg); border: 1.5px solid var(--c-border-2);
+  border-radius: 9px; padding: 8px 10px; color: var(--c-text);
+  font-family: inherit; font-size: .82rem; }}
 /* Chips de estado, no topo. Mesma gramática dos chips que a guia de Notícias
    já usa: o escolhido fica sólido, os outros vazados. */
 .lsn-chips {{ display: flex; gap: 7px; flex-wrap: wrap; margin: 14px 0 10px; }}
@@ -5171,6 +5204,77 @@ async function excluirLesao(botao) {{
   }} catch (e) {{
     alert('não deu para excluir: ' + (e.message || e));
     botao.disabled = false;
+  }}
+}}
+
+// ── Corrigir o nome de um jogador ─────────────────────────────────────────
+//
+// A ideia é do Vini, e ela resolve o que nenhuma regra automática resolvia.
+// "Rúger Fernández" para "Roger Fernandes" não é variação de grafia: é outro
+// nome. Comparar texto não junta, o índice recusa sobrenome solto (com razão)
+// e a busca por clube exige que os pedaços existam no jogador. Adivinhar ali
+// seria chutar identidade — e chutar identidade põe a lesão de um no card de
+// outro.
+//
+// Uma decisão humana, tomada uma vez, guardada para sempre. Cada correção
+// vira uma linha de glossário que vale para toda notícia futura.
+let _corrigindo = null;
+
+function abrirCorrecao(botao) {{
+  const card = botao.closest('.injury-card');
+  if (card.querySelector('.lsn-correcao')) {{
+    card.querySelector('.lsn-correcao').remove();
+    return;
+  }}
+  _corrigindo = botao.dataset.bruto || '';
+  const caixa = document.createElement('div');
+  caixa.className = 'lsn-correcao';
+  caixa.innerHTML = '<div class="lsn-correcao-tit">Quem é, de verdade? '
+    + 'O app vai lembrar disto para sempre.</div>'
+    + '<input type="text" placeholder="procure o nome certo" '
+    + 'oninput="buscarParaCorrigir(this)" autocomplete="off">'
+    + '<div class="lsn-sugestoes"></div>';
+  (card.querySelector('.lsn-extra') || card).insertBefore(
+    caixa, (card.querySelector('.lsn-extra') || card).firstChild);
+  caixa.querySelector('input').focus();
+}}
+
+let _corrTimer = null;
+function buscarParaCorrigir(campo) {{
+  clearTimeout(_corrTimer);
+  _corrTimer = setTimeout(async function () {{
+    const caixa = campo.parentElement.querySelector('.lsn-sugestoes');
+    const q = campo.value.trim();
+    if (q.length < 2) {{ caixa.innerHTML = ''; return; }}
+    try {{
+      const r = await fetch('/api/injuries/buscar-jogador?q=' + encodeURIComponent(q));
+      const d = await r.json();
+      caixa.innerHTML = (d.jogadores || []).map(function (j) {{
+        return '<button type="button" onclick="salvarCorrecao(this)" '
+          + 'data-spl="' + lsnEsc(j.spl_id) + '">'
+          + lsnEsc(j.nome) + ' <small>' + lsnEsc(j.clube) + '</small></button>';
+      }}).join('') || '<span class="lsn-nada">ninguém com esse nome no elenco</span>';
+    }} catch (e) {{ caixa.innerHTML = ''; }}
+  }}, 250);
+}}
+
+async function salvarCorrecao(b) {{
+  if (!_corrigindo) return;
+  b.disabled = true;
+  try {{
+    const r = await fetch('/api/jogador/apelido', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{nome: _corrigindo, spl_id: b.dataset.spl}})
+    }});
+    const d = await r.json();
+    if (d.erro || !d.ok) throw new Error(d.erro || 'não gravou');
+    // Recarrega: a união dos cards acontece no servidor, e agora ele sabe
+    // que os dois Rogers são o mesmo. Mostrar o resultado sem recarregar
+    // seria refazer aqui uma conta que já existe lá.
+    location.reload();
+  }} catch (e) {{
+    alert('não deu para gravar a correção: ' + (e.message || e));
+    b.disabled = false;
   }}
 }}
 
@@ -7212,6 +7316,50 @@ async def api_injuries_manual(request: Request):
     return {"resultado": r, "clube": clube}
 
 
+@app.post("/api/jogador/apelido")
+async def api_jogador_apelido(request: Request):
+    """Ensina ao app que um nome designa um jogador. A ideia é do Vini.
+
+    Passei três rodadas tentando fazer a máquina adivinhar que "Rúger
+    Fernández", "Rojer" e "Roger Fernandes" são a mesma pessoa. Não existe
+    regra automática que acerte, porque a transliteração está ERRADA: não é
+    uma variação do nome, é outro nome. Adivinhar ali seria chutar, e chutar
+    identidade põe a lesão de um jogador no card de outro.
+
+    O que resolve é uma decisão humana, tomada uma vez e guardada para
+    sempre — o mesmo padrão que o app já usa para os nomes de árbitro. E o
+    efeito é cumulativo: cada correção vale para toda notícia futura, em
+    qualquer guia que use o índice de nomes.
+    """
+    from database import definir_apelido
+    corpo = await request.json()
+    nome = (corpo.get("nome") or "").strip()
+    spl_id = (corpo.get("spl_id") or "").strip()
+    if not nome or not spl_id:
+        return JSONResponse({"erro": "preciso do nome e do jogador"}, 400)
+    ok = await asyncio.to_thread(definir_apelido, nome, spl_id)
+    return {"ok": ok, "nome": nome, "spl_id": spl_id}
+
+
+@app.get("/api/jogador/apelidos", response_class=PlainTextResponse)
+async def api_jogador_apelidos():
+    """O glossário que o Vini construiu, para ele poder conferir e revisar."""
+    from database import apelidos_de_jogador, listar_jogadores
+    mapa = await asyncio.to_thread(apelidos_de_jogador)
+    gente = {j["spl_id"]: j for j in await asyncio.to_thread(
+        listar_jogadores, "", 2000)}
+    if not mapa:
+        return ("Nenhuma correção de nome ainda.\n\nQuando você corrigir um "
+                "nome na guia de Lesões, ele aparece aqui — e passa a valer "
+                "para toda notícia futura.")
+    linhas = [f"CORREÇÕES DE NOME ({len(mapa)})", ""]
+    for chave, spl in sorted(mapa.items()):
+        j = gente.get(spl) or {}
+        linhas.append(f"  {chave:32} → {j.get('nome') or spl} "
+                      f"({j.get('clube') or '—'})")
+    return "\n".join(linhas)
+
+
 @app.get("/api/injuries/buscar-jogador")
 async def api_injuries_buscar_jogador(q: str = ""):
     """Busca jogador para o cadastro manual.
@@ -7231,7 +7379,11 @@ async def api_injuries_buscar_jogador(q: str = ""):
         curto = _chave_de_nome(j.get("nome_curto") or "")
         if termo in alvo or (curto and termo in curto):
             saida.append({"nome": j.get("nome"), "clube": j.get("clube") or "",
-                          "posicao": j.get("posicao") or ""})
+                          "posicao": j.get("posicao") or "",
+                          # O spl_id vai junto porque é ele que a correção de
+                          # nome grava. Sem ele, o glossário teria de casar por
+                          # nome de novo — o problema que ele veio resolver.
+                          "spl_id": j.get("spl_id")})
         if len(saida) >= 12:
             break
     return {"jogadores": saida}

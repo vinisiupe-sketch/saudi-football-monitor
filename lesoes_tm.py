@@ -34,10 +34,17 @@ import re
 # do arbitragem.py — o que ERRA é a leitura do texto, e ela tem que ser
 # testável em qualquer lugar, com o recorte real da página e sem internet.
 
-# `verletztespieler` é a página de lesionados da competição. SA1 é a Saudi
-# Pro League. A ordenação por `datum_bis.desc` põe primeiro quem volta mais
-# tarde — ou seja, os casos mais graves no topo, que é como o Vini olharia.
-CAMINHO = "/saudi-professional-league/verletztespieler/wettbewerb/SA1/sort/datum_bis.desc"
+# `/plus/1` é a VISÃO DETALHADA da mesma página, e foi o Vini quem apontou.
+#
+# A visão simples traz Jogador, Clube, Lesão, "until" e Valor. A detalhada
+# acrescenta Idade, Nacionalidade e — o que importa aqui — o **since**: a data
+# em que a lesão começou.
+#
+# Sem ela eu só sabia quando o jogador deve voltar, e a entrada do
+# Transfermarkt no histórico do card tinha que ser carimbada com a data de
+# HOJE, dizendo "é o estado atual da fonte". Com o `since`, ela entra na linha
+# do tempo no lugar certo, junto das notícias daquele dia.
+CAMINHO = "/saudi-pro-league/verletztespieler/wettbewerb/SA1/plus/1"
 TEMPO_LIMITE = 25.0
 
 _RE_ID_JOGADOR = re.compile(r"/profil/spieler/(\d+)")
@@ -90,6 +97,42 @@ def ler_lesionados(html: str) -> dict:
             "o acesso, ou a página mudou de forma")
         return saida
 
+    # AS COLUNAS SÃO ACHADAS PELO CABEÇALHO, e não pela posição.
+    #
+    # O TM serve duas versões da mesma página: a simples tem 5 colunas e a
+    # detalhada (/plus/1) tem 8, com Idade e Nacionalidade no meio. Contar a
+    # partir do fim funcionava numa e lia a nacionalidade como lesão na
+    # outra — e sem erro nenhum, porque texto é texto.
+    #
+    # Pelo nome da coluna, a leitura sobrevive às duas versões e a mais uma
+    # coluna que o TM resolva acrescentar amanhã.
+    def _indice_das_colunas() -> dict:
+        cabecalho = tabela.find("thead")
+        nomes = [_limpo(th.get_text(" ")).lower()
+                 for th in (cabecalho.find_all("th") if cabecalho else [])]
+        mapa = {}
+        for i, n in enumerate(nomes):
+            if "injur" in n:
+                mapa.setdefault("lesao", i)
+            elif n == "since" or "since" in n:
+                mapa.setdefault("desde", i)
+            elif n == "until" or "until" in n:
+                mapa.setdefault("ate", i)
+            elif "market value" in n:
+                mapa.setdefault("valor", i)
+        return mapa
+
+    col = _indice_das_colunas()
+
+    def _celula(celulas, chave, padrao_do_fim):
+        i = col.get(chave)
+        if i is not None and i < len(celulas):
+            return _limpo(celulas[i].get_text(" "))
+        # Sem cabeçalho legível, caio para a contagem a partir do fim — que é
+        # o que eu fazia antes. Pior, mas melhor que devolver vazio.
+        return (_limpo(celulas[padrao_do_fim].get_text(" "))
+                if abs(padrao_do_fim) <= len(celulas) else "")
+
     corpo = tabela.find("tbody") or tabela
     for linha in corpo.find_all("tr", recursive=False):
         celulas = linha.find_all("td", recursive=False)
@@ -133,10 +176,12 @@ def ler_lesionados(html: str) -> dict:
             "clube": clube,
             "clube_tm_id": clube_id,
             "escudo": escudo,
-            "lesao": _limpo(celulas[-3].get_text(" ")),
-            "ate": _data_iso(celulas[-2].get_text(" ")),
-            "ate_texto": _limpo(celulas[-2].get_text(" ")),
-            "valor": _limpo(celulas[-1].get_text(" ")),
+            "lesao": _celula(celulas, "lesao", -3),
+            "desde": _data_iso(_celula(celulas, "desde", 0)),
+            "desde_texto": _celula(celulas, "desde", 0),
+            "ate": _data_iso(_celula(celulas, "ate", -2)),
+            "ate_texto": _celula(celulas, "ate", -2),
+            "valor": _celula(celulas, "valor", -1),
         })
     if not saida["lesoes"]:
         saida["erros"].append("a tabela existe mas não devolveu nenhuma linha "
