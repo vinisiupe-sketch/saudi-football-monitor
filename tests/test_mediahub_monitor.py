@@ -36,6 +36,10 @@ class Regras(unittest.TestCase):
         self.assertFalse(m.na_janela(inicio, m.instante("2026-09-09T16:19:59Z")))
         self.assertTrue(m.na_janela(inicio, m.instante("2026-09-09T18:00:00Z")))
         self.assertFalse(m.na_janela(inicio, m.instante("2026-09-09T18:00:01Z")))
+        self.assertTrue(m.na_janela(
+            inicio, m.instante("2026-09-09T20:59:59Z"), recuperacao=180))
+        self.assertFalse(m.na_janela(
+            inicio, m.instante("2026-09-09T21:00:01Z"), recuperacao=180))
 
     def test_busca_temporada_e_rodada_do_mediahub(self):
         dia = m.instante("2026-09-08T22:00:00Z").astimezone(m.ARABIA).date()

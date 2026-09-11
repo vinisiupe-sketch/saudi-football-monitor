@@ -37,8 +37,9 @@ def instante(texto):
     return valor
 
 
-def na_janela(inicio, momento, antecedencia=100):
-    return inicio - timedelta(minutes=antecedencia) <= momento <= inicio
+def na_janela(inicio, momento, antecedencia=100, recuperacao=0):
+    return (inicio - timedelta(minutes=antecedencia)
+            <= momento <= inicio + timedelta(minutes=recuperacao))
 
 
 def temporada_mediahub(dia):
@@ -174,6 +175,7 @@ class Monitor:
         self.intervalo = max(60, int(os.environ.get("MEDIAHUB_INTERVAL_SECONDS", "60")))
         self.revisao = max(60, int(os.environ.get("MEDIAHUB_REVISION_SECONDS", "300")))
         self.antecedencia = int(os.environ.get("MEDIAHUB_BEFORE_MINUTES", "100"))
+        self.recuperacao = max(0, int(os.environ.get("MEDIAHUB_AFTER_MINUTES", "180")))
         self.browser = self.context = self.page = None
         self.login_depois = 0
 
@@ -277,7 +279,8 @@ class Monitor:
         registro = url_registro(registro)
         anterior = self.estado.dados["registros"].get(registro, {})
         if not ignorar_janela and anterior:
-            if not na_janela(instante(anterior["inicio"]), agora(), self.antecedencia):
+            if not na_janela(instante(anterior["inicio"]), agora(), self.antecedencia,
+                             self.recuperacao):
                 return
             if time.time() - anterior["checado"] < self.revisao:
                 return
@@ -288,7 +291,8 @@ class Monitor:
                     raise MonitorError("O registro ainda não tem PDF em inglês.")
                 return
             dados, inicio = validar_pdf(pdf, dia)
-            if not ignorar_janela and not na_janela(inicio, agora(), self.antecedencia):
+            if not ignorar_janela and not na_janela(
+                    inicio, agora(), self.antecedencia, self.recuperacao):
                 return
             digest = hashlib.sha256(pdf.read_bytes()).hexdigest()
             if self.estado.entregue(registro, digest):
@@ -313,7 +317,8 @@ class Monitor:
         dia = agora().astimezone(ARABIA).date()
         if agenda.get("data_arabia") != dia.isoformat():
             raise MonitorError("O calendário devolveu uma data desatualizada.")
-        ativos = [j for j in agenda["jogos"] if na_janela(instante(j["pontape_utc"]), agora(), self.antecedencia)]
+        ativos = [j for j in agenda["jogos"] if na_janela(
+            instante(j["pontape_utc"]), agora(), self.antecedencia, self.recuperacao)]
         if not ativos:
             await self.status(cli, "aguardando", "Aguardando a janela de 100 minutos antes dos jogos.")
             if self.browser:
