@@ -19023,9 +19023,10 @@ async function carregarRecentes() {{
     return;
   }}
   const prontas = jogos.filter(function (j) {{ return j.escalacao; }}).length;
-  let html = '<h2 class="esc-titulo">Jogos do dia</h2>'
-    + '<p class="esc-subtitle">' + prontas + ' de ' + jogos.length
-    + ' com escalação na mão.</p>';
+  const nomeRodada = esc((d && d.rodada) || 'rodada atual');
+  let html = '<h2 class="esc-titulo">Jogos da ' + nomeRodada + '</h2>'
+      + '<p class="esc-subtitle">' + prontas + ' de ' + jogos.length
+      + ' com escalação na mão.</p>';
 
   jogos.forEach(function (j, i) {{
     const e = j.escalacao;
@@ -19348,35 +19349,61 @@ def _instante_do_jogo(j: dict):
     return quando
 
 
-def _jogos_do_dia_brasilia() -> list[dict]:
-    """Os jogos de HOJE, com hoje contado em Brasília.
+def _nome_da_rodada(j: dict) -> str:
+    bloco = j.get("matchSet") or {}
+    return (bloco.get("shortName") or bloco.get("name")
+            or j.get("roundName") or "").strip()
 
-    Diferente do `_jogos_de_hoje_da_liga`, que traz hoje E ontem: aquele
-    existe para casar transmissão com partida, e uma gravação que começa 21h
-    atravessa a virada do dia. Aqui é uma agenda para uma pessoa olhar, e
-    agenda com o jogo de ontem em cima confunde — foi o que aconteceu.
+
+def _selecionar_rodada(jogos: list[dict], hoje: str) -> tuple[str, list[dict]]:
+    """A rodada que já começou, com todos os nove jogos dela.
+
+    A API deixou `roundName` vazio em 2026/27 e passou a informar a rodada em
+    `matchSet`. O status Playing é a fonte principal. A faixa das datas dos
+    próprios jogos cobre a virada de rodada mesmo se esse status atrasar.
     """
+    grupos = {}
+    for j in jogos:
+        bloco = j.get("matchSet") or {}
+        chave = bloco.get("matchSetId") or _nome_da_rodada(j)
+        if chave:
+            grupos.setdefault(chave, []).append(j)
+    if not grupos:
+        return "", []
+
+    def info(grupo):
+        datas = sorted((j.get("matchDateLocal") or "")[:10]
+                       for j in grupo if (j.get("matchDateLocal") or "")[:10])
+        status = {(j.get("matchSet") or {}).get("matchdayStatus") or ""
+                  for j in grupo}
+        return (datas[0] if datas else "", datas[-1] if datas else "", status)
+
+    escolhida = next((g for g in grupos.values() if "Playing" in info(g)[2]), None)
+    if escolhida is None:
+        escolhida = next((g for g in grupos.values()
+                          if info(g)[0] <= hoje <= info(g)[1]), None)
+    if escolhida is None:
+        anteriores = [g for g in grupos.values() if info(g)[0] and info(g)[0] <= hoje]
+        escolhida = max(anteriores, key=lambda g: info(g)[0]) if anteriores else min(
+            grupos.values(), key=lambda g: info(g)[0] or "9999-99-99")
+    escolhida = sorted(escolhida, key=lambda j: j.get("matchDateLocal") or "")
+    return _nome_da_rodada(escolhida[0]), escolhida
+
+
+def _jogos_da_rodada_atual() -> tuple[str, list[dict]]:
+    """Os nove jogos da rodada em andamento, inclusive os dos próximos dias."""
     import httpx
     import liga_spl
     try:
         with httpx.Client() as cli:
             sid = liga_spl.temporada(_dia_de_brasilia(), cli)
             if not sid:
-                return []
-            hoje = _dia_de_brasilia()
-            saida = []
-            for j in liga_spl.jogos_da_temporada(sid, cli):
-                quando = _instante_do_jogo(j)
-                if not quando:
-                    continue
-                em_brasilia = quando.astimezone(timezone(timedelta(hours=-3)))
-                if em_brasilia.strftime("%Y-%m-%d") == hoje:
-                    saida.append((quando, j))
-            saida.sort(key=lambda par: par[0])
-            return [j for _, j in saida]
+                return "", []
+            hoje_arabia = (datetime.now(timezone.utc) + timedelta(hours=3)).strftime("%Y-%m-%d")
+            return _selecionar_rodada(liga_spl.jogos_da_temporada(sid, cli), hoje_arabia)
     except Exception as e:
-        print(f"⚠️ jogos do dia (Brasília): {type(e).__name__}: {e}")
-        return []
+        print(f"⚠️ jogos da rodada: {type(e).__name__}: {e}")
+        return "", []
 
 
 def _alvo_do_confronto(casa: str, fora: str):
@@ -19395,7 +19422,7 @@ def _alvo_do_confronto(casa: str, fora: str):
 
 
 def _cards_de_escalacao(jogos: list[dict], lidas: list[dict]) -> list[dict]:
-    """Um card por jogo do dia, com a escalação dele quando ela já chegou.
+    """Um card por jogo da rodada, com a escalação dele quando ela já chegou.
 
     Fora da rota de propósito: assim dá para testar o casamento sem banco e
     sem rede, que é onde mora o risco — pôr a escalação no card errado é pior
@@ -19434,15 +19461,6 @@ def _cards_de_escalacao(jogos: list[dict], lidas: list[dict]) -> list[dict]:
                       "fora": placar.get("fora") or {"nome": fora},
                       "escalacao": achada})
 
-    # As que não casaram com jogo nenhum do dia: partida de ontem que virou a
-    # madrugada, amistoso, outra competição. Sumir com elas seria esconder
-    # trabalho que a rotina fez.
-    for i, e in enumerate(lidas):
-        if i not in usadas:
-            cards.append({"jogo": e.get("jogo") or "", "quando": "",
-                          "casa": {"nome": (e.get("casa") or {}).get("time") or ""},
-                          "fora": {"nome": (e.get("fora") or {}).get("time") or ""},
-                          "escalacao": e})
     return cards
 
 
@@ -19476,7 +19494,8 @@ async def api_escalacao_pdf_recentes(horas: int = 72):
         corpo["jogo"] = e.get("jogo") or ""
         lidas.append(corpo)
 
-    return {"jogos": _cards_de_escalacao(_jogos_do_dia_brasilia(), lidas),
+    rodada, jogos = _jogos_da_rodada_atual()
+    return {"rodada": rodada, "jogos": _cards_de_escalacao(jogos, lidas),
             # Mantida para quem já consumia esta rota antes de 09/09/26.
             "escalacoes": lidas}
 
@@ -20559,7 +20578,7 @@ async def diag_jogos_de_hoje():
             "fora": (j.get("away") or {}).get("shortName") or "",
             "pontape_local_arabia": local,
             "pontape_utc": _pontape_utc_de_local(local),
-            "rodada": j.get("roundName") or "",
+            "rodada": _nome_da_rodada(j),
         })
     return {"data_arabia": hoje_arabia, "jogos": jogos}
 

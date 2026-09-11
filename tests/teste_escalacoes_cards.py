@@ -110,20 +110,28 @@ def testar():
        f"a mesma escalação apareceu em {len(com)} cards — cada uma vale por "
        "um jogo só")
 
-    # ── 4. o que não casa com jogo nenhum não some ───────────────────────
+    # ── 4. escalação de rodada antiga não invade a rodada atual ──────────
     cards = main._cards_de_escalacao(
         [_jogo("Al-Hilal", "Al Nassr")],
         [_escalacao("Al Hilal", "Al Nassr"), _escalacao("Al Taawoun", "Al Fayha")])
-    # Um card para o jogo do dia (com a escalação dele) e um para a órfã.
-    ok(len(cards) == 2,
-       f"a escalação que não é de nenhum jogo de hoje sumiu: {len(cards)} cards")
+    ok(len(cards) == 1,
+       f"uma escalação antiga apareceu como jogo da rodada atual: {len(cards)} cards")
     ok(cards[0]["escalacao"] is not None,
-       "o jogo do dia ficou sem a escalação que era dele")
-    ok(cards[-1]["escalacao"] is not None
-       and "Taawoun" in (cards[-1]["escalacao"]["casa"]["time"]),
-       f"a escalação órfã não apareceu no fim: {cards[-1]!r}")
+       "o jogo da rodada ficou sem a escalação que era dele")
 
-    # ── 5. confronto degenerado não casa com nada ────────────────────────
+    # ── 5. a rodada que começou substitui a anterior inteira ─────────────
+    def da_md(numero, dia, status="Scheduled"):
+        j = _jogo(f"Casa {numero}", f"Fora {numero}", dia + "T18:00:00")
+        j["matchSet"] = {"matchSetId": f"md-{numero}", "shortName": f"MD {numero}",
+                         "matchdayStatus": status}
+        return j
+    temporada = [da_md(6, "2026-09-09", "Played") for _ in range(9)]
+    temporada += [da_md(7, "2026-09-11", "Playing") for _ in range(9)]
+    nome, rodada = main._selecionar_rodada(temporada, "2026-09-11")
+    ok(nome == "MD 7" and len(rodada) == 9,
+       f"deveria mostrar somente os 9 jogos da MD 7: {nome!r}, {len(rodada)}")
+
+    # ── 6. confronto degenerado não casa com nada ────────────────────────
     # Dois nomes que viram o mesmo clube (ou um vazio) não formam jogo. Sem
     # esta guarda, um par degenerado casaria com qualquer outro igualmente
     # degenerado e a escalação cairia no card errado.
@@ -135,8 +143,8 @@ def testar():
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
-          "  ✓ cards da guia Escalações: cada escalação no jogo certo, uma "
-          "vez só, e nada some")
+          "  ✓ cards da guia Escalações: somente a rodada atual, com cada "
+          "escalação no jogo certo e uma vez só")
     return len(falhas)
 
 
