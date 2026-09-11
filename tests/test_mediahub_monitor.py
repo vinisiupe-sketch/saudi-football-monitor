@@ -37,11 +37,21 @@ class Regras(unittest.TestCase):
         self.assertTrue(m.na_janela(inicio, m.instante("2026-09-09T18:00:00Z")))
         self.assertFalse(m.na_janela(inicio, m.instante("2026-09-09T18:00:01Z")))
 
-    def test_busca_data_arabia_sem_prender_rodada(self):
+    def test_busca_temporada_e_rodada_do_mediahub(self):
         dia = m.instante("2026-09-08T22:00:00Z").astimezone(m.ARABIA).date()
-        filtros = parse_qs(urlparse(m.busca_url(dia)).fragment[2:])["filterBy"][0]
-        self.assertIn("20260909|20260909", filtros)
-        self.assertNotIn("Match_Week", filtros)
+        filtros = parse_qs(urlparse(m.busca_url(dia, rodada="MD7")).fragment[2:])["filterBy"][0]
+        self.assertIn('Season,"2026/27"', filtros)
+        self.assertIn('Match_Week,"MD7"', filtros)
+        self.assertNotIn("Match_Date", filtros)
+
+    def test_descobre_rodada_e_seleciona_so_jogos_ativos(self):
+        jogos = [{"casa": "Al Qadsiah", "fora": "Al Ettifaq", "rodada": "MD7"},
+                 {"casa": "Al Faisaly", "fora": "Al Ittihad", "rodada": "MD7"}]
+        self.assertEqual(m.rodada_mediahub(jogos), "MD7")
+        self.assertTrue(m.titulo_dos_jogos(
+            "Al Qadsiah v Al Ettifaq Team Sheets ENG and AR", jogos))
+        self.assertFalse(m.titulo_dos_jogos(
+            "Al Khaleej v Al Nassr Team Sheets ENG and AR", jogos))
 
     def test_urls_externas_e_credenciais_na_url_recusadas(self):
         for url in ("https://evil.test/record/1", "https://mediahub.spl.media@evil.test/record/1",

@@ -12,6 +12,7 @@ import re
 import signal
 import tempfile
 import time
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
@@ -40,13 +41,50 @@ def na_janela(inicio, momento, antecedencia=100):
     return inicio - timedelta(minutes=antecedencia) <= momento <= inicio
 
 
-def busca_url(dia, pagina=1):
-    # Formato produzido pelo filtro de data do próprio portal, conferido na UI.
-    d = dia.strftime("%Y%m%d")
-    filtros = f'Content_Type,"Match Day Support",Competition,"SPL",Match_Date,"{d}|{d}"'
+def temporada_mediahub(dia):
+    inicio = dia.year if dia.month >= 7 else dia.year - 1
+    return f"{inicio}/{str(inicio + 1)[-2:]}"
+
+
+def rodada_mediahub(jogos):
+    """Converte nomes como MD7 ou Round 7 para o filtro usado pelo portal."""
+    numeros = set()
+    for jogo in jogos:
+        texto = str(jogo.get("rodada") or "").strip()
+        achado = re.search(r"(?:MD|ROUND\s*)?(\d+)$", texto, re.I)
+        if achado:
+            numeros.add(int(achado.group(1)))
+    return f"MD{numeros.pop()}" if len(numeros) == 1 else None
+
+
+def busca_url(dia, pagina=1, rodada=None):
+    # O Media Hub não preenche Match_Date nos Team Sheets. A busca que a UI
+    # produz usa temporada/rodada; sem rodada, a criação mais recente deixa a
+    # semana atual no começo e os nomes dos jogos abaixo eliminam as antigas.
+    filtros = (f'Content_Type,"Match Day Support",Competition,"SPL",'
+               f'Season,"{temporada_mediahub(dia)}"')
+    if rodada:
+        filtros += f',Match_Week,"{rodada}"'
     return HUB + "/search/results#/?" + urlencode({
-        "query": "*", "page": pagina, "type": "grid", "sort": "Match_Date desc",
+        "query": "*", "page": pagina, "type": "grid",
+        "sort": "Imagen_Record_Creation_Date desc",
         "filterBy": filtros, "spellCheck": "true"})
+
+
+def _nome_busca(texto):
+    texto = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().lower()
+    texto = re.sub(r"\b(?:fc|sfc)\b", " ", texto)
+    return re.sub(r"[^a-z0-9]+", " ", texto).strip()
+
+
+def titulo_dos_jogos(titulo, jogos):
+    titulo = _nome_busca(titulo)
+    for jogo in jogos:
+        casa = _nome_busca(jogo.get("casa") or "")
+        fora = _nome_busca(jogo.get("fora") or "")
+        if casa and fora and casa in titulo and fora in titulo:
+            return True
+    return False
 
 
 def url_registro(url):
@@ -285,11 +323,14 @@ class Monitor:
         await self.abrir(pw)
         await self.status(cli, "buscando", "Consultando os PDFs de hoje no Media Hub.")
         erros = []
-        # Filtro de um único dia: normalmente <= 9 partidas. Paginação explícita
-        # evita perder documentos quando há registros adicionais de suporte.
+        # Normalmente são nove PDFs na rodada. Se a agenda trouxer MD7 (ou
+        # equivalente), usamos esse filtro. Sem ele, percorremos a temporada e
+        # aceitamos somente títulos que contenham os dois clubes de um jogo ativo.
         vistos = 0
+        candidatos = 0
+        rodada = rodada_mediahub(ativos)
         for numero in range(1, 11):
-            url = busca_url(dia, numero)
+            url = busca_url(dia, numero, rodada)
             titulos = await self.titulos(url)
             total_texto = await self.page.get_by_role("heading", name=re.compile(r"^\d+ results?$")).inner_text()
             total = int(total_texto.split()[0])
@@ -301,8 +342,10 @@ class Monitor:
                 break
             vistos += len(titulos)
             for titulo in titulos:
-                if not re.search(r"Team Sheets?", titulo, re.I):
+                if (not re.search(r"Team Sheets?", titulo, re.I)
+                        or not titulo_dos_jogos(titulo, ativos)):
                     continue
+                candidatos += 1
                 try:
                     await self.titulos(url)
                     await self.page.locator("#searchResults a.gridView-title").filter(has_text=titulo).first.click()
@@ -319,10 +362,10 @@ class Monitor:
         await self.context.storage_state(path=str(self.estado.pasta / "sessao.json"))
         if erros:
             raise MonitorError(erros[0])
-        if vistos == 0:
+        if candidatos == 0:
             await self.status(
                 cli, "monitorando",
-                "Media Hub consultado: nenhuma escalação publicada hoje. Nova tentativa em 1 minuto.")
+                "Media Hub consultado: nenhuma escalação dos jogos de hoje encontrada. Nova tentativa em 1 minuto.")
         else:
             await self.status(cli, "monitorando", "Verificação concluída. Aguardando novos PDFs ou correções.")
 
