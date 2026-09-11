@@ -52,6 +52,7 @@ class Regras(unittest.TestCase):
         jogos = [{"casa": "Al Qadsiah", "fora": "Al Ettifaq", "rodada": "MD7"},
                  {"casa": "Al Faisaly", "fora": "Al Ittihad", "rodada": "MD7"}]
         self.assertEqual(m.rodada_mediahub(jogos), "MD7")
+        self.assertEqual(m.rodada_mediahub([{"rodada": "MD 7"}]), "MD7")
         self.assertTrue(m.titulo_dos_jogos(
             "Al Qadsiah v Al Ettifaq Team Sheets ENG and AR", jogos))
         self.assertFalse(m.titulo_dos_jogos(

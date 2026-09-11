@@ -52,7 +52,7 @@ def rodada_mediahub(jogos):
     numeros = set()
     for jogo in jogos:
         texto = str(jogo.get("rodada") or "").strip()
-        achado = re.search(r"(?:MD|ROUND\s*)?(\d+)$", texto, re.I)
+        achado = re.search(r"(?:(?:MD|ROUND)\s*)?(\d+)$", texto, re.I)
         if achado:
             numeros.add(int(achado.group(1)))
     return f"MD{numeros.pop()}" if len(numeros) == 1 else None
