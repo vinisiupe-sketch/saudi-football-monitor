@@ -2181,6 +2181,108 @@ def upsert_injury(data: dict) -> str:
             return "created"
 
 
+# ── QUEM ATUOU EM CADA PARTIDA ──────────────────────────────────────────────
+#
+# Serve para responder uma pergunta que a coleta por notícia nunca responde:
+# o jogador VOLTOU?
+#
+# A imprensa escreve quando alguém se machuca e cala quando o sujeito volta a
+# jogar — não é notícia. O resultado é uma guia de lesões que só cresce, cheia
+# de gente que está em campo há três rodadas.
+#
+# O que torna isto barato é que o casamento NÃO passa por nome: a tabela
+# `jogador` já guarda `af_id`, o identificador da API-Football, preenchido
+# pelo cruzamento que já existe. Então "este jogador atuou" é uma comparação
+# de inteiros, e não mais uma rodada de transliteração.
+def _cria_atuacao(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS atuacao (
+            fixture_id INTEGER NOT NULL,
+            af_id      INTEGER NOT NULL,
+            minutos    INTEGER,
+            titular    BOOLEAN,
+            jogo_em    TEXT,
+            clube      TEXT,
+            PRIMARY KEY (fixture_id, af_id)
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS atuacao_por_jogador "
+              "ON atuacao (af_id, jogo_em)")
+    # Que partidas já tiveram a escalação lida. Sem isto, toda passagem
+    # reconsultaria as mesmas partidas — uma chamada cada, à toa.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS atuacao_partida_lida (
+            fixture_id INTEGER PRIMARY KEY,
+            lida_em    TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+
+def salvar_atuacoes(fixture_id: int, jogo_em: str, linhas: list[dict]) -> int:
+    """Grava quem atuou numa partida e marca a partida como lida."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_atuacao(c)
+            n = 0
+            for l in linhas:
+                if not l.get("af_id"):
+                    continue
+                c.execute("""
+                    INSERT INTO atuacao (fixture_id, af_id, minutos, titular,
+                                         jogo_em, clube)
+                    VALUES (%s,%s,%s,%s,%s,%s)
+                    ON CONFLICT (fixture_id, af_id) DO UPDATE SET
+                        minutos = EXCLUDED.minutos, titular = EXCLUDED.titular
+                """, [fixture_id, l["af_id"], l.get("minutos"),
+                      l.get("titular"), jogo_em, l.get("clube")])
+                n += 1
+            # A partida é marcada como lida mesmo sem ninguém: escalação
+            # vazia é resposta, e reconsultá-la todo dia é gastar para
+            # reouvir a mesma coisa.
+            c.execute("""INSERT INTO atuacao_partida_lida (fixture_id)
+                         VALUES (%s) ON CONFLICT (fixture_id) DO NOTHING""",
+                      [fixture_id])
+            return n
+    except Exception:
+        return 0
+
+
+def partidas_com_escalacao_lida() -> set:
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_atuacao(c)
+            c.execute("SELECT fixture_id FROM atuacao_partida_lida")
+            return {r[0] for r in c.fetchall()}
+    except Exception:
+        return set()
+
+
+def atuou_depois(af_id: int, desde: str) -> dict:
+    """A primeira partida que este jogador atuou a partir desta data, ou {}.
+
+    A PRIMEIRA, e não a mais recente: é ela que diz QUANDO ele voltou, que é
+    o que vai para o histórico. A mais recente diria só que ele está jogando
+    hoje, e perderia a data do retorno.
+    """
+    if not af_id or not desde:
+        return {}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_atuacao(c)
+            c.execute("""SELECT fixture_id, minutos, titular, jogo_em, clube
+                           FROM atuacao
+                          WHERE af_id = %s AND jogo_em > %s
+                          ORDER BY jogo_em
+                          LIMIT 1""", [int(af_id), desde])
+            r = c.fetchone()
+            return dict(r) if r else {}
+    except Exception:
+        return {}
+
+
 def apagar_lesao(ids) -> int:
     """Apaga uma ou mais lesões, de vez.
 

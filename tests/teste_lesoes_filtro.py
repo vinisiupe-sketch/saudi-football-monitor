@@ -399,6 +399,63 @@ def testar():
        "página têm número diferente de colunas, e contar do fim lê a coluna "
        "errada sem dar erro")
 
+    # ── 12. QUEM JÁ VOLTOU SAI DA LISTA ──────────────────────────────────
+    # A imprensa escreve quando alguém se machuca e cala quando o sujeito
+    # volta a jogar — retorno não é notícia. O monitor, que só lê notícia,
+    # vira uma lista que nunca encolhe.
+    #
+    # Dá para deduzir SEM CHUTAR porque não passa por nome: `jogador.af_id`
+    # liga o nosso jogador ao da API-Football, e a escalação da partida vem
+    # com esse mesmo id. "Fulano atuou" é comparação de inteiros.
+    retorno = _corpo("_marcar_retornos")
+    ok(retorno, "sumiu a rotina que marca quem já voltou a jogar")
+    ok("await asyncio.to_thread(atuou_depois, af, desde)" in retorno,
+       "a rotina parou de conferir se o jogador atuou depois da lesão")
+    ok('af = (por_spl.get(spl) or {}).get("af_id")' in retorno,
+       "a identificação deixou de usar o af_id. Se voltar a casar por nome, "
+       "volta a errar de pessoa — e aqui errar é pôr em campo, na tela, "
+       "alguém que continua no departamento médico")
+    ok('feito["sem_af_id"] += 1' in retorno and "continue" in retorno,
+       "quem não tem id cruzado deixou de ser pulado. Sem identidade EXATA "
+       "eu não posso deduzir recuperação")
+    # Os dois "recuperado" existem de propósito e cada um faz uma coisa: o de
+    # cima muda o estado do card, o de baixo escreve a linha do histórico. Por
+    # isso são conferidos separadamente — trocar só um dos dois deixaria o card
+    # dizendo uma coisa e o histórico outra, e esse é justamente o erro que
+    # passaria despercebido.
+    ok('"club": inj.get("club"), "status": "recuperado",' in retorno,
+       "o card parou de mudar para recuperado")
+    ok('"source_name": "Escalação da partida"' in retorno
+       and '"status": "recuperado"' in retorno.split("source_info")[-1],
+       "o retorno deixou de virar uma entrada de histórico. Trocar o estado "
+       "em silêncio tira do Vini a chance de conferir")
+    ok("Voltou a jogar em" in retorno and "minuto(s)" in retorno,
+       "a entrada do retorno parou de dizer em que jogo e quantos minutos — "
+       "é o que torna a dedução conferível")
+
+    ler = _corpo("_ler_escalacoes")
+    ok("fixtures/players" in ler,
+       "a leitura de escalações mudou de endpoint sem querer")
+    ok("if not minutos:\n                    continue" in ler,
+       "quem ficou no banco sem entrar passou a contar como tendo atuado. "
+       "Relacionado não é o mesmo que recuperado")
+    ok("partidas_com_escalacao_lida" in ler,
+       "sumiu o controle do que já foi lido — cada passagem reconsultaria as "
+       "mesmas partidas, uma chamada cada")
+    ok("conferirRetornos(" in tela,
+       "sumiu o botão de conferir quem já voltou")
+
+    # ── 13. a caneta também onde ela mais falta ──────────────────────────
+    # Os cards que só o Transfermarkt conhece ficam sozinhos no fim da lista
+    # justamente porque o nome não bateu com nenhum de cima — e corrigir o
+    # nome é o que os junta.
+    ok(tela.count('onclick="abrirCorrecao(this)"') >= 1
+       or tela.count('onclick=\\"abrirCorrecao(this)\\"') >= 1,
+       "sumiu a caneta de corrigir nome")
+    ok("data-bruto=\"' + lsnEsc(nome) + '\"" in tela,
+       "o card que só o Transfermarkt conhece ficou sem a caneta. É nele que "
+       "ela mais serve: ele está sozinho porque o nome não casou")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else

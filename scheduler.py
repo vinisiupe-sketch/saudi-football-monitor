@@ -206,6 +206,16 @@ def create_scheduler() -> AsyncIOScheduler:
         id="cartoes_diario",
         replace_existing=True,
     )
+    # Retornos: 3h UTC (meia-noite de Brasília), depois de a rodada acabar e
+    # antes de o coletor de cartões às 2h-6h disputar a mesma cota.
+    scheduler.add_job(
+        run_retornos,
+        trigger="cron",
+        hour=3,
+        minute=40,
+        id="retornos_diario",
+        replace_existing=True,
+    )
     # Decisões disciplinares: 8h e 15h UTC (5h e 12h de Brasília). A SAFF
     # publica sem hora marcada, e o gancho de um titular é informação de
     # véspera — chegar meio dia atrasado já custou pauta.
@@ -286,6 +296,26 @@ async def run_cartoes():
         return r
     except Exception as e:
         print(f"❌ Erro na leitura de cartões: {e}")
+        return {"erro": str(e)}
+
+
+async def run_retornos():
+    """Tira da lista de lesionados quem já voltou a jogar.
+
+    De madrugada, depois da rodada. A imprensa não escreve que o jogador
+    voltou — retorno não é notícia — então sem isto a guia de lesões só
+    cresce, cheia de gente que está em campo há semanas.
+    """
+    try:
+        from main import _ler_escalacoes, _marcar_retornos
+        lidas = await _ler_escalacoes()
+        r = await _marcar_retornos()
+        print(f"🏃 Retornos: {lidas.get('partidas')} escalação(ões) lida(s), "
+              f"{r.get('marcados')} marcado(s) como recuperado(s), "
+              f"{r.get('sem_af_id')} sem id cruzado")
+        return r
+    except Exception as e:
+        print(f"❌ Erro ao conferir retornos: {e}")
         return {"erro": str(e)}
 
 

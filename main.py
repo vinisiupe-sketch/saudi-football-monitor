@@ -4939,6 +4939,10 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 
   <div class="lsn-barra">
     <button class="rebuild-btn" onclick="rebuild()">⟳ Reprocessar histórico</button>
+    <!-- A imprensa escreve quando alguém se machuca e cala quando volta a
+         jogar. Este botão olha as escalações e tira da lista quem já está
+         em campo — pelo id da API-Football, sem passar por nome. -->
+    <button class="rebuild-btn" onclick="conferirRetornos()">✓ Conferir quem já voltou</button>
     <span id="rebuild-status" style="font-size:.75rem;color:var(--c-muted);"></span>
     <label class="lsn-filtro">
       <span>Clube</span>
@@ -5086,7 +5090,14 @@ async function juntarTransfermarkt() {{
         + (a.escudo ? '<img src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
         + '</span>'
         + '<span class="lsn-quem">'
-        + '<span class="lsn-nome">' + lsnEsc(nome) + '</span>'
+        + '<span class="lsn-nome">' + lsnEsc(nome)
+        // A caneta também aqui. Estes são justamente os que MAIS precisam
+        // dela: eles ficam sozinhos no fim da lista porque o nome não bateu
+        // com nenhum card de cima — e corrigir o nome é o que os junta.
+        + ' <button class="lsn-corrigir" title="Corrigir o nome deste jogador"'
+        + ' data-bruto="' + lsnEsc(nome) + '" onclick="abrirCorrecao(this)">'
+        + '✎</button>'
+        + '</span>'
         + '<span class="lsn-sub">' + lsnEsc(clube)
         + '<span class="lsn-sep">·</span>' + lsnEsc(a.lesao || 'lesão não detalhada')
         + (a.ate_texto && a.ate_texto !== '?'
@@ -5324,6 +5335,39 @@ async function salvarLesao() {{
     setTimeout(function () {{ location.reload(); }}, 700);
   }} catch (e) {{
     st.textContent = 'não deu: ' + (e.message || e);
+  }}
+}}
+
+// ── Conferir quem já voltou ───────────────────────────────────────────────
+// Repete até acabar de ler as escalações pendentes, como o "Reler tudo" dos
+// pendurados: um botão que precisa ser tocado três vezes para fazer o que
+// promete é um botão que mente.
+async function conferirRetornos() {{
+  const st = document.getElementById('rebuild-status');
+  const botoes = document.querySelectorAll('.rebuild-btn');
+  botoes.forEach(function (b) {{ b.disabled = true; }});
+  let partidas = 0, marcados = 0, semId = 0;
+  try {{
+    for (let passada = 1; passada <= 12; passada++) {{
+      st.textContent = 'lendo escalações… passada ' + passada;
+      const r = await fetch('/api/injuries/retornos', {{method: 'POST'}});
+      const d = await r.json();
+      const e = d.escalacoes || {{}}, v = d.retornos || {{}};
+      partidas += e.partidas || 0;
+      marcados += v.marcados || 0;
+      semId = v.sem_af_id || 0;
+      if (!e.faltam || !e.partidas) break;
+    }}
+    st.textContent = partidas + ' escalação(ões) lida(s), ' + marcados
+      + ' jogador(es) marcado(s) como recuperado(s)'
+      // Quem não tem id cruzado não é deduzido — e dizer isso importa: a
+      // lista não encolheu tudo o que podia, e o motivo não é "não voltou".
+      + (semId ? ' · ' + semId + ' sem id cruzado, não dá para deduzir' : '');
+    if (marcados) setTimeout(function () {{ location.reload(); }}, 1200);
+  }} catch (e) {{
+    st.textContent = 'não deu: ' + (e.message || e);
+  }} finally {{
+    botoes.forEach(function (b) {{ b.disabled = false; }});
   }}
 }}
 
@@ -7242,6 +7286,155 @@ async def pagina_pendurados():
         .replace("__PD_JS__", _PENDURADOS_JS)
         .replace("__HDR__", _header("/pendurados"))
     )
+
+
+async def _ler_escalacoes(season: int = 0, teto: int = 20) -> dict:
+    """Lê quem atuou nas partidas encerradas que ainda não li.
+
+    UMA CHAMADA POR PARTIDA, com o controle do que já foi lido — mesmo
+    padrão do coletor de cartões. Em regime normal são os 9 jogos da rodada.
+    """
+    from database import (partidas_com_escalacao_lida, partidas_da_liga,
+                          salvar_atuacoes)
+    temporada = season or _af_temporada_corrente()
+    hoje = _dia_de_brasilia()
+    diag = {"temporada": temporada, "partidas": 0, "atuacoes": 0,
+            "faltam": 0, "erros": []}
+
+    calendario = partidas_da_liga(temporada)
+    lidas = partidas_com_escalacao_lida()
+    pendentes = [p for p in calendario
+                 if _ja_aconteceu(p, hoje) and p.get("fixture_id") not in lidas]
+    diag["faltam"] = max(0, len(pendentes) - teto)
+
+    for p in pendentes[:teto]:
+        fid = p.get("fixture_id")
+        dados, err = await _af_get("fixtures/players", {"fixture": fid})
+        if err:
+            diag["erros"].append(f"jogo {fid}: {err}")
+            continue
+        linhas = []
+        for time_ in (dados or {}).get("response", []):
+            nome_clube = (time_.get("team") or {}).get("name") or ""
+            for j in time_.get("players") or []:
+                jogador = j.get("player") or {}
+                est = (j.get("statistics") or [{}])[0] or {}
+                jogos = est.get("games") or {}
+                minutos = jogos.get("minutes")
+                # Quem ficou no banco sem entrar vem com minutos nulo ou 0.
+                # Ele NÃO atuou, e é justamente a diferença que interessa:
+                # relacionado não é o mesmo que recuperado.
+                if not minutos:
+                    continue
+                linhas.append({"af_id": jogador.get("id"), "minutos": minutos,
+                               "titular": bool(jogos.get("substitute") is False),
+                               "clube": nome_clube})
+        diag["atuacoes"] += salvar_atuacoes(fid, p.get("data") or "", linhas)
+        diag["partidas"] += 1
+    return diag
+
+
+async def _marcar_retornos(season: int = 0) -> dict:
+    """Quem voltou a jogar depois da lesão sai da lista de lesionados.
+
+    O PROBLEMA QUE ISTO RESOLVE
+        A imprensa escreve quando alguém se machuca e cala quando o sujeito
+        volta a jogar — retorno não é notícia. O monitor, que só lê notícia,
+        vira uma lista que nunca encolhe: o Vini apontou que muitos ali já
+        estavam em campo havia rodadas.
+
+    POR QUE DÁ PARA FAZER SEM CHUTAR
+        Porque não passa por nome. A tabela `jogador` já guarda o `af_id` da
+        API-Football, preenchido pelo cruzamento que existe há tempos, e a
+        escalação da partida vem com esse mesmo id. "Fulano atuou" vira uma
+        comparação de inteiros.
+
+        É a diferença entre esta dedução e as que eu recusei a fazer nas
+        últimas semanas: aqui a identidade é EXATA. Onde ela não é — jogador
+        sem af_id cruzado — eu não deduzo nada e a lesão fica como está.
+
+    O QUE ELE REGISTRA
+        Não troca o estado em silêncio. Entra uma linha no histórico dizendo
+        em que partida ele voltou e quantos minutos jogou, marcada como
+        dedução — assim dá para conferir, e o X continua ali para desfazer.
+    """
+    from database import atuou_depois, get_injuries, listar_jogadores, upsert_injury
+    temporada = season or _af_temporada_corrente()
+    feito = {"conferidos": 0, "marcados": 0, "sem_af_id": 0, "erros": []}
+
+    gente = await asyncio.to_thread(listar_jogadores, "", 2000)
+    por_spl = {j["spl_id"]: j for j in gente}
+    import elos
+    indice, _ = elos.indice_de_jogadores(gente)
+    import database as _db
+    apelidos = await asyncio.to_thread(_db.apelidos_de_jogador)
+
+    for inj in await asyncio.to_thread(get_injuries, False):
+        feito["conferidos"] += 1
+        # A data a partir da qual o retorno conta. Sem data de lesão, a do
+        # primeiro registro — é o melhor que eu tenho, e melhor que supor.
+        desde = (str(inj.get("injury_date") or "")[:10]
+                 or str(inj.get("first_reported") or "")[:10])
+        if not desde:
+            continue
+
+        spl = ""
+        for nome in (inj.get("player_name"), inj.get("player_name_orig")):
+            if not nome:
+                continue
+            spl = apelidos.get(_db._chave_apelido(nome)) or ""
+            if spl:
+                break
+            achados = elos.jogadores_no_texto("", nome, indice)
+            if len(achados) == 1:
+                spl = next(iter(achados))
+                break
+        af = (por_spl.get(spl) or {}).get("af_id")
+        if not af:
+            # Sem identidade EXATA eu não deduzo nada. Marcar recuperado por
+            # semelhança de nome poria em campo, na tela, um jogador que
+            # continua no departamento médico.
+            feito["sem_af_id"] += 1
+            continue
+
+        jogo = await asyncio.to_thread(atuou_depois, af, desde)
+        if not jogo:
+            continue
+
+        quando = str(jogo.get("jogo_em") or "")[:10]
+        minutos = jogo.get("minutos") or 0
+        texto = (f"Voltou a jogar em {quando[8:10]}/{quando[5:7]}: "
+                 f"{minutos} minuto(s) "
+                 f"{'como titular' if jogo.get('titular') else 'saindo do banco'}"
+                 f"{' pelo ' + jogo['clube'] if jogo.get('clube') else ''}.")
+        r = await asyncio.to_thread(upsert_injury, {
+            "player_name": inj.get("player_name"),
+            "player_name_orig": inj.get("player_name_orig"),
+            "club": inj.get("club"), "status": "recuperado",
+            "source_info": {"source_name": "Escalação da partida", "url": "",
+                            "title": texto, "published_at": quando,
+                            "status": "recuperado"},
+        })
+        if r in ("created", "updated"):
+            feito["marcados"] += 1
+    return feito
+
+
+@app.post("/api/injuries/retornos")
+async def api_injuries_retornos(season: int = 0, ler: int = 1):
+    """Lê escalações e marca quem já voltou. É o botão da guia."""
+    saida = {}
+    if ler:
+        saida["escalacoes"] = await _ler_escalacoes(season)
+    saida["retornos"] = await _marcar_retornos(season)
+    return saida
+
+
+@app.get("/api/injuries/retornos")
+async def api_injuries_retornos_get(season: int = 0, ler: int = 1):
+    """A mesma coisa, acionável colando o endereço. Ver o par em
+    /api/pendurados/atualizar e o porquê descrito lá."""
+    return await api_injuries_retornos(season, ler)
 
 
 @app.post("/api/injuries/apagar")
@@ -17842,6 +18035,27 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
   background:var(--c-bg);border:1px dashed var(--c-border);
   font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:var(--c-muted-3)}
 .quem{flex:1;min-width:0}
+/* A caneta de corrigir o nome, gêmea da guia de Lesões. */
+.mkt-corrigir{background:none;border:none;color:var(--c-muted-2);
+  font-size:.8rem;cursor:pointer;padding:0 3px;opacity:0;
+  transition:opacity .15s,color .15s;vertical-align:middle}
+.card:hover .mkt-corrigir{opacity:1}
+.mkt-corrigir:hover{color:#B6FF00}
+@media (hover:none){.mkt-corrigir{opacity:.5}}
+.mkt-correcao{background:var(--c-bg-soft);border:1px solid var(--c-border);
+  border-radius:10px;padding:10px 12px;margin-top:9px}
+.mkt-correcao-tit{font-size:.68rem;color:var(--c-muted-3);margin-bottom:7px}
+.mkt-correcao input{width:100%;box-sizing:border-box;background:var(--c-bg);
+  border:1.5px solid var(--c-border-2);border-radius:9px;padding:8px 10px;
+  color:var(--c-text);font-family:inherit;font-size:.82rem}
+.mkt-sugestoes{display:flex;flex-direction:column;gap:2px;margin-top:4px}
+.mkt-sugestoes button{text-align:left;background:var(--c-bg-card);
+  border:1px solid var(--c-border);border-radius:8px;padding:7px 10px;
+  color:var(--c-text);font-family:inherit;font-size:.78rem;font-weight:600;
+  cursor:pointer}
+.mkt-sugestoes button:hover{border-color:var(--c-text)}
+.mkt-sugestoes button small{color:var(--c-muted-3);font-weight:400;margin-left:6px}
+.mkt-nada{font-size:.72rem;color:var(--c-muted-3)}
 .nome{font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:.03em;
   line-height:1.1}
 .rota{display:flex;align-items:center;gap:6px;margin-top:4px;font-size:.72rem;
@@ -17872,6 +18086,63 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2.1rem;letter-spacing:.02em;
 """
 
 _MERCADO_JS = """
+// ── Corrigir o nome de um jogador ─────────────────────────────────────────
+// Gêmea da que existe na guia de Lesões, e grava no MESMO glossário: uma
+// correção feita aqui passa a valer lá, e vice-versa. É o ponto da ideia —
+// o esforço se acumula em vez de se repetir por tela.
+let _mktCorrigindo = null, _mktTimer = null;
+
+function abrirCorrecaoMkt(botao){
+  const card = botao.closest('.card') || botao.closest('div');
+  const jaTem = card.querySelector('.mkt-correcao');
+  if(jaTem){ jaTem.remove(); return; }
+  _mktCorrigindo = botao.dataset.bruto || '';
+  const caixa = document.createElement('div');
+  caixa.className = 'mkt-correcao';
+  caixa.innerHTML = '<div class="mkt-correcao-tit">Quem e, de verdade? '
+    + 'O app vai lembrar disto para sempre.</div>'
+    + '<input type="text" placeholder="procure o nome certo" '
+    + 'oninput="buscarMkt(this)" autocomplete="off">'
+    + '<div class="mkt-sugestoes"></div>';
+  card.appendChild(caixa);
+  caixa.querySelector('input').focus();
+}
+
+function buscarMkt(campo){
+  clearTimeout(_mktTimer);
+  _mktTimer = setTimeout(async function(){
+    const caixa = campo.parentElement.querySelector('.mkt-sugestoes');
+    const q = campo.value.trim();
+    if(q.length < 2){ caixa.innerHTML = ''; return; }
+    try{
+      const r = await fetch('/api/injuries/buscar-jogador?q='+encodeURIComponent(q));
+      const d = await r.json();
+      caixa.innerHTML = (d.jogadores||[]).map(function(j){
+        return '<button type="button" onclick="salvarMkt(this)" data-spl="'
+          + esc(j.spl_id) + '">' + esc(j.nome)
+          + ' <small>' + esc(j.clube) + '</small></button>';
+      }).join('') || '<span class="mkt-nada">ninguem com esse nome no elenco</span>';
+    }catch(e){ caixa.innerHTML = ''; }
+  }, 250);
+}
+
+async function salvarMkt(b){
+  if(!_mktCorrigindo) return;
+  b.disabled = true;
+  try{
+    const r = await fetch('/api/jogador/apelido', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({nome:_mktCorrigindo, spl_id:b.dataset.spl})
+    });
+    const d = await r.json();
+    if(d.erro || !d.ok) throw new Error(d.erro || 'nao gravou');
+    location.reload();
+  }catch(e){
+    alert('nao deu para gravar a correcao: ' + (e.message||e));
+    b.disabled = false;
+  }
+}
+
 const FEITO = ['Acerto','Anunciado','Oficial'];
 const MORTO = ['Melou'];
 
@@ -17932,7 +18203,13 @@ async function carregar(){
     }).join('');
     div.innerHTML =
       '<div class="topo">'+rosto
-      + '<div class="quem"><div class="nome">'+esc(c.jogador)+'</div>'
+      // A MESMA CANETA da guia de Lesões, e pelo mesmo motivo: aqui o nome
+      // também vem da transliteração que a IA fez da notícia, e erra do mesmo
+      // jeito. Corrigir num lugar vale nos dois — o glossário é um só.
+      + '<div class="quem"><div class="nome">'+esc(c.jogador)
+      + ' <button class="mkt-corrigir" title="Corrigir o nome deste jogador"'
+      + ' data-bruto="'+esc(c.jogador)+'" onclick="abrirCorrecaoMkt(this)">&#9998;</button>'
+      + '</div>'
       + '<div class="rota">'+clube(c.clube_origem, c.escudo_origem)
       + '<span class="seta">&rarr;</span>'
       + clube(c.clube_destino, c.escudo_destino)+'</div>'

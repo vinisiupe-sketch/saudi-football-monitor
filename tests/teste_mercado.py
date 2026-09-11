@@ -274,6 +274,32 @@ def testar():
             ok(s in trecho,
                f"'{s}' está no mercado.py mas sumiu do gerador de post")
 
+    # ── 8. a caneta de corrigir nome, e o glossário COMPARTILHADO ──────────
+    # A ideia foi do Vini: em vez de eu tentar adivinhar transliteração, ele
+    # aponta quem é o jogador e o app guarda. O valor está em guardar UMA vez
+    # só: se a guia de Mercado escrevesse num glossário próprio, ele teria de
+    # corrigir "Roger Fernandes" de novo em Lesões, e de novo em Pendurados —
+    # e o esforço dele viraria trabalho repetido em vez de acervo.
+    #
+    # Por isso o que este teste vigia não é a existência do botão, é o
+    # ENDEREÇO para onde ele grava.
+    i = fonte.find("_MERCADO_JS = ")
+    j = fonte.find('\n"""', i + 20)
+    mkt_js = fonte[i:j] if i > 0 else ""
+    ok(mkt_js, "não achei o JS da guia de Mercado")
+    ok("onclick=\"abrirCorrecaoMkt(this)\"" in fonte
+       or "abrirCorrecaoMkt(this)" in fonte,
+       "sumiu a caneta de corrigir nome na guia de Mercado")
+    ok("fetch('/api/jogador/apelido'" in mkt_js,
+       "a correção feita no Mercado deixou de gravar no glossário COMPARTILHADO. "
+       "Num glossário separado, o Vini corrigiria o mesmo nome uma vez por guia")
+    ok("'/api/injuries/buscar-jogador?q='" in mkt_js,
+       "a busca parou de consultar o elenco pelos nomes da API-Football — é ela "
+       "que garante que o nome escolhido é o mesmo do resto do app")
+    ok("spl_id:b.dataset.spl" in mkt_js.replace(" ", ""),
+       "a gravação parou de mandar o spl_id. Gravar texto contra texto traria "
+       "de volta o problema que o glossário existe para acabar")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
