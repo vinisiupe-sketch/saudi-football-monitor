@@ -2066,6 +2066,34 @@ def _quem_e(nome: str, indice=None) -> str:
     return next(iter(achados)) if len(achados) == 1 else ""
 
 
+def definir_af_id(spl_id: str, af_id: int) -> bool:
+    """Liga um jogador nosso ao id dele na API-Football. True se gravou.
+
+    RECUSA EM DOIS CASOS, e os dois são o mesmo cuidado:
+      - se o jogador já tem um `af_id`, não troco. Um id que já está lá foi
+        posto por um cruzamento que conferiu mais coisa do que eu conheço
+        aqui, e sobrescrever seria dar a última palavra a quem sabe menos.
+      - se o id já pertence a OUTRO jogador, não gravo em nenhum dos dois.
+        Dois nossos apontando para o mesmo sujeito lá fora faria "ele atuou"
+        valer para os dois — e um deles continua no departamento médico.
+    """
+    if not spl_id or not af_id:
+        return False
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT 1 FROM jogador WHERE af_id = %s AND spl_id <> %s",
+                      [int(af_id), spl_id])
+            if c.fetchone():
+                return False
+            c.execute("UPDATE jogador SET af_id = %s "
+                      "WHERE spl_id = %s AND af_id IS NULL",
+                      [int(af_id), spl_id])
+            return c.rowcount > 0
+    except Exception:
+        return False
+
+
 def _bloqueada_por_apagar(data: dict, club: str) -> bool:
     """Esta lesão foi apagada à mão e o que chegou não é novidade?
 

@@ -61,6 +61,11 @@ def _corpo(nome_da_funcao: str) -> str:
     return ""
 
 
+def conferir(nome, deu, esperado):
+    if deu != esperado:
+        falhas.append(f"{nome}: esperava {esperado!r}, veio {deu!r}")
+
+
 def _fonte_de(arquivo: str, nome_da_funcao: str) -> str:
     """O código-fonte de uma função de outro arquivo do projeto."""
     texto = open(os.path.join(RAIZ, arquivo), encoding="utf-8").read()
@@ -626,6 +631,127 @@ def testar():
     ok('data-quando="' in tela and 'data-status="' in tela,
        "as entradas do histórico pararam de carregar data e estado legíveis. "
        "Sem isso o recálculo teria de adivinhar lendo o texto formatado")
+
+    # ── 16. O BURACO DO af_id, E O CONSELHO ERRADO QUE EU DAVA ──────────
+    # O Vini corrigiu seis nomes com a canetinha e a conferência de retorno
+    # continuou dizendo que não dava para deduzir. O card mostrava o nome
+    # CERTO — a identidade estava resolvida. O que faltava era o outro lado: o
+    # número do jogador na API-Football. E a canetinha não ensina número.
+    #
+    # Eu estava mandando ele usar uma ferramenta que não resolvia o problema
+    # dele, o que é pior que não ter ferramenta: ele fez, funcionou, e o app
+    # seguiu dizendo a mesma coisa.
+    import types as _t
+    _mod = _t.ModuleType("m")
+    _mod.__dict__["glossary"] = __import__("glossary")
+    exec(compile(ast.Module(body=[n for n in ast.parse(FONTE).body
+                                  if isinstance(n, ast.FunctionDef)
+                                  and n.name == "_af_do_elenco"],
+                            type_ignores=[]), "<af>", "exec"), _mod.__dict__)
+    _af_do_elenco = _mod._af_do_elenco
+
+    elenco = [
+        {"spl_id": "1", "nome": "Abderrazak Hamdallah", "af_id": None},
+        {"spl_id": "2", "nome": "Artem Bondarenko", "af_id": None},
+        {"spl_id": "3", "nome": "Ali Al Hussain", "af_id": None},
+        {"spl_id": "4", "nome": "Salem Al-Dawsari", "af_id": 999},
+    ]
+    conferir("nome inteiro casa",
+             (_af_do_elenco("Artem Bondarenko", elenco) or {}).get("spl_id"), "2")
+    # A API-Football abrevia por sistema. Não é grafia diferente, é abreviação
+    # — e é exatamente o caso do Hamdallah.
+    conferir("abreviação da API-Football casa",
+             (_af_do_elenco("A. Hamdallah", elenco) or {}).get("spl_id"), "1")
+    conferir("acento e hífen não atrapalham",
+             (_af_do_elenco("Abderrazak Hamdallah", elenco) or {}).get("spl_id"), "1")
+    # Quem já tem id não é reconsiderado: um id que já está lá foi posto por
+    # um cruzamento que conferiu mais coisa do que esta função conhece.
+    conferir("quem já tem af_id fica de fora",
+             _af_do_elenco("Salem Al-Dawsari", elenco), {})
+    conferir("nome que não está no elenco não casa",
+             _af_do_elenco("Cristiano Ronaldo", elenco), {})
+    # E DESISTE NA AMBIGUIDADE. Um af_id errado não erra de leve: ele diria
+    # que o jogador entrou em campo quando quem entrou foi outro, e tiraria do
+    # departamento médico alguém que continua machucado.
+    dois = elenco + [{"spl_id": "5", "nome": "Ahmed Hamdallah", "af_id": None}]
+    conferir("dois candidatos pela inicial não desempatam",
+             _af_do_elenco("A. Hamdallah", dois), {})
+    # Homônimo exato dentro do mesmo elenco. Acontece (pai e filho, dois
+    # "Mohammed Al Otaibi"), e é o caso em que a comparação por nome inteiro
+    # também tem que desistir — não só a por abreviação.
+    xara = elenco + [{"spl_id": "6", "nome": "Artem Bondarenko", "af_id": None}]
+    conferir("dois com o mesmo nome inteiro não desempatam",
+             _af_do_elenco("Artem Bondarenko", xara), {})
+    conferir("lista vazia não inventa", _af_do_elenco("A. Hamdallah", []), {})
+
+    ler = _corpo("_ler_escalacoes")
+    ok("_af_do_elenco(jogador.get(\"name\") or \"\", do_clube)" in ler,
+       "a leitura de escalações parou de aproveitar a passagem para preencher "
+       "o af_id que falta")
+    # A LINHA INTEIRA, com a indentação. Conferir só a posição do texto
+    # deixava passar um `if minutos:` posto na frente — o trecho continuava
+    # escrito no mesmo lugar e o teste não via diferença. Já caí nessa antes.
+    ok('\n                nosso = _af_do_elenco(' in ler
+       and ler.find("nosso = _af_do_elenco") < ler.find("if not minutos:"),
+       "o cruzamento do af_id passou a depender de o jogador ter entrado em "
+       "campo. O id não depende disso, e quem ficou no banco hoje é quem eu "
+       "vou querer reconhecer na semana que vem")
+    ok('_chave_de_clube(nome_clube)' in ler,
+       "o casamento deixou de ser escopado ao elenco daquele clube — é o "
+       "escopo que torna comparar nome honesto aqui")
+    daf = _fonte_de("database.py", "definir_af_id")
+    ok("WHERE af_id = %s AND spl_id <> %s" in daf,
+       "definir_af_id parou de recusar id que já é de outro jogador. Dois "
+       "nossos apontando para o mesmo sujeito faria 'ele atuou' valer para os "
+       "dois, e um deles continua no departamento médico")
+    ok("WHERE spl_id = %s AND af_id IS NULL" in daf,
+       "definir_af_id passou a sobrescrever id existente")
+
+    ret = _corpo("_marcar_retornos")
+    ok('balde = "sem_nome" if not spl else "sem_numero"' in ret,
+       "a conferência voltou a misturar 'não sei quem é' com 'sei quem é mas "
+       "falta o número'. São problemas diferentes e só um deles se resolve "
+       "com a caneta")
+    ok("' sem número na API-Football.</b> Eu sei quem são — a caneta não '"
+       in tela,
+       "a tela voltou a mandar usar a caneta em card que a caneta não resolve")
+
+    # ── 17. DATA NO FORMATO DAQUI ───────────────────────────────────────
+    # O app guarda ISO porque ISO ordena sozinho como texto, e o agrupamento e
+    # a cronologia dependem disso. Mas quem lê a tela é o Vini, e aqui 08/09 é
+    # 8 de setembro.
+    _g = {"re": __import__("re")}
+    exec("_RE_ISO_DATA = re.compile(r'^(\\d{4})-(\\d{2})-(\\d{2})')\n"
+         + _corpo("_data_br"), _g)
+    br = _g["_data_br"]
+    conferir("ISO vira dd/mm/aaaa", br("2026-09-08"), "08/09/2026")
+    conferir("data com hora também", br("2026-09-08T12:00:00Z"), "08/09/2026")
+    # PASSA INTEIRO o que não for data. O retorno previsto às vezes vem "1
+    # semana", porque foi o que a notícia disse — e uma função que tentasse
+    # converter isso devolveria vazio, apagando a única informação da linha.
+    conferir("texto livre passa inteiro", br("1 semana"), "1 semana")
+    conferir("7 dias passa inteiro", br("7 dias"), "7 dias")
+    conferir("travessão passa inteiro", br("—"), "—")
+    conferir("vazio continua vazio", br(None), "")
+
+    ok('data-quando="'
+       "' + _html.escape(str(dt), quote=True) + '" in tela.replace("\n", " ")
+       or 'data-quando="' in tela,
+       "sumiu a data em ISO do histórico")
+    ok("_data_br(dt)" in tela,
+       "a data do histórico voltou a sair em ISO na tela")
+    ok('_data_br(inj.get("expected_return"))' in tela
+       and '_data_br((inj.get("injury_date")' in tela
+       and '_data_br((inj.get("last_updated")' in tela,
+       "alguma data do card voltou a sair em ISO")
+    ok("function lsnDataBr(t)" in tela and "lsnEsc(lsnDataBr(quando))" in tela,
+       "as datas que o navegador escreve voltaram a sair em ISO")
+    # O data-quando NÃO pode ser formatado: é ele que ordena a cronologia e
+    # decide qual estado é o mais recente. 08/09/2026 comparado como texto
+    # cairia depois de 31/01/2026.
+    ok("item.dataset.quando = quando;" in tela,
+       "o data-quando passou a receber a data já formatada. Ordenar dd/mm "
+       "como texto põe 08/09 antes de 31/01")
 
     for f in falhas:
         print("  ✗", f)

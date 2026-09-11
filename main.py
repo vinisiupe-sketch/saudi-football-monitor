@@ -4356,9 +4356,11 @@ async def _page_lesoes_impl(request: Request):
         tipo = TYPE_LABEL.get(inj.get("injury_type") or "", inj.get("injury_type") or "—")
         parte = inj.get("body_part") or ""
         tipo_full = tipo + " · " + parte.capitalize() if parte else tipo
-        retorno = inj.get("expected_return") or "—"
-        injury_dt = ((inj.get("injury_date") or "")[:10]) or "—"
-        updated = (inj.get("last_updated") or "")[:10]
+        # Tudo que vai para o olho sai em dd/mm/aaaa. O ISO continua vivo nos
+        # data-* e nas comparações — é lá que ele serve, porque ordena sozinho.
+        retorno = _data_br(inj.get("expected_return")) or "—"
+        injury_dt = _data_br((inj.get("injury_date") or "")[:10]) or "—"
+        updated = _data_br((inj.get("last_updated") or "")[:10])
         notes = inj.get("notes") or ""
         bruto = inj.get("player_name") or "—"
         club = inj.get("club") or "—"
@@ -4412,7 +4414,8 @@ async def _page_lesoes_impl(request: Request):
                 + _html.escape(str(s_status or ""), quote=True) + '">'
                 + '<span class="timeline-dot ' + dot_class + '"></span>'
                 + '<div class="timeline-content">'
-                + '<div class="timeline-top">' + pill_html + '<span class="timeline-date">' + dt + "</span></div>"
+                + '<div class="timeline-top">' + pill_html
+                + '<span class="timeline-date">' + _data_br(dt) + "</span></div>"
                 + '<a href="' + u + '" target="_blank" class="timeline-title">' + ttl + " · " + nm + "</a>"
                 + "</div>"
                 + "</div>"
@@ -5116,6 +5119,13 @@ function lsnEsc(s) {{
 //
 // Então: quem a imprensa JÁ noticiou ganha uma linha do TM no próprio card;
 // quem só o TM conhece entra como card novo, marcado. Uma lista, uma leitura.
+// Gêmea do _data_br do servidor: "2026-09-08" vira "08/09/2026", e o que não
+// for data passa inteiro. O `data-quando` continua em ISO — é ele que ordena.
+function lsnDataBr(t) {{
+  const m = /^(\d{{4}})-(\d{{2}})-(\d{{2}})/.exec(String(t || '').trim());
+  return m ? m[3] + '/' + m[2] + '/' + m[1] : String(t || '');
+}}
+
 function lsnChave(nome) {{
   return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
     .toLowerCase().replace(/[^a-z ]+/g, ' ').split(/\s+/).filter(Boolean).join(' ');
@@ -5202,7 +5212,7 @@ async function juntarTransfermarkt() {{
         + '<span class="lsn-sub">' + lsnEsc(clube)
         + '<span class="lsn-sep">·</span>' + lsnEsc(a.lesao || 'lesão não detalhada')
         + (a.ate_texto && a.ate_texto !== '?'
-            ? ', retorno previsto ' + lsnEsc(a.ate_texto) : '')
+            ? ', retorno previsto ' + lsnEsc(lsnDataBr(a.ate_texto)) : '')
         + '</span></span>'
         + '<span class="lsn-tipo">' + lsnEsc(a.posicao || '') + '</span>'
         + '<span class="lsn-selos">'
@@ -5258,7 +5268,7 @@ function marcarTM(card, a, sozinho) {{
   const quando = a.desde || hoje;
   const titulo = lsnEsc(a.lesao || 'lesão não detalhada')
     + (a.ate_texto && a.ate_texto !== '?'
-        ? ' — retorno previsto ' + lsnEsc(a.ate_texto)
+        ? ' — retorno previsto ' + lsnEsc(lsnDataBr(a.ate_texto))
         : ' — sem previsão de retorno')
     + (sozinho ? ' · não saiu na imprensa que eu coleto' : '')
     // Sem casar com o elenco, o nome é o do TM e pode estar escrito diferente
@@ -5276,7 +5286,7 @@ function marcarTM(card, a, sozinho) {{
   item.innerHTML = '<span class="timeline-dot status-lesionado"></span>'
     + '<div class="timeline-content"><div class="timeline-top">'
     + '<span class="status-pill sm status-lesionado">Lesionado</span>'
-    + '<span class="timeline-date">' + lsnEsc(quando) + '</span></div>'
+    + '<span class="timeline-date">' + lsnEsc(lsnDataBr(quando)) + '</span></div>'
     + '<a href="' + link + '" target="_blank" rel="noopener" class="timeline-title">'
     + titulo + ' · Transfermarkt</a></div>';
 
@@ -5361,7 +5371,7 @@ async function carregarOcultas() {{
   document.getElementById('lsnOcultas').innerHTML = lista.map(function (o) {{
     return '<div class="lsn-oculta"><span>' + lsnEsc(o.escrito || o.chave)
       + (o.clube ? ' <i>' + lsnEsc(o.clube) + '</i>' : '')
-      + '<small>apagado em ' + lsnEsc((o.apagada_em || '').slice(0, 10))
+      + '<small>apagado em ' + lsnEsc(lsnDataBr((o.apagada_em || '').slice(0, 10)))
       + '</small></span>'
       + '<button onclick="desocultar(this)" data-chave="' + lsnEsc(o.chave)
       + '">mostrar de novo</button></div>';
@@ -5545,7 +5555,7 @@ async function conferirRetornos() {{
   const st = document.getElementById('rebuild-status');
   const botoes = document.querySelectorAll('.rebuild-btn');
   botoes.forEach(function (b) {{ b.disabled = true; }});
-  let partidas = 0, marcados = 0, semId = 0, pendentes = [];
+  let partidas = 0, marcados = 0, cruzados = 0, semNome = [], semNumero = [];
   try {{
     for (let passada = 1; passada <= 12; passada++) {{
       st.textContent = 'lendo escalações… passada ' + passada;
@@ -5554,28 +5564,41 @@ async function conferirRetornos() {{
       const e = d.escalacoes || {{}}, v = d.retornos || {{}};
       partidas += e.partidas || 0;
       marcados += v.marcados || 0;
-      semId = v.sem_af_id || 0;
-      pendentes = v.sem_identidade || pendentes;
+      cruzados += e.ids_cruzados || 0;
+      semNome = v.sem_nome || semNome;
+      semNumero = v.sem_numero || semNumero;
       if (!e.faltam || !e.partidas) break;
     }}
     st.innerHTML = lsnEsc(partidas + ' escalação(ões) lida(s), ' + marcados
-      + ' jogador(es) marcado(s) como recuperado(s)');
-    // QUEM FICOU DE FORA, COM NOME E CLUBE.
+      + ' jogador(es) marcado(s) como recuperado(s)')
+      + (cruzados ? lsnEsc(' · ' + cruzados + ' id(s) da API-Football '
+                           + 'preenchido(s) pela escalação') : '');
+
+    // QUEM FICOU DE FORA — E POR QUÊ, que são duas coisas diferentes.
     //
-    // Antes eu dizia só o número, e o Vini pediu o contrário: "preciso que
-    // sinalize os sem IDs pra eu preencher". Um número não dá para agir —
-    // "14 sem id" não diz em qual card clicar. A lista diz, e o filtro
-    // "sem ID" leva direto a eles.
-    if (semId) {{
-      let nomes = pendentes.slice(0, 12).map(function (p) {{
+    // Eu misturava as duas num aviso só que mandava usar a canetinha. O Vini
+    // corrigiu seis nomes, a mensagem não mudou, e ele voltou aqui achando
+    // que a correção não tinha pegado. Tinha: o card mostrava o nome certo. O
+    // que faltava nesses era o NÚMERO do jogador na API-Football — e a
+    // canetinha não ensina número. Mandar usá-la ali era conselho errado.
+    function lista(gente, teto) {{
+      return gente.slice(0, teto).map(function (p) {{
         return lsnEsc(p.nome) + (p.clube ? ' <i>(' + lsnEsc(p.clube) + ')</i>' : '');
-      }}).join(', ');
-      if (pendentes.length > 12) nomes += ' e mais ' + (semId - 12);
-      st.innerHTML += '<div class="lsn-pendentes"><b>' + semId
-        + ' sem identidade — não dá para deduzir retorno.</b> Use a caneta '
-        + 'nestes cards e rode de novo:<br>' + nomes + '</div>';
+      }}).join(', ') + (gente.length > teto ? ' e mais ' + (gente.length - teto) : '');
     }}
-    if (marcados) setTimeout(function () {{ location.reload(); }}, 1200);
+    if (semNome.length) {{
+      st.innerHTML += '<div class="lsn-pendentes"><b>' + semNome.length
+        + ' sem identidade.</b> Não sei qual jogador do elenco é este. '
+        + 'Use a caneta (✎) nestes cards e rode de novo:<br>'
+        + lista(semNome, 12) + '</div>';
+    }}
+    if (semNumero.length) {{
+      st.innerHTML += '<div class="lsn-pendentes"><b>' + semNumero.length
+        + ' sem número na API-Football.</b> Eu sei quem são — a caneta não '
+        + 'resolve estes. O cruzamento acontece sozinho quando eles voltarem '
+        + 'a aparecer numa escalação:<br>' + lista(semNumero, 12) + '</div>';
+    }}
+    if (marcados || cruzados) setTimeout(function () {{ location.reload(); }}, 1800);
   }} catch (e) {{
     st.textContent = 'não deu: ' + (e.message || e);
   }} finally {{
@@ -5645,6 +5668,26 @@ def _jogador_do_elenco_do_clube(nome: str, elenco: list[dict]) -> dict:
         if partes and set(alvo.split()) <= partes:
             candidatos.append(j)
     return candidatos[0] if len(candidatos) == 1 else {}
+
+
+_RE_ISO_DATA = re.compile(r"^(\d{4})-(\d{2})-(\d{2})")
+
+
+def _data_br(texto) -> str:
+    """"2026-09-08" vira "08/09/2026". Qualquer outra coisa passa inteira.
+
+    O app guarda data em ISO porque é o formato que ordena sozinho como texto
+    — e é disso que o agrupamento e a cronologia dependem. Mas ISO é formato
+    de máquina: quem lê a tela é o Vini, e no Brasil 08/09 é 8 de setembro.
+
+    PASSA INTEIRA O QUE NÃO FOR DATA de propósito. O campo de retorno previsto
+    às vezes traz "1 semana" ou "7 dias", porque foi o que a notícia disse.
+    Uma função que tentasse converter isso devolveria vazio, e a tela perderia
+    a única informação que tinha.
+    """
+    t = str(texto or "").strip()
+    m = _RE_ISO_DATA.match(t)
+    return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else t
 
 
 def _chave_de_clube(nome: str) -> str:
@@ -7609,19 +7652,76 @@ async def pagina_pendurados():
     )
 
 
+def _af_do_elenco(nome_af: str, elenco_do_clube: list[dict]) -> dict:
+    """Qual jogador DESTE elenco a API-Football chama assim. {} se não der.
+
+    POR QUE ISTO PRECISOU EXISTIR
+        O Vini corrigiu o nome de seis jogadores com a canetinha, e mesmo
+        assim a conferência de retorno continuou dizendo que não dava para
+        deduzir. O card mostrava o nome certo — então a identidade ESTAVA
+        resolvida. O que faltava era o outro lado: o `af_id`, o número da
+        API-Football, que o cruzamento geral nunca conseguiu preencher para
+        eles. E a canetinha não alcança isso: ela ensina quem é o jogador,
+        não qual é o id dele lá fora.
+
+        Eu estava mandando ele usar uma ferramenta que não resolvia o
+        problema dele. Isso é pior que não ter ferramenta nenhuma.
+
+    POR QUE AQUI DÁ PARA CASAR POR NOME, SENDO QUE EU RECUSO ISSO EM GERAL
+        Pelo mesmo motivo do Bergwijn: a lista é FECHADA e o clube é
+        conhecido. O cruzamento geral compara um nome contra os ~600
+        jogadores da liga e desiste na menor ambiguidade — com razão. Aqui a
+        comparação é contra as trinta pessoas do elenco daquele clube, na
+        escalação daquela partida. "Hamdallah" é único ali dentro.
+
+        E continua desistindo quando mais de um responde. Um `af_id` errado
+        não erra de leve: ele diria que o jogador entrou em campo quando quem
+        entrou foi outro, e tiraria do departamento médico alguém que segue
+        machucado.
+
+    DOIS JEITOS DE COMPARAR, e o segundo é o que resolve o caso real:
+      1. O nome inteiro, normalizado.
+      2. (inicial, resto) — porque a API-Football abrevia por sistema:
+         "A. Hamdallah" contra "Abderrazak Hamdallah". Não é grafia
+         diferente, é abreviação, e por isso tem regra própria.
+    """
+    import glossary
+    elenco = [j for j in (elenco_do_clube or []) if not j.get("af_id")]
+    if not elenco or not (nome_af or "").strip():
+        return {}
+
+    alvo = glossary.chave_latina(nome_af)
+    iguais = [j for j in elenco
+              if glossary.chave_latina(j.get("nome") or "") == alvo]
+    if len(iguais) == 1:
+        return iguais[0]
+
+    ini = glossary.partir_por_inicial(nome_af)
+    if ini[0]:
+        iguais = [j for j in elenco
+                  if glossary.inicial_e_resto(j.get("nome") or "") == ini]
+        if len(iguais) == 1:
+            return iguais[0]
+    return {}
+
+
 async def _ler_escalacoes(season: int = 0, teto: int = 20) -> dict:
     """Lê quem atuou nas partidas encerradas que ainda não li.
 
     UMA CHAMADA POR PARTIDA, com o controle do que já foi lido — mesmo
     padrão do coletor de cartões. Em regime normal são os 9 jogos da rodada.
     """
-    from database import (partidas_com_escalacao_lida, partidas_da_liga,
-                          salvar_atuacoes)
+    from database import (definir_af_id, partidas_com_escalacao_lida,
+                          partidas_da_liga, salvar_atuacoes)
     temporada = season or _af_temporada_corrente()
     hoje = _dia_de_brasilia()
     diag = {"temporada": temporada, "partidas": 0, "atuacoes": 0,
-            "faltam": 0, "erros": []}
+            "faltam": 0, "ids_cruzados": 0, "erros": []}
 
+    # O elenco por clube, para aproveitar a escalação e preencher os `af_id`
+    # que faltam. A escalação já vem por clube: é a lista fechada de que eu
+    # preciso para casar por nome sem chutar.
+    ctx = await asyncio.to_thread(_contexto_de_elenco)
     calendario = partidas_da_liga(temporada)
     lidas = partidas_com_escalacao_lida()
     pendentes = [p for p in calendario
@@ -7637,11 +7737,28 @@ async def _ler_escalacoes(season: int = 0, teto: int = 20) -> dict:
         linhas = []
         for time_ in (dados or {}).get("response", []):
             nome_clube = (time_.get("team") or {}).get("name") or ""
+            # O elenco DAQUELE clube, e é a escolha do escopo que torna o
+            # casamento por nome honesto aqui: trinta pessoas, não seiscentas.
+            do_clube = (ctx.get("por_clube") or {}).get(
+                _chave_de_clube(nome_clube), [])
             for j in time_.get("players") or []:
                 jogador = j.get("player") or {}
                 est = (j.get("statistics") or [{}])[0] or {}
                 jogos = est.get("games") or {}
                 minutos = jogos.get("minutes")
+
+                # APROVEITO A PASSAGEM PARA FECHAR O BURACO DO `af_id`.
+                #
+                # Isto vem ANTES do corte por minutos de propósito: o id não
+                # depende de ele ter entrado em campo, e quem ficou no banco
+                # hoje é exatamente quem eu vou querer reconhecer na semana
+                # que vem. Descartá-lo aqui adiaria o cruzamento sem motivo.
+                nosso = _af_do_elenco(jogador.get("name") or "", do_clube)
+                if nosso and jogador.get("id"):
+                    if definir_af_id(nosso.get("spl_id"), jogador.get("id")):
+                        nosso["af_id"] = jogador.get("id")   # não repito adiante
+                        diag["ids_cruzados"] += 1
+
                 # Quem ficou no banco sem entrar vem com minutos nulo ou 0.
                 # Ele NÃO atuou, e é justamente a diferença que interessa:
                 # relacionado não é o mesmo que recuperado.
@@ -7682,7 +7799,8 @@ async def _marcar_retornos(season: int = 0) -> dict:
     from database import atuou_depois, get_injuries, upsert_injury
     temporada = season or _af_temporada_corrente()
     feito = {"conferidos": 0, "marcados": 0, "sem_af_id": 0,
-             "sem_identidade": [], "erros": []}
+             "sem_identidade": [], "sem_nome": [], "sem_numero": [],
+             "erros": []}
 
     ctx = await asyncio.to_thread(_contexto_de_elenco)
     por_spl = ctx["por_id"]
@@ -7717,7 +7835,23 @@ async def _marcar_retornos(season: int = 0) -> dict:
             # Mas eu DIGO quem ficou de fora, com nome e clube — é o que o
             # Vini pediu para poder preencher com a canetinha. Uma contagem
             # sozinha ("14 sem id") não dá para agir.
+            # DOIS CASOS DIFERENTES, e misturá-los me fez dar conselho errado.
+            #
+            # O Vini corrigiu seis nomes com a canetinha e a mensagem continuou
+            # a mesma, mandando usar a canetinha de novo. Ele fez o que eu
+            # pedi, funcionou (o card passou a mostrar o nome certo) e o app
+            # seguiu dizendo que não dava. O problema era outro: eu sei quem
+            # ele é, o que falta é o número dele na API-Football — e a
+            # canetinha não ensina isso.
             feito["sem_af_id"] += 1
+            balde = "sem_nome" if not spl else "sem_numero"
+            feito.setdefault(balde, [])
+            if len(feito[balde]) < 40:
+                feito[balde].append({
+                    "nome": ((por_spl.get(spl) or {}).get("nome")
+                             or inj.get("player_name") or ""),
+                    "clube": inj.get("club") or "",
+                })
             if len(feito["sem_identidade"]) < 60:
                 feito["sem_identidade"].append({
                     "nome": inj.get("player_name") or "",
