@@ -993,8 +993,61 @@ def negociacoes(limite: int = 60, dias: int = 45) -> list[dict]:
         return []
 
 
+def escudos_da_liga(season: int) -> dict:
+    """Escudo dos clubes DA LIGA, e só deles. Nome canônico -> URL.
+
+    POR QUE NÃO DÁ PARA USAR O escudos_por_clube() AQUI
+        Aquele lê a tabela de transferências, que tem clube do mundo inteiro:
+        europeus, africanos, e os homônimos do Golfo. A chave é o nome
+        normalizado, e `setdefault` faz o PRIMEIRO que aparecer ganhar.
+
+        Foi assim que o Al-Nassr de Riade apareceu com o escudo do Al Nasr de
+        Dubai — dois clubes cujo nome normaliza igual, e quem tinha entrado
+        primeiro na tabela de transferências era o de Dubai. O erro é
+        silencioso e convincente: um escudo bonito, no lugar errado.
+
+        Aqui a origem é o calendário da própria competição, onde só existem
+        os 18 clubes da Saudi Pro League. Não há homônimo para confundir.
+
+    A URL vem do id da API-Football, que é o padrão que o resto do app já
+    usa para escudo (guia Pendurados, guia Elencos).
+    """
+    try:
+        import glossary
+    except Exception:
+        glossary = None
+    saida = {}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_partida_liga(c)
+            c.execute("""SELECT casa_id, casa FROM partida_liga WHERE season = %s
+                          UNION
+                         SELECT fora_id, fora FROM partida_liga WHERE season = %s""",
+                      [season, season])
+            for clube_id, nome in c.fetchall():
+                if not clube_id or not nome:
+                    continue
+                url = f"https://media.api-sports.io/football/teams/{clube_id}.png"
+                saida[nome] = url
+                if glossary:
+                    try:
+                        saida.setdefault(glossary.padronizar_clube(nome), url)
+                    except Exception:
+                        pass
+    except Exception:
+        return {}
+    return saida
+
+
 def escudos_por_clube() -> dict:
     """Nome canônico do clube -> URL de um escudo que já temos.
+
+    ATENÇÃO: inclui clube do mundo inteiro, e a chave é o nome normalizado.
+    Clubes de nome parecido colidem — o Al-Nassr de Riade e o Al Nasr de
+    Dubai caem na mesma chave. Para telas que só falam da Saudi Pro League,
+    use `escudos_da_liga`, que sai do calendário da competição e não tem
+    homônimo para confundir.
 
     Não busco escudo em lugar nenhum: a tabela da janela já guarda a URL do
     logo de quem entrou e de quem saiu, de dezenas de clubes, inclusive os

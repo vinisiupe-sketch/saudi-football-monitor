@@ -87,36 +87,77 @@ def testar():
        "sumiu a criação do recado de seção vazia: filtrar por um clube sem "
        "ninguém machucado devolveria um branco com cara de tela quebrada")
 
-    # ── 2. as sub-abas ───────────────────────────────────────────────────
-    ok("mostrarLesoes(" in tela and "lsnPainel-api" in tela,
-       "sumiu a sub-aba que confere as ausências na API")
-    ok("_lsnApiCarregada" in tela,
-       "a busca na API perdeu a trava de uma vez só. Ela gasta chamada da "
-       "assinatura, e recarregar a cada toque na aba gasta à toa")
-    ok("if (qual === 'api' && !_lsnApiCarregada)" in tela,
-       "a consulta à API deixou de esperar você abrir a aba")
+    # ── 2. UMA LISTA SÓ, sem sub-aba ─────────────────────────────────────
+    # O Transfermarkt chegou como sub-aba e o Vini cortou: "Transfermarkt é
+    # mais uma fonte, então tome o TM como uma fonte que apareceria no
+    # histórico". Ele tem razão. Sub-aba diz "isto é outra coisa"; o TM não é
+    # outra coisa, é a mesma coisa sabida por outro caminho — e separá-lo
+    # obrigava a olhar duas telas para responder uma pergunta só.
+    # Procuro o USO (a classe emitida no HTML e a função que troca de painel),
+    # e não a palavra: o comentário que explica por que as sub-abas saíram
+    # cita o nome delas, e a primeira versão deste teste falhava na própria
+    # documentação. Já aconteceu quatro vezes neste projeto.
+    ok('class="lsn-abas"' not in tela and "mostrarLesoes(" not in tela,
+       "voltaram as sub-abas na guia Lesões. O Transfermarkt é mais uma "
+       "fonte da MESMA lista, não uma tela paralela")
+    # A CHAMADA, e não a menção. Comentar a linha deixa o nome no arquivo, e
+    # a primeira versão deste teste passava com a junção desligada.
+    ok("\njuntarTransfermarkt();" in tela,
+       "sumiu a CHAMADA que junta o Transfermarkt à lista principal — o "
+       "nome da função pode estar aí e ela nunca rodar")
+    ok("linha.className = 'lsn-fonte-tm';" in tela,
+       "sumiu a linha que marca o que veio do Transfermarkt dentro do card — "
+       "sem ela, não dá para saber qual fonte disse o quê")
+    ok("lsnSoTM" in tela,
+       "sumiu a seção de quem SÓ o Transfermarkt conhece. É o reserva que "
+       "ninguém noticiou, e é metade do valor de ter a segunda fonte")
 
-    # ── 3. a sub-aba mudou de fonte: TM no lugar da API ──────────────────
+    # ── 3. a fonte é o TM, não a API ─────────────────────────────────────
     # A API-Football NÃO cobre ausências nesta liga (coverage.injuries =
     # false, conferido com a chave do Vini). Ela respondia com SUCESSO e lista
     # VAZIA, para sempre — foi isso que ele relatou como "não tá trazendo
-    # nada". Uma aba que só sabe dizer "nada" não é conferência.
+    # nada". Uma fonte que só sabe dizer "nada" não confere coisa nenhuma.
     ok("/api/lesoes/transfermarkt" in tela,
-       "a sub-aba voltou a consultar a API-Football, que não cobre ausências "
+       "a guia voltou a consultar a API-Football, que não cobre ausências "
        "nesta liga e sempre devolve lista vazia")
-    ok("Conferir no Transfermarkt" in tela,
-       "o rótulo da sub-aba não diz mais qual é a fonte")
     # A rota da API continua existindo — ela volta a servir no dia em que a
     # cobertura aparecer, e apagá-la agora seria jogar fora a conferência do
     # coverage junto.
     ok("coverage" in rota,
        "a rota antiga perdeu a conferência do coverage.injuries, que é o que "
        "distingue 'a API não sabe' de 'ninguém está fora'")
-    # E a distinção continua valendo na tela nova, com o motivo de agora:
-    # bloqueio ou mudança de layout do TM, e não falta de cobertura.
     ok("NÃO quer dizer" in tela,
        "sumiu o aviso de que lista vazia pode ser falha de leitura, e não "
        "ausência de lesionados")
+
+    # ── 3b. o escudo vem da LIGA, não da tabela de transferências ────────
+    # O Al-Nassr de Riade apareceu com o escudo do Al Nasr de Dubai: os dois
+    # normalizam para a mesma chave em escudos_por_clube(), que lê a tabela de
+    # transferências — com clube do mundo inteiro — e deixa ganhar quem entrou
+    # primeiro. O erro é silencioso e convincente: um escudo bonito no lugar
+    # errado.
+    ok("escudos_da_liga" in tela,
+       "a guia voltou a tirar escudo só da tabela de transferências. Lá há "
+       "clube do mundo inteiro, e homônimo do Golfo colide na mesma chave — "
+       "foi assim que o Al-Nassr saiu com o escudo do Al Nasr de Dubai")
+    i_geral = tela.find("escudos_por_clube()")
+    i_liga = tela.find("escudos_da_liga(")
+    ok(-1 < i_geral < i_liga,
+       "a ordem inverteu: o mapa geral precisa entrar PRIMEIRO e o da liga "
+       "por cima, senão o homônimo volta a ganhar")
+
+    # E a função da liga tem que sair mesmo do CALENDÁRIO da competição —
+    # é de lá que vem a garantia de só haver os 18 clubes da Roshn. Checar só
+    # o nome dela na tela deixaria passar uma função que devolve nada.
+    banco = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+    corpo_liga = banco[banco.find("def escudos_da_liga"):]
+    corpo_liga = corpo_liga[:corpo_liga.find("\ndef ", 10)]
+    ok("FROM partida_liga" in corpo_liga,
+       "escudos_da_liga parou de ler o calendário da competição. É ele que "
+       "garante que só existem ali os clubes da liga, sem homônimo")
+    ok("media.api-sports.io" in corpo_liga,
+       "o escudo da liga deixou de usar o endereço padrão da API-Football, "
+       "que é o mesmo das guias Pendurados e Elencos")
 
     # ── 4. suspensão vem junto, e o tipo cru não se perde ────────────────
     ok("suspend" in rota and "Suspensão" in rota,
@@ -127,8 +168,14 @@ def testar():
        "'Questionable'; traduzir só o que eu previ apaga o resto")
 
     # ── 5. cruzar com o nosso monitor sem inventar ───────────────────────
-    ok("no_nosso_monitor" in rota and "no_nosso_monitor" in tela,
-       "sumiu a marca de quem só a API tem — que é o motivo da aba existir")
+    # A marca de "só uma fonte viu" é o motivo de ter a segunda fonte. Na
+    # rota ela continua vindo calculada; na tela, quem separa é a junção —
+    # o jogador que o TM conhece e a imprensa não vira card próprio.
+    ok("no_nosso_monitor" in rota,
+       "a rota parou de marcar quem o nosso monitor já conhece")
+    ok("Só no Transfermarkt" in tela,
+       "sumiu a separação de quem só a segunda fonte viu — é o reserva que "
+       "ninguém noticiou, e é metade do valor de ter duas fontes")
     # A normalização de nome, exercitada de verdade — e não procurada no
     # texto. Rodo só ESTA função, num espaço com re e unicodedata, porque ela
     # é pura e o main.py inteiro não sobe sem banco.

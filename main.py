@@ -4212,11 +4212,17 @@ async def _page_lesoes_impl(request: Request):
     try:
         import elos
         import liga_spl
-        from database import listar_jogadores, escudos_por_clube
+        from database import (escudos_da_liga, escudos_por_clube,
+                              listar_jogadores)
         _gente = listar_jogadores(limite=2000)
         _indice, _ = elos.indice_de_jogadores(_gente)
         _por_id = {j["spl_id"]: j for j in _gente}
-        _escudos = escudos_por_clube()
+        # O da LIGA primeiro, e o geral só como reserva. Sem essa ordem, o
+        # Al-Nassr de Riade sai com o escudo do Al Nasr de Dubai: os dois
+        # normalizam para a mesma chave na tabela de transferências, e lá
+        # ganha quem entrou primeiro. Ver o comentário em escudos_da_liga.
+        _escudos = dict(escudos_por_clube())
+        _escudos.update(escudos_da_liga(_af_temporada_corrente()))
     except Exception as e:
         print(f"⚠️ lesões, rosto: {type(e).__name__}: {e}")
         _indice, _por_id, _escudos = {"chave": {}}, {}, {}
@@ -4334,23 +4340,37 @@ async def _page_lesoes_impl(request: Request):
         # data-clube: é por ele que o filtro esconde e mostra. Vai escapado
         # porque `club` vem de notícia raspada — nome com aspas fecharia o
         # atributo cedo e quebraria o card inteiro.
+        # A SUB-LINHA é o clube mais o RESUMO do caso — "Al Kholood · Lesão
+        # ocorrida durante a partida contra o Abha". É o que a linha roxa do
+        # print do Vini apontava: no card de pendurados ali vai "pendurado
+        # para o jogo contra o Al Riyadh", ou seja, a frase que explica a
+        # situação. Aqui a frase equivalente é a descrição da lesão.
+        #
+        # A data entra só quando não há descrição: melhor "desde 03/09" do que
+        # uma segunda linha vazia.
+        resumo = " ".join((notes or "").split())
+        if len(resumo) > 140:
+            resumo = resumo[:139].rstrip() + "…"
+        if not resumo and injury_dt and injury_dt != "—":
+            resumo = "Lesão registrada em " + injury_dt
         import html as _html
         return (
-            '<div class="injury-card" data-clube="' + _html.escape(club, quote=True) + '">'
+            '<div class="injury-card status-' + status + '" data-clube="'
+            + _html.escape(club, quote=True) + '">'
             + '<div class="lsn-linha">'
             + '<span class="lsn-escudo">' + escudo_html + "</span>"
             + '<span class="lsn-quem">'
             + '<span class="lsn-nome">' + player + orig_html + "</span>"
             + '<span class="lsn-sub">' + club
-            + ('<span class="lsn-sep">·</span>desde ' + injury_dt
-               if injury_dt and injury_dt != "—" else "")
+            + ('<span class="lsn-sep">·</span>' + resumo if resumo else "")
             + "</span></span>"
             + '<span class="lsn-tipo">' + detalhe + "</span>"
             + '<span class="status-pill status-' + status + '">' + emoji + " " + slabel + "</span>"
             + "</div>"
-            + notes_html
+            + '<div class="lsn-extra">'
             + timeline_section
             + '<div class="lsn-rodape">Atualizado ' + updated + "</div>"
+            + "</div>"
             + "</div>"
         )
 
@@ -4445,12 +4465,21 @@ async def _page_lesoes_impl(request: Request):
   gap: 8px;
   margin-bottom: 32px;
 }}
+/* Largura e respiro iguais aos da guia Pendurados: mesma caixa, mesmo raio,
+   mesmo padding. Duas telas que mostram a mesma ideia não podem ter duas
+   medidas. */
 .injury-card {{
   background: var(--c-bg-card);
   border: 1px solid var(--c-border);
   border-radius: 12px;
   padding: 11px 13px;
 }}
+/* A MOLDURA SEGUE O ESTADO, como em pendurados e suspensos. Dá para varrer
+   a lista sem ler uma palavra e saber onde estão os casos graves. */
+.injury-card.status-lesionado {{ border-color: #FD5D5D66; }}
+.injury-card.status-em_recuperacao {{ border-color: #FFBE5D66; }}
+.injury-card.status-retornando {{ border-color: #B6FF0066; }}
+.injury-card.status-recuperado {{ border-color: var(--c-border); opacity: .72; }}
 /* ── O card no padrão da guia Pendurados ──────────────────────────────
    escudo · nome e clube · tipo da lesão · estado, tudo numa linha.
    A foto do jogador saiu: numa lista de lesionados o olho procura de que
@@ -4463,8 +4492,13 @@ async def _page_lesoes_impl(request: Request):
 .lsn-quem {{ flex: 1; min-width: 0; }}
 .lsn-nome {{ display: block; font-weight: 800; font-size: .9rem;
   overflow-wrap: anywhere; }}
+/* Uma linha só, cortada com reticências. A descrição da lesão pode vir
+   longa, e deixá-la quebrar em três linhas devolveria o card alto que a
+   lista veio resolver — o texto inteiro está no histórico, logo abaixo. */
 .lsn-sub {{ display: block; font-size: .7rem; color: var(--c-muted-3);
-  margin-top: 2px; }}
+  margin-top: 2px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; }}
+.lsn-extra {{ margin-top: 8px; }}
 .lsn-sep {{ opacity: .5; margin: 0 5px; }}
 /* O tipo da lesão fica no canto, antes do estado — e some no celular, onde
    a linha não comporta quatro colunas sem espremer o nome. */
@@ -4622,17 +4656,14 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 .lsn-filtro select {{ background: var(--c-bg-card); color: var(--c-text);
   border: 1.5px solid var(--c-border-2); border-radius: 10px; padding: 7px 10px;
   font-family: inherit; font-size: .78rem; max-width: 60vw; }}
-.lsn-abas {{ display: flex; gap: 8px; margin: 16px 0 14px;
-  border-bottom: 1px solid var(--c-border); }}
-.lsn-aba {{ background: none; border: none; border-bottom: 2px solid transparent;
-  color: var(--c-muted-3); font-size: .82rem; font-weight: 700;
-  padding: 8px 14px 10px; cursor: pointer; margin-bottom: -1px;
-  font-family: inherit; transition: color .15s, border-color .15s; }}
-.lsn-aba:hover {{ color: var(--c-text); }}
-.lsn-aba.ativa {{ color: var(--c-text); border-bottom-color: #B6FF00; }}
-.lsn-so-api {{ font-size: .68rem; font-weight: 700; color: #FFBE5D;
-  background: rgba(255,190,93,.12); border: 1px solid rgba(255,190,93,.33);
-  border-radius: 8px; padding: 6px 9px; margin-top: 8px; line-height: 1.4; }}
+/* As regras .lsn-abas e .lsn-aba saíram junto com as sub-abas (11/09/26).
+   CSS de elemento que não existe mais é o tipo de sobra que faz a próxima
+   pessoa procurar na tela um botão que ninguém desenha. */
+/* A linha do Transfermarkt dentro do card — recuada como as do histórico,
+   para se ler como "mais uma fonte falou disto" e não como um item novo. */
+.lsn-fonte-tm {{ font-size: .68rem; color: var(--c-muted-3); line-height: 1.5;
+  margin-bottom: 6px; padding-left: 37px; }}
+.lsn-fonte-tm b {{ color: var(--c-muted-4); }}
 </style>
 </head>
 <body>
@@ -4653,31 +4684,14 @@ details[open] summary::before {{ transform: rotate(90deg); }}
     </label>
   </div>
 
-  <div class="lsn-abas">
-    <button class="lsn-aba ativa" id="lsnAba-noticias"
-            onclick="mostrarLesoes('noticias')">📰 Pela imprensa</button>
-    <button class="lsn-aba" id="lsnAba-api"
-            onclick="mostrarLesoes('api')">🔎 Conferir no Transfermarkt</button>
-  </div>
+  <div class="section-label">Ativas <span class="section-count" id="contaAtivas">({count_active})</span></div>
+  <div class="injury-grid" id="gradeAtivas">{cards_active}</div>
+  <div id="lsnSoTM"></div>
 
-  <div id="lsnPainel-noticias">
-    <div class="section-label">Ativas <span class="section-count" id="contaAtivas">({count_active})</span></div>
-    <div class="injury-grid" id="gradeAtivas">{cards_active}</div>
-
-    <details>
-      <summary>Recuperados <span class="section-count" id="contaRecuperados" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
-      <div class="injury-grid" style="margin-top:12px" id="gradeRecuperados">{cards_recovered}</div>
-    </details>
-  </div>
-
-  <div id="lsnPainel-api" style="display:none">
-    <div class="lesoes-subtitle">A lista de lesionados da Saudi Pro League no
-      Transfermarkt. Serve para conferir o que a imprensa não noticiou — aqui
-      aparece o reserva que ninguém escreveu. O casamento com o elenco é feito
-      pelo <b>identificador do próprio Transfermarkt</b>, sem passar por nome,
-      então o nome que você vê é o mesmo do resto do app.</div>
-    <div id="lsnApi"><div class="empty-state">Carregando…</div></div>
-  </div>
+  <details>
+    <summary>Recuperados <span class="section-count" id="contaRecuperados" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
+    <div class="injury-grid" style="margin-top:12px" id="gradeRecuperados">{cards_recovered}</div>
+  </details>
 </div>
 
 <script>
@@ -4717,67 +4731,77 @@ function filtrarPorClube() {{
     }});
 }}
 
-// ── Sub-abas: imprensa | API ──────────────────────────────────────────────
-let _lsnApiCarregada = false;
-function mostrarLesoes(qual) {{
-  ['noticias', 'api'].forEach(function (k) {{
-    const p = document.getElementById('lsnPainel-' + k);
-    const b = document.getElementById('lsnAba-' + k);
-    if (p) p.style.display = (k === qual) ? '' : 'none';
-    if (b) b.classList.toggle('ativa', k === qual);
-  }});
-  // Só busca quando você abre a aba, e uma vez só. A consulta gasta chamada
-  // da assinatura, e gastar em quem nem olhou a aba é gastar à toa.
-  if (qual === 'api' && !_lsnApiCarregada) {{ _lsnApiCarregada = true; carregarAusencias(); }}
-}}
-
 function lsnEsc(s) {{
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 }}
 
-// A LISTA DO TRANSFERMARKT, e não mais a da API-Football.
+// O TRANSFERMARKT ENTRA NA MESMA LISTA, como mais uma fonte.
 //
-// A API não cobre ausências nesta liga (coverage.injuries = false, conferido
-// com a chave do Vini): ela respondia com SUCESSO e lista VAZIA, para sempre.
-// Uma aba que só sabe dizer "nada" não é conferência nenhuma — era esse o
-// defeito que o Vini relatou como "não tá trazendo nada".
-async function carregarAusencias() {{
-  const alvo = document.getElementById('lsnApi');
+// Tinha virado uma sub-aba, e o Vini cortou: "Transfermarkt é mais uma fonte,
+// então tome o TM como uma fonte que apareceria no histórico". Ele está
+// certo. Uma sub-aba diz "esta é outra coisa"; o TM não é outra coisa, é a
+// mesma coisa sabida por outro caminho. Separá-lo obrigava a olhar duas telas
+// para responder uma pergunta só — quem do meu time está fora.
+//
+// Então: quem a imprensa JÁ noticiou ganha uma linha do TM no próprio card;
+// quem só o TM conhece entra como card novo, marcado. Uma lista, uma leitura.
+function lsnChave(nome) {{
+  return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().replace(/[^a-z ]+/g, ' ').split(/\s+/).filter(Boolean).join(' ');
+}}
+
+async function juntarTransfermarkt() {{
   let d;
   try {{
     const r = await fetch('/api/lesoes/transfermarkt');
     d = await r.json();
-  }} catch (e) {{
-    alvo.innerHTML = '<div class="empty-state">Não consegui consultar o '
-      + 'Transfermarkt: ' + lsnEsc(e.message || e) + '</div>';
-    return;
-  }}
+  }} catch (e) {{ return; }}
 
   const lista = d.lesoes || [];
+  const alvo = document.getElementById('lsnSoTM');
   if (!lista.length) {{
     // Distinguir "ninguém machucado" de "não consegui ler" continua sendo a
-    // regra — só que agora o motivo provável é bloqueio do TM, e não falta
-    // de cobertura.
-    alvo.innerHTML = '<div class="empty-state">'
-      + ((d.erros || []).length
-         ? 'Não consegui ler a página do Transfermarkt: ' + lsnEsc(d.erros.join(' | '))
-           + '<br>Lista vazia aqui NÃO quer dizer que não há ninguém machucado.'
-         : 'O Transfermarkt não lista nenhum lesionado na Saudi Pro League.')
-      + '</div>';
+    // regra. Lista vazia aqui quase sempre quer dizer bloqueio do TM.
+    if ((d.erros || []).length) {{
+      alvo.innerHTML = '<div class="empty-state">Não consegui ler a página do '
+        + 'Transfermarkt: ' + lsnEsc(d.erros.join(' | '))
+        + '<br>Isso NÃO quer dizer que não há mais ninguém machucado.</div>';
+    }}
     return;
   }}
 
-  let html = '<div class="section-label">' + lista.length
-    + ' lesionado(s) no Transfermarkt <span class="section-count">'
-    + d.casados + ' casado(s) com o elenco pelo id</span></div>'
-    + '<div class="injury-grid">';
+  // 1. quem já está na tela ganha a linha do TM dentro do próprio card
+  const naTela = {{}};
+  document.querySelectorAll('.injury-card .lsn-nome').forEach(function (n) {{
+    naTela[lsnChave(n.textContent)] = n.closest('.injury-card');
+  }});
+
+  const soTM = [];
   lista.forEach(function (a) {{
     const nome = a.nome_elenco || a.nome;
+    const card = naTela[lsnChave(nome)];
+    if (!card) {{ soTM.push(a); return; }}
+    const linha = document.createElement('div');
+    linha.className = 'lsn-fonte-tm';
+    linha.innerHTML = '<b>Transfermarkt</b> · ' + lsnEsc(a.lesao || '—')
+      + (a.ate_texto && a.ate_texto !== '?' ? ' · retorno previsto '
+          + lsnEsc(a.ate_texto) : ' · sem previsão de retorno');
+    const extra = card.querySelector('.lsn-extra') || card;
+    extra.insertBefore(linha, extra.firstChild);
+  }});
+
+  // 2. quem só o TM conhece vira card novo — é o reserva que ninguém noticiou
+  if (!soTM.length) return;
+  let html = '<div class="section-label">Só no Transfermarkt '
+    + '<span class="section-count">(' + soTM.length + ')</span></div>'
+    + '<div class="injury-grid" id="gradeSoTM">';
+  soTM.forEach(function (a) {{
+    const nome = a.nome_elenco || a.nome;
     const clube = a.clube_elenco || a.clube;
-    const so_tm = !a.no_nosso_monitor;
-    html += '<div class="injury-card" data-clube="' + lsnEsc(clube) + '">'
+    html += '<div class="injury-card status-lesionado" data-clube="'
+      + lsnEsc(clube) + '">'
       + '<div class="lsn-linha">'
       + '<span class="lsn-escudo">'
       + (a.escudo ? '<img src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
@@ -4785,26 +4809,27 @@ async function carregarAusencias() {{
       + '<span class="lsn-quem">'
       + '<span class="lsn-nome">' + lsnEsc(nome) + '</span>'
       + '<span class="lsn-sub">' + lsnEsc(clube)
-      + (a.posicao ? '<span class="lsn-sep">·</span>' + lsnEsc(a.posicao) : '')
-      + '</span></span>'
-      + '<span class="lsn-tipo">' + lsnEsc(a.lesao || '—')
+      + '<span class="lsn-sep">·</span>' + lsnEsc(a.lesao || 'lesão não detalhada')
       + (a.ate_texto && a.ate_texto !== '?'
-          ? '<br>até ' + lsnEsc(a.ate_texto) : '') + '</span>'
+          ? ', retorno previsto ' + lsnEsc(a.ate_texto) : '')
+      + '</span></span>'
+      + '<span class="lsn-tipo">' + lsnEsc(a.posicao || '') + '</span>'
       + '<span class="status-pill status-lesionado">🔴 Lesionado</span>'
       + '</div>'
-      // O valor da aba está nesta linha: quem o TM vê e a imprensa não.
-      + (so_tm ? '<div class="lsn-so-api">Só o Transfermarkt tem — não saiu '
-                 + 'na imprensa que eu coleto</div>' : '')
-      // E este aviso protege o contrário: sem casar com o elenco, o nome que
-      // aparece é o do TM, e pode estar escrito diferente do resto do app.
-      + (a.no_elenco ? '' : '<div class="lsn-so-api">Não achei este jogador no '
-                            + 'elenco guardado — nome como o TM escreve</div>')
+      + '<div class="lsn-extra"><div class="lsn-fonte-tm"><b>Transfermarkt</b>'
+      + ' · não saiu na imprensa que eu coleto'
+      // Sem casar com o elenco, o nome é o do TM e pode estar escrito
+      // diferente do resto do app. Dizer isso é mais honesto que esconder.
+      + (a.no_elenco ? '' : ' · não achei no elenco guardado, nome como o TM escreve')
+      + '</div></div>'
       + '</div>';
   }});
   html += '</div>';
   alvo.innerHTML = html;
   filtrarPorClube();
 }}
+
+juntarTransfermarkt();
 
 async function rebuild() {{
   const btn = document.querySelector('.rebuild-btn');
