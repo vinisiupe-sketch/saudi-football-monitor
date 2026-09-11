@@ -2066,6 +2066,41 @@ def _quem_e(nome: str, indice=None) -> str:
     return next(iter(achados)) if len(achados) == 1 else ""
 
 
+def _bloqueada_por_apagar(data: dict, club: str) -> bool:
+    """Esta lesão foi apagada à mão e o que chegou não é novidade?
+
+    A COMPARAÇÃO É DE DATAS, e é ela que separa "limpar a tela" de "cegar o
+    monitor". Vale a data do FATO — quando a lesão aconteceu, ou quando a
+    notícia foi publicada — contra o instante em que o Vini apagou:
+
+      fato ANTES de ele apagar   → é a mesma coisa voltando. Bloqueio.
+      fato DEPOIS de ele apagar  → é notícia nova. Passa, e a lápide cai.
+
+    Sem data nenhuma no que chegou eu bloqueio, porque uma releitura da mesma
+    notícia velha costuma vir sem data — e o risco de errar para o lado de
+    bloquear é uma linha a menos na tela, contra uma linha que ele já disse
+    que não quer e que volta sozinha.
+    """
+    ocultas = lesoes_ocultas()
+    if not ocultas:
+        return False
+    for nome in (data.get("player_name"), data.get("player_name_orig")):
+        alvo = ocultas.get(_chave_oculta(nome, club))
+        if not alvo:
+            continue
+        apagada = str(alvo.get("apagada_em") or "")[:10]
+        fato = (str(data.get("injury_date") or "")[:10]
+                or str((data.get("source_info") or {}).get("published_at")
+                       or "")[:10])
+        if not fato or fato <= apagada:
+            return True
+        # Fato novo: a lápide cumpriu o papel dela e sai da frente, senão
+        # eu bloquearia a PRÓXIMA lesão deste jogador também.
+        desocultar_lesao(_chave_oculta(nome, club))
+        return False
+    return False
+
+
 def upsert_injury(data: dict) -> str:
     """Insere ou atualiza registro de lesão.
     data keys: player_name, player_name_orig, club, injury_date, injury_type,
@@ -2081,6 +2116,19 @@ def upsert_injury(data: dict) -> str:
 
     if not player_name or not club:
         return "skipped"
+
+    # A LÁPIDE MANDA MAIS QUE A COLETA.
+    #
+    # Se o Vini apagou esta lesão, a carga seguinte não pode ressuscitá-la
+    # relendo a mesma notícia — foi o que aconteceu com o Malcom Oliveira, que
+    # nem está mais no Al-Hilal. Ele estava olhando a tela quando decidiu; eu
+    # estou relendo um texto de três semanas atrás.
+    #
+    # O bloqueio é do que é ANTIGO, não da pessoa: `_bloqueada_por_apagar`
+    # compara a data do fato com o instante em que ele apagou. Lesão nova,
+    # noticiada depois, entra normalmente.
+    if not data.get("ignorar_oculta") and _bloqueada_por_apagar(data, club):
+        return "oculta"
 
     with get_conn() as conn:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -2302,11 +2350,93 @@ def apagar_lesao(ids) -> int:
         return 0
     try:
         with get_conn() as conn:
-            c = conn.cursor()
-            c.execute("DELETE FROM injuries WHERE id = ANY(%s)", [ids])
-            return c.rowcount
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_lesao_oculta(c)
+            # A LÁPIDE, ANTES DE APAGAR — enquanto as linhas ainda existem.
+            #
+            # O Vini apagou o Malcom Oliveira, que nem joga mais no Al-Hilal, e
+            # ele voltou no reprocessamento seguinte. É o esperado: apagar tira
+            # a linha do banco, e a carga seguinte relê a mesma notícia e
+            # insere de novo. Sem memória do que foi apagado, o X vira um
+            # gesto que se desfaz sozinho — pior que não ter X nenhum, porque
+            # ensina a não confiar nele.
+            c.execute("SELECT id, player_name, player_name_orig, club "
+                      "FROM injuries WHERE id = ANY(%s)", [ids])
+            linhas = [dict(r) for r in c.fetchall()]
+            agora = datetime.now(timezone.utc).isoformat()
+            c2 = conn.cursor()
+            for l in linhas:
+                for nome in (l.get("player_name"), l.get("player_name_orig")):
+                    chave = _chave_oculta(nome, l.get("club"))
+                    if not chave:
+                        continue
+                    c2.execute("""INSERT INTO lesao_oculta
+                                      (chave, escrito, clube, apagada_em)
+                                  VALUES (%s,%s,%s,%s)
+                                  ON CONFLICT (chave) DO UPDATE SET
+                                      apagada_em = EXCLUDED.apagada_em""",
+                               [chave, " ".join((nome or "").split()),
+                                l.get("club") or "", agora])
+            c2.execute("DELETE FROM injuries WHERE id = ANY(%s)", [ids])
+            return c2.rowcount
     except Exception:
         return 0
+
+
+# ── O QUE O VINI MANDOU SUMIR ───────────────────────────────────────────────
+#
+# A lápide não é "nunca mais me fale desta pessoa", e essa distinção é o
+# desenho todo. Ela guarda O INSTANTE em que ele apagou, e só bloqueia o que
+# já se sabia ANTES dele decidir. Uma lesão nova, noticiada depois, passa.
+#
+# A alternativa — bloquear para sempre — transformaria um clique de limpeza
+# numa cegueira permanente sobre aquele jogador, e o Vini não saberia que foi
+# ele quem causou isso, meses depois, quando o cara rompesse o ligamento e não
+# aparecesse na guia.
+def _cria_lesao_oculta(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS lesao_oculta (
+            chave      TEXT PRIMARY KEY,
+            escrito    TEXT,
+            clube      TEXT,
+            apagada_em TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+
+def _chave_oculta(nome: str, clube: str) -> str:
+    """A chave da lápide: nome normalizado + clube normalizado.
+
+    Com o clube junto porque o mesmo sobrenome em dois elencos é gente
+    diferente. Sem ele, apagar um "Fernandes" esconderia todos.
+    """
+    n = _chave_apelido(nome or "")
+    cl = _chave_apelido(_clube(clube) or clube or "")
+    return f"{n}|{cl}" if n else ""
+
+
+def lesoes_ocultas() -> dict:
+    """{chave: {escrito, clube, apagada_em}} — o que foi apagado à mão."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_lesao_oculta(c)
+            c.execute("SELECT * FROM lesao_oculta ORDER BY apagada_em DESC")
+            return {r["chave"]: dict(r) for r in c.fetchall()}
+    except Exception:
+        return {}
+
+
+def desocultar_lesao(chave: str) -> bool:
+    """Tira a lápide: o jogador volta a poder entrar na lista."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_lesao_oculta(c)
+            c.execute("DELETE FROM lesao_oculta WHERE chave = %s", [chave])
+            return c.rowcount > 0
+    except Exception:
+        return False
 
 
 def get_injuries(include_recovered: bool = True) -> list[dict]:

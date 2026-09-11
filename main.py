@@ -4245,53 +4245,23 @@ async def _page_lesoes_impl(request: Request):
         _indice, _por_id, _escudos, _apelidos = {"chave": {}}, {}, {}, {}
 
     # Elenco agrupado por clube, para a segunda tentativa de identificação.
-    def _chave_clube(nome: str) -> str:
-        try:
-            import glossary
-            return (glossary.padronizar_clube(nome or "") or nome or "").lower()
-        except Exception:
-            return (nome or "").lower()
-
+    _chave_clube = _chave_de_clube
     _por_clube: dict = {}
     for _j in _gente:
         _por_clube.setdefault(_chave_clube(_j.get("clube")), []).append(_j)
+    _ctx = {"gente": _gente, "por_id": _por_id, "indice": _indice,
+            "apelidos": _apelidos, "por_clube": _por_clube}
 
     def _do_elenco(nome: str, clube: str = "") -> dict:
         """O jogador do elenco que corresponde a este nome, ou {}.
 
-        DUAS TENTATIVAS, e a segunda existe por causa do Bergwijn.
-            A primeira é o índice geral de nomes — o mesmo que acha a foto.
-            Ele exige NO MÍNIMO DUAS PALAVRAS, de propósito: ele foi feito
-            para varrer notícia, e num texto solto "Silva" não identifica
-            ninguém.
-
-            Só que aqui o texto não é solto. A notícia dizia "Bergwijn" e
-            "Steven Bergwijn"; "Rajkovic" e "Predrag Rajković". O índice
-            resolvia os nomes completos e recusava os sobrenomes sozinhos —
-            e o mesmo jogador aparecia duas vezes na tela. O Vini perguntou
-            se o glossário era inútil. Não é: é que eu estava pedindo a ele
-            uma coisa que ele recusa fazer, com razão, no lugar errado.
-
-            A segunda tentativa usa o que eu tenho aqui e o índice não tinha
-            lá: O CLUBE. Dentro de um elenco de trinta pessoas, "Bergwijn" é
-            único, e "Rajkovic" também. Fora dele, não seriam — por isso a
-            busca é ESCOPADA, e desiste se mais de um jogador daquele clube
-            responder pelo mesmo pedaço de nome.
+        Porta para `_identificar_jogador`, que é a regra ÚNICA do app — a
+        mesma que a lista do Transfermarkt e a rotina de retornos usam.
+        Enquanto cada tela guardava a sua cópia, elas discordavam: o Vini viu
+        dois Kalidou Koulibaly com o nome escrito IGUAL, um reconhecido e o
+        outro não, porque cada tela decidia por conta.
         """
-        # O GLOSSÁRIO PRIMEIRO: o que o Vini corrigiu à mão vale mais que
-        # qualquer dedução minha. Ele estava olhando a tela quando decidiu.
-        import database as _db
-        corrigido = _apelidos.get(_db._chave_apelido(nome or ""))
-        if corrigido and corrigido in _por_id:
-            return _por_id[corrigido]
-
-        achados = elos.jogadores_no_texto("", nome or "", _indice)
-        if len(achados) == 1:
-            return _por_id.get(next(iter(achados))) or {}
-
-        if not clube:
-            return {}
-        return _jogador_do_elenco_do_clube(nome, _por_clube.get(_chave_clube(clube), []))
+        return _identificar_jogador(nome, clube, _ctx)
 
     def _rosto(nome: str, clube: str = "") -> str:
         foto = (_do_elenco(nome, clube) or {}).get("foto") or ""
@@ -4321,16 +4291,39 @@ async def _page_lesoes_impl(request: Request):
         return ("nome", _chave_de_nome(inj.get("player_name") or ""),
                 (inj.get("club") or "").lower())
 
+    def _quando_soube(inj: dict) -> str:
+        """A data do FATO mais recente que este registro conhece.
+
+        POR QUE NÃO `last_updated`
+            `last_updated` é quando a LINHA foi escrita no banco, e isso não
+            é a mesma coisa que quando o fato aconteceu. Um reprocessamento
+            de notícia velha carimba hoje numa lesão de três semanas atrás —
+            e, no agrupamento, essa linha velha passava a mandar no estado do
+            card. Foi o que o Vini viu: junta dois registros e o principal
+            que aparece não é o mais recente.
+
+            A data da notícia não mente sobre isso. Onde ela falta, caio para
+            a data da lesão, e só então para `last_updated`.
+        """
+        datas = [str(s.get("published_at") or "")[:10]
+                 for s in (inj.get("sources") or [])]
+        datas.append(str(inj.get("injury_date") or "")[:10])
+        datas = [d for d in datas if d]
+        return max(datas) if datas else str(inj.get("last_updated") or "")[:10]
+
     def _juntar(lista: list[dict]) -> list[dict]:
         grupos: dict = {}
         for inj in lista:
             grupos.setdefault(_identidade(inj), []).append(inj)
         saida = []
         for pedacos in grupos.values():
-            # O mais recente manda no estado e no tipo; os outros viram
-            # histórico. É a ordem certa: a última notícia é a que sabe se
-            # ele voltou.
-            pedacos.sort(key=lambda i: str(i.get("last_updated") or ""), reverse=True)
+            # O MAIS RECENTE MANDA no estado e no tipo; os outros viram
+            # histórico. É a ordem certa: a última notícia é a que sabe se ele
+            # voltou. `last_updated` entra só como desempate, para o caso de
+            # duas notícias do mesmo dia.
+            pedacos.sort(key=lambda i: (_quando_soube(i),
+                                        str(i.get("last_updated") or "")),
+                         reverse=True)
             base = dict(pedacos[0])
             fontes = []
             vistas = set()
@@ -4394,6 +4387,7 @@ async def _page_lesoes_impl(request: Request):
         sources = inj.get("sources") or []
         sources_sorted = sorted(sources, key=lambda s: s.get("published_at") or "")
         timeline_html = ""
+        import html as _html
         for s in sources_sorted:
             u  = s.get("url", "#")
             nm = s.get("source_name", "fonte")
@@ -4407,8 +4401,15 @@ async def _page_lesoes_impl(request: Request):
             else:
                 pill_html = '<span class="status-pill sm status-desconhecido">Atualização</span>'
                 dot_class = "status-desconhecido"
+            # A data e o estado ficam legíveis no próprio elemento porque o
+            # navegador precisa deles depois: quando a linha do Transfermarkt
+            # entra no card, o estado principal é recalculado a partir da
+            # entrada MAIS RECENTE, e ler isso de volta do texto formatado
+            # seria adivinhar.
             timeline_html += (
-                '<div class="timeline-item">'
+                '<div class="timeline-item" data-quando="'
+                + _html.escape(str(dt), quote=True) + '" data-status="'
+                + _html.escape(str(s_status or ""), quote=True) + '">'
                 + '<span class="timeline-dot ' + dot_class + '"></span>'
                 + '<div class="timeline-content">'
                 + '<div class="timeline-top">' + pill_html + '<span class="timeline-date">' + dt + "</span></div>"
@@ -4462,9 +4463,23 @@ async def _page_lesoes_impl(request: Request):
         import html as _html
         ids = _html.escape(",".join(inj.get("ids") or [inj.get("id") or ""]),
                            quote=True)
+        # QUEM O APP NÃO SABE QUEM É FICA MARCADO.
+        #
+        # Pedido do Vini: "preciso que sinalize os sem IDs pra eu preencher".
+        # Sem identidade resolvida este card não se junta a nenhum outro, não
+        # é alcançado pela conferência de retorno e não casa com a lista do
+        # Transfermarkt — ele fica de fora de tudo, calado. A etiqueta é o que
+        # transforma esse silêncio numa fila de trabalho de um clique.
+        spl = (do_elenco or {}).get("spl_id") or ""
+        sem_id = "" if spl else (
+            '<span class="lsn-semid" title="Não sei qual jogador do elenco é '
+            'este. Clique na caneta para ensinar — ele fica de fora dos '
+            'agrupamentos e da conferência de retorno até lá.">sem ID</span>')
         return (
             '<div class="injury-card status-' + status + '" data-clube="'
-            + _html.escape(club, quote=True) + '" data-ids="' + ids + '">'
+            + _html.escape(club, quote=True) + '" data-ids="' + ids + '"'
+            + ' data-spl="' + _html.escape(str(spl), quote=True) + '"'
+            + (' data-semid="1"' if not spl else "") + '>'
             + '<div class="lsn-linha">'
             + '<span class="lsn-escudo">' + escudo_html + "</span>"
             + '<span class="lsn-quem">'
@@ -4477,6 +4492,7 @@ async def _page_lesoes_impl(request: Request):
             + ' <button class="lsn-corrigir" title="Corrigir o nome deste jogador"'
             + ' data-bruto="' + _html.escape(bruto, quote=True) + '"'
             + " onclick=\"abrirCorrecao(this)\">&#9998;</button>"
+            + sem_id
             + "</span>"
             + '<span class="lsn-sub">' + club
             + ('<span class="lsn-sep">·</span>' + resumo if resumo else "")
@@ -4841,6 +4857,32 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 .injury-card:hover .lsn-corrigir {{ opacity: 1; }}
 .lsn-corrigir:hover {{ color: #B6FF00; }}
 @media (hover: none) {{ .lsn-corrigir {{ opacity: .5; }} }}
+/* "sem ID": o app não sabe quem é este jogador.
+   Fica SEMPRE visível, ao contrário da caneta, que só aparece no hover — é
+   uma fila de trabalho, e fila que só aparece quando o mouse passa por cima
+   não é fila. Âmbar, e não vermelho: não é erro, é pendência. */
+.lsn-semid {{ display: inline-block; margin-left: 5px; padding: 1px 6px;
+  border-radius: 999px; font-size: .58rem; font-weight: 800;
+  letter-spacing: .04em; text-transform: uppercase; cursor: help;
+  color: #FFC24B; background: rgba(255,194,75,.12);
+  border: 1px solid rgba(255,194,75,.35); vertical-align: middle; }}
+.lsn-ocultas {{ margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }}
+.lsn-oculta {{ display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding: 8px 12px; border-radius: 9px; font-size: .78rem;
+  background: var(--c-bg-card); border: 1px solid var(--c-border); }}
+.lsn-oculta i {{ color: var(--c-muted-3); font-style: normal; }}
+.lsn-oculta small {{ display: block; color: var(--c-muted-2); font-size: .66rem;
+  margin-top: 2px; }}
+.lsn-oculta button {{ background: none; border: 1px solid var(--c-border-2);
+  border-radius: 99px; color: var(--c-muted-4); font-size: .66rem;
+  font-weight: 700; padding: 4px 11px; cursor: pointer; font-family: inherit;
+  white-space: nowrap; }}
+.lsn-oculta button:hover {{ color: #B6FF00; border-color: #B6FF00; }}
+.lsn-pendentes {{ margin-top: 8px; padding: 9px 11px; border-radius: 9px;
+  font-size: .72rem; line-height: 1.6; text-align: left;
+  color: var(--c-muted-4); background: rgba(255,194,75,.08);
+  border: 1px solid rgba(255,194,75,.3); }}
+.lsn-pendentes b {{ color: #FFC24B; }}
 .lsn-correcao {{ background: var(--c-bg-soft); border: 1px solid var(--c-border);
   border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }}
 .lsn-correcao-tit {{ font-size: .68rem; color: var(--c-muted-3);
@@ -4859,6 +4901,12 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 .lsn-chip:hover {{ border-color: var(--c-text); color: var(--c-text); }}
 .lsn-chip.ativo {{ background: var(--c-text); color: var(--c-bg);
   border-color: var(--c-text); }}
+/* Âmbar, como a etiqueta do card: os dois falam da mesma pendência, e cor
+   igual é o que faz o olho ligar o chip aos cards que ele revela. */
+.lsn-chip-semid {{ color: #FFC24B; border-color: rgba(255,194,75,.4); }}
+.lsn-chip-semid:hover {{ color: #FFC24B; border-color: #FFC24B; }}
+.lsn-chip-semid.ativo {{ background: #FFC24B; color: #111;
+  border-color: #FFC24B; }}
 /* ── Cadastro manual ──────────────────────────────────────────────────── */
 .lsn-novo {{ margin: 14px 0 4px; }}
 .lsn-novo > summary {{ list-style: none; cursor: pointer; display: inline-block;
@@ -4935,6 +4983,11 @@ details[open] summary::before {{ transform: rotate(90deg); }}
     <button class="lsn-chip" data-estado="lesionado" onclick="filtrarEstado(this)">Lesionado</button>
     <button class="lsn-chip" data-estado="em_recuperacao" onclick="filtrarEstado(this)">Em recuperação</button>
     <button class="lsn-chip" data-estado="retornando" onclick="filtrarEstado(this)">Retornando</button>
+    <!-- A fila de trabalho da canetinha. Não é um estado de lesão, é um
+         estado do APP: são os cards que ele não consegue juntar, nem conferir
+         retorno, porque não sabe quem é o jogador. -->
+    <button class="lsn-chip lsn-chip-semid" data-estado="__semid"
+            onclick="filtrarEstado(this)">Sem ID <span id="contaSemId"></span></button>
   </div>
 
   <div class="lsn-barra">
@@ -4961,6 +5014,18 @@ details[open] summary::before {{ transform: rotate(90deg); }}
     <summary>Recuperados <span class="section-count" id="contaRecuperados" style="font-weight:400;opacity:.7">({count_recovered})</span></summary>
     <div class="injury-grid" style="margin-top:12px" id="gradeRecuperados">{cards_recovered}</div>
   </details>
+
+  <!-- O QUE FOI APAGADO À MÃO.
+       Apagar agora deixa marca, senão a carga seguinte relê a mesma notícia
+       e ressuscita a linha — foi o que aconteceu com o Malcom Oliveira. Mas
+       marca invisível é armadilha: daqui a três meses ninguém lembra por que
+       um jogador não aparece. Esta gaveta é onde ela fica visível, com a
+       data e com o desfazer. -->
+  <details id="lsnOcultasBox" style="display:none">
+    <summary>Escondidos por você <span class="section-count" id="contaOcultas"
+      style="font-weight:400;opacity:.7"></span></summary>
+    <div id="lsnOcultas" class="lsn-ocultas"></div>
+  </details>
 </div>
 
 <script>
@@ -4973,6 +5038,19 @@ details[open] summary::before {{ transform: rotate(90deg); }}
 // tela mostrando três cards e o título dizendo "Ativas (37)".
 // Estado escolhido nos chips. Vazio = todos.
 let _lsnEstado = '';
+
+// A contagem no chip "Sem ID" é recalculada sempre, porque ela muda em duas
+// horas: quando os cards do Transfermarkt entram na lista, e quando o Vini
+// corrige um nome. Chip com número parado seria pior que chip sem número.
+function contarSemId() {{
+  const n = document.querySelectorAll('.injury-card[data-semid="1"]').length;
+  const alvo = document.getElementById('contaSemId');
+  const chip = document.querySelector('.lsn-chip-semid');
+  if (alvo) alvo.textContent = n ? '(' + n + ')' : '';
+  // Sem nenhum pendente o chip some: filtro que não filtra nada só ocupa
+  // espaço e sugere que há trabalho a fazer quando não há.
+  if (chip) chip.style.display = n ? '' : 'none';
+}}
 
 function filtrarEstado(botao) {{
   _lsnEstado = botao.dataset.estado || '';
@@ -4995,12 +5073,18 @@ function filtrarPorClube() {{
         // lesionado" é uma pergunta comum, e exigir escolher um dos dois
         // deixaria justamente essa sem resposta.
         const doClube = !alvo || c.dataset.clube === alvo;
-        const doEstado = !_lsnEstado || c.classList.contains('status-' + _lsnEstado);
+        // "__semid" não é um estado de lesão e por isso é testado à parte:
+        // ele pergunta se o APP sabe quem é o jogador, não como está o
+        // joelho dele.
+        const doEstado = !_lsnEstado
+          || (_lsnEstado === '__semid' ? c.dataset.semid === '1'
+                                       : c.classList.contains('status-' + _lsnEstado));
         const mostra = doClube && doEstado;
         c.style.display = mostra ? '' : 'none';
         if (mostra) visiveis++;
       }});
       if (conta) conta.textContent = '(' + visiveis + ')';
+      contarSemId();
       // Um recado quando o filtro esvazia a seção. Sem ele o clube sem
       // ninguém machucado devolve um branco que parece tela quebrada.
       let vazio = grade.querySelector('.lsn-filtro-vazio');
@@ -5061,15 +5145,27 @@ async function juntarTransfermarkt() {{
   //    informação inteira dentro do histórico. O card não cresce: o
   //    Transfermarkt é mais uma fonte confirmando, e fonte que confirma não
   //    precisa de linha própria no meio da lista.
-  const naTela = {{}};
-  document.querySelectorAll('.injury-card .lsn-nome').forEach(function (n) {{
-    naTela[lsnChave(n.textContent)] = n.closest('.injury-card');
+  //
+  // A JUNÇÃO É POR IDENTIFICADOR, e o nome só como último recurso.
+  //
+  // Antes era só por texto, e por isso a canetinha não surtia efeito nenhum
+  // aqui: o glossário do Vini mora no servidor, e este código roda no
+  // navegador, que nunca soube da correção. Ele corrigia o nome, recarregava,
+  // e o card do TM continuava sozinho do mesmo jeito.
+  //
+  // Agora o servidor resolve a identidade e manda o spl_id junto — comparar
+  // identificador não depende de como cada fonte escreve o nome.
+  const porId = {{}}, porNome = {{}};
+  document.querySelectorAll('.injury-card').forEach(function (c) {{
+    const n = c.querySelector('.lsn-nome');
+    if (n) porNome[lsnChave(n.textContent)] = c;
+    if (c.dataset.spl) porId[c.dataset.spl] = c;
   }});
 
   const soTM = [];
   lista.forEach(function (a) {{
     const nome = a.nome_elenco || a.nome;
-    const card = naTela[lsnChave(nome)];
+    const card = (a.spl_id && porId[a.spl_id]) || porNome[lsnChave(nome)];
     if (!card) {{ soTM.push(a); return; }}
     marcarTM(card, a);
   }});
@@ -5085,6 +5181,8 @@ async function juntarTransfermarkt() {{
       const card = document.createElement('div');
       card.className = 'injury-card status-lesionado';
       card.dataset.clube = clube;
+      if (a.spl_id) card.dataset.spl = a.spl_id;
+      else card.dataset.semid = '1';
       card.innerHTML = '<div class="lsn-linha">'
         + '<span class="lsn-escudo">'
         + (a.escudo ? '<img src="' + lsnEsc(a.escudo) + '" alt="" loading="lazy">' : '')
@@ -5097,6 +5195,9 @@ async function juntarTransfermarkt() {{
         + ' <button class="lsn-corrigir" title="Corrigir o nome deste jogador"'
         + ' data-bruto="' + lsnEsc(nome) + '" onclick="abrirCorrecao(this)">'
         + '✎</button>'
+        + (a.spl_id ? '' : '<span class="lsn-semid" title="Não sei qual '
+            + 'jogador do elenco e este. Clique na caneta para ensinar.">'
+            + 'sem ID</span>')
         + '</span>'
         + '<span class="lsn-sub">' + lsnEsc(clube)
         + '<span class="lsn-sep">·</span>' + lsnEsc(a.lesao || 'lesão não detalhada')
@@ -5145,7 +5246,16 @@ function marcarTM(card, a, sozinho) {{
   const extra = card.querySelector('.lsn-extra');
   if (!extra) return;
 
+  // A data da entrada é o `since` do TM — o dia em que a lesão começou,
+  // segundo eles. Com ela a linha entra no lugar certo da cronologia em vez
+  // de ficar sempre no topo carimbada com hoje.
+  //
+  // E é ela que vale na disputa pelo estado principal do card: comparo
+  // FATOS, não leituras. Se o jogador entrou em campo no dia 14 e o TM diz
+  // que a lesão dele é de 3 de setembro, quem está certo é o gramado — a
+  // página do TM demora a ser atualizada, mas os 67 minutos aconteceram.
   const hoje = new Date().toISOString().slice(0, 10);
+  const quando = a.desde || hoje;
   const titulo = lsnEsc(a.lesao || 'lesão não detalhada')
     + (a.ate_texto && a.ate_texto !== '?'
         ? ' — retorno previsto ' + lsnEsc(a.ate_texto)
@@ -5161,10 +5271,12 @@ function marcarTM(card, a, sozinho) {{
 
   const item = document.createElement('div');
   item.className = 'timeline-item';
+  item.dataset.quando = quando;
+  item.dataset.status = 'lesionado';
   item.innerHTML = '<span class="timeline-dot status-lesionado"></span>'
     + '<div class="timeline-content"><div class="timeline-top">'
     + '<span class="status-pill sm status-lesionado">Lesionado</span>'
-    + '<span class="timeline-date">' + hoje + '</span></div>'
+    + '<span class="timeline-date">' + lsnEsc(quando) + '</span></div>'
     + '<a href="' + link + '" target="_blank" rel="noopener" class="timeline-title">'
     + titulo + ' · Transfermarkt</a></div>';
 
@@ -5180,12 +5292,99 @@ function marcarTM(card, a, sozinho) {{
   }}
   const linha = gaveta.querySelector('.timeline');
   if (!linha) return;
-  linha.insertBefore(item, linha.firstChild);
+  // Entra na ORDEM da cronologia, e não sempre no topo. O histórico do card
+  // vem do mais antigo para o mais novo; jogar a linha do TM na frente de
+  // tudo fazia uma lesão de setembro parecer anterior a uma de agosto.
+  let antes = null;
+  linha.querySelectorAll('.timeline-item').forEach(function (x) {{
+    if (!antes && (x.dataset.quando || '') > quando) antes = x;
+  }});
+  linha.insertBefore(item, antes);
   const conta = gaveta.querySelector('summary .section-count');
   if (conta) conta.textContent = '(' + linha.querySelectorAll('.timeline-item').length + ')';
+  recalcularEstado(card);
+}}
+
+// O ESTADO PRINCIPAL DO CARD É O DA ENTRADA MAIS RECENTE DO HISTÓRICO.
+//
+// Pedido do Vini: "quando rola agrupamento após eu corrigir os nomes, o
+// último status agrupado deve se tornar o principal do card. Sempre o mais
+// recente."
+//
+// Ele está certo, e o motivo é o uso: esta guia é consultada minutos antes de
+// ele escalar o time. O que o card grita em cima tem que ser o que se sabe
+// HOJE sobre o jogador, não o que se sabia quando aquela linha entrou no
+// banco. Um card que mostra "Lesionado" porque essa era a notícia mais antiga
+// do grupo faz ele deixar de escalar alguém que está em campo.
+//
+// A comparação é por data do FATO. Entre a partida que o sujeito jogou dia 14
+// e a página do TM que ainda o lista como machucado desde 3 de setembro, quem
+// ganha é o dia 14 — o TM demora a atualizar, mas os minutos aconteceram.
+const LSN_ROTULO = {{
+  lesionado: ['🔴', 'Lesionado'], em_recuperacao: ['🟡', 'Em recuperação'],
+  retornando: ['🟢', 'Retornando'], recuperado: ['⚫', 'Recuperado']
+}};
+
+function recalcularEstado(card) {{
+  let melhor = null;
+  card.querySelectorAll('.lsn-extra .timeline-item').forEach(function (x) {{
+    const st = x.dataset.status || '';
+    if (!LSN_ROTULO[st]) return;          // "Atualização" não diz estado nenhum
+    const q = x.dataset.quando || '';
+    if (!q || q === '—') return;
+    if (!melhor || q >= melhor.q) melhor = {{q: q, st: st}};
+  }});
+  if (!melhor) return;
+  const pill = card.querySelector('.lsn-selos .status-pill:not(.lsn-tag-tm)');
+  if (!pill) return;
+  const atual = (card.className.match(/status-([a-z_]+)/) || [])[1];
+  if (atual === melhor.st) return;
+  card.className = card.className.replace(/status-[a-z_]+/, 'status-' + melhor.st);
+  pill.className = 'status-pill status-' + melhor.st;
+  pill.textContent = LSN_ROTULO[melhor.st][0] + ' ' + LSN_ROTULO[melhor.st][1];
 }}
 
 juntarTransfermarkt();
+
+// ── O que foi apagado à mão ───────────────────────────────────────────────
+async function carregarOcultas() {{
+  let d;
+  try {{
+    const r = await fetch('/api/injuries/ocultas');
+    d = await r.json();
+  }} catch (e) {{ return; }}
+  const lista = d.ocultas || [];
+  const caixa = document.getElementById('lsnOcultasBox');
+  if (!caixa || !lista.length) return;
+  caixa.style.display = '';
+  document.getElementById('contaOcultas').textContent = '(' + lista.length + ')';
+  document.getElementById('lsnOcultas').innerHTML = lista.map(function (o) {{
+    return '<div class="lsn-oculta"><span>' + lsnEsc(o.escrito || o.chave)
+      + (o.clube ? ' <i>' + lsnEsc(o.clube) + '</i>' : '')
+      + '<small>apagado em ' + lsnEsc((o.apagada_em || '').slice(0, 10))
+      + '</small></span>'
+      + '<button onclick="desocultar(this)" data-chave="' + lsnEsc(o.chave)
+      + '">mostrar de novo</button></div>';
+  }}).join('');
+}}
+
+async function desocultar(b) {{
+  b.disabled = true;
+  try {{
+    const r = await fetch('/api/injuries/desocultar', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{chave: b.dataset.chave}})
+    }});
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.erro || 'não deu');
+    b.closest('.lsn-oculta').remove();
+  }} catch (e) {{
+    alert('não deu: ' + (e.message || e));
+    b.disabled = false;
+  }}
+}}
+
+carregarOcultas();
 
 // ── Excluir ───────────────────────────────────────────────────────────────
 // Pergunta antes, e diz o nome de quem vai sair. "Tem certeza?" sozinho não
@@ -5346,7 +5545,7 @@ async function conferirRetornos() {{
   const st = document.getElementById('rebuild-status');
   const botoes = document.querySelectorAll('.rebuild-btn');
   botoes.forEach(function (b) {{ b.disabled = true; }});
-  let partidas = 0, marcados = 0, semId = 0;
+  let partidas = 0, marcados = 0, semId = 0, pendentes = [];
   try {{
     for (let passada = 1; passada <= 12; passada++) {{
       st.textContent = 'lendo escalações… passada ' + passada;
@@ -5356,13 +5555,26 @@ async function conferirRetornos() {{
       partidas += e.partidas || 0;
       marcados += v.marcados || 0;
       semId = v.sem_af_id || 0;
+      pendentes = v.sem_identidade || pendentes;
       if (!e.faltam || !e.partidas) break;
     }}
-    st.textContent = partidas + ' escalação(ões) lida(s), ' + marcados
-      + ' jogador(es) marcado(s) como recuperado(s)'
-      // Quem não tem id cruzado não é deduzido — e dizer isso importa: a
-      // lista não encolheu tudo o que podia, e o motivo não é "não voltou".
-      + (semId ? ' · ' + semId + ' sem id cruzado, não dá para deduzir' : '');
+    st.innerHTML = lsnEsc(partidas + ' escalação(ões) lida(s), ' + marcados
+      + ' jogador(es) marcado(s) como recuperado(s)');
+    // QUEM FICOU DE FORA, COM NOME E CLUBE.
+    //
+    // Antes eu dizia só o número, e o Vini pediu o contrário: "preciso que
+    // sinalize os sem IDs pra eu preencher". Um número não dá para agir —
+    // "14 sem id" não diz em qual card clicar. A lista diz, e o filtro
+    // "sem ID" leva direto a eles.
+    if (semId) {{
+      let nomes = pendentes.slice(0, 12).map(function (p) {{
+        return lsnEsc(p.nome) + (p.clube ? ' <i>(' + lsnEsc(p.clube) + ')</i>' : '');
+      }}).join(', ');
+      if (pendentes.length > 12) nomes += ' e mais ' + (semId - 12);
+      st.innerHTML += '<div class="lsn-pendentes"><b>' + semId
+        + ' sem identidade — não dá para deduzir retorno.</b> Use a caneta '
+        + 'nestes cards e rode de novo:<br>' + nomes + '</div>';
+    }}
     if (marcados) setTimeout(function () {{ location.reload(); }}, 1200);
   }} catch (e) {{
     st.textContent = 'não deu: ' + (e.message || e);
@@ -5435,6 +5647,89 @@ def _jogador_do_elenco_do_clube(nome: str, elenco: list[dict]) -> dict:
     return candidatos[0] if len(candidatos) == 1 else {}
 
 
+def _chave_de_clube(nome: str) -> str:
+    try:
+        import glossary
+        return (glossary.padronizar_clube(nome or "") or nome or "").lower()
+    except Exception:
+        return (nome or "").lower()
+
+
+def _contexto_de_elenco() -> dict:
+    """Tudo que é preciso para responder "quem é este nome": elenco, índice,
+    glossário do Vini e o elenco fatiado por clube.
+
+    Montado UMA vez e passado adiante porque cada peça custa uma consulta ou
+    uma varredura, e quem identifica faz isso centenas de vezes por página.
+    """
+    import elos
+    import database as _db
+    try:
+        gente = _db.listar_jogadores(limite=2000)
+    except Exception:
+        gente = []
+    try:
+        indice, _ = elos.indice_de_jogadores(gente)
+    except Exception:
+        indice = {"chave": {}}
+    por_clube: dict = {}
+    for j in gente:
+        por_clube.setdefault(_chave_de_clube(j.get("clube")), []).append(j)
+    try:
+        apelidos = _db.apelidos_de_jogador()
+    except Exception:
+        apelidos = {}
+    return {"gente": gente, "por_id": {j["spl_id"]: j for j in gente},
+            "indice": indice, "apelidos": apelidos, "por_clube": por_clube}
+
+
+def _identificar_jogador(nome: str, clube: str, ctx: dict) -> dict:
+    """Quem é este nome, ou {}. UMA regra, usada por todas as telas.
+
+    POR QUE ELA VIROU FUNÇÃO ÚNICA
+        Havia três cópias desta decisão: uma na página de Lesões, uma na
+        rotina de retornos e nenhuma na lista do Transfermarkt — que casava
+        por texto, no navegador. O resultado foi o que o Vini viu: dois
+        Kalidou Koulibaly com o nome escrito IGUAL, um marcado como
+        recuperado e o outro não, porque cada tela decidia por conta.
+
+        Identidade é uma coisa só. Se duas telas discordam sobre quem é o
+        sujeito, pelo menos uma está errada, e não dá para saber qual
+        olhando a tela.
+
+    A ORDEM, e cada degrau existe por um caso concreto:
+      1. O GLOSSÁRIO — o que ele corrigiu à mão com a canetinha. Vale mais
+         que qualquer dedução minha: ele estava olhando a tela.
+      2. O ÍNDICE GERAL de nomes, que exige duas palavras porque foi feito
+         para varrer notícia solta.
+      3. O ELENCO DO CLUBE. É o degrau que o Vini pediu agora: "porque não
+         faz essa busca já que tem o nome e o clube?". Dentro de trinta
+         pessoas, "Koulibaly" é único; na liga inteira, não seria.
+    """
+    import database as _db
+    import elos
+    nome = (nome or "").strip()
+    if not nome:
+        return {}
+    por_id = ctx.get("por_id") or {}
+
+    corrigido = (ctx.get("apelidos") or {}).get(_db._chave_apelido(nome))
+    if corrigido and corrigido in por_id:
+        return por_id[corrigido]
+
+    try:
+        achados = elos.jogadores_no_texto("", nome, ctx.get("indice") or {})
+    except Exception:
+        achados = {}
+    if len(achados) == 1:
+        return por_id.get(next(iter(achados))) or {}
+
+    if not clube:
+        return {}
+    return _jogador_do_elenco_do_clube(
+        nome, (ctx.get("por_clube") or {}).get(_chave_de_clube(clube), []))
+
+
 def _chave_de_nome(nome: str) -> str:
     """Nome reduzido ao que dá para comparar entre duas fontes.
 
@@ -5460,13 +5755,39 @@ def _lesoes_do_tm() -> dict:
     mesmo número dos dois lados.
     """
     import lesoes_tm
-    from database import listar_jogadores
     r = lesoes_tm.buscar()
-    try:
-        elenco = listar_jogadores(limite=2000)
-    except Exception:
-        elenco = []
+    ctx = _contexto_de_elenco()
+    elenco = ctx.get("gente") or []
     r["casados"] = lesoes_tm.casar_com_elenco(r.get("lesoes", []), elenco)
+
+    # SEGUNDA TENTATIVA: PELO NOME, quando o tm_id não resolve.
+    #
+    # O casamento por `tm_id` é exato e é o melhor caminho, mas ele só alcança
+    # quem já estava no elenco guardado com aquele id. Quem entrou depois, ou
+    # quem o TM recadastrou, ficava de fora — e ficava de fora EM SILÊNCIO, com
+    # o nome do TM, sem se juntar ao card que já existia do mesmo jogador.
+    #
+    # Foi isto que o Vini viu: dois Kalidou Koulibaly na tela, com o nome
+    # escrito igual, porque a junção acontecia no navegador comparando TEXTO e
+    # o glossário dele mora aqui no servidor. Corrigir o nome com a canetinha
+    # não mudava nada, porque o navegador nunca soube da correção.
+    #
+    # Agora quem decide é `_identificar_jogador`, a mesma regra das outras
+    # telas, e o que vai para o navegador é o `spl_id` — um identificador, não
+    # uma string para ele comparar.
+    por_nome = 0
+    for l in r.get("lesoes", []):
+        if not l.get("spl_id"):
+            j = _identificar_jogador(l.get("nome") or "",
+                                     l.get("clube") or "", ctx)
+            if j:
+                por_nome += 1
+                l["spl_id"] = j.get("spl_id")
+                l["nome_elenco"] = j.get("nome") or l.get("nome")
+                l["clube_elenco"] = j.get("clube") or l.get("clube")
+                l["no_elenco"] = True
+    r["casados_por_nome"] = por_nome
+    r["sem_identidade"] = sum(1 for l in r.get("lesoes", []) if not l.get("spl_id"))
     r["total"] = len(r.get("lesoes", []))
     return r
 
@@ -7358,16 +7679,13 @@ async def _marcar_retornos(season: int = 0) -> dict:
         em que partida ele voltou e quantos minutos jogou, marcada como
         dedução — assim dá para conferir, e o X continua ali para desfazer.
     """
-    from database import atuou_depois, get_injuries, listar_jogadores, upsert_injury
+    from database import atuou_depois, get_injuries, upsert_injury
     temporada = season or _af_temporada_corrente()
-    feito = {"conferidos": 0, "marcados": 0, "sem_af_id": 0, "erros": []}
+    feito = {"conferidos": 0, "marcados": 0, "sem_af_id": 0,
+             "sem_identidade": [], "erros": []}
 
-    gente = await asyncio.to_thread(listar_jogadores, "", 2000)
-    por_spl = {j["spl_id"]: j for j in gente}
-    import elos
-    indice, _ = elos.indice_de_jogadores(gente)
-    import database as _db
-    apelidos = await asyncio.to_thread(_db.apelidos_de_jogador)
+    ctx = await asyncio.to_thread(_contexto_de_elenco)
+    por_spl = ctx["por_id"]
 
     for inj in await asyncio.to_thread(get_injuries, False):
         feito["conferidos"] += 1
@@ -7378,23 +7696,36 @@ async def _marcar_retornos(season: int = 0) -> dict:
         if not desde:
             continue
 
+        # A MESMA REGRA DAS OUTRAS TELAS, e agora com o clube junto.
+        #
+        # Antes daqui saía só o glossário e o índice geral, e o índice exige
+        # duas palavras — então "Koulibaly" sozinho não resolvia, e o card
+        # ficava para trás enquanto o irmão dele ia para recuperados. O Vini
+        # perguntou por que eu não usava o clube, já que ele está ali. Uso.
         spl = ""
         for nome in (inj.get("player_name"), inj.get("player_name_orig")):
-            if not nome:
-                continue
-            spl = apelidos.get(_db._chave_apelido(nome)) or ""
-            if spl:
-                break
-            achados = elos.jogadores_no_texto("", nome, indice)
-            if len(achados) == 1:
-                spl = next(iter(achados))
+            j = _identificar_jogador(nome or "", inj.get("club") or "", ctx)
+            if j:
+                spl = j.get("spl_id") or ""
                 break
         af = (por_spl.get(spl) or {}).get("af_id")
         if not af:
             # Sem identidade EXATA eu não deduzo nada. Marcar recuperado por
             # semelhança de nome poria em campo, na tela, um jogador que
             # continua no departamento médico.
+            #
+            # Mas eu DIGO quem ficou de fora, com nome e clube — é o que o
+            # Vini pediu para poder preencher com a canetinha. Uma contagem
+            # sozinha ("14 sem id") não dá para agir.
             feito["sem_af_id"] += 1
+            if len(feito["sem_identidade"]) < 60:
+                feito["sem_identidade"].append({
+                    "nome": inj.get("player_name") or "",
+                    "clube": inj.get("club") or "",
+                    "motivo": ("não sei qual jogador do elenco é este"
+                               if not spl
+                               else "está no elenco, mas sem af_id cruzado"),
+                })
             continue
 
         jogo = await asyncio.to_thread(atuou_depois, af, desde)
@@ -7411,6 +7742,9 @@ async def _marcar_retornos(season: int = 0) -> dict:
             "player_name": inj.get("player_name"),
             "player_name_orig": inj.get("player_name_orig"),
             "club": inj.get("club"), "status": "recuperado",
+            # A lápide não vale aqui: esta linha já existe no banco, e o que
+            # estou fazendo é ATUALIZAR o estado dela, não ressuscitar nada.
+            "ignorar_oculta": True,
             "source_info": {"source_name": "Escalação da partida", "url": "",
                             "title": texto, "published_at": quando,
                             "status": "recuperado"},
@@ -7453,6 +7787,33 @@ async def api_injuries_apagar(request: Request):
         ids = [x for x in ids.split(",") if x]
     n = await asyncio.to_thread(apagar_lesao, ids)
     return {"apagadas": n}
+
+
+@app.get("/api/injuries/ocultas")
+async def api_injuries_ocultas():
+    """Quem o Vini mandou sumir, e quando.
+
+    Existe para que apagar não seja um gesto invisível. Sem esta lista, a
+    única forma de descobrir que um jogador foi escondido seria notar a
+    ausência dele — e ausência não se nota.
+    """
+    from database import lesoes_ocultas
+    d = await asyncio.to_thread(lesoes_ocultas)
+    return {"ocultas": [{"chave": k, **{kk: str(vv) for kk, vv in v.items()
+                                        if kk != "chave"}}
+                        for k, v in d.items()],
+            "total": len(d)}
+
+
+@app.post("/api/injuries/desocultar")
+async def api_injuries_desocultar(request: Request):
+    """Tira a lápide: aquele jogador volta a poder entrar na lista."""
+    from database import desocultar_lesao
+    corpo = await request.json()
+    chave = (corpo.get("chave") or "").strip()
+    if not chave:
+        return JSONResponse({"erro": "diga qual"}, 400)
+    return {"ok": await asyncio.to_thread(desocultar_lesao, chave)}
 
 
 @app.post("/api/injuries/manual")
@@ -7501,6 +7862,11 @@ async def api_injuries_manual(request: Request):
         "injury_type": corpo.get("injury_type") or "",
         "notes": descricao,
         "injury_date": (corpo.get("data") or "")[:10] or agora[:10],
+        # A lápide não vale aqui: se ele apagou e agora está cadastrando de
+        # novo, a decisão de agora é a que vale. Bloquear o cadastro manual
+        # por causa de um X dado semana passada seria o app discutindo com
+        # quem está olhando a tela.
+        "ignorar_oculta": True,
         "source_info": {"source_name": "Cadastro manual", "url": "",
                         "title": descricao or "Lesão cadastrada à mão",
                         "published_at": agora[:10],

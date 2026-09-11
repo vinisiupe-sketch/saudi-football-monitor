@@ -150,17 +150,26 @@ def testar():
     # outra são a mesma pessoa parecendo duas. O índice já era bom o bastante
     # para escolher a foto certa (exige correspondência única); usá-lo também
     # para o nome não é fonte nova, é parar de desperdiçar a que estava aberta.
-    ok("elos.jogadores_no_texto" in lesoes,
+    # A REGRA MORA FORA DA PÁGINA, e isso é o conserto de um defeito real: ela
+    # estava copiada em cada tela, e as cópias divergiram. O Vini viu dois
+    # Kalidou Koulibaly com o nome escrito IGUAL, um marcado como recuperado e
+    # o outro não, porque a página, a rotina de retornos e a lista do
+    # Transfermarkt decidiam cada uma por conta.
+    ok("_identificar_jogador(nome, clube, _ctx)" in lesoes,
+       "a página de Lesões voltou a ter identificação própria em vez de usar "
+       "a regra única do app")
+    regra_id = _corpo("_identificar_jogador")
+    ok("elos.jogadores_no_texto" in regra_id,
        "a identificação da lesão deixou de usar o índice de nomes — se voltar "
        "a casar por conta própria, volta a errar de pessoa")
-    ok("len(achados) == 1" in lesoes,
+    ok("len(achados) == 1" in regra_id,
        "a identificação passou a aceitar nome que cai em mais de uma pessoa")
     # A SEGUNDA tentativa, escopada ao clube. O índice geral exige duas
     # palavras — regra certa para varrer notícia, onde "Silva" não identifica
     # ninguém. Mas aqui eu tenho o CLUBE: dentro de um elenco de trinta,
     # "Bergwijn" e "Rajkovic" são únicos. Sem isso, "Steven Bergwijn" e
     # "Bergwijn" viravam dois lesionados.
-    ok("_jogador_do_elenco_do_clube(" in lesoes and "_por_clube" in lesoes,
+    ok("_jogador_do_elenco_do_clube(" in regra_id and "por_clube" in regra_id,
        "sumiu a segunda tentativa de identificação, escopada ao elenco do "
        "clube. Sem ela, sobrenome sozinho não identifica ninguém e o mesmo "
        "jogador volta a aparecer duas vezes")

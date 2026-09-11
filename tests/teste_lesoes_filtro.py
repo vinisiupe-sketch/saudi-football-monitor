@@ -24,10 +24,22 @@ A ARMADILHA QUE ESTE ARQUIVO VIGIA DE PERTO
 import ast
 import os
 import sys
+import types
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, RAIZ)
 os.chdir(RAIZ)
+
+# O talo do psycopg2, como nos outros testes que tocam o database.py. Aqui
+# nada vai ao banco: o que é exercitado é a REGRA DE DATA da lápide, que é
+# aritmética de texto, e a lista de apagados entra por injeção.
+if "psycopg2" not in sys.modules:
+    _talo = types.ModuleType("psycopg2")
+    _talo.extras = types.ModuleType("psycopg2.extras")
+    _talo.extras.RealDictCursor = object
+    _talo.Error = Exception
+    sys.modules["psycopg2"] = _talo
+    sys.modules["psycopg2.extras"] = _talo.extras
 
 FONTE = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
 
@@ -46,6 +58,17 @@ def _corpo(nome_da_funcao: str) -> str:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) \
                 and n.name == nome_da_funcao:
             return ast.get_source_segment(FONTE, n) or ""
+    return ""
+
+
+def _fonte_de(arquivo: str, nome_da_funcao: str) -> str:
+    """O código-fonte de uma função de outro arquivo do projeto."""
+    texto = open(os.path.join(RAIZ, arquivo), encoding="utf-8").read()
+    mod = ast.parse(texto)
+    for n in ast.walk(mod):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and n.name == nome_da_funcao:
+            return ast.get_source_segment(texto, n) or ""
     return ""
 
 
@@ -129,8 +152,17 @@ def testar():
     ok("extra.querySelector('.injury-timeline')" in tela,
        "o Transfermarkt parou de procurar o histórico que já existe no card "
        "— ele volta a criar uma gaveta só dele")
-    ok("linha.insertBefore(item, linha.firstChild)" in tela,
+    # Ela entra na ORDEM da cronologia, e não sempre no topo: o histórico vai
+    # do mais antigo para o mais novo, e jogar a linha do TM na frente de tudo
+    # fazia uma lesão de setembro parecer anterior a uma de agosto.
+    ok("if (!antes && (x.dataset.quando || '') > quando) antes = x;" in tela,
+       "a entrada do Transfermarkt voltou a entrar em posição fixa, sem olhar "
+       "a data")
+    ok("linha.insertBefore(item, antes)" in tela,
        "a entrada do Transfermarkt deixou de ser inserida na linha do tempo")
+    ok("const quando = a.desde || hoje;" in tela,
+       "a linha do Transfermarkt voltou a ser carimbada com a data de hoje. "
+       "O `since` existe justamente para ela cair no lugar certo")
     # O link tem que estar no ÂNCORA emitida, e não só na variável: trocar o
     # <a> por um <span> deixava o endereço montado e nunca clicável.
     ok("+ '<a href=\"' + link + '\"" in tela
@@ -379,8 +411,54 @@ def testar():
     ok(-1 < i_glo < i_idx,
        "o glossário deixou de vir antes do índice automático. O que foi "
        "corrigido à mão tem que ganhar: quem corrigiu estava olhando a tela")
-    ok("_apelidos.get(" in tela,
-       "a tela parou de consultar o glossário na hora de identificar")
+    # A REGRA DE IDENTIDADE É UMA SÓ, e agora mora fora da página.
+    #
+    # Havia três cópias dela — página, rotina de retornos, e nenhuma na lista
+    # do Transfermarkt, que casava por texto no navegador. O Vini viu o
+    # resultado: dois Kalidou Koulibaly com o nome escrito IGUAL, um marcado
+    # como recuperado e o outro não, porque cada tela decidia por conta.
+    # Enquanto forem cópias, elas voltam a divergir na próxima mexida.
+    quemj = _corpo("_identificar_jogador")
+    ok(quemj, "sumiu a regra única de identidade")
+    i_glo = quemj.find('_chave_apelido(nome)')
+    i_idx = quemj.find("elos.jogadores_no_texto")
+    i_clu = quemj.find("_jogador_do_elenco_do_clube")
+    ok(-1 < i_glo < i_idx < i_clu,
+       "a ordem da identificação mudou. Tem que ser glossário → índice geral "
+       "→ elenco do clube: o que o Vini corrigiu à mão ganha de qualquer "
+       "dedução minha, e o clube só entra quando o resto não resolveu")
+    ok("_identificar_jogador(nome, clube, _ctx)" in tela,
+       "a página de Lesões voltou a ter regra de identidade própria. Duas "
+       "telas que discordam sobre quem é o sujeito não dá para conferir "
+       "olhando — foi o caso dos dois Koulibaly")
+    ok("_identificar_jogador(nome or \"\", inj.get(\"club\") or \"\", ctx)"
+       in _corpo("_marcar_retornos"),
+       "a conferência de retorno voltou a identificar por conta própria, sem "
+       "o clube — e sem o clube o índice recusa sobrenome solto")
+    tmr = _corpo("_lesoes_do_tm")
+    ok('_identificar_jogador(l.get("nome") or ""' in tmr,
+       "a lista do Transfermarkt parou de resolver identidade no servidor. "
+       "No navegador ela casava por texto, e por isso corrigir o nome com a "
+       "canetinha não mudava nada — o glossário mora aqui")
+    ok('l["spl_id"] = j.get("spl_id")' in tmr,
+       "o Transfermarkt parou de mandar o spl_id para a tela")
+    ok("(a.spl_id && porId[a.spl_id])" in tela,
+       "o navegador voltou a juntar o Transfermarkt só por nome")
+
+    # ── 10b. o que o app NÃO SABE fica visível ───────────────────────────
+    # Pedido do Vini: "preciso que sinalize os sem IDs pra eu preencher". Sem
+    # identidade o card não se junta, não casa com o TM e não é alcançado
+    # pela conferência de retorno — fica de fora de tudo, calado.
+    ok('data-semid="1"' in tela and 'class="lsn-semid"' in tela,
+       "sumiu a etiqueta que marca o card sem identidade")
+    ok('.lsn-semid {{' in tela,
+       "a etiqueta 'sem ID' ficou sem CSS — classe declarada noutra página "
+       "não pinta nada nesta")
+    ok('data-estado="__semid"' in tela and "'__semid'" in tela,
+       "sumiu o filtro que reúne os cards sem identidade")
+    ok('feito["sem_identidade"].append(' in _corpo("_marcar_retornos"),
+       "a conferência de retorno voltou a dizer só o número de pendentes. "
+       "'14 sem id' não diz em qual card clicar")
 
     # ── 11. o `since` do Transfermarkt ───────────────────────────────────
     # O Vini achou a visão detalhada (/plus/1), que traz a data de INÍCIO da
@@ -455,6 +533,99 @@ def testar():
     ok("data-bruto=\"' + lsnEsc(nome) + '\"" in tela,
        "o card que só o Transfermarkt conhece ficou sem a caneta. É nele que "
        "ela mais serve: ele está sozinho porque o nome não casou")
+
+    # ── 14. O QUE FOI APAGADO NÃO VOLTA ─────────────────────────────────
+    # O Vini apagou o Malcom Oliveira, que nem joga mais no Al-Hilal, e ele
+    # reapareceu no reprocessamento seguinte. É o esperado sem lápide: apagar
+    # tira a linha, e a carga seguinte relê a mesma notícia e insere de novo.
+    # O X virava um gesto que se desfaz sozinho — pior que não existir, porque
+    # ensina a não confiar nele.
+    #
+    # A REGRA É DE DATA, e é ela que separa "limpar a tela" de "cegar o
+    # monitor". Aqui a função é EXECUTADA com uma lápide de mentira, e não
+    # procurada no texto: o que importa é a comparação, não a escrita dela.
+    import database as _db
+    _ocultas_falsas = {
+        _db._chave_oculta("Malcom Oliveira", "Al-Hilal"): {
+            "escrito": "Malcom Oliveira", "clube": "Al-Hilal",
+            "apagada_em": "2026-09-10T12:00:00+00:00"},
+    }
+    _real = _db.lesoes_ocultas
+    _db.lesoes_ocultas = lambda: _ocultas_falsas
+    try:
+        def _bloqueia(nome, clube, **campos):
+            return _db._bloqueada_por_apagar(
+                {"player_name": nome, **campos}, clube)
+
+        ok(_bloqueia("Malcom Oliveira", "Al-Hilal",
+                     source_info={"published_at": "2026-08-30"}),
+           "a notícia velha ressuscitou a lesão apagada — é exatamente o caso "
+           "do Malcom Oliveira que o Vini relatou")
+        ok(_bloqueia("Malcom Oliveira", "Al-Hilal"),
+           "registro sem data nenhuma passou. Releitura de notícia velha "
+           "costuma vir sem data, e errar para o lado de bloquear custa uma "
+           "linha a menos; errar para o outro devolve o que ele mandou sumir")
+        # Lesão NOVA passa. Sem isto a lápide viraria cegueira permanente
+        # sobre aquele jogador, e o Vini não ligaria o clique de hoje ao
+        # sumiço de três meses adiante.
+        ok(not _bloqueia("Malcom Oliveira", "Al-Hilal",
+                         injury_date="2026-09-20"),
+           "lesão nova, posterior ao dia em que ele apagou, ficou bloqueada. "
+           "A lápide é sobre o que já se sabia, não sobre a pessoa")
+        ok(not _bloqueia("Malcom Oliveira", "Al-Nassr",
+                         source_info={"published_at": "2026-08-30"}),
+           "apagar num clube silenciou o jogador em outro. A chave leva o "
+           "clube junto porque o mesmo sobrenome em dois elencos é gente "
+           "diferente")
+        ok(not _bloqueia("Salem Al-Dawsari", "Al-Hilal",
+                         source_info={"published_at": "2026-08-30"}),
+           "apagar um jogador bloqueou outro do mesmo clube")
+    finally:
+        _db.lesoes_ocultas = _real
+
+    up = _fonte_de("database.py", "upsert_injury")
+    ok('if not data.get("ignorar_oculta") and _bloqueada_por_apagar(data, club):'
+       in up,
+       "o upsert parou de consultar a lápide — a coleta voltaria a "
+       "ressuscitar o que o Vini apagou")
+    ok('"ignorar_oculta": True' in _corpo("api_injuries_manual"),
+       "o cadastro manual passou a respeitar a lápide. Se ele está "
+       "cadastrando de novo, a decisão de agora é a que vale — o app não "
+       "discute com quem está olhando a tela")
+    ok("_cria_lesao_oculta(c)" in _fonte_de("database.py", "apagar_lesao"),
+       "apagar parou de deixar marca")
+    ok("SELECT id, player_name, player_name_orig, club "
+       in _fonte_de("database.py", "apagar_lesao"),
+       "a lápide deixou de ser gravada ANTES do DELETE — depois dele não há "
+       "mais nome nenhum para guardar")
+
+    # ── 15. O ESTADO PRINCIPAL É O MAIS RECENTE ─────────────────────────
+    # "Quando rola agrupamento após eu corrigir os nomes, o último status
+    # agrupado deve se tornar o principal do card. Sempre o mais recente."
+    #
+    # Ele está certo, e o motivo é o uso: esta guia é consultada minutos antes
+    # de escalar. Um card gritando "Lesionado" porque essa era a notícia mais
+    # ANTIGA do grupo faz ele deixar de escalar quem está em campo.
+    juntar = _corpo("_page_lesoes_impl")
+    ok("def _quando_soube(" in juntar,
+       "sumiu o critério de data do fato no agrupamento")
+    ok("pedacos.sort(key=lambda i: (_quando_soube(i)," in juntar,
+       "o agrupamento voltou a escolher o principal por `last_updated`, que é "
+       "quando a LINHA foi escrita e não quando o fato aconteceu. Um "
+       "reprocessamento carimba hoje numa notícia de três semanas atrás")
+    ok('datas = [str(s.get("published_at") or "")[:10]' in juntar,
+       "o critério parou de olhar a data das notícias")
+    ok("function recalcularEstado(card)" in tela and "recalcularEstado(card);" in tela,
+       "o card parou de recalcular o estado depois que o Transfermarkt entra")
+    ok("if (!melhor || q >= melhor.q) melhor = " in tela,
+       "o recálculo deixou de escolher a entrada mais recente")
+    ok("if (!LSN_ROTULO[st]) return;" in tela,
+       "entradas sem estado ('Atualização') voltaram a contar no recálculo — "
+       "elas não dizem estado nenhum, e a mais recente delas apagaria o "
+       "estado verdadeiro")
+    ok('data-quando="' in tela and 'data-status="' in tela,
+       "as entradas do histórico pararam de carregar data e estado legíveis. "
+       "Sem isso o recálculo teria de adivinhar lendo o texto formatado")
 
     for f in falhas:
         print("  ✗", f)
