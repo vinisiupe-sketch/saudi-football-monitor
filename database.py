@@ -752,6 +752,172 @@ def remover_nome_glossario_lab(nome_id: int) -> dict:
         return {"erro": str(e)}
 
 
+def buscar_na_fonte_glossario_lab(fonte: str, busca: str,
+                                  limite: int = 12) -> dict:
+    """Procura na base original de uma fonte para uma escolha humana.
+
+    Sem vínculo automático: a semelhança serve apenas para ordenar sugestões.
+    Quem decide qual resultado pertence à pessoa é quem está olhando a tela.
+    """
+    from difflib import SequenceMatcher
+    fonte = (fonte or "").strip().lower()
+    busca = " ".join((busca or "").split())
+    if fonte not in {"api_football", "transfermarkt"}:
+        return {"erro": "esta fonte ainda não possui uma base pesquisável"}
+    if len(busca) < 2:
+        return {"resultados": []}
+    candidatos = {}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            if fonte == "api_football":
+                c.execute("""SELECT af_id AS id, nome, clube, nascimento,
+                                    nacionalidade, foto
+                               FROM af_jogador
+                              WHERE nome IS NOT NULL AND nome <> ''""")
+                for r in c.fetchall():
+                    candidatos[str(r["id"])] = dict(r)
+                # Algumas pessoas têm id e estatística, mas a colheita do
+                # perfil da API-Football ainda não as colocou em af_jogador.
+                c.execute("""SELECT player_id AS id, MAX(player_name) AS nome,
+                                    MAX(team_name) AS clube
+                               FROM stats_apuradas
+                              WHERE player_name IS NOT NULL AND player_name <> ''
+                              GROUP BY player_id""")
+                for r in c.fetchall():
+                    chave = str(r["id"])
+                    if chave not in candidatos:
+                        candidatos[chave] = dict(r)
+            else:
+                c.execute("""SELECT CAST(jogador_id AS TEXT) AS id, nome, clube,
+                                    idade, posicao, foto
+                               FROM elenco_congelado
+                              WHERE nome IS NOT NULL AND nome <> ''""")
+                for r in c.fetchall():
+                    candidatos[str(r["id"])] = dict(r)
+                c.execute("""SELECT player_id AS id, MAX(player_name) AS nome,
+                                    MAX(COALESCE(NULLIF(team_in_name, ''), team_out_name)) AS clube,
+                                    MAX(age) AS idade, MAX(position) AS posicao,
+                                    MAX(photo) AS foto
+                               FROM window_transfers
+                              WHERE player_id IS NOT NULL AND player_id <> ''
+                                AND player_name IS NOT NULL AND player_name <> ''
+                              GROUP BY player_id""")
+                for r in c.fetchall():
+                    chave = str(r["id"])
+                    if chave not in candidatos:
+                        candidatos[chave] = dict(r)
+    except Exception as e:
+        return {"resultados": [], "erro": str(e)}
+
+    procurado = _normalizar_nome_do_lab(busca, "lat")
+    palavras = set(procurado.split())
+    classificados = []
+    for r in candidatos.values():
+        nome = r.get("nome") or ""
+        chave = _normalizar_nome_do_lab(nome, "lat")
+        if not chave:
+            continue
+        # Primeiro quem contém todas as palavras procuradas; a semelhança
+        # serve para tolerar Al-Bulaihi/Al Bulayhi e ordenar a lista curta.
+        contem = bool(palavras) and palavras.issubset(set(chave.split()))
+        parcial = procurado in chave or chave in procurado
+        razao = SequenceMatcher(None, procurado, chave).ratio()
+        if not (contem or parcial or razao >= .48):
+            continue
+        r = dict(r)
+        r["id"] = str(r.get("id") or "")
+        for campo in ("nascimento",):
+            if r.get(campo) is not None:
+                r[campo] = r[campo].isoformat()
+        r["_ordem"] = (1 if contem else 0, 1 if parcial else 0, razao)
+        classificados.append(r)
+    classificados.sort(key=lambda r: r.pop("_ordem"), reverse=True)
+    return {"resultados": classificados[:max(1, min(int(limite), 30))]}
+
+
+def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
+                                 identificador: str) -> dict:
+    """Grava uma escolha feita pela lupa, exclusivamente no laboratório."""
+    fonte = (fonte or "").strip().lower()
+    identificador = str(identificador or "").strip()
+    if fonte not in {"api_football", "transfermarkt"} or not identificador:
+        return {"erro": "fonte ou identificador inválido"}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("SELECT id, nome_principal FROM glossario_lab_jogador WHERE id = %s",
+                      [int(jogador_id)])
+            alvo = c.fetchone()
+            if not alvo:
+                return {"erro": "jogador do glossário não encontrado"}
+
+            if fonte == "api_football":
+                try:
+                    fonte_id = int(identificador)
+                except ValueError:
+                    return {"erro": "ID da API-Football inválido"}
+                c.execute("""SELECT af_id AS id, nome, clube
+                               FROM af_jogador WHERE af_id = %s""", [fonte_id])
+                candidato = c.fetchone()
+                if not candidato:
+                    c.execute("""SELECT player_id AS id, MAX(player_name) AS nome,
+                                        MAX(team_name) AS clube
+                                   FROM stats_apuradas WHERE player_id = %s
+                                  GROUP BY player_id""", [fonte_id])
+                    candidato = c.fetchone()
+                coluna = "af_id"
+            else:
+                fonte_id = identificador
+                c.execute("""SELECT CAST(jogador_id AS TEXT) AS id, nome, clube
+                               FROM elenco_congelado
+                              WHERE CAST(jogador_id AS TEXT) = %s LIMIT 1""",
+                          [fonte_id])
+                candidato = c.fetchone()
+                if not candidato:
+                    c.execute("""SELECT player_id AS id, MAX(player_name) AS nome,
+                                        MAX(COALESCE(NULLIF(team_in_name, ''), team_out_name)) AS clube
+                                   FROM window_transfers WHERE player_id = %s
+                                  GROUP BY player_id""", [fonte_id])
+                    candidato = c.fetchone()
+                coluna = "tm_id"
+            if not candidato or not candidato.get("nome"):
+                return {"erro": "esse jogador não foi encontrado na base da fonte"}
+
+            c.execute(f"""SELECT id, nome_principal FROM glossario_lab_jogador
+                            WHERE {coluna} = %s AND id <> %s LIMIT 1""",
+                      [fonte_id, int(jogador_id)])
+            ocupado = c.fetchone()
+            if ocupado:
+                return {"erro": f"esse ID já está ligado a {ocupado['nome_principal']} "
+                                f"(ID interno #{ocupado['id']})"}
+
+            c.execute(f"""UPDATE glossario_lab_jogador
+                              SET {coluna} = %s, atualizado_em = NOW()
+                            WHERE id = %s""", [fonte_id, int(jogador_id)])
+            # Trocar o vínculo substitui a cópia automática daquela fonte.
+            # Variações digitadas manualmente ficam como histórico humano.
+            c.execute("""DELETE FROM glossario_lab_nome
+                           WHERE jogador_id = %s AND fonte = %s
+                             AND metodo <> 'manual'""", [int(jogador_id), fonte])
+            idioma = "ar" if re.search(r"[\u0600-\u06ff]", candidato["nome"]) else "lat"
+            c.execute("""
+                INSERT INTO glossario_lab_nome
+                    (jogador_id, fonte, idioma, tipo, nome, nome_normalizado,
+                     contexto, metodo, confianca, confirmado)
+                VALUES (%s,%s,%s,'nome',%s,%s,%s,'escolha_manual_por_id',100,TRUE)
+                ON CONFLICT (jogador_id, fonte, idioma, tipo, nome) DO UPDATE SET
+                    contexto = EXCLUDED.contexto, confirmado = TRUE, ultimo_em = NOW()
+            """, [int(jogador_id), fonte, idioma, candidato["nome"],
+                  _normalizar_nome_do_lab(candidato["nome"], idioma),
+                  candidato.get("clube") or ""])
+            return {"ok": True, "jogador_id": int(jogador_id),
+                    "fonte": fonte, "fonte_id": str(fonte_id),
+                    "nome": candidato["nome"]}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
 def _clube(nome) -> str:
     """O nome do clube como ele vai para o banco.
 

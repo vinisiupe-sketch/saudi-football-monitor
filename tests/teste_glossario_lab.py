@@ -26,9 +26,15 @@ def testar():
     assert "ON CONFLICT (jogador_id, fonte, idioma, tipo, nome) DO NOTHING" in banco
     assert "def listar_glossario_lab" in banco
     assert "def adicionar_nome_glossario_lab" in banco
+    assert "def buscar_na_fonte_glossario_lab" in banco
+    assert "def vincular_fonte_glossario_lab" in banco
     assert '@app.get("/glossario-lab"' in main
     assert '@app.get("/api/glossario-lab"' in main
+    assert 'fontes/{fonte}/buscar' in main
+    assert 'fontes/vincular' in main
     assert "Base paralela · não está ligada ao app" in tela
+    assert "abrirBuscaFonte" in tela
+    assert "Pesquisar e vincular nesta fonte" in tela
     for coluna in ("SPL em inglês", "SPL em árabe", "API-Football",
                    "Transfermarkt", "PDF", "Notícias árabes"):
         assert coluna in tela

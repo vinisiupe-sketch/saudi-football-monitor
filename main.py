@@ -14049,6 +14049,27 @@ async def api_glossario_lab_adicionar_nome(request: Request):
     return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
 
 
+@app.get("/api/glossario-lab/fontes/{fonte}/buscar")
+async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
+    from database import buscar_na_fonte_glossario_lab
+    resultado = await asyncio.to_thread(buscar_na_fonte_glossario_lab, fonte, q)
+    return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
+
+
+@app.post("/api/glossario-lab/fontes/vincular")
+async def api_glossario_lab_vincular_fonte(request: Request):
+    from database import vincular_fonte_glossario_lab
+    corpo = await request.json()
+    try:
+        jogador_id = int(corpo.get("jogador_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"erro": "jogador inválido"}, 400)
+    resultado = await asyncio.to_thread(
+        vincular_fonte_glossario_lab, jogador_id, corpo.get("fonte") or "",
+        corpo.get("fonte_id") or "")
+    return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
+
+
 @app.patch("/api/glossario-lab/jogadores/{jogador_id}")
 async def api_glossario_lab_revisar(jogador_id: int, request: Request):
     from database import revisar_jogador_glossario_lab
