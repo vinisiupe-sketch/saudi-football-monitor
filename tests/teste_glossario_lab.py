@@ -21,6 +21,7 @@ def testar():
 
     assert "CREATE TABLE IF NOT EXISTS glossario_lab_jogador" in banco
     assert "CREATE TABLE IF NOT EXISTS glossario_lab_nome" in banco
+    assert "CREATE TABLE IF NOT EXISTS glossario_lab_candidato" in banco
     assert "id              SERIAL PRIMARY KEY" in banco
     assert "spl_id          TEXT UNIQUE" in banco
     assert "ON CONFLICT (jogador_id, fonte, idioma, tipo, nome) DO NOTHING" in banco
@@ -28,6 +29,7 @@ def testar():
     assert "def adicionar_nome_glossario_lab" in banco
     assert "def buscar_na_fonte_glossario_lab" in banco
     assert "def vincular_fonte_glossario_lab" in banco
+    assert "def salvar_candidatos_glossario_lab" in banco
     assert '@app.get("/glossario-lab"' in main
     assert '@app.get("/api/glossario-lab"' in main
     assert 'fontes/{fonte}/buscar' in main
@@ -35,6 +37,9 @@ def testar():
     assert "Base paralela · não está ligada ao app" in tela
     assert "abrirBuscaFonte" in tela
     assert "Pesquisar e vincular nesta fonte" in tela
+    assert "Cada vínculo é salvo automaticamente" in tela
+    assert "resumo_clube" in main + banco + tela
+    assert '"players/profiles"' in main
     for coluna in ("SPL em inglês", "SPL em árabe", "API-Football",
                    "Transfermarkt", "PDF", "Notícias árabes"):
         assert coluna in tela

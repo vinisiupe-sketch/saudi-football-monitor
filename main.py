@@ -14051,8 +14051,46 @@ async def api_glossario_lab_adicionar_nome(request: Request):
 
 @app.get("/api/glossario-lab/fontes/{fonte}/buscar")
 async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
-    from database import buscar_na_fonte_glossario_lab
+    from database import (buscar_na_fonte_glossario_lab,
+                          salvar_candidatos_glossario_lab)
     resultado = await asyncio.to_thread(buscar_na_fonte_glossario_lab, fonte, q)
+    # A cópia local da API-Football acompanha a SPL. Recém-chegado ainda
+    # associado ao clube antigo (Gabriel Martinelli/Arsenal foi o caso que
+    # revelou isto) só aparece no catálogo mundial de perfis. Consulto esse
+    # catálogo quando a base local não devolve nada e guardo a resposta apenas
+    # no cache do laboratório.
+    if (fonte == "api_football" and len((q or "").strip()) >= 4
+            and not resultado.get("erro") and not resultado.get("resultados")):
+        dados, erro = await _af_get(
+            "players/profiles", {"search": q.strip()}, ttl=86400)
+        # Compatibilidade com contas/versões que ainda expõem a pesquisa pelo
+        # endpoint tradicional de jogadores.
+        if erro:
+            dados, erro = await _af_get(
+                "players", {"search": q.strip()}, ttl=86400)
+        globais = []
+        if dados:
+            for item in (dados.get("response") or []):
+                p = item.get("player") or item
+                estat = (item.get("statistics") or [{}])[0]
+                if not p.get("id") or not p.get("name"):
+                    continue
+                globais.append({
+                    "id": p["id"], "nome": p.get("name") or "",
+                    "clube": (estat.get("team") or {}).get("name") or "",
+                    "nascimento": (p.get("birth") or {}).get("date") or "",
+                    "nacionalidade": p.get("nationality") or "",
+                    "posicao": p.get("position") or "",
+                    "foto": p.get("photo") or "",
+                })
+        if globais:
+            await asyncio.to_thread(
+                salvar_candidatos_glossario_lab, "api_football", globais)
+            resultado = await asyncio.to_thread(
+                buscar_na_fonte_glossario_lab, fonte, q)
+            resultado["catalogo_global"] = True
+        elif erro:
+            resultado["aviso"] = erro
     return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
 
 

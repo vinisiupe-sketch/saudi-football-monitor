@@ -465,6 +465,23 @@ def init_db():
                 UNIQUE (jogador_id, fonte, idioma, tipo, nome)
             )
         """)
+        # Resultados de buscas globais nas fontes. Ficam aqui, e não nas
+        # tabelas usadas pelo app atual, para uma pesquisa do laboratório não
+        # mudar futuros cruzamentos automáticos de jogadores.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS glossario_lab_candidato (
+                fonte           TEXT NOT NULL,
+                fonte_id        TEXT NOT NULL,
+                nome            TEXT NOT NULL,
+                clube           TEXT,
+                nascimento      DATE,
+                nacionalidade   TEXT,
+                posicao         TEXT,
+                foto            TEXT,
+                atualizado_em   TIMESTAMPTZ DEFAULT NOW(),
+                PRIMARY KEY (fonte, fonte_id)
+            )
+        """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_clube "
                   "ON glossario_lab_jogador(clube)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_af "
@@ -676,10 +693,29 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
                                  COUNT(*) FILTER (WHERE revisado) AS revisados
                             FROM glossario_lab_jogador""")
             resumo = dict(c.fetchone())
+            resumo_clube = {}
+            if clube:
+                c.execute("""SELECT COUNT(*) AS jogadores,
+                         COUNT(*) FILTER (WHERE spl_id IS NOT NULL) AS com_spl,
+                         COUNT(*) FILTER (WHERE af_id IS NOT NULL) AS com_af,
+                         COUNT(*) FILTER (WHERE tm_id IS NOT NULL) AS com_tm,
+                         COUNT(*) FILTER (WHERE nome_ar IS NOT NULL AND nome_ar <> '') AS com_arabe,
+                         COUNT(*) FILTER (WHERE revisado) AS revisados,
+                         COUNT(*) FILTER (WHERE EXISTS (
+                             SELECT 1 FROM glossario_lab_nome n
+                              WHERE n.jogador_id = g.id AND n.fonte = 'pdf')) AS com_pdf,
+                         COUNT(*) FILTER (WHERE EXISTS (
+                             SELECT 1 FROM glossario_lab_nome n
+                              WHERE n.jogador_id = g.id AND n.fonte = 'noticia')) AS com_noticia
+                    FROM glossario_lab_jogador g WHERE clube = %s""", [clube])
+                resumo_clube = dict(c.fetchone())
         return {"jogadores": jogadores, "total": total, "clubes": clubes,
-                "resumo": resumo, "limite": limite, "deslocamento": deslocamento}
+                "resumo": resumo, "resumo_clube": resumo_clube,
+                "clube_selecionado": clube, "limite": limite,
+                "deslocamento": deslocamento}
     except Exception as e:
         return {"jogadores": [], "total": 0, "clubes": [], "resumo": {},
+                "resumo_clube": {},
                 "erro": str(e)}
 
 
@@ -752,6 +788,44 @@ def remover_nome_glossario_lab(nome_id: int) -> dict:
         return {"erro": str(e)}
 
 
+def salvar_candidatos_glossario_lab(fonte: str, candidatos: list[dict]) -> int:
+    """Guarda resultados globais somente no cache isolado do laboratório."""
+    fonte = (fonte or "").strip().lower()
+    if fonte not in {"api_football", "transfermarkt"}:
+        return 0
+    gravados = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for p in candidatos:
+                fonte_id = str(p.get("id") or "").strip()
+                nome = " ".join((p.get("nome") or "").split())
+                if not fonte_id or not nome:
+                    continue
+                nascimento = str(p.get("nascimento") or "")[:10] or None
+                c.execute("""
+                    INSERT INTO glossario_lab_candidato
+                        (fonte, fonte_id, nome, clube, nascimento,
+                         nacionalidade, posicao, foto, atualizado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                    ON CONFLICT (fonte, fonte_id) DO UPDATE SET
+                        nome = EXCLUDED.nome,
+                        clube = COALESCE(NULLIF(EXCLUDED.clube, ''), glossario_lab_candidato.clube),
+                        nascimento = COALESCE(EXCLUDED.nascimento, glossario_lab_candidato.nascimento),
+                        nacionalidade = COALESCE(NULLIF(EXCLUDED.nacionalidade, ''), glossario_lab_candidato.nacionalidade),
+                        posicao = COALESCE(NULLIF(EXCLUDED.posicao, ''), glossario_lab_candidato.posicao),
+                        foto = COALESCE(NULLIF(EXCLUDED.foto, ''), glossario_lab_candidato.foto),
+                        atualizado_em = NOW()
+                """, [fonte, fonte_id, nome, p.get("clube") or "", nascimento,
+                      p.get("nacionalidade") or "", p.get("posicao") or "",
+                      p.get("foto") or ""])
+                gravados += 1
+    except Exception as e:
+        print(f"⚠️ salvar candidatos do glossário: {e}", flush=True)
+        return 0
+    return gravados
+
+
 def buscar_na_fonte_glossario_lab(fonte: str, busca: str,
                                   limite: int = 12) -> dict:
     """Procura na base original de uma fonte para uma escolha humana.
@@ -807,6 +881,14 @@ def buscar_na_fonte_glossario_lab(fonte: str, busca: str,
                     chave = str(r["id"])
                     if chave not in candidatos:
                         candidatos[chave] = dict(r)
+            c.execute("""SELECT fonte_id AS id, nome, clube, nascimento,
+                                nacionalidade, posicao, foto
+                           FROM glossario_lab_candidato WHERE fonte = %s""",
+                      [fonte])
+            for r in c.fetchall():
+                chave = str(r["id"])
+                if chave not in candidatos:
+                    candidatos[chave] = dict(r)
     except Exception as e:
         return {"resultados": [], "erro": str(e)}
 
@@ -881,6 +963,12 @@ def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
                                   GROUP BY player_id""", [fonte_id])
                     candidato = c.fetchone()
                 coluna = "tm_id"
+            if not candidato:
+                c.execute("""SELECT fonte_id AS id, nome, clube
+                               FROM glossario_lab_candidato
+                              WHERE fonte = %s AND fonte_id = %s""",
+                          [fonte, str(fonte_id)])
+                candidato = c.fetchone()
             if not candidato or not candidato.get("nome"):
                 return {"erro": "esse jogador não foi encontrado na base da fonte"}
 
