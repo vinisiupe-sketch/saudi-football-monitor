@@ -14061,13 +14061,32 @@ async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
     # no cache do laboratório.
     if (fonte == "api_football" and len((q or "").strip()) >= 4
             and not resultado.get("erro") and not resultado.get("resultados")):
-        dados, erro = await _af_get(
-            "players/profiles", {"search": q.strip()}, ttl=86400)
-        # Compatibilidade com contas/versões que ainda expõem a pesquisa pelo
-        # endpoint tradicional de jogadores.
-        if erro:
-            dados, erro = await _af_get(
-                "players", {"search": q.strip()}, ttl=86400)
+        nome_procurado = " ".join(q.split())
+        sobrenome = nome_procurado.split()[-1]
+        consultas = [
+            ("players/profiles", {"search": nome_procurado}),
+        ]
+        if sobrenome.lower() != nome_procurado.lower() and len(sobrenome) >= 4:
+            consultas.append(("players/profiles", {"search": sobrenome}))
+        # Há contas/versões da API em que profiles responde zero em vez de
+        # erro. Por isso a resposta vazia também avança para /players. Duas
+        # temporadas cobrem recém-transferidos que ainda ficaram no clube
+        # anterior na fotografia da API.
+        for temporada in (_af_temporada_corrente(),
+                          _af_temporada_corrente() - 1):
+            consultas.append(("players", {"search": sobrenome,
+                                           "season": temporada}))
+        dados = None
+        erros_globais = []
+        for caminho_af, parametros_af in consultas:
+            tentativa, erro_tentativa = await _af_get(
+                caminho_af, parametros_af, ttl=86400)
+            if erro_tentativa:
+                erros_globais.append(erro_tentativa)
+                continue
+            if tentativa and tentativa.get("response"):
+                dados = tentativa
+                break
         globais = []
         if dados:
             for item in (dados.get("response") or []):
@@ -14089,8 +14108,9 @@ async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
             resultado = await asyncio.to_thread(
                 buscar_na_fonte_glossario_lab, fonte, q)
             resultado["catalogo_global"] = True
-        elif erro:
-            resultado["aviso"] = erro
+        else:
+            resultado["aviso"] = (erros_globais[-1] if erros_globais else
+                                   "O catálogo mundial também não encontrou esse nome.")
     return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
 
 
@@ -14105,6 +14125,14 @@ async def api_glossario_lab_vincular_fonte(request: Request):
     resultado = await asyncio.to_thread(
         vincular_fonte_glossario_lab, jogador_id, corpo.get("fonte") or "",
         corpo.get("fonte_id") or "")
+    return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
+
+
+@app.delete("/api/glossario-lab/jogadores/{jogador_id}/fontes/{fonte}")
+async def api_glossario_lab_desvincular_fonte(jogador_id: int, fonte: str):
+    from database import desvincular_fonte_glossario_lab
+    resultado = await asyncio.to_thread(
+        desvincular_fonte_glossario_lab, jogador_id, fonte)
     return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
 
 

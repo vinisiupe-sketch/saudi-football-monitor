@@ -427,6 +427,8 @@ def init_db():
                 spl_id          TEXT UNIQUE,
                 af_id           INTEGER,
                 tm_id           TEXT,
+                af_bloqueado    BOOLEAN NOT NULL DEFAULT FALSE,
+                tm_bloqueado    BOOLEAN NOT NULL DEFAULT FALSE,
                 nome_principal  TEXT NOT NULL,
                 nome_curto      TEXT,
                 nome_ar         TEXT,
@@ -490,6 +492,10 @@ def init_db():
                   "ON glossario_lab_jogador(tm_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_nome_norm "
                   "ON glossario_lab_nome(nome_normalizado)")
+        c.execute("ALTER TABLE glossario_lab_jogador ADD COLUMN IF NOT EXISTS "
+                  "af_bloqueado BOOLEAN NOT NULL DEFAULT FALSE")
+        c.execute("ALTER TABLE glossario_lab_jogador ADD COLUMN IF NOT EXISTS "
+                  "tm_bloqueado BOOLEAN NOT NULL DEFAULT FALSE")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
@@ -528,8 +534,10 @@ def _popular_glossario_lab(c) -> dict:
           FROM jogador
          WHERE spl_id IS NOT NULL AND nome IS NOT NULL AND nome <> ''
         ON CONFLICT (spl_id) DO UPDATE SET
-            af_id         = COALESCE(glossario_lab_jogador.af_id, EXCLUDED.af_id),
-            tm_id         = COALESCE(glossario_lab_jogador.tm_id, EXCLUDED.tm_id),
+            af_id         = CASE WHEN glossario_lab_jogador.af_bloqueado
+                                 THEN NULL ELSE COALESCE(glossario_lab_jogador.af_id, EXCLUDED.af_id) END,
+            tm_id         = CASE WHEN glossario_lab_jogador.tm_bloqueado
+                                 THEN NULL ELSE COALESCE(glossario_lab_jogador.tm_id, EXCLUDED.tm_id) END,
             nome_curto    = COALESCE(NULLIF(glossario_lab_jogador.nome_curto, ''), EXCLUDED.nome_curto),
             nome_ar       = COALESCE(NULLIF(glossario_lab_jogador.nome_ar, ''), EXCLUDED.nome_ar),
             clube         = COALESCE(NULLIF(glossario_lab_jogador.clube, ''), EXCLUDED.clube),
@@ -949,6 +957,7 @@ def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
                                   GROUP BY player_id""", [fonte_id])
                     candidato = c.fetchone()
                 coluna = "af_id"
+                bloqueio = "af_bloqueado"
             else:
                 fonte_id = identificador
                 c.execute("""SELECT CAST(jogador_id AS TEXT) AS id, nome, clube
@@ -963,6 +972,7 @@ def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
                                   GROUP BY player_id""", [fonte_id])
                     candidato = c.fetchone()
                 coluna = "tm_id"
+                bloqueio = "tm_bloqueado"
             if not candidato:
                 c.execute("""SELECT fonte_id AS id, nome, clube
                                FROM glossario_lab_candidato
@@ -981,7 +991,8 @@ def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
                                 f"(ID interno #{ocupado['id']})"}
 
             c.execute(f"""UPDATE glossario_lab_jogador
-                              SET {coluna} = %s, atualizado_em = NOW()
+                              SET {coluna} = %s, {bloqueio} = FALSE,
+                                  atualizado_em = NOW()
                             WHERE id = %s""", [fonte_id, int(jogador_id)])
             # Trocar o vínculo substitui a cópia automática daquela fonte.
             # Variações digitadas manualmente ficam como histórico humano.
@@ -1002,6 +1013,34 @@ def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
             return {"ok": True, "jogador_id": int(jogador_id),
                     "fonte": fonte, "fonte_id": str(fonte_id),
                     "nome": candidato["nome"]}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def desvincular_fonte_glossario_lab(jogador_id: int, fonte: str) -> dict:
+    """Remove um vínculo e impede a sincronização de recriá-lo sozinha."""
+    fonte = (fonte or "").strip().lower()
+    campos = {
+        "api_football": ("af_id", "af_bloqueado"),
+        "transfermarkt": ("tm_id", "tm_bloqueado"),
+    }
+    if fonte not in campos:
+        return {"erro": "fonte inválida"}
+    coluna, bloqueio = campos[fonte]
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute(f"""UPDATE glossario_lab_jogador
+                              SET {coluna} = NULL, {bloqueio} = TRUE,
+                                  atualizado_em = NOW()
+                            WHERE id = %s""", [int(jogador_id)])
+            if c.rowcount != 1:
+                return {"erro": "jogador não encontrado"}
+            c.execute("""DELETE FROM glossario_lab_nome
+                           WHERE jogador_id = %s AND fonte = %s""",
+                      [int(jogador_id), fonte])
+            return {"ok": True, "jogador_id": int(jogador_id),
+                    "fonte": fonte}
     except Exception as e:
         return {"erro": str(e)}
 
