@@ -31,11 +31,13 @@ def testar():
     assert "def vincular_fonte_glossario_lab" in banco
     assert "def desvincular_fonte_glossario_lab" in banco
     assert "def salvar_candidatos_glossario_lab" in banco
+    assert "def salvar_nome_pais_origem_transfermarkt_lab" in banco
     assert '@app.get("/glossario-lab"' in main
     assert '@app.get("/api/glossario-lab"' in main
     assert 'fontes/{fonte}/buscar' in main
     assert 'fontes/vincular' in main
     assert 'fontes/{fonte}' in main
+    assert 'transfermarkt/nome-origem' in main
     assert "Base paralela · não está ligada ao app" in tela
     assert "abrirBuscaFonte" in tela
     assert "Pesquisar e vincular nesta fonte" in tela
@@ -44,6 +46,12 @@ def testar():
     assert "af_bloqueado" in banco and "tm_bloqueado" in banco
     assert "resumo_clube" in main + banco + tela
     assert '"players/profiles"' in main
+    assert "colunasComVazio" in tela and "data-ordem=\"api_football\"" in tela
+    assert "capturarNomeTM" in tela
+    with open(os.path.join(RAIZ, "elenco_tm.py"), encoding="utf-8") as f:
+        tm = f.read()
+    assert "def _parse_nome_pais_origem" in tm
+    assert "name in home country" in tm
     for coluna in ("SPL em inglês", "SPL em árabe", "API-Football",
                    "Transfermarkt", "PDF", "Notícias árabes"):
         assert coluna in tela
@@ -67,6 +75,7 @@ def testar():
     assert database._normalizar_nome_do_lab("Théo Hernández", "lat") == "theo hernandez"
     assert database._normalizar_nome_do_lab("محمد الدَّوسري", "ar") == \
         database._normalizar_nome_do_lab("محمد الدوسري", "ar")
+
     print("  glossário lab: base paralela, fontes e tela conferidas")
     return True
 

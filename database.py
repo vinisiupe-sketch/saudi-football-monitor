@@ -633,7 +633,8 @@ def sincronizar_glossario_lab() -> dict:
 
 
 def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
-                         limite: int = 120, deslocamento: int = 0) -> dict:
+                         limite: int = 120, deslocamento: int = 0,
+                         ordenar: str = "padrao") -> dict:
     """Tabela humana do laboratório, com todas as grafias em cada pessoa."""
     limite = max(1, min(int(limite or 120), 500))
     deslocamento = max(0, int(deslocamento or 0))
@@ -653,6 +654,34 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
                                  WHERE n.jogador_id = g.id AND n.nome ILIKE %s))""")
         valores.extend([termo, termo, termo, busca.strip(), termo])
     filtro = (" WHERE " + " AND ".join(onde)) if onde else ""
+    # As expressões são escolhidas por uma lista fechada. O valor vindo da
+    # tela nunca é interpolado diretamente no SQL.
+    existe_pdf = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'pdf')"
+    existe_noticia = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'noticia')"
+    existe_spl_lat = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'spl' AND so.idioma = 'lat')"
+    existe_spl_ar = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'spl' AND so.idioma = 'ar')"
+    ordens = {
+        "padrao": "g.clube NULLS LAST, g.nome_principal",
+        "id_asc": "g.id ASC", "id_desc": "g.id DESC",
+        "jogador_asc": "g.nome_principal ASC", "jogador_desc": "g.nome_principal DESC",
+        "clube_asc": "g.clube ASC NULLS LAST, g.nome_principal",
+        "clube_desc": "g.clube DESC NULLS LAST, g.nome_principal",
+        "spl_lat_vazios": f"{existe_spl_lat} ASC, g.clube NULLS LAST, g.nome_principal",
+        "spl_lat_preenchidos": f"{existe_spl_lat} DESC, g.clube NULLS LAST, g.nome_principal",
+        "spl_ar_vazios": f"{existe_spl_ar} ASC, g.clube NULLS LAST, g.nome_principal",
+        "spl_ar_preenchidos": f"{existe_spl_ar} DESC, g.clube NULLS LAST, g.nome_principal",
+        "api_football_vazios": "(g.af_id IS NOT NULL) ASC, g.clube NULLS LAST, g.nome_principal",
+        "api_football_preenchidos": "(g.af_id IS NOT NULL) DESC, g.clube NULLS LAST, g.nome_principal",
+        "transfermarkt_vazios": "(g.tm_id IS NOT NULL) ASC, g.clube NULLS LAST, g.nome_principal",
+        "transfermarkt_preenchidos": "(g.tm_id IS NOT NULL) DESC, g.clube NULLS LAST, g.nome_principal",
+        "pdf_vazios": f"{existe_pdf} ASC, g.clube NULLS LAST, g.nome_principal",
+        "pdf_preenchidos": f"{existe_pdf} DESC, g.clube NULLS LAST, g.nome_principal",
+        "noticia_vazios": f"{existe_noticia} ASC, g.clube NULLS LAST, g.nome_principal",
+        "noticia_preenchidos": f"{existe_noticia} DESC, g.clube NULLS LAST, g.nome_principal",
+        "status_asc": "g.status ASC, g.clube NULLS LAST, g.nome_principal",
+        "status_desc": "g.status DESC, g.clube NULLS LAST, g.nome_principal",
+    }
+    ordem_sql = ordens.get(ordenar, ordens["padrao"])
     try:
         with get_conn() as conn:
             c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
@@ -663,7 +692,7 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
                                  (SELECT COUNT(*) FROM glossario_lab_nome n
                                    WHERE n.jogador_id = g.id) AS total_nomes
                             FROM glossario_lab_jogador g""" + filtro +
-                      " ORDER BY g.clube NULLS LAST, g.nome_principal LIMIT %s OFFSET %s",
+                      f" ORDER BY {ordem_sql} LIMIT %s OFFSET %s",
                       valores + [limite, deslocamento])
             jogadores = [dict(r) for r in c.fetchall()]
             ids = [j["id"] for j in jogadores]
@@ -720,7 +749,7 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
         return {"jogadores": jogadores, "total": total, "clubes": clubes,
                 "resumo": resumo, "resumo_clube": resumo_clube,
                 "clube_selecionado": clube, "limite": limite,
-                "deslocamento": deslocamento}
+                "deslocamento": deslocamento, "ordenar": ordenar}
     except Exception as e:
         return {"jogadores": [], "total": 0, "clubes": [], "resumo": {},
                 "resumo_clube": {},
@@ -761,6 +790,75 @@ def adicionar_nome_glossario_lab(jogador_id: int, nome: str, fonte: str,
             """, [int(jogador_id), fonte, idioma, nome,
                   _normalizar_nome_do_lab(nome, idioma), contexto.strip()])
             return {"nome": dict(c.fetchone())}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def id_transfermarkt_glossario_lab(jogador_id: int) -> dict:
+    """Lê o vínculo isolado necessário para consultar a ficha individual."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""SELECT id, tm_id, nome_principal
+                           FROM glossario_lab_jogador WHERE id = %s""",
+                      [int(jogador_id)])
+            jogador = c.fetchone()
+            if not jogador:
+                return {"erro": "jogador não encontrado"}
+            if not jogador.get("tm_id"):
+                return {"erro": "vincule primeiro o jogador do Transfermarkt"}
+            return dict(jogador)
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def salvar_nome_pais_origem_transfermarkt_lab(jogador_id: int,
+                                               nome_bruto: str) -> dict:
+    """Separa e guarda as grafias latina/árabe da ficha do Transfermarkt."""
+    nome_bruto = " ".join((nome_bruto or "").replace("\u200f", " ").split())
+    if not nome_bruto:
+        return {"erro": "o Transfermarkt não informou nome no país de origem"}
+
+    bloco_arabe = re.compile(
+        r"[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]+"
+        r"(?:[\s\-ـ'’]+[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]+)*")
+    arabes = [" ".join(x.split()).strip(" ,;|")
+              for x in bloco_arabe.findall(nome_bruto)]
+    arabes = list(dict.fromkeys(x for x in arabes if x))
+    latino = bloco_arabe.sub(" ", nome_bruto)
+    latino = re.sub(r"\s*[,;|]+\s*", " ", latino)
+    latino = " ".join(latino.split()).strip(" ,;|")
+    variantes = []
+    if latino:
+        variantes.append(("lat", latino))
+    variantes.extend(("ar", nome) for nome in arabes)
+    if not variantes:
+        return {"erro": "não foi possível separar o nome informado pelo Transfermarkt"}
+
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("SELECT tm_id FROM glossario_lab_jogador WHERE id = %s",
+                      [int(jogador_id)])
+            jogador = c.fetchone()
+            if not jogador or not jogador.get("tm_id"):
+                return {"erro": "vínculo do Transfermarkt não encontrado"}
+            salvos = []
+            for idioma, nome in variantes:
+                c.execute("""
+                    INSERT INTO glossario_lab_nome
+                        (jogador_id, fonte, idioma, tipo, nome, nome_normalizado,
+                         contexto, metodo, confianca, confirmado)
+                    VALUES (%s,'transfermarkt',%s,'nome_pais_origem',%s,%s,
+                            'Ficha individual do Transfermarkt',
+                            'perfil_transfermarkt',100,TRUE)
+                    ON CONFLICT (jogador_id, fonte, idioma, tipo, nome) DO UPDATE SET
+                        ultimo_em = NOW(), confirmado = TRUE
+                    RETURNING id, idioma, nome
+                """, [int(jogador_id), idioma, nome,
+                      _normalizar_nome_do_lab(nome, idioma)])
+                salvos.append(dict(c.fetchone()))
+            return {"ok": True, "nomes": salvos}
     except Exception as e:
         return {"erro": str(e)}
 

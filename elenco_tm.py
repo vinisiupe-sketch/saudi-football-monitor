@@ -23,6 +23,7 @@ _CACHE: dict[str, tuple[float, object]] = {}
 TTL_ELENCO = 6 * 3600      # elenco muda por transferência, não por hora
 TTL_CALENDARIO = 1800      # placar e súmula do dia entram aqui
 TTL_ESCALACAO = 6 * 3600   # jogo encerrado não muda mais
+TTL_PERFIL = 30 * 24 * 3600  # nome de registro quase nunca muda
 
 
 def _cache_get(chave: str, ttl: int):
@@ -207,11 +208,50 @@ def _parse_elenco(soup: BeautifulSoup) -> list[dict]:
     return out
 
 
+def _parse_nome_pais_origem(soup: BeautifulSoup) -> str | None:
+    """Lê o campo da ficha individual, mesmo sob tradução do site/navegador."""
+    rotulos = (
+        "name in home country", "name in native country",
+        "nome no país de origem", "nome no pais de origem",
+        "name im heimatland", "vollständiger name",
+    )
+    for no in soup.find_all(["span", "div", "th", "td"]):
+        texto = re.sub(r"\s+", " ", no.get_text(" ", strip=True)).strip()
+        chave = texto.casefold().rstrip(":")
+        if not any(chave == r or chave.startswith(r + ":") for r in rotulos):
+            continue
+        irmao = no.find_next_sibling()
+        if irmao:
+            valor = re.sub(r"\s+", " ", irmao.get_text(" ", strip=True)).strip()
+            if valor:
+                return valor
+        pai = no.parent
+        if pai:
+            partes = [re.sub(r"\s+", " ", x.get_text(" ", strip=True)).strip()
+                      for x in pai.find_all(["span", "div", "td"], recursive=False)]
+            partes = [x for x in partes if x and x != texto]
+            if partes:
+                return partes[-1]
+        for rotulo in rotulos:
+            if chave.startswith(rotulo + ":"):
+                valor = texto[len(rotulo) + 1:].strip()
+                if valor:
+                    return valor
+    return None
+
+
 async def elenco(clube_id: int, season: int | None = None) -> tuple[list[dict], str | None]:
     season = season or TM_SAISON
     return await _com_cache(f"elenco:{clube_id}:{season}", TTL_ELENCO,
                             f"x/kader/verein/{clube_id}/saison_id/{season}/plus/1",
                             _parse_elenco)
+
+
+async def nome_no_pais_de_origem(jogador_id: int) -> tuple[str | None, str | None]:
+    """Consulta somente uma ficha, acionada manualmente no laboratório."""
+    return await _com_cache(f"perfil:nome-origem:{int(jogador_id)}", TTL_PERFIL,
+                            f"x/profil/spieler/{int(jogador_id)}",
+                            _parse_nome_pais_origem)
 
 
 # ── desempenho (leistungsdaten) ──────────────────────────────────────────────

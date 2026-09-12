@@ -14022,10 +14022,11 @@ async def pagina_glossario_lab():
 
 @app.get("/api/glossario-lab")
 async def api_glossario_lab(busca: str = "", clube: str = "", status: str = "",
-                            limite: int = 120, deslocamento: int = 0):
+                            limite: int = 120, deslocamento: int = 0,
+                            ordenar: str = "padrao"):
     from database import listar_glossario_lab
     return await asyncio.to_thread(listar_glossario_lab, busca, clube, status,
-                                   limite, deslocamento)
+                                   limite, deslocamento, ordenar)
 
 
 @app.post("/api/glossario-lab/sincronizar")
@@ -14057,10 +14058,10 @@ async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
     # A cópia local da API-Football acompanha a SPL. Recém-chegado ainda
     # associado ao clube antigo (Gabriel Martinelli/Arsenal foi o caso que
     # revelou isto) só aparece no catálogo mundial de perfis. Consulto esse
-    # catálogo quando a base local não devolve nada e guardo a resposta apenas
-    # no cache do laboratório.
+    # catálogo em toda pesquisa longa e guardo a resposta apenas no cache do
+    # laboratório. Uma aproximação local ruim não pode impedir a busca mundial.
     if (fonte == "api_football" and len((q or "").strip()) >= 4
-            and not resultado.get("erro") and not resultado.get("resultados")):
+            and not resultado.get("erro")):
         nome_procurado = " ".join(q.split())
         sobrenome = nome_procurado.split()[-1]
         consultas = [
@@ -14111,6 +14112,27 @@ async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
         else:
             resultado["aviso"] = (erros_globais[-1] if erros_globais else
                                    "O catálogo mundial também não encontrou esse nome.")
+    return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
+
+
+@app.post("/api/glossario-lab/jogadores/{jogador_id}/transfermarkt/nome-origem")
+async def api_glossario_lab_nome_origem_transfermarkt(jogador_id: int):
+    from database import (id_transfermarkt_glossario_lab,
+                          salvar_nome_pais_origem_transfermarkt_lab)
+    jogador = await asyncio.to_thread(id_transfermarkt_glossario_lab, jogador_id)
+    if jogador.get("erro"):
+        return JSONResponse(jogador, 400)
+    try:
+        nome, aviso = await elenco_tm.nome_no_pais_de_origem(int(jogador["tm_id"]))
+    except Exception as e:
+        return JSONResponse({"erro": f"não foi possível abrir a ficha no Transfermarkt: {e}"}, 502)
+    if not nome:
+        return JSONResponse({"erro": aviso or
+                             "essa ficha não informa nome no país de origem"}, 404)
+    resultado = await asyncio.to_thread(
+        salvar_nome_pais_origem_transfermarkt_lab, jogador_id, nome)
+    if aviso:
+        resultado["aviso"] = aviso
     return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
 
 
