@@ -48,6 +48,17 @@ def ok(condicao, mensagem):
         falhas.append(mensagem)
 
 
+def _corpo_py(nome: str) -> str:
+    """O código-fonte de uma função Python do main.py."""
+    import ast
+    mod = ast.parse(FONTE)
+    for n in ast.walk(mod):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and n.name == nome:
+            return ast.get_source_segment(FONTE, n) or ""
+    return ""
+
+
 def _funcao_js(nome: str) -> str:
     """O corpo de uma função JavaScript escrita dentro do main.py.
 
@@ -108,6 +119,7 @@ function esc(t) { return String(t == null ? '' : t); }
 var RECARREGOU = false;
 var _verTodas = VER_TODAS;
 var _escondidas = ESCONDIDAS;
+var _semCalendario = SEM_CALENDARIO;
 
 __FUNCOES__
 
@@ -138,12 +150,14 @@ console.log(JSON.stringify({
 
 
 def _rodar(disponiveis, lives, escondidas, ver_todas=False,
-           online=True, maximo=4) -> dict:
+           online=True, maximo=4, sem_calendario="") -> dict:
     """Executa pintarDisponiveis de verdade e devolve o que apareceu na tela."""
     js = (MOLDE
           .replace("__FUNCOES__",
                    _funcao_js("pintarDisponiveis") + "\n"
-                   + _funcao_js("botaoVerTodas"))
+                   + _funcao_js("botaoVerTodas") + "\n"
+                   + _funcao_js("new_vazio"))
+          .replace("SEM_CALENDARIO", json.dumps(sem_calendario))
           .replace("DISPONIVEIS", json.dumps(disponiveis))
           .replace("LIVES", json.dumps(lives))
           .replace("ESCONDIDAS", str(escondidas))
@@ -254,6 +268,63 @@ def testar():
     ok("não está transmitindo nada" not in r.get("texto", ""),
        "com o gravador desligado a tela afirma que o canal não transmite "
        "nada. Ela não tem como saber: quem olha o canal é o gravador")
+
+    # ── 6. SEM CALENDÁRIO NÃO SE CULPA O CANAL ──────────────────────────
+    # Se a API da liga não responde, NENHUMA transmissão é reconhecida e todas
+    # caem no filtro. O efeito na tela é idêntico ao de "não tem jogo hoje" —
+    # e a causa é o oposto. Dizer "o canal não está transmitindo nada" aqui
+    # mandaria o Vini procurar defeito no canal no meio da rodada.
+    r = _rodar(disponiveis=[], lives=[], escondidas=0,
+               sem_calendario="o calendário da liga voltou vazio")
+    ok(not r.get("erro"), f"o JavaScript quebrou: {r.get('erro')}")
+    ok("calendário da liga" in r.get("texto", ""),
+       "com o calendário da liga fora do ar, a tela não diz isso")
+    ok("não está transmitindo nada" not in r.get("texto", ""),
+       "sem o calendário, a tela culpa o canal por uma falha minha")
+    ok(r.get("ver_todas") == 1,
+       "sem o calendário, some o caminho para ver o que o canal transmite — "
+       "e é exatamente aí que ele é a ÚNICA forma de gravar o jogo")
+
+    # ── 7. NO SERVIDOR: TODA LISTA VAZIA TEM QUE DIZER POR QUÊ ──────────
+    # `_calendario_de_hoje` tem vários caminhos que devolvem lista vazia — API
+    # fora do ar, temporada não encontrada, calendário vazio — e ANTES todos
+    # saíam iguais, como um `return []` mudo. É a mesma armadilha de sempre:
+    # "não tem" e "não consegui saber" viram a mesma tela.
+    #
+    # Confiro pela ÁRVORE do código, e não procurando texto: assim um caminho
+    # novo acrescentado amanhã sem motivo também é pego.
+    import ast
+    arvore = ast.parse(FONTE)
+    alvo_fn = next((n for n in ast.walk(arvore)
+                    if isinstance(n, ast.FunctionDef)
+                    and n.name == "_calendario_de_hoje"), None)
+    ok(alvo_fn, "sumiu _calendario_de_hoje")
+    mudos = []
+    for n in ast.walk(alvo_fn or ast.parse("")):
+        if not isinstance(n, ast.Return) or not isinstance(n.value, ast.Tuple):
+            continue
+        lista, motivo = n.value.elts[0], n.value.elts[1]
+        vazia = isinstance(lista, ast.List) and not lista.elts
+        if not vazia:
+            continue
+        # Motivo tem que ser texto não vazio (literal ou f-string).
+        tem = (isinstance(motivo, ast.JoinedStr)
+               or (isinstance(motivo, ast.Constant)
+                   and isinstance(motivo.value, str) and motivo.value.strip()))
+        if not tem:
+            mudos.append(n.lineno)
+    ok(not mudos,
+       f"há saída sem jogo nenhum e sem motivo nas linhas {mudos} de "
+       "_calendario_de_hoje. Sem motivo, a guia não distingue 'não tem jogo "
+       "hoje' de 'não consegui saber quais são os jogos'")
+
+    # E o motivo tem que CHEGAR à tela pelas duas rotas que a guia usa.
+    for fn in ("api_clipes", "api_clipe_lives"):
+        corpo = _corpo_py(fn)
+        ok("_calendario_de_hoje()" in corpo,
+           f"{fn}: parou de pedir o motivo junto com o calendário")
+        ok('"sem_calendario": sem_calendario' in corpo,
+           f"{fn}: o motivo não chega mais à tela")
 
     for f in falhas:
         print("  ✗", f)

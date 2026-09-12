@@ -189,24 +189,93 @@ def mesmo_jogo(titulo: str, casa: str, fora: str) -> bool:
     return confronto(a, b) == alvo
 
 
+def _clubes_no_texto(titulo: str) -> set:
+    """Todo clube conhecido cujo nome aparece neste texto, padronizado.
+
+    Procura por VARIANTE, e não por igualdade: o glossário já sabe que
+    "Al-Nassr", "AL NASSR" e "Al Nasr" são o mesmo clube, e é o mesmo índice
+    que o resto do app usa para ler notícia.
+
+    Compara com fronteira de palavra para "Neom" não casar dentro de outra
+    palavra — clube com nome curto é onde substring vira jogo errado.
+    """
+    import glossary
+    # Toda pontuação vira espaço ANTES de achatar. O `_achatar` do glossário
+    # tira hífen e ponto, mas não vírgula, dois-pontos, parêntese nem emoji —
+    # e ele está certo em não tirar, porque lá ele recebe um nome de clube já
+    # isolado. Aqui eu recebo uma frase inteira, e "AL AHLI," com a vírgula
+    # colada deixava de ser reconhecido.
+    solto = "".join(c if (c.isalnum() or c.isspace()) else " "
+                    for c in (titulo or ""))
+    achatado = " " + glossary._achatar(solto) + " "
+    if not achatado.strip():
+        return set()
+    achados = set()
+    for variante, exibicao in glossary.variantes_de_clube().items():
+        if len(variante) < 3:
+            continue
+        if f" {variante} " in achatado:
+            achados.add(exibicao)
+    return achados
+
+
 def achar_jogo(titulo: str, jogos: list[dict]) -> dict:
     """O jogo da liga que corresponde a esta transmissão, ou {}.
 
-    Uso `confronto()`, que já existe para casar o mesmo jogo entre fontes
-    diferentes: ele passa pelo glossário de clubes e ignora quem é mandante.
-    É a mesma pergunta de sempre — 'isto e aquilo são o mesmo jogo?' — e
-    responder duas vezes de jeitos diferentes é como se ganha duas respostas.
+    DUAS TENTATIVAS, e a segunda existe por causa de 12/09/26.
+
+    1. O TÍTULO LIDO PELO PADRÃO: "TIME X TIME | resto". É a mais precisa e
+       continua vindo primeiro. Usa `confronto()`, que já casa o mesmo jogo
+       entre fontes diferentes — a mesma pergunta respondida no mesmo lugar.
+
+    2. O CALENDÁRIO PROCURADO DENTRO DO TÍTULO. Porque a primeira depende do
+       formato do título, e o título é escrito à mão, num celular, minutos
+       antes de o jogo começar. Qualquer uma destas variações a derrubava:
+
+           "AO VIVO | AL NASSR X AL KHALEEJ | ..."   (o padrão vem depois)
+           "🔴 AL NASSR X AL KHALEEJ | ..."          (emoji colado no nome)
+           "AL NASSR X AL KHALEEJ AO VIVO | ..."     (sem barra antes do resto)
+           "AL NASSR x AL KHALEEJ - SAUDI ..."       (traço em vez de barra)
+
+       E derrubava EM SILÊNCIO: o jogo virava "não é da liga", sumia da lista
+       de gravar, e a tela dizia que o canal não estava transmitindo nada. Foi
+       o que o Vini encontrou com Al Nassr x Al Khaleej.
+
+       A segunda tentativa inverte a pergunta. Em vez de "que jogo este título
+       descreve?", que exige entender o título, ela pergunta "qual dos jogos
+       de hoje tem OS DOIS clubes citados aqui?" — e aí o formato não importa.
+
+       É seguro porque a lista é curta (os jogos do dia), porque exige os DOIS
+       clubes, e porque DESISTE se mais de um jogo responder. Casar por um
+       clube só, num dia de nove partidas, gravaria a partida errada — e
+       gravação errada tem toda a cara de certa até alguém assistir.
     """
     casa, fora = clubes_do_titulo(titulo)
-    if not casa or not fora:
+    if casa and fora:
+        alvo = confronto(casa, fora)
+        if len(alvo) == 2:
+            for j in jogos:
+                c = (j.get("home") or {}).get("shortName") or ""
+                f = (j.get("away") or {}).get("shortName") or ""
+                if c and f and confronto(c, f) == alvo:
+                    return j
+
+    citados = _clubes_no_texto(titulo)
+    # Atalho, e não a garantia. Quem garante que um clube sozinho não casa é o
+    # `>=` lá embaixo, que exige o par inteiro — este `if` só evita varrer o
+    # calendário quando já dá para saber que não vai dar. Digo isso porque
+    # trocá-lo por `< 1` não muda resultado nenhum, e eu não quero que a
+    # próxima pessoa (ou eu) o leia como se fosse a trava de segurança.
+    if len(citados) < 2:
         return {}
-    alvo = confronto(casa, fora)
+    candidatos = []
     for j in jogos:
         c = (j.get("home") or {}).get("shortName") or ""
         f = (j.get("away") or {}).get("shortName") or ""
-        if c and f and confronto(c, f) == alvo:
-            return j
-    return {}
+        dupla = confronto(c, f)
+        if len(dupla) == 2 and {x.lower() for x in citados} >= dupla:
+            candidatos.append(j)
+    return candidatos[0] if len(candidatos) == 1 else {}
 
 
 def placar_do_jogo(j: dict) -> dict:

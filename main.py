@@ -10173,12 +10173,22 @@ async def api_escalacoes(horas: int = 12, coletar: int = 1):
             "sportmonks_configurada": sm.configurado()}
 
 
-def _jogos_de_hoje_da_liga() -> list[dict]:
-    """Os jogos da liga de hoje e de ontem, para casar com as transmissões.
+def _calendario_de_hoje() -> tuple[list[dict], str]:
+    """Os jogos da liga na janela de hoje, e o que deu errado se deu.
 
-    Ontem entra porque jogo que começa 21h local vira madrugada aqui, e a
-    gravação atravessa a virada do dia. Falha em silêncio de propósito: se a
-    API da liga não responder, a guia mostra o título cru e continua servindo.
+    DEVOLVE O MOTIVO junto, e é isso que mudou em 12/09/26. Antes esta função
+    falhava em silêncio: API fora do ar, temporada não encontrada e "não tem
+    jogo hoje" saíam todos como lista vazia. E lista vazia aqui não é um
+    detalhe — sem calendário, NENHUMA transmissão é reconhecida como da liga,
+    todas caem no filtro, e a guia de Clipes fica sem um botão sequer no meio
+    de uma rodada. O Vini descobriria isso do mesmo jeito que descobriu o
+    resto: com o jogo no ar e a tela muda.
+
+    A JANELA cobre o dia de Brasília e o seguinte na Arábia. A Arábia está
+    SEIS HORAS À FRENTE: um jogo às 21h de lá é 15h aqui, mesmo dia — mas
+    depois das 18h daqui, lá já é amanhã, e um jogo que começa no fim da noite
+    saudita cairia na data seguinte. Ontem continua na conta porque uma
+    gravação começada à noite atravessa a virada.
     """
     import httpx
     import liga_spl
@@ -10187,14 +10197,22 @@ def _jogos_de_hoje_da_liga() -> list[dict]:
             hoje = _dia_de_brasilia()
             sid = liga_spl.temporada(hoje, cli)
             if not sid:
-                return []
+                return [], "não achei a temporada em curso no calendário da liga"
             todos = liga_spl.jogos_da_temporada(sid, cli)
-            dias = {hoje, _dia_de_brasilia(-1)}
+            if not todos:
+                return [], "o calendário da liga voltou vazio"
+            dias = {hoje, _dia_de_brasilia(-1), _dia_de_brasilia(1)}
             return [j for j in todos
-                    if (j.get("matchDateLocal") or "")[:10] in dias]
+                    if (j.get("matchDateLocal") or "")[:10] in dias], ""
     except Exception as e:
-        print(f"⚠️ jogos de hoje: {type(e).__name__}: {e}")
-        return []
+        aviso = f"{type(e).__name__}: {e}"
+        print(f"⚠️ jogos de hoje: {aviso}")
+        return [], f"não consegui falar com o calendário da liga ({aviso})"
+
+
+def _jogos_de_hoje_da_liga() -> list[dict]:
+    """Só os jogos, para quem não se importa com o motivo."""
+    return _calendario_de_hoje()[0]
 
 
 def _enfeitar(itens: list[dict], jogos: list[dict]) -> list[dict]:
@@ -10226,7 +10244,7 @@ async def api_clipe_lives(todas: int = 0):
     quem esconde sem porta de saída acaba perdendo um jogo importante que foi
     rotulado de um jeito que a regra não previu.
     """
-    jogos = _jogos_de_hoje_da_liga()
+    jogos, sem_calendario = _calendario_de_hoje()
     lives = _enfeitar(listar_lives(), jogos)
     disponiveis = _enfeitar(lives_disponiveis(), jogos)
     escondidas = 0
@@ -10235,7 +10253,7 @@ async def api_clipe_lives(todas: int = 0):
         disponiveis = [d for d in disponiveis if d.get("da_liga")]
         escondidas = antes - len(disponiveis)
     return {"lives": lives, "disponiveis": disponiveis,
-            "escondidas": escondidas,
+            "escondidas": escondidas, "sem_calendario": sem_calendario,
             "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES,
             "atraso": _atraso_transmissao()}
 
@@ -10612,7 +10630,7 @@ async def api_clipes(horas: int = 8, todas: int = 0):
     de um servidor de mídia, nem como se acha o jogo pelo título: no dia em
     que isso mudar, muda num lugar e não em JavaScript espalhado.
     """
-    jogos_liga = _jogos_de_hoje_da_liga()
+    jogos_liga, sem_calendario = _calendario_de_hoje()
     lives = _enfeitar(listar_lives(), jogos_liga)
     nomes = {l.get("id"): (l.get("titulo") or "") for l in lives}
     clipes = []
@@ -10628,6 +10646,10 @@ async def api_clipes(horas: int = 8, todas: int = 0):
     return {"clipes": clipes,
             "agente_configurado": bool(os.environ.get("CLIPE_TOKEN", "").strip()),
             "lives": lives, "disponiveis": disponiveis, "escondidas": escondidas,
+            # Sem calendário NENHUMA transmissão é reconhecida como da liga e
+            # todas somem no filtro. A tela precisa saber a diferença entre
+            # "não tem jogo" e "não consegui saber quais são os jogos".
+            "sem_calendario": sem_calendario,
             "gravador": _gravador_estado(), "canal": CANAL, "max": MAX_LIVES,
             "atraso": _atraso_transmissao()}
 
@@ -11617,6 +11639,10 @@ var _ultimosClipes = [];
 // Transmissões do canal fora da liga saudita: escondidas por padrão.
 var _verTodas = false;
 var _escondidas = 0;
+// O motivo de o calendário da liga não ter vindo, quando não veio. Sem ele
+// eu não teria como distinguir "não tem jogo hoje" de "não consegui saber
+// quais são os jogos de hoje" — e as duas coisas esvaziam a lista igual.
+var _semCalendario = '';
 
 function escolherJogo(id) {
   // Clicar no jogo já escolhido NÃO volta para "todos". Antes voltava, e
@@ -11812,6 +11838,7 @@ async function carregar() {
   const g = d.gravador || {};
   const lives = d.lives || [];
   _escondidas = d.escondidas || 0;
+  _semCalendario = d.sem_calendario || '';
   const grav = g.gravando || {};
   const est = document.getElementById('estadoGravador');
   if (!d.agente_configurado) {
@@ -11902,6 +11929,17 @@ function pintarDisponiveis(disp, lives, max, online) {
   titulo.style.display = livres.length ? '' : 'none';
   alvo.innerHTML = '';
   if (!livres.length) {
+    if (_semCalendario) {
+      // Sem calendário, NENHUMA transmissão é reconhecida como da liga e
+      // todas caem no filtro. Dizer "o canal não está transmitindo nada"
+      // aqui seria culpar o canal por uma falha minha — e o Vini ficaria
+      // procurando defeito no lugar errado no meio da rodada.
+      const cx = new_vazio('Não consegui carregar o calendário da liga, '
+        + 'então não sei reconhecer os jogos: ' + esc(_semCalendario) + '.');
+      alvo.appendChild(cx);
+      if (!_verTodas) alvo.appendChild(botaoVerTodas(true));
+      return;
+    }
     if (_escondidas > 0 && !_verTodas) {
       // O canal ESTÁ transmitindo — só não é jogo da liga. Digo o que é, e
       // deixo o caminho aberto num toque.
@@ -11940,12 +11978,24 @@ function pintarDisponiveis(disp, lives, max, online) {
 // Extraída para fora porque agora ela é desenhada em DOIS lugares: junto da
 // lista, e sozinha quando não sobrou nada na lista. Era só no primeiro, e por
 // isso ela não existia justamente quando era a única saída.
-function botaoVerTodas() {
+function botaoVerTodas(tudo) {
   const p = document.createElement('button');
   p.className = 'ver-todas';
-  p.textContent = '+ ' + _escondidas + ' fora da liga saudita';
+  // Sem calendário eu não sei QUANTAS foram escondidas nem por quê, então o
+  // rótulo não promete um número: promete mostrar tudo que o canal transmite.
+  p.textContent = tudo ? 'Ver tudo que o canal está transmitindo'
+                       : '+ ' + _escondidas + ' fora da liga saudita';
   p.onclick = function () { _verTodas = true; carregar(); };
   return p;
+}
+
+function new_vazio(texto) {
+  const cx = document.createElement('div');
+  cx.className = 'vazio';
+  const p = document.createElement('p');
+  p.textContent = texto;
+  cx.appendChild(p);
+  return cx;
 }
 
 function pintarClipes(clipes) {
