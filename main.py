@@ -11880,15 +11880,44 @@ function pintarDisponiveis(disp, lives, max, online) {
   const jaTem = {};
   lives.forEach(function (l) { jaTem[l.id] = true; });
   const livres = disp.filter(function (x) { return !jaTem[x.id]; });
+
+  // ── A PORTA DE SAÍDA TINHA QUE VIR ANTES DA DESISTÊNCIA ─────────────────
+  //
+  // Aqui havia um `return` quando `livres` estava vazia — e ele saía ANTES de
+  // desenhar o botão "+N fora da liga saudita". Ou seja: a escapatória que eu
+  // escrevi para o caso de um jogo não ser reconhecido só aparecia quando
+  // havia OUTRO jogo reconhecido na tela. No caso em que ela é a única coisa
+  // que importa — o canal transmitindo um jogo só, e esse jogo não casando
+  // com o calendário da liga — ela era inalcançável.
+  //
+  // Foi o que aconteceu com o Al Nassr: jogo no ar, botão de gravar
+  // nenhum, e a tela dizendo que o canal não estava transmitindo nada.
+  // Eu tinha escrito no comentário que "esconder sem porta de saída é como se
+  // perde uma final", e então escondi sem porta de saída.
+  //
+  // E A MENSAGEM MENTIA. "O canal não está transmitindo nada agora" é uma
+  // afirmação sobre o canal; o que eu sabia era outra coisa — que nada do que
+  // o canal transmite casou com o calendário da Saudi Pro League. Jogo de
+  // AFC, Copa do Rei ou amistoso cai exatamente aí.
+  titulo.style.display = livres.length ? '' : 'none';
+  alvo.innerHTML = '';
   if (!livres.length) {
-    titulo.style.display = 'none';
-    alvo.innerHTML = !lives.length && online
-      ? '<div class="vazio"><p>O canal não está transmitindo nada agora.</p></div>'
-      : '';
+    if (_escondidas > 0 && !_verTodas) {
+      // O canal ESTÁ transmitindo — só não é jogo da liga. Digo o que é, e
+      // deixo o caminho aberto num toque.
+      const cx = document.createElement('div');
+      cx.className = 'vazio';
+      cx.innerHTML = '<p>O canal está transmitindo ' + _escondidas
+        + (_escondidas > 1 ? ' jogos que não casaram' : ' jogo que não casou')
+        + ' com o calendário da liga — pode ser AFC, Copa do Rei ou amistoso.</p>';
+      alvo.appendChild(cx);
+      alvo.appendChild(botaoVerTodas());
+    } else if (!lives.length && online) {
+      alvo.innerHTML = '<div class="vazio"><p>O canal não está transmitindo '
+        + 'nada agora.</p></div>';
+    }
     return;
   }
-  titulo.style.display = '';
-  alvo.innerHTML = '';
   const cheio = lives.length >= max;
   livres.forEach(function (x) {
     const d = document.createElement('div');
@@ -11905,13 +11934,18 @@ function pintarDisponiveis(disp, lives, max, online) {
   // O que não é da liga saudita fica escondido, mas nunca descartado: uma
   // regra de título pode não prever como um jogo importante foi rotulado, e
   // esconder sem porta de saída é como se perde uma final.
-  if (_escondidas > 0 && !_verTodas) {
-    const p = document.createElement('button');
-    p.className = 'ver-todas';
-    p.textContent = '+ ' + _escondidas + ' fora da liga saudita';
-    p.onclick = function () { _verTodas = true; carregar(); };
-    alvo.appendChild(p);
-  }
+  if (_escondidas > 0 && !_verTodas) alvo.appendChild(botaoVerTodas());
+}
+
+// Extraída para fora porque agora ela é desenhada em DOIS lugares: junto da
+// lista, e sozinha quando não sobrou nada na lista. Era só no primeiro, e por
+// isso ela não existia justamente quando era a única saída.
+function botaoVerTodas() {
+  const p = document.createElement('button');
+  p.className = 'ver-todas';
+  p.textContent = '+ ' + _escondidas + ' fora da liga saudita';
+  p.onclick = function () { _verTodas = true; carregar(); };
+  return p;
 }
 
 function pintarClipes(clipes) {
