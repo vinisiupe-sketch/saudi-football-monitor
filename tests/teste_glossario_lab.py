@@ -52,6 +52,9 @@ def testar():
         tm = f.read()
     assert "def _parse_nome_pais_origem" in tm
     assert "name in home country" in tm
+    assert 'soup.find_all(["span", "th", "dt"])' in tm
+    assert '"info-table__content--bold" not in classes' in tm
+    assert "'informacoes e fatos'" in banco
     for coluna in ("SPL em inglês", "SPL em árabe", "API-Football",
                    "Transfermarkt", "PDF", "Notícias árabes"):
         assert coluna in tela

@@ -215,28 +215,25 @@ def _parse_nome_pais_origem(soup: BeautifulSoup) -> str | None:
         "nome no país de origem", "nome no pais de origem",
         "name im heimatland", "vollständiger name",
     )
-    for no in soup.find_all(["span", "div", "th", "td"]):
+    # Procuro apenas elementos que podem ser o rótulo. A div externa também
+    # começa com "Nome no país de origem", mas seu irmão é o título da seção
+    # seguinte ("Informações e fatos"); foi isso que gerou o falso nome.
+    for no in soup.find_all(["span", "th", "dt"]):
         texto = re.sub(r"\s+", " ", no.get_text(" ", strip=True)).strip()
         chave = texto.casefold().rstrip(":")
-        if not any(chave == r or chave.startswith(r + ":") for r in rotulos):
+        if chave not in rotulos:
             continue
-        irmao = no.find_next_sibling()
-        if irmao:
-            valor = re.sub(r"\s+", " ", irmao.get_text(" ", strip=True)).strip()
-            if valor:
-                return valor
-        pai = no.parent
-        if pai:
-            partes = [re.sub(r"\s+", " ", x.get_text(" ", strip=True)).strip()
-                      for x in pai.find_all(["span", "div", "td"], recursive=False)]
-            partes = [x for x in partes if x and x != texto]
-            if partes:
-                return partes[-1]
-        for rotulo in rotulos:
-            if chave.startswith(rotulo + ":"):
-                valor = texto[len(rotulo) + 1:].strip()
-                if valor:
-                    return valor
+        irmao = no.find_next_sibling(["span", "td", "dd"])
+        if not irmao:
+            continue
+        classes = set(irmao.get("class") or [])
+        # No layout atual, o valor é o span bold imediatamente após o span
+        # regular. td/dd cobrem os layouts antigos em tabela/lista.
+        if irmao.name == "span" and "info-table__content--bold" not in classes:
+            continue
+        valor = re.sub(r"\s+", " ", irmao.get_text(" ", strip=True)).strip()
+        if valor:
+            return valor
     return None
 
 

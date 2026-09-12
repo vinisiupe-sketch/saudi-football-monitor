@@ -492,6 +492,16 @@ def init_db():
                   "ON glossario_lab_jogador(tm_id)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_nome_norm "
                   "ON glossario_lab_nome(nome_normalizado)")
+        # Limpa o valor que uma primeira versão do leitor da ficha do TM
+        # confundiu com nome. A origem/método deixam a correção restrita ao
+        # laboratório e somente aos registros criados por aquele leitor.
+        c.execute("""DELETE FROM glossario_lab_nome
+                      WHERE fonte = 'transfermarkt'
+                        AND tipo = 'nome_pais_origem'
+                        AND metodo = 'perfil_transfermarkt'
+                        AND nome_normalizado IN
+                            ('informacoes e fatos', 'information and facts',
+                             'informationen und fakten')""")
         c.execute("ALTER TABLE glossario_lab_jogador ADD COLUMN IF NOT EXISTS "
                   "af_bloqueado BOOLEAN NOT NULL DEFAULT FALSE")
         c.execute("ALTER TABLE glossario_lab_jogador ADD COLUMN IF NOT EXISTS "
@@ -818,6 +828,10 @@ def salvar_nome_pais_origem_transfermarkt_lab(jogador_id: int,
     nome_bruto = " ".join((nome_bruto or "").replace("\u200f", " ").split())
     if not nome_bruto:
         return {"erro": "o Transfermarkt não informou nome no país de origem"}
+    if _normalizar_nome_do_lab(nome_bruto, "lat") in {
+            "informacoes e fatos", "information and facts",
+            "informationen und fakten"}:
+        return {"erro": "o Transfermarkt não devolveu o nome do jogador"}
 
     bloco_arabe = re.compile(
         r"[\u0600-\u06ff\u0750-\u077f\u08a0-\u08ff]+"
