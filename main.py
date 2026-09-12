@@ -14004,6 +14004,68 @@ async def config_page():
     )
 
 
+# ── Glossário de jogadores — laboratório isolado ────────────────────────
+#
+# Nenhuma rotina atual consulta estas rotas ou tabelas. A página existe para
+# montar e revisar a nova base antes de qualquer futura adoção pelo app.
+@app.get("/glossario-lab", response_class=HTMLResponse)
+async def pagina_glossario_lab():
+    caminho = os.path.join(os.path.dirname(__file__), "public", "glossario-lab.html")
+    with open(caminho, encoding="utf-8") as arquivo:
+        html = arquivo.read()
+    return HTMLResponse(
+        html.replace("__THEME__", _HEAD_COMUM)
+            .replace("__HEADER_CSS__", _HEADER_CSS)
+            .replace("__HDR__", _header("/glossario-lab"))
+    )
+
+
+@app.get("/api/glossario-lab")
+async def api_glossario_lab(busca: str = "", clube: str = "", status: str = "",
+                            limite: int = 120, deslocamento: int = 0):
+    from database import listar_glossario_lab
+    return await asyncio.to_thread(listar_glossario_lab, busca, clube, status,
+                                   limite, deslocamento)
+
+
+@app.post("/api/glossario-lab/sincronizar")
+async def api_glossario_lab_sincronizar():
+    from database import sincronizar_glossario_lab
+    return await asyncio.to_thread(sincronizar_glossario_lab)
+
+
+@app.post("/api/glossario-lab/nomes")
+async def api_glossario_lab_adicionar_nome(request: Request):
+    from database import adicionar_nome_glossario_lab
+    corpo = await request.json()
+    try:
+        jogador_id = int(corpo.get("jogador_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"erro": "jogador inválido"}, 400)
+    resultado = await asyncio.to_thread(
+        adicionar_nome_glossario_lab, jogador_id, corpo.get("nome") or "",
+        corpo.get("fonte") or "manual", corpo.get("idioma") or "",
+        corpo.get("contexto") or "")
+    return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
+
+
+@app.patch("/api/glossario-lab/jogadores/{jogador_id}")
+async def api_glossario_lab_revisar(jogador_id: int, request: Request):
+    from database import revisar_jogador_glossario_lab
+    corpo = await request.json()
+    resultado = await asyncio.to_thread(
+        revisar_jogador_glossario_lab, jogador_id,
+        bool(corpo.get("revisado")), corpo.get("status") or "")
+    return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
+
+
+@app.delete("/api/glossario-lab/nomes/{nome_id}")
+async def api_glossario_lab_remover_nome(nome_id: int):
+    from database import remover_nome_glossario_lab
+    resultado = await asyncio.to_thread(remover_nome_glossario_lab, nome_id)
+    return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
+
+
 @app.get("/clipes", response_class=HTMLResponse)
 async def clipes_page():
     return HTMLResponse(

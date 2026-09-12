@@ -413,12 +413,343 @@ def init_db():
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS perfil_em TIMESTAMPTZ")
         c.execute("CREATE INDEX IF NOT EXISTS idx_jogador_nascimento "
                   "ON jogador(nascimento)")
+        # Laboratório do glossário de jogadores. Estas tabelas são deliberadamente
+        # paralelas: nenhuma leitura atual de notícias, lesões, mercado ou PDFs
+        # passa por elas. Isso permite construir e revisar a nova identidade sem
+        # mudar o comportamento que já está em produção.
+        #
+        # O id interno não depende da SPL. Assim, um atleta citado numa negociação
+        # pode nascer aqui antes de ter spl_id e receber os identificadores externos
+        # mais tarde, sem trocar de pessoa.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS glossario_lab_jogador (
+                id              SERIAL PRIMARY KEY,
+                spl_id          TEXT UNIQUE,
+                af_id           INTEGER,
+                tm_id           TEXT,
+                nome_principal  TEXT NOT NULL,
+                nome_curto      TEXT,
+                nome_ar         TEXT,
+                clube           TEXT,
+                posicao         TEXT,
+                camisa          TEXT,
+                nacionalidade   TEXT,
+                nascimento      DATE,
+                foto            TEXT,
+                status          TEXT NOT NULL DEFAULT 'em_preparo',
+                confianca       SMALLINT NOT NULL DEFAULT 100,
+                revisado        BOOLEAN NOT NULL DEFAULT FALSE,
+                origem_base     TEXT NOT NULL DEFAULT 'spl',
+                criado_em       TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em   TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS glossario_lab_nome (
+                id              SERIAL PRIMARY KEY,
+                jogador_id      INTEGER NOT NULL REFERENCES glossario_lab_jogador(id)
+                                  ON DELETE CASCADE,
+                fonte           TEXT NOT NULL,
+                idioma          TEXT NOT NULL DEFAULT '',
+                tipo            TEXT NOT NULL DEFAULT 'nome',
+                nome            TEXT NOT NULL,
+                nome_normalizado TEXT NOT NULL DEFAULT '',
+                contexto        TEXT NOT NULL DEFAULT '',
+                metodo          TEXT NOT NULL DEFAULT 'importado',
+                confianca       SMALLINT NOT NULL DEFAULT 100,
+                confirmado      BOOLEAN NOT NULL DEFAULT FALSE,
+                ocorrencias     INTEGER NOT NULL DEFAULT 1,
+                primeiro_em     TIMESTAMPTZ DEFAULT NOW(),
+                ultimo_em       TIMESTAMPTZ DEFAULT NOW(),
+                criado_em       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (jogador_id, fonte, idioma, tipo, nome)
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_clube "
+                  "ON glossario_lab_jogador(clube)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_af "
+                  "ON glossario_lab_jogador(af_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_tm "
+                  "ON glossario_lab_jogador(tm_id)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_glossario_lab_nome_norm "
+                  "ON glossario_lab_nome(nome_normalizado)")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
     init_injuries()
     init_entity_tables()
+    # Só depois de init_entity_tables: é ali que nasce window_transfers, uma
+    # das fontes que o laboratório pode copiar num banco vazio.
+    with get_conn() as conn:
+        _popular_glossario_lab(conn.cursor())
     print("✅ Banco de dados PostgreSQL inicializado.")
+
+
+def _normalizar_nome_do_lab(nome: str, idioma: str = "") -> str:
+    """Normalização para busca; o texto original sempre fica preservado."""
+    try:
+        import glossary
+        if idioma == "ar" or re.search(r"[\u0600-\u06ff]", nome or ""):
+            return glossary.chave_arabe(nome or "")
+        return glossary.chave_latina(nome or "")
+    except Exception:
+        return " ".join((nome or "").lower().split())
+
+
+def _popular_glossario_lab(c) -> dict:
+    """Copia para o laboratório o que as fontes atuais já confirmaram.
+
+    A cópia é idempotente e só completa campos vazios. Uma revisão feita no
+    laboratório não é desfeita quando o Railway reinicia.
+    """
+    c.execute("""
+        INSERT INTO glossario_lab_jogador
+            (spl_id, af_id, tm_id, nome_principal, nome_curto, nome_ar, clube,
+             posicao, camisa, nacionalidade, nascimento, foto, origem_base)
+        SELECT spl_id, af_id, tm_id, nome, nome_curto, nome_ar, clube, posicao,
+               camisa, nacionalidade, nascimento, foto, 'spl'
+          FROM jogador
+         WHERE spl_id IS NOT NULL AND nome IS NOT NULL AND nome <> ''
+        ON CONFLICT (spl_id) DO UPDATE SET
+            af_id         = COALESCE(glossario_lab_jogador.af_id, EXCLUDED.af_id),
+            tm_id         = COALESCE(glossario_lab_jogador.tm_id, EXCLUDED.tm_id),
+            nome_curto    = COALESCE(NULLIF(glossario_lab_jogador.nome_curto, ''), EXCLUDED.nome_curto),
+            nome_ar       = COALESCE(NULLIF(glossario_lab_jogador.nome_ar, ''), EXCLUDED.nome_ar),
+            clube         = COALESCE(NULLIF(glossario_lab_jogador.clube, ''), EXCLUDED.clube),
+            posicao       = COALESCE(NULLIF(glossario_lab_jogador.posicao, ''), EXCLUDED.posicao),
+            camisa        = COALESCE(NULLIF(glossario_lab_jogador.camisa, ''), EXCLUDED.camisa),
+            nacionalidade = COALESCE(NULLIF(glossario_lab_jogador.nacionalidade, ''), EXCLUDED.nacionalidade),
+            nascimento    = COALESCE(glossario_lab_jogador.nascimento, EXCLUDED.nascimento),
+            foto          = COALESCE(NULLIF(glossario_lab_jogador.foto, ''), EXCLUDED.foto)
+    """)
+
+    # As três grafias oficiais da SPL começam confirmadas. DO NOTHING é
+    # essencial: reiniciar o app não pode fingir uma nova ocorrência.
+    c.execute("""
+        SELECT g.id, j.nome, j.nome_curto, j.nome_ar
+          FROM glossario_lab_jogador g
+          JOIN jogador j ON j.spl_id = g.spl_id
+    """)
+    nomes = []
+    for jid, nome, curto, arabe in c.fetchall():
+        if nome:
+            nomes.append((jid, "spl", "lat", "nome", nome,
+                          _normalizar_nome_do_lab(nome, "lat"), "API oficial da SPL"))
+        if curto and curto != nome:
+            nomes.append((jid, "spl", "lat", "nome_curto", curto,
+                          _normalizar_nome_do_lab(curto, "lat"), "API oficial da SPL"))
+        if arabe:
+            nomes.append((jid, "spl", "ar", "nome", arabe,
+                          _normalizar_nome_do_lab(arabe, "ar"), "API oficial da SPL"))
+    if nomes:
+        psycopg2.extras.execute_batch(c, """
+            INSERT INTO glossario_lab_nome
+                (jogador_id, fonte, idioma, tipo, nome, nome_normalizado,
+                 contexto, metodo, confianca, confirmado)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'id_oficial',100,TRUE)
+            ON CONFLICT (jogador_id, fonte, idioma, tipo, nome) DO NOTHING
+        """, nomes)
+
+    # Nomes externos só entram quando o id dessa fonte já está ligado ao mesmo
+    # jogador. O laboratório copia uma certeza existente; não cria casamento.
+    externos = []
+    c.execute("""SELECT g.id, a.nome, COALESCE(a.clube, '')
+                   FROM glossario_lab_jogador g
+                   JOIN af_jogador a ON a.af_id = g.af_id
+                  WHERE a.nome IS NOT NULL AND a.nome <> ''""")
+    for jid, nome, contexto in c.fetchall():
+        externos.append((jid, "api_football", "lat", "nome", nome,
+                          _normalizar_nome_do_lab(nome, "lat"), contexto))
+    c.execute("""SELECT DISTINCT g.id, w.player_name
+                   FROM glossario_lab_jogador g
+                   JOIN window_transfers w ON w.player_id = g.tm_id
+                  WHERE w.player_name IS NOT NULL AND w.player_name <> ''""")
+    for jid, nome in c.fetchall():
+        externos.append((jid, "transfermarkt", "lat", "nome", nome,
+                          _normalizar_nome_do_lab(nome, "lat"), ""))
+    c.execute("""SELECT DISTINCT g.id, e.nome, COALESCE(e.clube, '')
+                   FROM glossario_lab_jogador g
+                   JOIN elenco_congelado e ON CAST(e.jogador_id AS TEXT) = g.tm_id
+                  WHERE e.nome IS NOT NULL AND e.nome <> ''""")
+    for jid, nome, contexto in c.fetchall():
+        externos.append((jid, "transfermarkt", "lat", "nome", nome,
+                          _normalizar_nome_do_lab(nome, "lat"), contexto))
+    c.execute("""SELECT g.id, a.escrito
+                   FROM glossario_lab_jogador g
+                   JOIN jogador_apelido a ON a.spl_id = g.spl_id
+                  WHERE a.escrito IS NOT NULL AND a.escrito <> ''""")
+    for jid, nome in c.fetchall():
+        idioma = "ar" if re.search(r"[\u0600-\u06ff]", nome) else "lat"
+        externos.append((jid, "manual", idioma, "variacao", nome,
+                          _normalizar_nome_do_lab(nome, idioma),
+                          "Correção já confirmada no app"))
+    if externos:
+        psycopg2.extras.execute_batch(c, """
+            INSERT INTO glossario_lab_nome
+                (jogador_id, fonte, idioma, tipo, nome, nome_normalizado,
+                 contexto, metodo, confianca, confirmado)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'id_externo_confirmado',100,TRUE)
+            ON CONFLICT (jogador_id, fonte, idioma, tipo, nome) DO NOTHING
+        """, externos)
+    c.execute("SELECT COUNT(*) FROM glossario_lab_jogador")
+    jogadores = c.fetchone()[0]
+    c.execute("SELECT COUNT(*) FROM glossario_lab_nome")
+    variacoes = c.fetchone()[0]
+    return {"jogadores": jogadores, "variacoes": variacoes}
+
+
+def sincronizar_glossario_lab() -> dict:
+    """Traz novos jogadores/vínculos para o laboratório, sem escrever na origem."""
+    try:
+        with get_conn() as conn:
+            return _popular_glossario_lab(conn.cursor())
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
+                         limite: int = 120, deslocamento: int = 0) -> dict:
+    """Tabela humana do laboratório, com todas as grafias em cada pessoa."""
+    limite = max(1, min(int(limite or 120), 500))
+    deslocamento = max(0, int(deslocamento or 0))
+    onde = []
+    valores = []
+    if clube:
+        onde.append("g.clube = %s")
+        valores.append(clube)
+    if status:
+        onde.append("g.status = %s")
+        valores.append(status)
+    if busca:
+        termo = f"%{busca.strip()}%"
+        onde.append("""(g.nome_principal ILIKE %s OR g.nome_ar ILIKE %s
+                     OR g.clube ILIKE %s OR CAST(g.id AS TEXT) = %s
+                     OR EXISTS (SELECT 1 FROM glossario_lab_nome n
+                                 WHERE n.jogador_id = g.id AND n.nome ILIKE %s))""")
+        valores.extend([termo, termo, termo, busca.strip(), termo])
+    filtro = (" WHERE " + " AND ".join(onde)) if onde else ""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("SELECT COUNT(*) AS total FROM glossario_lab_jogador g" + filtro,
+                      valores)
+            total = c.fetchone()["total"]
+            c.execute("""SELECT g.*,
+                                 (SELECT COUNT(*) FROM glossario_lab_nome n
+                                   WHERE n.jogador_id = g.id) AS total_nomes
+                            FROM glossario_lab_jogador g""" + filtro +
+                      " ORDER BY g.clube NULLS LAST, g.nome_principal LIMIT %s OFFSET %s",
+                      valores + [limite, deslocamento])
+            jogadores = [dict(r) for r in c.fetchall()]
+            ids = [j["id"] for j in jogadores]
+            nomes_por_id = {i: [] for i in ids}
+            if ids:
+                c.execute("""SELECT id, jogador_id, fonte, idioma, tipo, nome,
+                                     contexto, metodo, confianca, confirmado,
+                                     ocorrencias, primeiro_em, ultimo_em
+                                FROM glossario_lab_nome
+                               WHERE jogador_id = ANY(%s)
+                               ORDER BY jogador_id, fonte, confirmado DESC, nome""",
+                          [ids])
+                for linha in c.fetchall():
+                    n = dict(linha)
+                    for campo in ("primeiro_em", "ultimo_em"):
+                        if n.get(campo) is not None:
+                            n[campo] = n[campo].isoformat()
+                    nomes_por_id[n.pop("jogador_id")].append(n)
+            for j in jogadores:
+                j["nomes"] = nomes_por_id.get(j["id"], [])
+                for campo in ("nascimento", "criado_em", "atualizado_em"):
+                    if j.get(campo) is not None:
+                        j[campo] = j[campo].isoformat()
+
+            c.execute("""SELECT clube, COUNT(*) AS total
+                            FROM glossario_lab_jogador
+                           WHERE clube IS NOT NULL AND clube <> ''
+                           GROUP BY clube ORDER BY clube""")
+            clubes = [dict(r) for r in c.fetchall()]
+            c.execute("""SELECT COUNT(*) AS jogadores,
+                                 COUNT(*) FILTER (WHERE spl_id IS NOT NULL) AS com_spl,
+                                 COUNT(*) FILTER (WHERE af_id IS NOT NULL) AS com_af,
+                                 COUNT(*) FILTER (WHERE tm_id IS NOT NULL) AS com_tm,
+                                 COUNT(*) FILTER (WHERE nome_ar IS NOT NULL AND nome_ar <> '') AS com_arabe,
+                                 COUNT(*) FILTER (WHERE revisado) AS revisados
+                            FROM glossario_lab_jogador""")
+            resumo = dict(c.fetchone())
+        return {"jogadores": jogadores, "total": total, "clubes": clubes,
+                "resumo": resumo, "limite": limite, "deslocamento": deslocamento}
+    except Exception as e:
+        return {"jogadores": [], "total": 0, "clubes": [], "resumo": {},
+                "erro": str(e)}
+
+
+def adicionar_nome_glossario_lab(jogador_id: int, nome: str, fonte: str,
+                                 idioma: str = "", contexto: str = "") -> dict:
+    """Acrescenta uma grafia manual ao laboratório; não toca no glossário ativo."""
+    nome = " ".join((nome or "").split())
+    fonte = (fonte or "manual").strip().lower()
+    idioma = (idioma or "").strip().lower()
+    if not nome:
+        return {"erro": "digite o nome encontrado"}
+    if fonte not in {"manual", "spl", "api_football", "transfermarkt", "pdf", "noticia"}:
+        return {"erro": "fonte desconhecida"}
+    if idioma not in {"", "lat", "ar"}:
+        return {"erro": "idioma desconhecido"}
+    if not idioma:
+        idioma = "ar" if re.search(r"[\u0600-\u06ff]", nome) else "lat"
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("SELECT 1 FROM glossario_lab_jogador WHERE id = %s", [int(jogador_id)])
+            if not c.fetchone():
+                return {"erro": "jogador não encontrado"}
+            c.execute("""
+                INSERT INTO glossario_lab_nome
+                    (jogador_id, fonte, idioma, tipo, nome, nome_normalizado,
+                     contexto, metodo, confianca, confirmado)
+                VALUES (%s,%s,%s,'variacao',%s,%s,%s,'manual',100,TRUE)
+                ON CONFLICT (jogador_id, fonte, idioma, tipo, nome) DO UPDATE SET
+                    contexto = EXCLUDED.contexto,
+                    confirmado = TRUE,
+                    ultimo_em = NOW()
+                RETURNING id, jogador_id, fonte, idioma, tipo, nome, contexto,
+                          metodo, confianca, confirmado, ocorrencias
+            """, [int(jogador_id), fonte, idioma, nome,
+                  _normalizar_nome_do_lab(nome, idioma), contexto.strip()])
+            return {"nome": dict(c.fetchone())}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def revisar_jogador_glossario_lab(jogador_id: int, revisado: bool,
+                                  status: str = "") -> dict:
+    permitidos = {"em_preparo", "confirmado", "conflito", "nao_identificado"}
+    if status and status not in permitidos:
+        return {"erro": "situação desconhecida"}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""UPDATE glossario_lab_jogador
+                             SET revisado = %s,
+                                 status = CASE WHEN %s <> '' THEN %s ELSE status END,
+                                 atualizado_em = NOW()
+                           WHERE id = %s""",
+                      [bool(revisado), status, status, int(jogador_id)])
+            return {"ok": c.rowcount == 1}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def remover_nome_glossario_lab(nome_id: int) -> dict:
+    """Só remove o que foi digitado no laboratório; cópias de fontes ficam."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("DELETE FROM glossario_lab_nome WHERE id = %s AND metodo = 'manual'",
+                      [int(nome_id)])
+            return {"ok": c.rowcount == 1}
+    except Exception as e:
+        return {"erro": str(e)}
 
 
 def _clube(nome) -> str:
