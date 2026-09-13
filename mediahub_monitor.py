@@ -248,9 +248,26 @@ class Monitor:
 
     async def titulos(self, url):
         await self.navegar(url)
-        # A busca é Angular: aguardar os resultados, não apenas o HTML inicial.
-        await self.page.get_by_role("heading", name=re.compile(r"^\d+ results?$")).wait_for()
-        return await self.page.locator("#searchResults a.gridView-title").all_text_contents()
+        # A busca é Angular: primeiro aparece "9 results" e só alguns segundos
+        # depois nascem os cartões. Esperar só o cabeçalho produzia zero títulos
+        # mesmo com nove resultados visíveis no portal.
+        cabecalho = self.page.get_by_role("heading", name=re.compile(r"^\d+ results?$"))
+        await cabecalho.wait_for()
+        total = int((await cabecalho.inner_text()).split()[0])
+        if total == 0:
+            return []
+        links = self.page.get_by_role(
+            "link", name=re.compile(r"Team Sheets?", re.I))
+        try:
+            await links.first.wait_for(timeout=20000)
+        except Exception:
+            return []
+        vistos = []
+        for titulo in await links.all_text_contents():
+            titulo = " ".join(titulo.split())
+            if titulo and titulo not in vistos:
+                vistos.append(titulo)
+        return vistos
 
     async def baixar(self, registro, caminho):
         await self.navegar(url_registro(registro))
@@ -357,7 +374,8 @@ class Monitor:
                 candidatos += 1
                 try:
                     await self.titulos(url)
-                    await self.page.locator("#searchResults a.gridView-title").filter(has_text=titulo).first.click()
+                    await self.page.get_by_role("link").filter(
+                        has_text=titulo).filter(visible=True).first.click()
                     await self.page.wait_for_url(re.compile(r"/record/\d+"))
                     await self.processar(cli, self.page.url, dia)
                 except MonitorError as exc:
