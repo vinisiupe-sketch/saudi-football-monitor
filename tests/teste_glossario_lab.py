@@ -47,6 +47,7 @@ def testar():
     assert "resumo_clube" in main + banco + tela
     assert '"players/profiles"' in main
     assert "colunasComVazio" in tela and "data-ordem=\"api_football\"" in tela
+    assert "data-ordem=\"tm_ar\"" in tela and "com_tm_arabe" in banco + tela
     assert "capturarNomeTM" in tela
     with open(os.path.join(RAIZ, "elenco_tm.py"), encoding="utf-8") as f:
         tm = f.read()
@@ -56,7 +57,7 @@ def testar():
     assert '"info-table__content--bold" not in classes' in tm
     assert "'informacoes e fatos'" in banco
     for coluna in ("SPL em inglês", "SPL em árabe", "API-Football",
-                   "Transfermarkt", "PDF", "Notícias árabes"):
+                   "Transfermarkt", "TM em árabe", "PDF", "Notícias árabes"):
         assert coluna in tela
 
     # A garantia mais importante desta fase: os motores atuais não conhecem

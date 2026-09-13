@@ -670,6 +670,7 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
     existe_noticia = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'noticia')"
     existe_spl_lat = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'spl' AND so.idioma = 'lat')"
     existe_spl_ar = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'spl' AND so.idioma = 'ar')"
+    existe_tm_ar = "EXISTS (SELECT 1 FROM glossario_lab_nome so WHERE so.jogador_id = g.id AND so.fonte = 'transfermarkt' AND so.idioma = 'ar')"
     ordens = {
         "padrao": "g.clube NULLS LAST, g.nome_principal",
         "id_asc": "g.id ASC", "id_desc": "g.id DESC",
@@ -684,6 +685,8 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
         "api_football_preenchidos": "(g.af_id IS NOT NULL) DESC, g.clube NULLS LAST, g.nome_principal",
         "transfermarkt_vazios": "(g.tm_id IS NOT NULL) ASC, g.clube NULLS LAST, g.nome_principal",
         "transfermarkt_preenchidos": "(g.tm_id IS NOT NULL) DESC, g.clube NULLS LAST, g.nome_principal",
+        "tm_ar_vazios": f"{existe_tm_ar} ASC, g.clube NULLS LAST, g.nome_principal",
+        "tm_ar_preenchidos": f"{existe_tm_ar} DESC, g.clube NULLS LAST, g.nome_principal",
         "pdf_vazios": f"{existe_pdf} ASC, g.clube NULLS LAST, g.nome_principal",
         "pdf_preenchidos": f"{existe_pdf} DESC, g.clube NULLS LAST, g.nome_principal",
         "noticia_vazios": f"{existe_noticia} ASC, g.clube NULLS LAST, g.nome_principal",
@@ -736,6 +739,11 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
                                  COUNT(*) FILTER (WHERE spl_id IS NOT NULL) AS com_spl,
                                  COUNT(*) FILTER (WHERE af_id IS NOT NULL) AS com_af,
                                  COUNT(*) FILTER (WHERE tm_id IS NOT NULL) AS com_tm,
+                                 COUNT(*) FILTER (WHERE EXISTS (
+                                     SELECT 1 FROM glossario_lab_nome n
+                                      WHERE n.jogador_id = glossario_lab_jogador.id
+                                        AND n.fonte = 'transfermarkt'
+                                        AND n.idioma = 'ar')) AS com_tm_arabe,
                                  COUNT(*) FILTER (WHERE nome_ar IS NOT NULL AND nome_ar <> '') AS com_arabe,
                                  COUNT(*) FILTER (WHERE revisado) AS revisados
                             FROM glossario_lab_jogador""")
@@ -746,6 +754,11 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
                          COUNT(*) FILTER (WHERE spl_id IS NOT NULL) AS com_spl,
                          COUNT(*) FILTER (WHERE af_id IS NOT NULL) AS com_af,
                          COUNT(*) FILTER (WHERE tm_id IS NOT NULL) AS com_tm,
+                         COUNT(*) FILTER (WHERE EXISTS (
+                             SELECT 1 FROM glossario_lab_nome n
+                              WHERE n.jogador_id = g.id
+                                AND n.fonte = 'transfermarkt'
+                                AND n.idioma = 'ar')) AS com_tm_arabe,
                          COUNT(*) FILTER (WHERE nome_ar IS NOT NULL AND nome_ar <> '') AS com_arabe,
                          COUNT(*) FILTER (WHERE revisado) AS revisados,
                          COUNT(*) FILTER (WHERE EXISTS (
