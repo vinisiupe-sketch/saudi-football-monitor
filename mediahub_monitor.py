@@ -74,7 +74,9 @@ def busca_url(dia, pagina=1, rodada=None):
 
 def _nome_busca(texto):
     texto = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode().lower()
-    texto = re.sub(r"\b(?:fc|sfc)\b", " ", texto)
+    # A agenda oficial usa "NEOM SC", mas o título do PDF usa apenas "Neom".
+    # FC/SFC já eram removidos; SC precisa seguir a mesma regra de sufixo.
+    texto = re.sub(r"\b(?:fc|sfc|sc)\b", " ", texto)
     return re.sub(r"[^a-z0-9]+", " ", texto).strip()
 
 
@@ -175,7 +177,9 @@ class Monitor:
         self.intervalo = max(60, int(os.environ.get("MEDIAHUB_INTERVAL_SECONDS", "60")))
         self.revisao = max(60, int(os.environ.get("MEDIAHUB_REVISION_SECONDS", "300")))
         self.antecedencia = int(os.environ.get("MEDIAHUB_BEFORE_MINUTES", "100"))
-        self.recuperacao = max(0, int(os.environ.get("MEDIAHUB_AFTER_MINUTES", "180")))
+        # Quatro horas permitem recuperar um PDF perdido por diferença de nome
+        # ainda no mesmo dia, sem manter a consulta atravessando a madrugada.
+        self.recuperacao = max(240, int(os.environ.get("MEDIAHUB_AFTER_MINUTES", "240")))
         self.browser = self.context = self.page = None
         self.login_depois = 0
 

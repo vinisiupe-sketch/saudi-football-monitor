@@ -55,8 +55,17 @@ class Regras(unittest.TestCase):
         self.assertEqual(m.rodada_mediahub([{"rodada": "MD 7"}]), "MD7")
         self.assertTrue(m.titulo_dos_jogos(
             "Al Qadsiah v Al Ettifaq Team Sheets ENG and AR", jogos))
+        self.assertTrue(m.titulo_dos_jogos(
+            "Neom v Al Fateh Team Sheets ENG and AR",
+            [{"casa": "NEOM SC", "fora": "Al Fateh", "rodada": "MD 7"}]))
         self.assertFalse(m.titulo_dos_jogos(
             "Al Khaleej v Al Nassr Team Sheets ENG and AR", jogos))
+
+    def test_janela_de_recuperacao_nao_termina_antes_de_quatro_horas(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, {
+            "APP_URL": "https://app.test", "ESCALACAO_TOKEN": "teste",
+            "MEDIAHUB_DATA_DIR": tmp, "MEDIAHUB_AFTER_MINUTES": "180"}):
+            self.assertEqual(m.Monitor().recuperacao, 240)
 
     def test_urls_externas_e_credenciais_na_url_recusadas(self):
         for url in ("https://evil.test/record/1", "https://mediahub.spl.media@evil.test/record/1",
