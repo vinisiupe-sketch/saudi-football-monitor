@@ -1,3 +1,5 @@
+# O monitor normaliza também sufixos SC (NEOM SC) antes de comparar o jogo
+# da agenda com o título do Team Sheet no Media Hub.
 FROM mcr.microsoft.com/playwright/python:v1.62.0-noble
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 MEDIAHUB_DATA_DIR=/data
