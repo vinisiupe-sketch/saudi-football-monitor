@@ -261,6 +261,37 @@ class Monitor:
         try:
             await links.first.wait_for(timeout=20000)
         except Exception:
+            diagnostico = await self.page.locator("body").evaluate("""body => {
+                const temTitulo = e => /Team Sheets?/i.test(e.textContent || '');
+                const folhas = [...body.querySelectorAll('*')]
+                    .filter(e => temTitulo(e) && ![...e.children].some(temTitulo))
+                    .slice(0, 12)
+                    .map(e => {
+                        const ancestrais = [];
+                        for (let a = e; a && a !== body && ancestrais.length < 5; a = a.parentElement) {
+                            ancestrais.push({
+                                tag: a.tagName,
+                                classe: String(a.className || '').slice(0, 120),
+                                href: a.getAttribute('href'),
+                                role: a.getAttribute('role')
+                            });
+                        }
+                        return {
+                            texto: (e.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 180),
+                            ancestrais
+                        };
+                    });
+                const linhas = (body.innerText || '').split(/\\n+/)
+                    .map(t => t.trim()).filter(t => /Team Sheets?|Neom|Al Fateh/i.test(t))
+                    .slice(0, 20);
+                return {
+                    elementos: body.querySelectorAll('*').length,
+                    links: body.querySelectorAll('a').length,
+                    linhas,
+                    folhas
+                };
+            }""")
+            print(json.dumps({"diagnostico_cartoes": diagnostico}, ensure_ascii=False), flush=True)
             return []
         vistos = []
         for titulo in await links.all_text_contents():
