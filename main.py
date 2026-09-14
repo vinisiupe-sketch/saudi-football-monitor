@@ -14193,9 +14193,29 @@ async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
             resultado = await asyncio.to_thread(
                 buscar_na_fonte_glossario_lab, fonte, q)
             resultado["catalogo_global"] = True
+            resultado["catalogo_fonte"] = "API-Football"
         else:
             resultado["aviso"] = (erros_globais[-1] if erros_globais else
                                    "O catálogo mundial também não encontrou esse nome.")
+    # O cache local do Transfermarkt nasceu dos elencos principais e das
+    # transferências. A busca oficial do próprio site alcança também atletas
+    # cadastrados nos times sub-21, sub-19, sub-18 e sub-17. Os resultados
+    # ficam apenas no catálogo isolado até a escolha manual de um ID.
+    if (fonte == "transfermarkt" and len((q or "").strip()) >= 3
+            and not resultado.get("erro")):
+        try:
+            globais, aviso_tm = await elenco_tm.buscar_jogadores(q)
+        except Exception as e:
+            globais, aviso_tm = [], f"O Transfermarkt recusou a pesquisa agora: {e}"
+        if globais:
+            await asyncio.to_thread(
+                salvar_candidatos_glossario_lab, "transfermarkt", globais)
+            resultado = await asyncio.to_thread(
+                buscar_na_fonte_glossario_lab, fonte, q)
+            resultado["catalogo_global"] = True
+            resultado["catalogo_fonte"] = "Transfermarkt (inclui categorias de base)"
+        if aviso_tm:
+            resultado["aviso"] = aviso_tm
     return JSONResponse(resultado, 400 if resultado.get("erro") else 200)
 
 

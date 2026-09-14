@@ -54,6 +54,11 @@ def testar():
     assert "def _parse_nome_pais_origem" in tm
     assert "name in home country" in tm
     assert 'soup.find_all(["span", "th", "dt"])' in tm
+    assert "def _parse_busca_jogadores" in tm
+    assert "async def buscar_jogadores" in tm
+    assert "schnellsuche/ergebnis/schnellsuche" in tm
+    assert 'r"\\b(Al|El)\\s+"' in tm
+    assert "inclui categorias de base" in main + tela
     assert '"info-table__content--bold" not in classes' in tm
     assert "'informacoes e fatos'" in banco
     for coluna in ("SPL em inglês", "SPL em árabe", "API-Football",

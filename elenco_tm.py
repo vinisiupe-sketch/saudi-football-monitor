@@ -13,6 +13,7 @@ import re
 import time
 import asyncio
 from datetime import date, datetime
+from urllib.parse import quote_plus
 
 import httpx
 from bs4 import BeautifulSoup
@@ -24,6 +25,7 @@ TTL_ELENCO = 6 * 3600      # elenco muda por transferência, não por hora
 TTL_CALENDARIO = 1800      # placar e súmula do dia entram aqui
 TTL_ESCALACAO = 6 * 3600   # jogo encerrado não muda mais
 TTL_PERFIL = 30 * 24 * 3600  # nome de registro quase nunca muda
+TTL_BUSCA = 24 * 3600       # a ficha encontrada muda pouco; evita repetir buscas
 
 
 def _cache_get(chave: str, ttl: int):
@@ -237,6 +239,53 @@ def _parse_nome_pais_origem(soup: BeautifulSoup) -> str | None:
     return None
 
 
+def _parse_busca_jogadores(soup: BeautifulSoup) -> list[dict]:
+    """Lê a pesquisa mundial do TM, que inclui elencos profissionais e de base."""
+    jogadores = []
+    vistos = set()
+    for link in soup.select("a[href*='/profil/spieler/']"):
+        pid = _id_de(link.get("href", ""), r"/spieler/(\d+)")
+        nome = re.sub(r"\s+", " ", link.get_text(" ", strip=True)).strip()
+        if not pid or not nome or pid in vistos:
+            continue
+        tr = link.find_parent("tr")
+        # Nome e clube ficam numa pequena tabela dentro da linha principal.
+        # Subir até a linha que contém posição, idade e nacionalidade evita
+        # interpretar a linha interna do nome como se fosse o resultado todo.
+        while tr and len(tr.find_all("td", recursive=False)) < 5:
+            tr = tr.find_parent("tr")
+        tds = tr.find_all("td", recursive=False) if tr else []
+        if len(tds) < 2:
+            continue
+        bloco = tds[0]
+        clube_link = bloco.select_one("a[href*='/startseite/verein/']")
+        clube = (clube_link.get("title") or clube_link.get_text(" ", strip=True)
+                 if clube_link else "")
+        foto_no = bloco.select_one("img[src*='/portrait/'], img[data-src*='/portrait/']")
+        foto = ((foto_no.get("data-src") or foto_no.get("src") or "")
+                if foto_no else "")
+        if foto.startswith("//"):
+            foto = "https:" + foto
+        nacionalidades = []
+        if len(tds) > 4:
+            nacionalidades = [
+                img.get("title") or img.get("alt")
+                for img in tds[4].select("img")
+                if img.get("title") or img.get("alt")
+            ]
+        jogadores.append({
+            "id": pid,
+            "nome": nome,
+            "clube": clube,
+            "idade": _n(tds[3].get_text(" ", strip=True)) if len(tds) > 3 else None,
+            "nacionalidade": nacionalidades[0] if nacionalidades else "",
+            "posicao": tds[1].get_text(" ", strip=True),
+            "foto": foto,
+        })
+        vistos.add(pid)
+    return jogadores
+
+
 async def elenco(clube_id: int, season: int | None = None) -> tuple[list[dict], str | None]:
     season = season or TM_SAISON
     return await _com_cache(f"elenco:{clube_id}:{season}", TTL_ELENCO,
@@ -249,6 +298,27 @@ async def nome_no_pais_de_origem(jogador_id: int) -> tuple[str | None, str | Non
     return await _com_cache(f"perfil:nome-origem:{int(jogador_id)}", TTL_PERFIL,
                             f"x/profil/spieler/{int(jogador_id)}",
                             _parse_nome_pais_origem)
+
+
+async def buscar_jogadores(nome: str) -> tuple[list[dict], str | None]:
+    """Pesquisa todo o TM, inclusive equipes sauditas sub-21/19/18/17."""
+    termo = " ".join((nome or "").split())
+    if len(termo) < 3:
+        return [], None
+    async def consultar(valor):
+        return await _com_cache(
+            f"busca-jogador:{valor.casefold()}", TTL_BUSCA,
+            f"schnellsuche/ergebnis/schnellsuche?query={quote_plus(valor)}",
+            _parse_busca_jogadores)
+
+    jogadores, aviso = await consultar(termo)
+    # A SPL costuma escrever "Al Ghamdi"; o TM indexa muitos sauditas como
+    # "Al-Ghamdi" e sua pesquisa literal devolve zero sem o hífen.
+    alternativo = re.sub(r"\b(Al|El)\s+", r"\1-", termo, flags=re.I)
+    if not jogadores and alternativo != termo:
+        jogadores, aviso_alternativo = await consultar(alternativo)
+        aviso = aviso_alternativo or aviso
+    return jogadores, aviso
 
 
 # ── desempenho (leistungsdaten) ──────────────────────────────────────────────
