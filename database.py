@@ -1035,6 +1035,16 @@ def buscar_na_fonte_glossario_lab(fonte: str, busca: str,
     except Exception as e:
         return {"resultados": [], "erro": str(e)}
 
+    identificador = re.sub(
+        r"^(?:#\s*|(?:id|spl|af|api[- ]?football|tm)"
+        r"(?:\s*[:#-]\s*|\s+))", "", busca, flags=re.I).strip()
+    if identificador in candidatos:
+        exato = dict(candidatos[identificador])
+        exato["id"] = str(exato.get("id") or "")
+        if exato.get("nascimento") is not None:
+            exato["nascimento"] = exato["nascimento"].isoformat()
+        return {"resultados": [exato], "id_exato": True}
+
     procurado = _normalizar_nome_do_lab(busca, "lat")
     palavras = set(procurado.split())
     classificados = []

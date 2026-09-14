@@ -286,6 +286,27 @@ def _parse_busca_jogadores(soup: BeautifulSoup) -> list[dict]:
     return jogadores
 
 
+def _parse_perfil_para_busca(soup: BeautifulSoup, jogador_id: int) -> list[dict]:
+    """Transforma uma ficha aberta pelo ID em candidato da lupa."""
+    meta = soup.select_one("meta[name='keywords']")
+    partes = [p.strip() for p in (meta.get("content", "") if meta else "").split(",")]
+    if not partes or not partes[0]:
+        return []
+    clube_no = soup.select_one(".data-header__club-info a[href*='/verein/']")
+    clube = ((clube_no.get("title") or clube_no.get_text(" ", strip=True))
+             if clube_no else (partes[1] if len(partes) > 1 else ""))
+    foto_no = soup.select_one("img.data-header__profile-image")
+    foto = ((foto_no.get("data-src") or foto_no.get("src") or "")
+            if foto_no else "")
+    if foto.startswith("//"):
+        foto = "https:" + foto
+    return [{
+        "id": int(jogador_id), "nome": partes[0], "clube": clube,
+        "nacionalidade": partes[-1] if len(partes) > 2 else "",
+        "posicao": "", "foto": foto,
+    }]
+
+
 async def elenco(clube_id: int, season: int | None = None) -> tuple[list[dict], str | None]:
     season = season or TM_SAISON
     return await _com_cache(f"elenco:{clube_id}:{season}", TTL_ELENCO,
@@ -305,6 +326,12 @@ async def buscar_jogadores(nome: str) -> tuple[list[dict], str | None]:
     termo = " ".join((nome or "").split())
     if len(termo) < 3:
         return [], None
+    if termo.isdigit():
+        jogador_id = int(termo)
+        return await _com_cache(
+            f"busca-jogador-id:{jogador_id}", TTL_BUSCA,
+            f"x/profil/spieler/{jogador_id}",
+            lambda soup: _parse_perfil_para_busca(soup, jogador_id))
     async def consultar(valor):
         return await _com_cache(
             f"busca-jogador:{valor.casefold()}", TTL_BUSCA,

@@ -14138,6 +14138,11 @@ async def api_glossario_lab_adicionar_nome(request: Request):
 async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
     from database import (buscar_na_fonte_glossario_lab,
                           salvar_candidatos_glossario_lab)
+    consulta = " ".join((q or "").split())
+    identificador = re.sub(
+        r"^(?:#\s*|(?:id|spl|af|api[- ]?football|tm)"
+        r"(?:\s*[:#-]\s*|\s+))", "", consulta, flags=re.I).strip()
+    busca_por_id = identificador.isdigit()
     resultado = await asyncio.to_thread(buscar_na_fonte_glossario_lab, fonte, q)
     # A cópia local da API-Football acompanha a SPL. Recém-chegado ainda
     # associado ao clube antigo (Gabriel Martinelli/Arsenal foi o caso que
@@ -14146,21 +14151,23 @@ async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
     # laboratório. Uma aproximação local ruim não pode impedir a busca mundial.
     if (fonte == "api_football" and len((q or "").strip()) >= 4
             and not resultado.get("erro")):
-        nome_procurado = " ".join(q.split())
+        nome_procurado = consulta
         sobrenome = nome_procurado.split()[-1]
-        consultas = [
-            ("players/profiles", {"search": nome_procurado}),
-        ]
-        if sobrenome.lower() != nome_procurado.lower() and len(sobrenome) >= 4:
+        consultas = ([('players/profiles', {'player': int(identificador)})]
+                     if busca_por_id else
+                     [("players/profiles", {"search": nome_procurado})])
+        if (not busca_por_id and sobrenome.lower() != nome_procurado.lower()
+                and len(sobrenome) >= 4):
             consultas.append(("players/profiles", {"search": sobrenome}))
         # Há contas/versões da API em que profiles responde zero em vez de
         # erro. Por isso a resposta vazia também avança para /players. Duas
         # temporadas cobrem recém-transferidos que ainda ficaram no clube
         # anterior na fotografia da API.
-        for temporada in (_af_temporada_corrente(),
-                          _af_temporada_corrente() - 1):
-            consultas.append(("players", {"search": sobrenome,
-                                           "season": temporada}))
+        if not busca_por_id:
+            for temporada in (_af_temporada_corrente(),
+                              _af_temporada_corrente() - 1):
+                consultas.append(("players", {"search": sobrenome,
+                                               "season": temporada}))
         dados = None
         erros_globais = []
         for caminho_af, parametros_af in consultas:
@@ -14204,7 +14211,8 @@ async def api_glossario_lab_buscar_fonte(fonte: str, q: str = ""):
     if (fonte == "transfermarkt" and len((q or "").strip()) >= 3
             and not resultado.get("erro")):
         try:
-            globais, aviso_tm = await elenco_tm.buscar_jogadores(q)
+            globais, aviso_tm = await elenco_tm.buscar_jogadores(
+                identificador if busca_por_id else q)
         except Exception as e:
             globais, aviso_tm = [], f"O Transfermarkt recusou a pesquisa agora: {e}"
         if globais:
