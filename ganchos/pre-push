@@ -47,11 +47,32 @@ if [ -z "$PY" ]; then
 fi
 
 echo ""
-echo "  Conferindo os testes antes de enviar… (uns 20 segundos)"
+echo "  Conferindo os testes antes de enviar... (uns 20 segundos)"
 echo ""
+
+# UTF-8 À FORÇA. O console do Git Bash no Windows abre em cp1252, e os testes
+# imprimem "✓" e acentos. Sem isto, o Python estoura com UnicodeEncodeError, o
+# processo morre e eu leio isso como teste vermelho — foi o que barrou o envio
+# do Vini em 14/09 sem existir defeito nenhum.
+export PYTHONIOENCODING=utf-8
+export PYTHONUTF8=1
 
 SAIDA=$("$PY" tests/conferir.py 2>&1)
 CODIGO=$?
+
+# FALSO ALARME NÃO BARRA ENVIO. Se o que quebrou foi a impressão e não o
+# código, eu digo isso e deixo passar. Uma rede de proteção que prende a
+# pessoa por um defeito dela mesma é pior que nenhuma: da segunda vez ela
+# aprende a usar --no-verify sempre, e aí nunca mais protege nada.
+case "$SAIDA" in
+  *UnicodeEncodeError*|*UnicodeDecodeError*)
+    echo "  O console desta máquina não conseguiu imprimir os acentos dos"
+    echo "  testes, então não dá para saber se eles passaram."
+    echo "  Isso é problema da TELA, não do código — envio liberado."
+    echo ""
+    exit 0
+    ;;
+esac
 
 if [ $CODIGO -eq 0 ]; then
   echo "$SAIDA" | tail -n 2

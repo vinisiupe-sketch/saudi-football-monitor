@@ -1,0 +1,15 @@
+# Script de shell TEM que ficar com fim de linha do Unix (LF).
+#
+# POR QUÊ
+#     O Windows termina linha com CR+LF. Num arquivo de texto isso é
+#     invisível; num script de shell, o CR extra vira parte do comando — o
+#     interpretador procura um programa chamado "git\r" e responde "not
+#     found", numa linha que está visivelmente correta na tela.
+#
+#     O gancho de envio é o pior lugar possível para esse defeito: ele roda
+#     sozinho, no meio de um `git push`, e a mensagem de erro não tem relação
+#     nenhuma com a causa.
+#
+# Só os scripts. O resto do projeto segue o costume da máquina de cada um.
+ganchos/* text eol=lf
+*.sh       text eol=lf
