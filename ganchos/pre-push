@@ -1,0 +1,77 @@
+#!/bin/sh
+#
+# A REDE DE PROTEÇÃO ANTES DE ENVIAR.
+#
+# POR QUE ELA EXISTE (14/09/26)
+#     O Vini constrói em dois lugares — aqui e no ChatGPT, quando bate o
+#     limite de uso — e os dois escrevem no mesmo projeto. O Git avisa quando
+#     os dois mexem na MESMA LINHA. Ele não avisa quando mexem em lugares
+#     diferentes que afetam a mesma coisa: aí ele junta em silêncio, e o
+#     defeito só aparece no ar.
+#
+#     Foi assim que `teste_escalacoes_fuso.py` ficou quebrado por três dias. Um
+#     lado renomeou uma função, o outro não soube, nada acusou.
+#
+#     Este gancho roda a suíte inteira antes de cada envio e BARRA o envio se
+#     algo estiver vermelho. Leva uns 20 segundos.
+#
+# COMO DESLIGAR NUMA EMERGÊNCIA
+#     git push --no-verify
+#
+#     A saída está aqui de propósito e é dita em voz alta na mensagem de erro.
+#     Rede de proteção sem porta de saída é rede que alguém apaga no pior
+#     momento — e aí não protege mais nada, nunca mais.
+
+RAIZ=$(git rev-parse --show-toplevel)
+cd "$RAIZ" || exit 0
+
+# Qual python existe nesta máquina. No Git Bash do Windows costuma ser "py"
+# ou "python"; no Linux, "python3". Se não achar nenhum, eu DEIXO PASSAR:
+# um gancho que barra o envio porque não achou o interpretador vira um
+# obstáculo sem explicação, e não uma proteção.
+PY=""
+for candidato in python3 python py; do
+  if command -v "$candidato" >/dev/null 2>&1; then
+    if "$candidato" -c "import sys; sys.exit(0 if sys.version_info[0]==3 else 1)" >/dev/null 2>&1; then
+      PY="$candidato"
+      break
+    fi
+  fi
+done
+
+if [ -z "$PY" ]; then
+  echo ""
+  echo "  (não achei o Python nesta máquina — envio liberado sem conferir)"
+  echo ""
+  exit 0
+fi
+
+echo ""
+echo "  Conferindo os testes antes de enviar… (uns 20 segundos)"
+echo ""
+
+SAIDA=$("$PY" tests/conferir.py 2>&1)
+CODIGO=$?
+
+if [ $CODIGO -eq 0 ]; then
+  echo "$SAIDA" | tail -n 2
+  echo "  Tudo certo. Enviando."
+  echo ""
+  exit 0
+fi
+
+echo "$SAIDA" | tail -n 25
+echo ""
+echo "  ================================================================"
+echo "   ENVIO BARRADO: tem teste quebrado."
+echo ""
+echo "   Isso quase sempre quer dizer que uma mudança sua e uma mudança"
+echo "   feita no outro lugar (ChatGPT) se atrapalharam. Nada se perdeu."
+echo ""
+echo "   Mande a tela acima para o Claude e ele conserta."
+echo ""
+echo "   Se for urgência de verdade e você PRECISA enviar assim mesmo:"
+echo "       git push --no-verify"
+echo "  ================================================================"
+echo ""
+exit 1
