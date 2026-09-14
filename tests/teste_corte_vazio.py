@@ -60,7 +60,13 @@ def _montar(duracao_real, segundos_de_relogio=600):
 
     inicio = datetime.now(timezone.utc) - timedelta(seconds=segundos_de_relogio)
     jogo = gravador.Jogo("live1", "http://x", "AL ITTIHAD X AL FAYHA")
-    pedaco = gravador.Gravacao("/tmp/nao_existe.ts", inicio, None)
+    # Um caminho que NÃO existe, de propósito — e montado pela pasta temporária
+    # do sistema em vez de "/tmp", que só existe no Linux. Aqui ele nunca é
+    # aberto, então funcionaria nos dois; escrevo certo assim mesmo para o
+    # hábito não voltar num lugar onde importe.
+    import tempfile
+    pedaco = gravador.Gravacao(
+        os.path.join(tempfile.gettempdir(), "nao_existe.ts"), inicio, None)
     jogo.pedacos.append(pedaco)
     g.jogos["live1"] = jogo
 

@@ -282,16 +282,39 @@ for n in mod.body:
         except Exception:
             pass
 blocos = [k for k in textos if k.endswith("_JS")]
-tem_node = subprocess.run(["node", "--version"], capture_output=True).returncode == 0
+# A pasta temporária vem do sistema, e não escrita à mão.
+#
+# Aqui estava "/tmp/_conf.js". No Windows não existe /tmp, e o teste morria com
+# FileNotFoundError — um erro que não tem nada a ver com o que ele confere.
+# Foi a quarta vez seguida que o gancho barrou o envio do Vini por um defeito
+# do meu próprio aparato, e não do código dele.
+#
+# Eu escrevo e rodo tudo em Linux; o gancho roda no Windows dele. Toda
+# diferença entre os dois só aparecia na tela dele, uma por vez.
+import tempfile
+_CONF_JS = os.path.join(tempfile.gettempdir(), "_conf_estrutura.js")
+try:
+    tem_node = subprocess.run(["node", "--version"],
+                              capture_output=True).returncode == 0
+except (FileNotFoundError, OSError):
+    # No Windows, chamar um programa que não existe levanta em vez de devolver
+    # código de erro. Sem este try, "node não instalado" viraria teste quebrado.
+    tem_node = False
 if tem_node:
-    for nome in blocos:
-        js = textos[nome].replace("__PASSO_AJUSTE__", "8")
-        with open("/tmp/_conf.js", "w", encoding="utf-8") as f:
-            f.write(js)
-        r = subprocess.run(["node", "--check", "/tmp/_conf.js"],
-                           capture_output=True, text=True)
-        ok(r.returncode == 0, f"{nome} não é JS válido: {r.stderr[:200]}")
-    print(f"  {len(blocos)} blocos de JS válidos")
+    try:
+        for nome in blocos:
+            js = textos[nome].replace("__PASSO_AJUSTE__", "8")
+            with open(_CONF_JS, "w", encoding="utf-8") as f:
+                f.write(js)
+            r = subprocess.run(["node", "--check", _CONF_JS],
+                               capture_output=True, text=True)
+            ok(r.returncode == 0, f"{nome} não é JS válido: {r.stderr[:200]}")
+        print(f"  {len(blocos)} blocos de JS válidos")
+    except (FileNotFoundError, OSError) as e:
+        # O `if tem_node` acima já devia bastar, mas no Windows um programa
+        # some do PATH entre uma chamada e outra com mais facilidade do que
+        # parece. Ferramenta ausente não pode virar acusação contra o código.
+        print(f"  (não consegui rodar o node: {type(e).__name__})")
 else:
     print("  (node ausente — não conferi o JS)")
 

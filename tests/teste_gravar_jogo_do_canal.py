@@ -174,6 +174,12 @@ def _rodar(disponiveis, lives, escondidas, ver_todas=False,
         if r.returncode != 0:
             return {"erro": (r.stderr or "")[-400:]}
         return json.loads(r.stdout.strip().splitlines()[-1])
+    except (FileNotFoundError, OSError):
+        # No Windows, programa ausente LEVANTA em vez de devolver erro. Este
+        # arquivo INTEIRO depende do Node — ele existe para executar a função
+        # da tela, não para ler o texto dela. Sem Node eu não confiro nada, e
+        # digo isso: "não consegui" não pode sair como "está quebrado".
+        return {"sem_node": True}
     finally:
         os.unlink(caminho)
 
@@ -186,6 +192,13 @@ JOGO_DE_FORA = {"id": "bbb", "titulo": "AL NASSR X ISTIKLOL — AFC",
 
 def testar():
     falhas.clear()
+
+    # Este arquivo executa a função da tela no Node — ele não lê o texto dela,
+    # que é o ponto: a pergunta do Vini era "dá para clicar?". Sem Node, não
+    # confiro nada, e declaro isso em vez de fingir aprovação ou acusar defeito.
+    if _rodar(disponiveis=[], lives=[], escondidas=0).get("sem_node"):
+        print("PULAR: o Node nao esta instalado nesta maquina")
+        return 1
 
     ok(_funcao_js("pintarDisponiveis"), "não achei pintarDisponiveis no main.py")
     ok(_funcao_js("botaoVerTodas"),

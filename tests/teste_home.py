@@ -268,8 +268,13 @@ import tempfile
 _t = os.path.join(tempfile.gettempdir(), "_home_check.js")
 with open(_t, "w", encoding="utf-8") as _f:
     _f.write(js.replace("__ICONES_JSON__", "{}"))
-r = subprocess.run(["node", "--check", _t], capture_output=True, text=True)
-ok(r.returncode == 0, "JS da home quebrou: " + r.stderr[:300])
+try:
+    r = subprocess.run(["node", "--check", _t], capture_output=True, text=True)
+    ok(r.returncode == 0, "JS da home quebrou: " + r.stderr[:300])
+except (FileNotFoundError, OSError):
+    # No Windows, chamar um programa ausente LEVANTA em vez de devolver código
+    # de erro. Sem isto, "node não instalado" viraria "JS da home quebrado".
+    print("  (node ausente — não conferi o JS da home)")
 ok("Salamaleikum" in textos["_HOME_HTML"], "faltou a saudação")
 ok("__ICONES_JSON__" in js and '"__ICONES_JSON__"' in src,
    "os ícones não são injetados")

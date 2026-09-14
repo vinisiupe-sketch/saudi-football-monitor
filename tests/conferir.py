@@ -140,6 +140,15 @@ def _biblioteca_que_falta(saida: str) -> str:
     return raiz if raiz.lower() in _DECLARADAS else ""
 
 
+# Um teste pode declarar que NÃO CONSEGUIU conferir, imprimindo esta linha e
+# saindo com código diferente de zero. Serve para o que não é módulo de Python
+# — o Node, o ffmpeg — e que por isso a detecção de importação não alcança.
+#
+# É uma porta estreita de propósito: quem a usa está dizendo "não confiro
+# isto aqui", e isso aparece no placar como pulado, nunca como aprovado.
+_PULAR = re.compile(r"^PULAR:\s*(.+)$", re.M)
+
+
 def main() -> int:
     testes = sorted(a for a in os.listdir(AQUI)
                     if a.startswith("teste_") and a.endswith(".py"))
@@ -156,8 +165,17 @@ def main() -> int:
         if r.returncode == 0:
             marca = "ok"
         else:
+            declarado = _PULAR.search(saida)
             falta = _biblioteca_que_falta(saida)
-            if falta:
+            if declarado:
+                motivo = declarado.group(1).strip()
+                marca = f"PULADO ({motivo})"
+                # Motivo declarado entra sem nome de pacote: ele é uma frase,
+                # não algo que se instale com pip. Misturar os dois produzia
+                # "pip install pillow o Node nao esta instalado" — um comando
+                # que não funciona e uma instrução que confunde.
+                pulados.append((t, None))
+            elif falta:
                 marca = f"PULADO (falta {falta})"
                 pulados.append((t, falta))
             else:
@@ -172,9 +190,10 @@ def main() -> int:
     passaram = len(testes) - len(ruins) - len(pulados)
     print(f"{passaram} de {len(testes)} passaram")
     if pulados:
-        faltando = sorted({b for _, b in pulados})
-        print(f"{len(pulados)} pulado(s): falta(m) {', '.join(faltando)} nesta "
+        faltando = sorted({b for _, b in pulados if b})
+        print(f"{len(pulados)} pulado(s) por falta de ferramenta nesta "
               "maquina. Nao e defeito do codigo.")
+    if pulados and faltando:
         # O nome para INSTALAR nem sempre é o nome para importar: quem escreve
         # `import PIL` instala `pillow`. Mandar `pip install PIL` daria um erro
         # sem explicação, e o recado viraria uma pista falsa.
