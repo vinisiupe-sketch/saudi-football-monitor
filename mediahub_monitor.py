@@ -396,15 +396,32 @@ class Monitor:
             if not registros:
                 raise MonitorError(f"Nenhum Team Sheet encontrado para MD{numero_rodada}.")
             concluidos = 0
+            ignorados = []
             for registro in registros:
-                await self.processar(cli, registro, None, ignorar_janela=True,
-                                     importar_glossario=True)
-                concluidos += 1
-            importacoes[chave] = {"documentos": concluidos, "concluido_em": agora().isoformat()}
+                try:
+                    await self.processar(cli, registro, None, ignorar_janela=True,
+                                         importar_glossario=True)
+                    concluidos += 1
+                except MonitorError as exc:
+                    # O portal pode exibir o cartão antes de anexar a versão
+                    # inglesa. Uma ausência não deve impedir os outros oito
+                    # jogos da rodada de alimentar o Glossário.
+                    ignorados.append({"registro": registro, "motivo": str(exc)})
+                    print(json.dumps({"importacao": "documento ignorado",
+                                      "rodada": f"MD{numero_rodada}",
+                                      "registro": registro, "motivo": str(exc)},
+                                     ensure_ascii=False), flush=True)
+            if not concluidos:
+                raise MonitorError(
+                    f"Nenhum PDF inglês pôde ser importado para MD{numero_rodada}.")
+            importacoes[chave] = {
+                "documentos": concluidos, "ignorados": ignorados,
+                "concluido_em": agora().isoformat()}
             self.estado.salvar()
             total_documentos += concluidos
             print(json.dumps({"importacao": "concluída", "rodada": f"MD{numero_rodada}",
-                              "documentos": concluidos}, ensure_ascii=False), flush=True)
+                              "documentos": concluidos,
+                              "ignorados": len(ignorados)}, ensure_ascii=False), flush=True)
         await self.status(cli, "monitorando",
                           "Importação histórica do Glossário concluída.",
                           documentos=total_documentos)
