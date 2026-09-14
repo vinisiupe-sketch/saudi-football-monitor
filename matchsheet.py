@@ -243,14 +243,20 @@ def cruzar_com_elenco(jogadores: list[dict], elenco: list[dict]) -> list[dict]:
     for j in elenco:
         camisa = str(j.get("camisa") or "").strip()
         if camisa:
-            por_camisa[camisa] = j
+            por_camisa.setdefault(camisa, []).append(j)
     cruzados = []
     for jog in jogadores:
         cruzado = dict(jog)
-        achado = por_camisa.get(str(jog["numero"]).strip())
+        # O texto cru precisa sobreviver ao enriquecimento: é ele que ensina
+        # ao laboratório como o Media Hub escreve esta pessoa.
+        cruzado["nome_pdf"] = jog.get("nome") or ""
+        candidatos = por_camisa.get(str(jog["numero"]).strip()) or []
+        # Camisa repetida no cadastro não pode virar escolha silenciosa.
+        achado = candidatos[0] if len(candidatos) == 1 else None
         cruzado["nome_curto"] = (achado.get("nome_curto") or "") if achado else ""
         cruzado["nacionalidade"] = (achado.get("nacionalidade") or "") if achado else ""
         cruzado["foto"] = (achado.get("foto") or "") if achado else ""
+        cruzado["spl_id"] = achado.get("spl_id") if achado else None
         if achado and achado.get("nome"):
             cruzado["nome"] = achado["nome"]
         cruzados.append(cruzado)

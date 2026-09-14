@@ -13,7 +13,7 @@ import signal
 import tempfile
 import time
 import unicodedata
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, urlparse
 
@@ -56,6 +56,30 @@ def rodada_mediahub(jogos):
         if achado:
             numeros.add(int(achado.group(1)))
     return f"MD{numeros.pop()}" if len(numeros) == 1 else None
+
+
+def rodadas_para_importar(texto):
+    """Aceita ``1-7,9`` e devolve números únicos em ordem."""
+    rodadas = set()
+    for parte in (texto or "").split(","):
+        parte = parte.strip().upper().removeprefix("MD")
+        if not parte:
+            continue
+        if "-" in parte:
+            inicio, fim = parte.split("-", 1)
+            if not inicio.isdigit() or not fim.isdigit():
+                raise MonitorError("Rodadas para importar em formato inválido.")
+            a, b = int(inicio), int(fim)
+            if a > b:
+                a, b = b, a
+            rodadas.update(range(a, b + 1))
+        elif parte.isdigit():
+            rodadas.add(int(parte))
+        else:
+            raise MonitorError("Rodadas para importar em formato inválido.")
+    if not rodadas or min(rodadas) < 1 or max(rodadas) > 50:
+        raise MonitorError("Informe rodadas entre 1 e 50.")
+    return sorted(rodadas)
 
 
 def busca_url(dia, pagina=1, rodada=None):
@@ -147,9 +171,12 @@ class Estado:
         self.salvar()
 
 
-async def entregar(cli, app_url, token, caminho):
+async def entregar(cli, app_url, token, caminho, importar_glossario=False):
+    cabecalhos = {"X-Escalacao-Token": token}
+    if importar_glossario:
+        cabecalhos["X-Glossario-Import"] = "1"
     resposta = await cli.post(app_url + "/api/escalacao-pdf",
-        headers={"X-Escalacao-Token": token},
+        headers=cabecalhos,
         files={"arquivo": ("team-sheet.pdf", caminho.read_bytes(), "application/pdf")})
     if resposta.status_code in (401, 403):
         raise MonitorError("O app recusou o token do monitor. Confira ESCALACAO_TOKEN nos dois serviços.")
@@ -297,7 +324,8 @@ class Monitor:
         await download.save_as(str(caminho))
         return True
 
-    async def processar(self, cli, registro, dia, dry_run=False, ignorar_janela=False):
+    async def processar(self, cli, registro, dia, dry_run=False,
+                        ignorar_janela=False, importar_glossario=False):
         registro = url_registro(registro)
         anterior = self.estado.dados["registros"].get(registro, {})
         if not ignorar_janela and anterior:
@@ -317,17 +345,70 @@ class Monitor:
                     inicio, agora(), self.antecedencia, self.recuperacao):
                 return
             digest = hashlib.sha256(pdf.read_bytes()).hexdigest()
-            if self.estado.entregue(registro, digest):
+            if not importar_glossario and self.estado.entregue(registro, digest):
                 self.estado.confirmar(registro, digest, inicio)
                 return
             if dry_run:
                 print(json.dumps({"teste": "PDF validado; nenhum envio", "casa": dados["casa"]["time"],
                                   "fora": dados["fora"]["time"], "titulares_por_time": 11}, ensure_ascii=False))
                 return
-            await entregar(cli, self.app, self.token, pdf)
+            await entregar(cli, self.app, self.token, pdf, importar_glossario)
             # Só confirmar depois de o app garantir gravação no PostgreSQL.
             self.estado.confirmar(registro, digest, inicio)
-            await self.status(cli, "publicado", "Escalação atualizada no app.", registro=registro)
+            if not importar_glossario:
+                await self.status(cli, "publicado", "Escalação atualizada no app.", registro=registro)
+
+    async def importar_rodadas(self, cli, pw, rodadas, temporada_inicio):
+        """Relê Team Sheets antigos e envia somente as grafias ao laboratório."""
+        await self.abrir(pw)
+        referencia = date(int(temporada_inicio), 7, 1)
+        importacoes = self.estado.dados.setdefault("importacoes_glossario", {})
+        total_documentos = 0
+        for numero_rodada in rodadas:
+            chave = f"pdf-glossario-v1:{temporada_inicio}:MD{numero_rodada}"
+            if importacoes.get(chave):
+                print(json.dumps({"importacao": "já concluída", "rodada": f"MD{numero_rodada}"},
+                                 ensure_ascii=False), flush=True)
+                continue
+            registros = []
+            vistos = 0
+            for pagina in range(1, 11):
+                url = busca_url(referencia, pagina, f"MD{numero_rodada}")
+                titulos = await self.titulos(url)
+                total_texto = await self.page.get_by_role(
+                    "heading", name=re.compile(r"^\d+ results?$")).inner_text()
+                total = int(total_texto.split()[0])
+                if not titulos:
+                    break
+                vistos += len(titulos)
+                for titulo in titulos:
+                    if not re.search(r"Team Sheets?", titulo, re.I):
+                        continue
+                    await self.titulos(url)
+                    await self.page.locator("a.gridView-title").filter(
+                        has_text=titulo).filter(visible=True).first.click()
+                    await self.page.wait_for_url(re.compile(r"/record/\d+"))
+                    registro = url_registro(self.page.url)
+                    if registro not in registros:
+                        registros.append(registro)
+                if vistos >= total:
+                    break
+            if not registros:
+                raise MonitorError(f"Nenhum Team Sheet encontrado para MD{numero_rodada}.")
+            concluidos = 0
+            for registro in registros:
+                await self.processar(cli, registro, None, ignorar_janela=True,
+                                     importar_glossario=True)
+                concluidos += 1
+            importacoes[chave] = {"documentos": concluidos, "concluido_em": agora().isoformat()}
+            self.estado.salvar()
+            total_documentos += concluidos
+            print(json.dumps({"importacao": "concluída", "rodada": f"MD{numero_rodada}",
+                              "documentos": concluidos}, ensure_ascii=False), flush=True)
+        await self.status(cli, "monitorando",
+                          "Importação histórica do Glossário concluída.",
+                          documentos=total_documentos)
+        return total_documentos
 
     async def ciclo(self, cli, pw):
         r = await cli.get(self.app + "/api/diag/jogos-de-hoje")
@@ -415,6 +496,14 @@ async def executar(args):
                 await monitor.abrir(pw)
                 await monitor.processar(cli, args.check_record, None, args.dry_run, ignorar_janela=True)
                 return
+            importar = args.import_rounds or os.environ.get("MEDIAHUB_IMPORT_ROUNDS", "")
+            if importar:
+                temporada = int(args.import_season or os.environ.get(
+                    "MEDIAHUB_IMPORT_SEASON", str(agora().astimezone(ARABIA).year)))
+                await monitor.importar_rodadas(
+                    cli, pw, rodadas_para_importar(importar), temporada)
+                if args.import_rounds:
+                    return
             erros = 0
             while not parar.is_set():
                 inicio = time.monotonic()
@@ -447,6 +536,8 @@ if __name__ == "__main__":
     parser.add_argument("--once", action="store_true")
     parser.add_argument("--check-record", help="URL de registro para teste pontual, sem janela de jogo")
     parser.add_argument("--dry-run", action="store_true", help="Só com --check-record: baixar e validar sem publicar")
+    parser.add_argument("--import-rounds", help="Importa grafias de rodadas antigas, por exemplo 1-7")
+    parser.add_argument("--import-season", type=int, help="Ano inicial da temporada importada, por exemplo 2026")
     argumentos = parser.parse_args()
     if argumentos.dry_run and not argumentos.check_record:
         parser.error("--dry-run exige --check-record")

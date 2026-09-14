@@ -14113,6 +14113,33 @@ async def api_glossario_lab(busca: str = "", clube: str = "", status: str = "",
                                    limite, deslocamento, ordenar)
 
 
+@app.get("/api/glossario-lab/exportar.xlsx")
+async def api_glossario_lab_exportar(busca: str = "", clube: str = "",
+                                     status: str = "", ordenar: str = "padrao"):
+    """Baixa todas as linhas do filtro atual em uma planilha Excel."""
+    from database import listar_glossario_lab
+    from glossario_excel import criar_excel_glossario
+
+    jogadores = []
+    deslocamento = 0
+    while True:
+        pagina = await asyncio.to_thread(
+            listar_glossario_lab, busca, clube, status, 500, deslocamento, ordenar)
+        if pagina.get("erro"):
+            return JSONResponse({"erro": pagina["erro"]}, status_code=500)
+        lote = pagina.get("jogadores") or []
+        jogadores.extend(lote)
+        deslocamento += len(lote)
+        if deslocamento >= int(pagina.get("total") or 0) or not lote:
+            break
+    conteudo = await asyncio.to_thread(criar_excel_glossario, jogadores)
+    nome = f"glossario-jogadores-{datetime.now(BRT).strftime('%Y-%m-%d')}.xlsx"
+    return Response(
+        content=conteudo,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+
 @app.post("/api/glossario-lab/sincronizar")
 async def api_glossario_lab_sincronizar():
     from database import sincronizar_glossario_lab
@@ -19535,6 +19562,8 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
                 pass
 
     avisos = []
+    somente_glossario = request.headers.get("X-Glossario-Import") == "1"
+    importacoes_glossario = []
     for lado in ("casa", "fora"):
         nome_time = dados[lado]["time"]
         clube = glossary.clube_para_guardar(nome_time)
@@ -19544,6 +19573,20 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
                            "escalação sai sem cruzar com o elenco")
         dados[lado]["titulares"] = matchsheet.cruzar_com_elenco(dados[lado]["titulares"], elenco)
         dados[lado]["reservas"] = matchsheet.cruzar_com_elenco(dados[lado]["reservas"], elenco)
+        from database import registrar_nomes_pdf_glossario_lab
+        importado = await asyncio.to_thread(
+            registrar_nomes_pdf_glossario_lab,
+            dados[lado]["titulares"] + dados[lado]["reservas"],
+            clube or nome_time,
+            f'{dados["casa"]["time"]} x {dados["fora"]["time"]}',
+            dados.get("data") or "")
+        importacoes_glossario.append(importado)
+        if importado.get("erro"):
+            if somente_glossario:
+                return _com_cors_mediahub(JSONResponse(
+                    {"erro": "não foi possível alimentar o Glossário pelo PDF",
+                     "detalhe": importado["erro"], "salvo": False}, status_code=503))
+            avisos.append(f'{nome_time}: o Glossário não recebeu as grafias deste PDF')
         sem_bandeira = sorted({j["nome"] for j in dados[lado]["titulares"]
                                if not j.get("nacionalidade")})
         if sem_bandeira:
@@ -19573,6 +19616,18 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
                                             j.get("nome", ""))[1]]
 
     dados["avisos"] = avisos
+    dados["glossario_pdf"] = {
+        "gravados": sum(int(x.get("gravados") or 0) for x in importacoes_glossario),
+        "sem_vinculo": [j for x in importacoes_glossario
+                         for j in x.get("sem_vinculo", [])],
+    }
+
+    # A importação histórica ensina o laboratório sem recolocar partidas
+    # antigas na página operacional de escalações.
+    if somente_glossario:
+        dados["salvo"] = True
+        dados["importacao_glossario"] = True
+        return _com_cors_mediahub(JSONResponse(dados))
 
     # GUARDA o que foi lido. Sem isto, a escalação existia só na tela de quem
     # subiu o PDF — e quando quem sobe é a rotina automática, ninguém subiu

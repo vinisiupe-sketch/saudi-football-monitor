@@ -827,6 +827,58 @@ def adicionar_nome_glossario_lab(jogador_id: int, nome: str, fonte: str,
         return {"erro": str(e)}
 
 
+def registrar_nomes_pdf_glossario_lab(jogadores: list[dict], clube: str,
+                                      jogo: str = "", data: str = "") -> dict:
+    """Guarda em lote as grafias cruas do PDF já cruzadas por clube+camisa.
+
+    O vínculo chega pelo ``spl_id`` do elenco oficial. Nomes sem casamento
+    seguro continuam fora do laboratório e voltam na resposta para revisão;
+    nunca se escolhe uma pessoa apenas pela semelhança do texto.
+    """
+    preparados = []
+    sem_vinculo = []
+    for jogador in jogadores or []:
+        nome = " ".join((jogador.get("nome_pdf") or "").split())
+        spl_id = jogador.get("spl_id")
+        camisa = str(jogador.get("numero") or "").strip()
+        if not nome:
+            continue
+        if not spl_id:
+            sem_vinculo.append({"nome": nome, "camisa": camisa})
+            continue
+        contexto = " · ".join(x for x in (
+            clube, f"camisa {camisa}" if camisa else "", jogo, data) if x)
+        preparados.append((spl_id, nome, _normalizar_nome_do_lab(nome, "lat"),
+                           contexto))
+    if not preparados:
+        return {"gravados": 0, "sem_vinculo": sem_vinculo}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            gravados = 0
+            for spl_id, nome, normalizado, contexto in preparados:
+                c.execute("SELECT id FROM glossario_lab_jogador WHERE spl_id = %s",
+                          [spl_id])
+                linha = c.fetchone()
+                if not linha:
+                    sem_vinculo.append({"nome": nome, "spl_id": spl_id})
+                    continue
+                c.execute("""
+                    INSERT INTO glossario_lab_nome
+                        (jogador_id, fonte, idioma, tipo, nome, nome_normalizado,
+                         contexto, metodo, confianca, confirmado)
+                    VALUES (%s,'pdf','lat','variacao',%s,%s,%s,
+                            'clube_camisa_pdf',95,TRUE)
+                    ON CONFLICT (jogador_id, fonte, idioma, tipo, nome)
+                    DO UPDATE SET contexto = EXCLUDED.contexto,
+                                  ultimo_em = NOW(), confirmado = TRUE
+                """, [linha["id"], nome, normalizado, contexto])
+                gravados += 1
+            return {"gravados": gravados, "sem_vinculo": sem_vinculo}
+    except Exception as e:
+        return {"gravados": 0, "sem_vinculo": sem_vinculo, "erro": str(e)}
+
+
 def id_transfermarkt_glossario_lab(jogador_id: int) -> dict:
     """Lê o vínculo isolado necessário para consultar a ficha individual."""
     try:

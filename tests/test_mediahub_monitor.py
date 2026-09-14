@@ -48,6 +48,12 @@ class Regras(unittest.TestCase):
         self.assertIn('Match_Week,"MD7"', filtros)
         self.assertNotIn("Match_Date", filtros)
 
+    def test_intervalos_de_rodadas_para_importacao(self):
+        self.assertEqual(m.rodadas_para_importar("1-3, MD5,3"), [1, 2, 3, 5])
+        self.assertEqual(m.rodadas_para_importar("7-6"), [6, 7])
+        with self.assertRaises(m.MonitorError):
+            m.rodadas_para_importar("MD0")
+
     def test_descobre_rodada_e_seleciona_so_jogos_ativos(self):
         jogos = [{"casa": "Al Qadsiah", "fora": "Al Ettifaq", "rodada": "MD7"},
                  {"casa": "Al Faisaly", "fora": "Al Ittihad", "rodada": "MD7"}]
@@ -86,6 +92,17 @@ class Regras(unittest.TestCase):
 
 
 class Entrega(unittest.IsolatedAsyncioTestCase):
+    async def test_importacao_envia_cabecalho_sem_expor_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pdf = Path(tmp) / "test.pdf"
+            pdf.write_bytes(b"%PDF-test")
+            resposta = types.SimpleNamespace(status_code=200, json=lambda: {"salvo": True})
+            cli = types.SimpleNamespace(post=AsyncMock(return_value=resposta))
+            await m.entregar(cli, "https://app.test", "segredo-teste", pdf, True)
+            chamada = cli.post.await_args
+            self.assertEqual(chamada.kwargs["headers"]["X-Glossario-Import"], "1")
+            self.assertNotIn("segredo-teste", str(chamada.args))
+
     async def test_sem_confirmacao_duravel_nao_aceita_sucesso_http(self):
         with tempfile.TemporaryDirectory() as tmp:
             pdf = Path(tmp) / "test.pdf"

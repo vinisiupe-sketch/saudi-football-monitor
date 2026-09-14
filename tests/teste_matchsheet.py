@@ -135,7 +135,7 @@ def testar():
 
     # ── 6. cruzar_com_elenco: casa por camisa, não some dado do PDF ─────
     elenco_falso = [
-        {"camisa": "37", "nome": "Yassine Bono", "nome_curto": "BONO",
+        {"camisa": "37", "nome": "Yassine Bono", "nome_curto": "BONO", "spl_id": "501",
          "nacionalidade": "Morocco", "foto": "http://x/bono.jpg"},
         {"camisa": "19", "nome": "Théo Hernández", "nome_curto": "T. HERNÁNDEZ",
          "nacionalidade": "France", "foto": ""},
@@ -146,6 +146,10 @@ def testar():
        f"cruzamento não trouxe o nome acentuado do elenco: {por_numero['37']}")
     ok(por_numero["37"]["nacionalidade"] == "Morocco",
        f"cruzamento não trouxe a nacionalidade: {por_numero['37']}")
+    ok(por_numero["37"]["nome_pdf"] == "YASSINE BONO",
+       f"cruzamento precisa preservar a grafia crua do PDF: {por_numero['37']}")
+    ok(por_numero["37"]["spl_id"] == "501",
+       f"cruzamento precisa preservar o ID SPL para o vínculo: {por_numero['37']}")
     ok(por_numero["78"]["nome"] == "ALI LAJAMI",
        "jogador sem casamento no elenco deveria manter o nome do PDF, "
        f"veio {por_numero['78']['nome']!r}")
