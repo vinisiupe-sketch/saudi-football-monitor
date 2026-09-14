@@ -322,6 +322,28 @@ ok(v_grav and v_app and v_grav.group(1) == v_app.group(1),
    f"({v_app and v_app.group(1)}) — a tela vai acusar desatualizado para sempre")
 print(f"  versão do gravador: {v_grav.group(1)} dos dois lados")
 
+# ── 8. o fuso de Brasília tem que estar DECLARADO ─────────────────────────
+#
+# `main.py` e `scheduler.py` chamam ZoneInfo("America/Sao_Paulo") FORA de
+# qualquer função. Num ambiente sem banco de fusos isso não é uma tela com
+# defeito: o import estoura e o servidor NÃO SOBE, com um erro que não fala de
+# fuso nenhum.
+#
+# Funcionava no Railway porque a imagem Linux traz os fusos junto — uma
+# dependência que a gente tinha sem ter declarado, e que sumiria calada no dia
+# em que a imagem base virasse uma versão enxuta. Apareceu por outro caminho:
+# no Windows do Vini essa base não existe, e metade da suíte morreu com "No
+# time zone found with key America/Sao_Paulo".
+reqs = open("requirements.txt", encoding="utf-8").read().lower()
+usa_fuso = [a for a in ("main.py", "scheduler.py")
+            if "ZoneInfo(" in open(a, encoding="utf-8").read()]
+if usa_fuso:
+    ok("tzdata" in reqs,
+       f"{', '.join(usa_fuso)} pede fuso pelo nome (ZoneInfo) e o "
+       "requirements.txt não declara tzdata. Sem banco de fusos o app não "
+       "SOBE — servidor fora do ar, com um erro que não menciona fuso")
+    print(f"  fuso declarado no requirements ({', '.join(usa_fuso)} usam ZoneInfo)")
+
 print()
 print("FALHAS:", len(falhas))
 for f in falhas:
