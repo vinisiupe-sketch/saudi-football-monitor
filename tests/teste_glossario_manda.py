@@ -59,6 +59,22 @@ def _importar_main():
                  "starlette.middleware", "starlette.middleware.base",
                  "starlette.responses", "starlette.requests", "lxml"):
         sys.modules.setdefault(nome, MagicMock(name=nome))
+
+    # O DECORADOR TEM QUE DEVOLVER A PRÓPRIA FUNÇÃO.
+    #
+    # Com o FastAPI de mentira, `@app.get(...)` devolvia outro boneco, e a
+    # rota decorada deixava de ser chamável — o teste não conseguia executar
+    # `api_elencos_jogadores`, que é exatamente o que ele precisa provar.
+    # Aqui os decoradores viram identidade, e as rotas continuam sendo
+    # funções normais que eu posso chamar.
+    fastapi = sys.modules["fastapi"]
+    app = fastapi.FastAPI.return_value
+    for metodo in ("get", "post", "put", "patch", "delete", "middleware",
+                   "on_event", "exception_handler", "websocket"):
+        getattr(app, metodo).side_effect = lambda *a, **k: (lambda f: f)
+
+    if "main" in sys.modules:
+        return sys.modules["main"]
     import main
     return main
 
@@ -359,6 +375,101 @@ def testar():
     ok("JOGADORES JÁ IDENTIFICADOS" in glo,
        "o glossário base ainda manda transliterar sem falar da lista. Era a "
        "instrução antiga, de quando não existia glossário de jogadores")
+
+    # ── 11. A CONFIGURAÇÃO TEM QUE CHEGAR ÀS GUIAS ───────────────────────
+    # O Vini pôs a foto na SPL e a guia de Elencos continuou mostrando a do
+    # Transfermarkt. Ele perguntou se estava tudo entrelaçado mesmo. Não
+    # estava: eu tinha ligado a IDENTIDADE (quem é quem) e não os CAMPOS.
+    #
+    # A guia de Elencos lê o Transfermarkt ao vivo e nunca passava pelo banco.
+    # A ponte é o `tm_id` — o id do jogador ali é o mesmo que o glossário
+    # guarda, então não há nome no meio.
+    #
+    # Este teste roda a rota de verdade, com o Transfermarkt de mentira.
+    import asyncio as _asyncio
+    main = _importar_main()
+    _plantar()
+
+    plantel = [
+        {"id": "201", "nome": "Hamdallah", "foto_tm": "tm/ham.png",
+         "numero": 9, "posicao": "Centre-Forward", "grupo": "A", "idade": 34,
+         "nascimento": "1990-12-17", "altura": 182, "pe": "direito",
+         "nacionalidades": ["Morocco"]},
+        # Roger entra de propósito: no TM ele é ponta (setor A) e na SPL a
+        # posição é "Meia". Sem alguém assim, uma troca que derivasse o setor
+        # do texto da posição passaria despercebida — "Atacante" começa com
+        # "A" e o setor do atacante é "A", então o erro se esconderia atrás da
+        # coincidência. Já caí em dado de teste fácil demais antes.
+        {"id": "202", "nome": "Roger", "foto_tm": "tm/roger.png",
+         "numero": 11, "posicao": "Left Winger", "grupo": "A", "idade": 24,
+         "nascimento": "2001-05-05", "altura": 175, "pe": "esquerdo",
+         "nacionalidades": ["Portugal"]},
+        {"id": "999", "nome": "Fora do Glossário", "foto_tm": "tm/fora.png",
+         "numero": 30, "posicao": "Goalkeeper", "grupo": "G", "idade": 22,
+         "nascimento": "2003-01-01", "altura": 190, "pe": "direito",
+         "nacionalidades": ["Saudi Arabia"]},
+    ]
+
+    async def _plantel(_t):
+        return plantel, ""
+
+    async def _numeros(_t):
+        return {}, ""
+
+    tm = sys.modules.get("elenco_tm") or __import__("elenco_tm")
+    guardado = (tm.elenco, tm.desempenho)
+    tm.elenco, tm.desempenho = _plantel, _numeros
+    main.elenco_tm = tm
+    try:
+        _ajuste_fixo({"glossario_fonte_foto": "spl",
+                      "glossario_fonte_posicao": "spl",
+                      "glossario_fonte_nacionalidade": "spl"})
+        r = _asyncio.run(main.api_elencos_jogadores(1))
+        por_nome = {j["nome"]: j for j in r["jogadores"]}
+
+        conferir("Elencos passou a obedecer a fonte da foto",
+                 por_nome["Hamdallah"]["foto"], "spl/ham.png")
+        conferir("Elencos passou a obedecer a fonte da posição",
+                 por_nome["Hamdallah"]["posicao"], "Atacante")
+        conferir("Elencos passou a obedecer a fonte da nacionalidade",
+                 por_nome["Hamdallah"]["nacionalidade"], "Marrocos")
+        # A reserva continua sendo a do TM: se a escolhida não abrir, o card
+        # mostra alguém em vez de um buraco.
+        # A URL vai codificada (tm%2Fham.png), então decodifico antes de
+        # comparar — senão eu estaria testando a codificação, não a reserva.
+        from urllib.parse import unquote
+        ok("tm/ham.png" in unquote(por_nome["Hamdallah"]["foto_reserva"] or ""),
+           "sumiu a foto reserva do Transfermarkt — se a escolhida não abrir, "
+           "o card fica com um buraco")
+        # `grupo` NÃO pode mudar de fonte: é ele que ordena o elenco por setor,
+        # e trocá-lo por um texto de outra tabela embaralharia a lista sem
+        # nada na tela explicando por quê.
+        conferir("o setor continua vindo do TM",
+                 por_nome["Hamdallah"]["grupo"], "A")
+        # Roger: ponta no TM (setor A), "Meia" na SPL. O setor NÃO pode
+        # seguir a posição exibida — é ele que ordena o elenco por linha.
+        conferir("a posição exibida é a da fonte escolhida",
+                 por_nome["Roger"]["posicao"], "Meia")
+        conferir("mas o setor do Roger continua sendo o do TM",
+                 por_nome["Roger"]["grupo"], "A")
+        # Quem o glossário não conhece segue com o dado do TM, como sempre.
+        conferir("quem está fora do glossário mantém a foto do TM",
+                 por_nome["Fora do Glossário"]["foto"], "tm/fora.png")
+        conferir("e a contagem diz quantos foram reconhecidos",
+                 r["no_glossario"], 2)
+        ok(any("glossário" in a for a in r["avisos"]),
+           "a guia não avisa que parte do elenco está fora do glossário — sem "
+           "isso, trocar a fonte e nada mudar vira mistério")
+
+        # Trocar a configuração troca o que a guia mostra, sem mexer em código.
+        _ajuste_fixo({"glossario_fonte_foto": "transfermarkt"})
+        r2 = _asyncio.run(main.api_elencos_jogadores(1))
+        conferir("trocar a fonte troca a foto na hora",
+                 {j["nome"]: j for j in r2["jogadores"]}["Hamdallah"]["foto"],
+                 "tm/ham.png")
+    finally:
+        tm.elenco, tm.desempenho = guardado
+        _ajuste_fixo({})
 
     for f_ in falhas:
         print("  ✗", f_)

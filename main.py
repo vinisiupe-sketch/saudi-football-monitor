@@ -16276,21 +16276,60 @@ async def api_elencos_jogadores(team: int):
 
     sem_bandeira, sem_posicao = set(), set()
     jogadores = []
+    do_glossario = 0
     for p in plantel:
         d = numeros.get(p["id"], {})
         pais = _elenco_pais(p.get("nacionalidades") or [])
+
+        # ── A FONTE DE CADA CAMPO É A QUE O VINI ESCOLHEU ───────────────
+        #
+        # Esta guia lê o Transfermarkt ao vivo e nunca passou pelo banco —
+        # por isso ela ignorava a configuração de fonte quando eu a criei, e o
+        # Vini percebeu na hora: pôs a foto na SPL e aqui continuou vindo a do
+        # TM. Ele perguntou se estava tudo entrelaçado mesmo. Não estava.
+        #
+        # A ponte é o `tm_id`: o `p["id"]` daqui é o identificador do
+        # Transfermarkt, o mesmo que o glossário guarda. Então não há nome no
+        # meio — é o mesmo número dos dois lados.
+        #
+        # Quem o glossário não conhece segue com o dado do TM, como sempre.
+        foto_tm = p.get("foto_tm")
+        foto, posicao, nacs = foto_tm, p.get("posicao"), p.get("nacionalidades") or []
+        try:
+            import glossario
+            g = glossario.por_tm_id(p["id"])
+            if g:
+                do_glossario += 1
+                f = glossario.ficha(g)
+                foto = f.get("foto") or foto_tm
+                posicao = f.get("posicao") or posicao
+                if f.get("nacionalidade"):
+                    # Substitui só a PRINCIPAL. As demais continuam como o TM
+                    # listou: é ele que distingue a nacionalidade esportiva da
+                    # de nascimento, e essa distinção não está nas outras.
+                    nacs = [f["nacionalidade"]] + [
+                        n for n in nacs if n != f["nacionalidade"]]
+        except Exception:
+            pass
+        pais = _elenco_pais(nacs)
+
         if pais["nacionalidade"] and not pais["pais_bandeira"]:
             sem_bandeira.add(pais["nacionalidade"])
         if p.get("posicao") and not p.get("grupo"):
             sem_posicao.add(p["posicao"])
         jogadores.append({
             "id": p["id"], "nome": p["nome"],
-            # Direto do TM porque é mais rápido (medido: a URL abre sem referer),
-            # com o proxy como reserva caso o TM passe a bloquear hotlink.
-            "foto": p.get("foto_tm"),
-            "foto_reserva": (f"/api/tm-img?u={quote(p['foto_tm'], safe='')}"
-                             if p.get("foto_tm") else None),
-            "numero": p["numero"], "posicao": p["posicao"], "grupo": p["grupo"],
+            # A reserva continua sendo a foto do TM pelo proxy, mesmo quando a
+            # principal vem de outra fonte: se a escolhida não abrir, o card
+            # mostra alguém em vez de um buraco.
+            "foto": foto,
+            "foto_reserva": (f"/api/tm-img?u={quote(foto_tm, safe='')}"
+                             if foto_tm else None),
+            # `grupo` (G/D/M/A) continua vindo do TM de propósito, mesmo
+            # quando a posição exibida vem de outra fonte: é ele que ordena o
+            # elenco por setor, e trocá-lo por um texto de outra tabela
+            # embaralharia a lista inteira sem nada na tela explicando.
+            "numero": p["numero"], "posicao": posicao, "grupo": p["grupo"],
             "idade": p["idade"], "nascimento": p["nascimento"],
             "altura": p["altura"], "pe": p["pe"],
             "valor": p.get("valor"), "contrato": p.get("contrato"),
@@ -16309,7 +16348,15 @@ async def api_elencos_jogadores(team: int):
         avisos.append("nacionalidades sem bandeira mapeada: " + ", ".join(sorted(sem_bandeira)))
     if sem_posicao:
         avisos.append("posições sem setor definido: " + ", ".join(sorted(sem_posicao)))
+    # Quantos desta lista o glossário reconheceu. Serve para o Vini conferir:
+    # se ele trocar a fonte da foto e nada mudar na tela, este número diz se o
+    # problema é a configuração ou é o cruzamento que falta naquele clube.
+    if do_glossario < len(jogadores):
+        avisos.append(f"{do_glossario} de {len(jogadores)} jogadores estão no "
+                      "glossário — os demais aparecem com o dado do "
+                      "Transfermarkt, porque não há vínculo para consultar")
     return {"season": elenco_tm.TM_SAISON, "team": team, "total": len(jogadores),
+            "no_glossario": do_glossario,
             "jogadores": jogadores, "avisos": avisos}
 
 
@@ -20796,6 +20843,19 @@ async def api_mercado(dias: int = 45, limite: int = 60):
     escudos = escudos_por_clube()
     for c in cards:
         foto = c.get("foto") or ""
+        # A NEGOCIAÇÃO GUARDOU A FOTO DE QUANDO O CARD NASCEU — e o Vini pode
+        # ter mudado a fonte desde então. Quando o jogador está no glossário,
+        # a foto sai de lá, pela fonte que ele escolheu; quando não está
+        # (metade das negociações é sobre gente que ainda nem chegou na liga),
+        # fica a que o card já tinha.
+        try:
+            import glossario
+            g = (glossario.por_spl_id(c.get("spl_id"))
+                 or glossario.por_af_id(c.get("af_id")))
+            if g:
+                foto = glossario.ficha(g).get("foto") or foto
+        except Exception:
+            pass
         c["foto_url"] = (foto if foto.startswith("http")
                          else (liga_spl.MEDIA + foto) if foto else "")
         c["escudo_origem"] = escudos.get(c.get("clube_origem") or "", "")
