@@ -83,6 +83,16 @@ SO_MULTA_CLUBE = (
 def testar():
     falhas.clear()
 
+    # Sem o lxml o bs4 não lê a página da SAFF, a lista de decisões sai vazia
+    # e as conferências abaixo morrem indexando o vazio — um erro que não diz
+    # nada sobre o assunto. Saio com a mensagem que o conferir.py reconhece
+    # como "falta biblioteca", para virar PULADO e não FALHOU.
+    try:
+        import lxml  # noqa: F401
+    except ModuleNotFoundError:
+        print("ModuleNotFoundError: No module named 'lxml'")
+        return 1
+
     # ── 1. o total, e o extra derivado dele ──────────────────────────────
     ok(disciplina.jogos_de_suspensao(COM_GANCHO) == 2,
        f"o Óscar Rodríguez pegou 2 jogos no TOTAL e saiu "

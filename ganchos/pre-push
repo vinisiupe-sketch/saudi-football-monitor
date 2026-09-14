@@ -75,7 +75,11 @@ case "$SAIDA" in
 esac
 
 if [ $CODIGO -eq 0 ]; then
-  echo "$SAIDA" | tail -n 2
+  # As linhas do fim trazem o placar e, quando houver, o aviso de biblioteca
+  # que falta nesta máquina. Mostro as duas coisas: "pulado" não é "escondido"
+  # — é a diferença entre "conferi e está bom" e "não consegui conferir", e a
+  # segunda frase precisa aparecer na tela.
+  echo "$SAIDA" | grep -E "passaram|pulado|pip install"
   echo "  Tudo certo. Enviando."
   echo ""
   exit 0

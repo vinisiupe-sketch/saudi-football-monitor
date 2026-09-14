@@ -66,6 +66,22 @@ def testar():
             print("  ✗", f)
         return len(falhas)
 
+    # SEM O PARSER, EU NÃO TENHO O QUE CONFERIR — e digo isso em voz alta.
+    #
+    # O bs4 precisa do lxml para ler esta página. Sem ele, `ler_lesionados`
+    # devolve zero lesões (com o erro certo, aliás) e o resto deste arquivo
+    # morria com um `KeyError: '593337'` que não tem nada a ver com o assunto.
+    # Foi assim que ele apareceu como "teste quebrado" na máquina do Vini, que
+    # não tem lxml instalado, e barrou o envio dele à toa.
+    #
+    # Saio com o mesmo erro que o conferir.py sabe reconhecer como "falta
+    # biblioteca", para virar PULADO e não FALHOU.
+    try:
+        import lxml  # noqa: F401
+    except ModuleNotFoundError:
+        print("ModuleNotFoundError: No module named 'lxml'")
+        return 1
+
     html = open(AMOSTRA, encoding="utf-8").read()
     r = lesoes_tm.ler_lesionados(html)
     ok(not r["erros"], f"erros ao ler a página real: {r['erros']}")
