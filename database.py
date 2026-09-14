@@ -633,8 +633,79 @@ def _popular_glossario_lab(c) -> dict:
     return {"jogadores": jogadores, "variacoes": variacoes}
 
 
+def valor_de_ajuste(chave: str):
+    """O ajuste configurado, ou o padrão. Nunca levanta.
+
+    Existe aqui, e não só no main.py, porque o `glossario.py` precisa dele e
+    importar o main a partir de um módulo que o main importa fecharia um
+    ciclo. A validação continua sendo a do ajustes.py — uma regra só para o
+    que é valor válido.
+    """
+    try:
+        import ajustes
+        a = ajustes.POR_CHAVE.get(chave)
+        if not a:
+            return None
+        bruto = get_state(chave)
+        if bruto is None:
+            return a["padrao"]
+        limpo = ajustes.limpar(chave, bruto)
+        return a["padrao"] if limpo is None else limpo
+    except Exception:
+        try:
+            import ajustes
+            return (ajustes.POR_CHAVE.get(chave) or {}).get("padrao")
+        except Exception:
+            return None
+
+
+def glossario_completo() -> tuple[list[dict], list[dict]]:
+    """O glossário inteiro numa consulta: fichas e grafias.
+
+    É a matéria-prima do `glossario.py`, que é a única porta de leitura do
+    glossário no app. Vem tudo de uma vez porque são ~600 pessoas e alguns
+    milhares de grafias — cabe folgado na memória, e o custo real seria o
+    contrário: uma ida ao banco por nome resolvido, que numa página de lesões
+    são centenas.
+
+    O JOIN traz os campos das OUTRAS bases com prefixo (af_, tm_), e não
+    misturado, porque o Vini escolhe na guia de Ajustes de qual tabela vem a
+    foto, a posição e a nacionalidade. Se eu achatasse aqui, a escolha dele
+    não teria de onde escolher.
+    """
+    with get_conn() as conn:
+        c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        c.execute("""
+            SELECT g.*,
+                   a.foto           AS af_foto,
+                   a.nacionalidade  AS af_nacionalidade,
+                   e.foto           AS tm_foto,
+                   e.posicao        AS tm_posicao,
+                   e.nacionalidades AS tm_nacionalidade
+              FROM glossario_lab_jogador g
+              LEFT JOIN af_jogador a ON a.af_id = g.af_id
+              -- DISTINCT ON: o elenco congelado tem uma linha por clube, e um
+              -- jogador que trocou de time no meio da temporada aparece duas
+              -- vezes. Sem isto ele voltaria duplicado e a ficha dele
+              -- dependeria de qual linha o Postgres devolvesse primeiro.
+              LEFT JOIN (
+                  SELECT DISTINCT ON (jogador_id)
+                         jogador_id, foto, posicao, nacionalidades
+                    FROM elenco_congelado
+                   ORDER BY jogador_id, congelado_em DESC
+              ) e ON CAST(e.jogador_id AS TEXT) = g.tm_id
+        """)
+        jogadores = [dict(r) for r in c.fetchall()]
+        c.execute("""SELECT jogador_id, fonte, idioma, tipo, nome,
+                            nome_normalizado, confirmado
+                       FROM glossario_lab_nome""")
+        nomes = [dict(r) for r in c.fetchall()]
+    return jogadores, nomes
+
+
 def sincronizar_glossario_lab() -> dict:
     """Traz novos jogadores/vínculos para o laboratório, sem escrever na origem."""
+    _glossario_mudou()
     try:
         with get_conn() as conn:
             return _popular_glossario_lab(conn.cursor())
@@ -789,9 +860,25 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
                 "erro": str(e)}
 
 
+def _glossario_mudou() -> None:
+    """Derruba o cache do glossario.py depois de uma escrita.
+
+    Sem isto, uma correcao feita pelo Vini na guia do glossario so valeria no
+    proximo minuto — e ele ia conferir no clique seguinte, ver o erro antigo e
+    concluir, com razao, que a correcao nao pegou. Ja aconteceu com a
+    canetinha; nao repito.
+    """
+    try:
+        import glossario
+        glossario.recarregar()
+    except Exception:
+        pass
+
+
 def adicionar_nome_glossario_lab(jogador_id: int, nome: str, fonte: str,
                                  idioma: str = "", contexto: str = "") -> dict:
     """Acrescenta uma grafia manual ao laboratório; não toca no glossário ativo."""
+    _glossario_mudou()
     nome = " ".join((nome or "").split())
     fonte = (fonte or "manual").strip().lower()
     idioma = (idioma or "").strip().lower()
@@ -954,6 +1041,7 @@ def salvar_nome_pais_origem_transfermarkt_lab(jogador_id: int,
 
 def revisar_jogador_glossario_lab(jogador_id: int, revisado: bool,
                                   status: str = "") -> dict:
+    _glossario_mudou()
     permitidos = {"em_preparo", "confirmado", "conflito", "nao_identificado"}
     if status and status not in permitidos:
         return {"erro": "situação desconhecida"}
@@ -973,6 +1061,7 @@ def revisar_jogador_glossario_lab(jogador_id: int, revisado: bool,
 
 def remover_nome_glossario_lab(nome_id: int) -> dict:
     """Só remove o que foi digitado no laboratório; cópias de fontes ficam."""
+    _glossario_mudou()
     try:
         with get_conn() as conn:
             c = conn.cursor()
@@ -1126,6 +1215,7 @@ def buscar_na_fonte_glossario_lab(fonte: str, busca: str,
 def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
                                  identificador: str) -> dict:
     """Grava uma escolha feita pela lupa, exclusivamente no laboratório."""
+    _glossario_mudou()
     fonte = (fonte or "").strip().lower()
     identificador = str(identificador or "").strip()
     if fonte not in {"api_football", "transfermarkt"} or not identificador:
@@ -1216,6 +1306,7 @@ def vincular_fonte_glossario_lab(jogador_id: int, fonte: str,
 
 def desvincular_fonte_glossario_lab(jogador_id: int, fonte: str) -> dict:
     """Remove um vínculo e impede a sincronização de recriá-lo sozinha."""
+    _glossario_mudou()
     fonte = (fonte or "").strip().lower()
     campos = {
         "api_football": ("af_id", "af_bloqueado"),
@@ -2866,8 +2957,26 @@ def _quem_e(nome: str, indice=None) -> str:
     """
     if not (nome or "").strip():
         return ""
-    # O GLOSSÁRIO PRIMEIRO. O que o Vini corrigiu à mão vale mais que
-    # qualquer dedução minha — ele estava olhando a tela quando decidiu.
+    # ── O GLOSSÁRIO OFICIAL, ANTES DE QUALQUER DEDUÇÃO ──────────────────
+    #
+    # É ele que decide quem é quem desde 14/09/26. O que vem depois nesta
+    # função — índice de nomes, semelhança de texto a 0,75 — continua aqui só
+    # para quem o glossário não cobre: gente de fora da liga, que aparece em
+    # notícia de transferência e não tem por que estar nele.
+    #
+    # A ordem importa e não é preferência: a semelhança de texto a 0,75 casa
+    # "Rúger Fernández" com "Roger Fernandes" por sorte e casa dois irmãos por
+    # azar. Deixá-la rodar antes seria deixar a sorte opinar sobre uma
+    # pergunta que já tem resposta auditada.
+    try:
+        import glossario
+        achado = glossario.identidade(nome)
+        if achado and achado.get("spl_id"):
+            return str(achado["spl_id"])
+    except Exception:
+        pass
+    # A canetinha das guias de Lesões e Mercado. Continua valendo: ela é a
+    # correção que o Vini faz no calor do momento, sem abrir o glossário.
     try:
         apelido = apelidos_de_jogador().get(_chave_apelido(nome))
         if apelido:

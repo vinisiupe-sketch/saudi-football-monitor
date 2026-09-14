@@ -166,7 +166,11 @@ Clubes SPL (1ª divisão): {", ".join(SPL_CLUBS)}.
 Clubes Yelo League (2º nível, abaixo da SPL, aparecem em notícias de empréstimo/transferência): {", ".join(YELO_CLUBS)}.
 Competição: sempre "Saudi Pro League" (nunca "Liga Saudita" ou "Campeonato Saudita").
 DISTINÇÃO CRÍTICA: الاتفاق = Al Ettifaq (Dammam) | الاتحاد = Al Ittihad (Jeddah). Nunca confunda.
-NUNCA invente nomes de jogadores em árabe — translitere letra por letra.
+NOMES DE JOGADORES — o glossário vem ANTES da transliteração:
+Quando o artigo trouxer uma lista "JOGADORES JÁ IDENTIFICADOS NESTE TEXTO",
+use EXATAMENTE aquelas grafias e não translitere esses nomes por conta
+própria. Aquela lista foi auditada à mão e vale mais que qualquer palpite.
+Só para quem NÃO estiver na lista: nunca invente, translitere letra por letra.
 """
 
 

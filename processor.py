@@ -171,6 +171,21 @@ async def triar_categorias(articles: list[dict], client: httpx.AsyncClient) -> N
             print(f"   ⚠️  Triagem falhou no lote {i//TRIAGEM_LOTE+1}: {type(e).__name__}: {e} — lote segue para tradução")
 
 
+def _licao_do_artigo(art: dict) -> str:
+    """O de-para dos jogadores que o glossário reconhece NESTE artigo.
+
+    Devolve "" quando não reconhece ninguém — e aí a IA translitera como
+    sempre fez. O glossário cobre a Saudi Pro League; notícia sobre jogador do
+    Liverpool continua passando pelo caminho antigo, que é o certo para ela.
+    """
+    try:
+        import glossario
+        return glossario.licao_para_a_ia(art.get("title_orig") or "",
+                                         (art.get("body_orig") or "")[:1200])
+    except Exception:
+        return ""
+
+
 async def translate_articles(articles: list[dict]) -> list[dict]:
     from glossary import GLOSSARY_PROMPT, apply_glossary
 
@@ -240,7 +255,31 @@ async def translate_articles(articles: list[dict]) -> list[dict]:
                     "(5) Emojis e hashtags podem ser mantidos ou omitidos, mas NUNCA substituídos por texto inventado.]"
                     if len(body_orig_text.strip()) < 280 else ""
                 )
-                items_text += f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}\nTexto: {body_orig_text[:1200]}{brevity_note}\n---"
+                # ── O GLOSSÁRIO ENSINA ANTES DE A IA ADIVINHAR ──────────
+                #
+                # A ordem antiga era: a IA translitera o árabe e o app tenta
+                # reconhecer o resultado depois. É criar um erro para corrigir
+                # em seguida, e as correções nunca pegam todas — foi o que
+                # produziu "Rúger Fernández", "Rojer" e "Roger Fernandes" como
+                # três pessoas.
+                #
+                # Agora o texto ÁRABE BRUTO é varrido antes de a IA ver
+                # qualquer coisa, e os jogadores que o Vini já mapeou entram
+                # no prompt resolvidos. A IA deixa de ter o que adivinhar.
+                #
+                # Vai no prompt e não no system porque o system é cacheado: é
+                # o mesmo para todo mundo, e esta lição é deste artigo.
+                licao = ""
+                try:
+                    import glossario
+                    licao = glossario.licao_para_a_ia(
+                        art.get("title_orig") or "", body_orig_text,
+                        art.get("title_pt") or "")
+                except Exception:
+                    licao = ""
+                items_text += (f"\nARTIGO {idx+1}:\nTítulo: {art.get('title_orig', '')}"
+                               f"\nTexto: {body_orig_text[:1200]}{brevity_note}"
+                               f"{licao}\n---")
 
             prompt = f"""Adapte os artigos abaixo para português brasileiro com estilo jornalístico esportivo.
 Classifique cada artigo em UMA categoria: mercado, financas, competicao, entrevista, lesao, treino, geral.
@@ -287,7 +326,7 @@ Responda SOMENTE com este JSON (sem texto extra):
 {{"title_pt": "...", "body_pt": "...", "category": "..."}}
 
 Título: {art.get('title_orig', '')}
-Texto: {art.get('body_orig', '')[:1200]}"""
+Texto: {art.get('body_orig', '')[:1200]}{_licao_do_artigo(art)}"""
                         solo_raw = await call_claude(solo_prompt, system, client, max_tokens=1000, cache_system=True)
                         solo_raw = solo_raw.strip()
                         if solo_raw.startswith("```"):

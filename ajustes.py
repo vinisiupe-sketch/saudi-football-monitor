@@ -247,6 +247,72 @@ AJUSTES = [
                  "no botão manual.",
     },
     # ── Arbitragem ────────────────────────────────────────────────────────
+    # ── Glossário: de qual tabela vem cada campo ──────────────────────────
+    #
+    # Agora que as três bases estão ligadas pelo mesmo jogador, cada campo tem
+    # três respostas possíveis, e a melhor não é a mesma para todos: a SPL tem
+    # a foto oficial, o Transfermarkt costuma ter a mais atual, e a posição
+    # detalhada só existe na API-Football.
+    #
+    # Isto é escolha, não regra — por isso está aqui e não no código. Vale
+    # para as 601 fichas de uma vez; ninguém escolhe jogador por jogador.
+    #
+    # "melhor disponível" tenta na ordem SPL → API-Football → Transfermarkt e
+    # fica com a primeira que não estiver vazia. As outras opções são estritas:
+    # se a tabela escolhida não tem o campo, o campo fica vazio, e vazio é
+    # honesto — dado de outra tabela aparecendo no lugar seria mentira calada.
+    {
+        "chave": "glossario_fonte_foto",
+        "grupo": "Glossário de jogadores",
+        "rotulo": "De onde vem a foto",
+        "tipo": "escolha",
+        "opcoes": ["melhor disponível", "spl", "api_football", "transfermarkt"],
+        "padrao": "melhor disponível",
+        "ajuda": "A foto que aparece nos cards de lesão, mercado e no "
+                 "campinho. A SPL tem a oficial da liga; o Transfermarkt "
+                 "costuma trocar mais rápido quando o jogador muda de clube.",
+    },
+    {
+        "chave": "glossario_fonte_posicao",
+        "grupo": "Glossário de jogadores",
+        "rotulo": "De onde vem a posição",
+        "tipo": "escolha",
+        # A API-Football não entra aqui porque o cadastro dela que a gente
+        # guarda (af_jogador) não tem posição — só nascimento, altura,
+        # nacionalidade e foto. Oferecer uma fonte que sempre devolve vazio
+        # seria uma armadilha com cara de opção.
+        "opcoes": ["melhor disponível", "spl", "transfermarkt"],
+        "padrao": "melhor disponível",
+        "ajuda": "O Transfermarkt detalha (Centre-Forward, Left Winger) onde "
+                 "a SPL só diz o setor. Se você quer a posição detalhada em "
+                 "todas as telas, escolha transfermarkt.",
+    },
+    {
+        "chave": "glossario_fonte_nacionalidade",
+        "grupo": "Glossário de jogadores",
+        "rotulo": "De onde vem a nacionalidade",
+        "tipo": "escolha",
+        "opcoes": ["melhor disponível", "spl", "api_football", "transfermarkt"],
+        "padrao": "melhor disponível",
+        "ajuda": "É ela que escolhe a bandeira nas Escalações. Uma fonte só "
+                 "para todos evita o caso de dois jogadores do mesmo time "
+                 "aparecerem com a mesma nacionalidade escrita diferente.",
+    },
+    {
+        "chave": "glossario_manda",
+        "grupo": "Glossário de jogadores",
+        "rotulo": "O glossário decide quem é quem",
+        "tipo": "escolha",
+        "opcoes": ["ligado", "desligado"],
+        "padrao": "ligado",
+        "ajuda": "Ligado, nenhuma tela tenta adivinhar um jogador da Saudi "
+                 "Pro League por semelhança de nome: vale o que está no "
+                 "glossário que você audita, e quem não está lá aparece como "
+                 "não identificado. Desligado, o app volta ao comportamento "
+                 "antigo. Serve para comparar os dois num dia ruim, e não "
+                 "para ficar desligado.",
+    },
+
     {
         "chave": "arbitragem_cabecalho",
         "grupo": "Arbitragem",

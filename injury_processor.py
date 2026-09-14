@@ -75,17 +75,29 @@ async def extract_injury_data(article: dict, client) -> dict | None:
     if not fala_de_lesao(tudo):
         return None
 
+    # O glossário ensina antes: os jogadores que o Vini já mapeou entram
+    # resolvidos, e a IA não translitera quem já tem grafia decidida. É o que
+    # faz a lesão do Hamdallah cair no card do Hamdallah em vez de abrir um
+    # card novo com o nome que a IA achou que fosse.
+    try:
+        import glossario
+        licao = glossario.licao_para_a_ia(
+            title, body[:800], article.get("title_orig") or "",
+            (article.get("body_orig") or "")[:800])
+    except Exception:
+        licao = ""
+
     prompt = f"""Analise o artigo abaixo e extraia dados de lesão de jogador da Saudi Pro League.
 
 Título: {title}
-Texto: {body[:800]}
+Texto: {body[:800]}{licao}
 Fonte: {source}
 Data publicação: {published}
 
 Responda com este JSON exato (sem texto extra):
 {{
   "is_injury": true,
-  "player_name": "nome do jogador em português ou transliteração latina",
+  "player_name": "nome do jogador. Se ele estiver na lista JOGADORES JÁ IDENTIFICADOS acima, copie a grafia de lá EXATAMENTE; senão, transliteração latina",
   "player_name_orig": "nome exatamente como aparece no texto",
   "club": "nome do clube saudita (Al Hilal, Al Nassr, Al Ittihad, Al Ahli, etc.)",
   "injury_date": "YYYY-MM-DD estimado em que ocorreu a lesão, ou null",

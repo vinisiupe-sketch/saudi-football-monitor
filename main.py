@@ -5726,6 +5726,46 @@ def _contexto_de_elenco() -> dict:
             "indice": indice, "apelidos": apelidos, "por_clube": por_clube}
 
 
+def _ficha_como_elenco(g: dict) -> dict:
+    """A ficha do glossário no formato que as telas já esperam.
+
+    Existe para o caso do jogador que está no glossário mas ainda não no
+    elenco congelado — contratado ontem, por exemplo. Antes ele simplesmente
+    não existia para a tela; agora existe, com foto, posição e nacionalidade
+    vindas da fonte que o Vini escolheu na guia de Ajustes.
+    """
+    import glossario
+    f = glossario.ficha(g)
+    return {"spl_id": f.get("spl_id") or "", "af_id": f.get("af_id"),
+            "tm_id": f.get("tm_id") or "", "nome": f.get("nome_principal") or "",
+            "nome_curto": f.get("nome_curto") or "",
+            "nome_ar": f.get("nome_ar") or "", "clube": f.get("clube") or "",
+            "posicao": f.get("posicao") or "", "camisa": f.get("camisa") or "",
+            "nacionalidade": f.get("nacionalidade") or "",
+            "foto": f.get("foto") or "", "do_glossario": True}
+
+
+def _e_nome_de_clube_da_liga(clube: str, ctx: dict) -> bool:
+    """Este clube é da Saudi Pro League?
+
+    É a fronteira da autoridade do glossário, e por isso ela é explícita. O
+    glossário cobre a liga; fora dela, o caminho antigo continua valendo. Sem
+    clube informado eu respondo NÃO — na dúvida, deixo a heurística tentar,
+    porque recusar calado alguém de fora da liga esvaziaria a guia de Mercado.
+    """
+    if not clube:
+        return False
+    import glossary
+    alvo = (glossary.padronizar_clube(clube) or "").strip()
+    if not alvo:
+        return False
+    try:
+        import clubs
+        return alvo in set(glossary.SPL_CLUBS)
+    except Exception:
+        return bool((ctx.get("por_clube") or {}).get(_chave_de_clube(clube)))
+
+
 def _identificar_jogador(nome: str, clube: str, ctx: dict) -> dict:
     """Quem é este nome, ou {}. UMA regra, usada por todas as telas.
 
@@ -5755,6 +5795,34 @@ def _identificar_jogador(nome: str, clube: str, ctx: dict) -> dict:
     if not nome:
         return {}
     por_id = ctx.get("por_id") or {}
+
+    # ── O GLOSSÁRIO OFICIAL VEM ANTES DE TUDO ───────────────────────────
+    #
+    # 601 jogadores ancorados na SPL, com 595 cruzados na API-Football e 595
+    # no Transfermarkt, auditados à mão pelo Vini. Onde ele responde, nenhuma
+    # dedução roda — nem para desempatar, nem para confirmar.
+    #
+    # E quando ele responde "não sei", o `return {}` abaixo é a resposta
+    # FINAL para jogador da liga. Essa é a inversão: antes, não saber era o
+    # sinal para começar a adivinhar; agora é o fim da pergunta. Foi o que o
+    # Vini pediu — "sem depender de código que tenta fazer assimilação" — e é
+    # o que faz o glossário ser autoridade em vez de mais um palpite na pilha.
+    #
+    # A heurística sobrevive só para quem NÃO é da liga: a guia de Mercado
+    # fala de jogador do Liverpool o tempo todo, e esse não está no glossário
+    # nem deveria estar.
+    import glossario
+    if glossario.esta_carregado():
+        achado = glossario.identidade(nome, clube)
+        if achado:
+            # Devolvo o registro do elenco quando existe, porque as telas
+            # esperam os campos dele (spl_id, foto, nome_curto). O glossário
+            # decidiu QUEM é; o elenco continua sendo onde o dado mora.
+            spl = str(achado.get("spl_id") or "")
+            return por_id.get(spl) or _ficha_como_elenco(achado)
+        if _db.valor_de_ajuste("glossario_manda") != "desligado" \
+                and _e_nome_de_clube_da_liga(clube, ctx):
+            return {}
 
     corrigido = (ctx.get("apelidos") or {}).get(_db._chave_apelido(nome))
     if corrigido and corrigido in por_id:

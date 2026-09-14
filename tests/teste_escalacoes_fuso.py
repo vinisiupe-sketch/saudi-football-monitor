@@ -133,37 +133,47 @@ def testar():
     # o bug plantado, porque essa mesma linha aparece em outros quatro pontos
     # do main.py. Teste que procura texto no arquivo confere que alguém
     # ESCREVEU a linha, não que ela roda.
-    calendario = [
-        # 22h da Arábia do dia 09 = 16h de Brasília do dia 09 → entra
-        {"nome": "tarde", "matchDateUtc": "2026-09-09T19:00:00Z"},
-        # 02h da Arábia do dia 10 = 20h de Brasília do dia 09 → entra
-        {"nome": "noite", "matchDateUtc": "2026-09-09T23:00:00Z"},
-        # 09h da Arábia do dia 09 = 03h de Brasília do dia 09 → entra
-        {"nome": "manhã", "matchDateUtc": "2026-09-09T06:00:00Z"},
-        # 20h da Arábia do dia 08 = 14h de Brasília do dia 08 → fica de fora
-        {"nome": "ontem", "matchDateUtc": "2026-09-08T17:00:00Z"},
-        # 22h de Brasília do dia 09 é 04h da Arábia do dia 10 → entra
-        {"nome": "tarde da noite", "matchDateUtc": "2026-09-10T01:00:00Z"},
-    ]
-    liga = __import__("liga_spl")
-    guardado = (liga.temporada, liga.jogos_da_temporada, main._dia_de_brasilia)
-    try:
-        liga.temporada = lambda *a, **k: 1
-        liga.jogos_da_temporada = lambda *a, **k: calendario
-        main._dia_de_brasilia = lambda *a, **k: "2026-09-09"
-        saiu = [j["nome"] for j in main._jogos_do_dia_brasilia()]
-    finally:
-        liga.temporada, liga.jogos_da_temporada, main._dia_de_brasilia = guardado
+    # A REGRA MUDOU EM 11/09/26, e este bloco foi reescrito por isso.
+    #
+    # Antes a guia mostrava "os jogos de hoje em Brasília", e este teste
+    # guardava o corte do dia. O Vini trocou para a RODADA INTEIRA — os nove
+    # jogos, mesmo os de amanhã — e `_jogos_do_dia_brasilia` deixou de existir.
+    # O teste ficou vermelho desde então, chamando uma função que não existe
+    # mais; o commit atualizou o teste de cards e esqueceu deste.
+    #
+    # Não apago o bloco: o que ele protegia continua valendo, só que agora o
+    # protetor é outro. A lista não pode abrir com partidas já jogadas, e a
+    # rodada é que decide isso. Então passo a exercitar `_selecionar_rodada`.
+    def _jogo(nome, rodada, dia, status=""):
+        return {"nome": nome, "matchDateLocal": f"{dia}T20:00:00",
+                "matchSet": {"matchSetId": rodada, "matchSetName": f"Rodada {rodada}",
+                             "matchdayStatus": status}}
 
-    ok("ontem" not in saiu,
-       f"o jogo de ONTEM entrou na agenda de hoje: {saiu}. Foi exatamente a "
-       "reclamação do Vini — a lista abria com partidas já jogadas")
-    ok("noite" in saiu and "tarde da noite" in saiu,
-       f"sumiu um jogo que em Brasília é hoje à noite: {saiu}. Contado pelo "
-       "calendário da Arábia ele já é de amanhã, e é aí que ele some")
-    ok(len(saiu) == 4, f"deveriam sobrar 4 jogos do dia, sobraram {len(saiu)}: {saiu}")
-    ok(saiu == ["manhã", "tarde", "noite", "tarde da noite"],
-       f"a agenda saiu fora de ordem: {saiu} — ela é para olhar em sequência")
+    calendario = [
+        _jogo("velho-a", 3, "2026-09-01"), _jogo("velho-b", 3, "2026-09-02"),
+        _jogo("agora-a", 4, "2026-09-09", "Playing"),
+        _jogo("agora-b", 4, "2026-09-10"),
+        _jogo("agora-c", 4, "2026-09-08"),
+        _jogo("futuro-a", 5, "2026-09-20"),
+    ]
+    rodada, saiu_j = main._selecionar_rodada(calendario, "2026-09-09")
+    saiu = [j["nome"] for j in saiu_j]
+    ok(all(n.startswith("agora") for n in saiu),
+       f"entrou jogo de outra rodada na lista: {saiu}. A guia abriria com "
+       "partidas já jogadas, que foi a reclamação original do Vini")
+    ok(len(saiu) == 3, f"a rodada em andamento tem 3 jogos aqui, vieram {len(saiu)}: {saiu}")
+    ok(saiu == ["agora-c", "agora-a", "agora-b"],
+       f"a rodada saiu fora de ordem: {saiu} — ela é para olhar em sequência")
+
+    # Sem o status "Playing", a data manda: a rodada que CONTÉM hoje ganha.
+    # É a rede que segura quando a API atrasa para marcar o jogo como em
+    # andamento — e ela atrasa.
+    sem_status = [dict(j, matchSet=dict(j["matchSet"], matchdayStatus=""))
+                  for j in calendario]
+    _, por_data = main._selecionar_rodada(sem_status, "2026-09-09")
+    ok([j["nome"] for j in por_data] == ["agora-c", "agora-a", "agora-b"],
+       "sem o status 'Playing' a rodada deixou de ser achada pela data dos "
+       "próprios jogos")
 
     # ── 5. `quando` chega à tela em UTC, com fuso escrito ────────────────
     jogos = [{"home": {"shortName": "Al-Hilal"}, "away": {"shortName": "Al Nassr"},
