@@ -657,12 +657,22 @@ def listar_glossario_lab(busca: str = "", clube: str = "", status: str = "",
         onde.append("g.status = %s")
         valores.append(status)
     if busca:
-        termo = f"%{busca.strip()}%"
+        busca_limpa = busca.strip()
+        # Aceita colar o número puro ou rótulos comuns como #107, AF 127769,
+        # TM:1183784 e SPL 4332. A comparação continua exata para IDs.
+        identificador = re.sub(
+            r"^(?:#\s*|(?:id|spl|af|api[- ]?football|tm)"
+            r"(?:\s*[:#-]\s*|\s+))",
+            "", busca_limpa, flags=re.I).strip()
+        termo = f"%{busca_limpa}%"
         onde.append("""(g.nome_principal ILIKE %s OR g.nome_ar ILIKE %s
                      OR g.clube ILIKE %s OR CAST(g.id AS TEXT) = %s
+                     OR g.spl_id = %s OR CAST(g.af_id AS TEXT) = %s
+                     OR g.tm_id = %s
                      OR EXISTS (SELECT 1 FROM glossario_lab_nome n
                                  WHERE n.jogador_id = g.id AND n.nome ILIKE %s))""")
-        valores.extend([termo, termo, termo, busca.strip(), termo])
+        valores.extend([termo, termo, termo, identificador, identificador,
+                        identificador, identificador, termo])
     filtro = (" WHERE " + " AND ".join(onde)) if onde else ""
     # As expressões são escolhidas por uma lista fechada. O valor vindo da
     # tela nunca é interpolado diretamente no SQL.

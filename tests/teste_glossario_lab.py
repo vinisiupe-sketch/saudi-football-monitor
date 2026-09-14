@@ -47,6 +47,9 @@ def testar():
     assert "resumo_clube" in main + banco + tela
     assert '"players/profiles"' in main
     assert "colunasComVazio" in tela and "data-ordem=\"api_football\"" in tela
+    assert "CAST(g.af_id AS TEXT) = %s" in banco
+    assert "g.spl_id = %s" in banco and "g.tm_id = %s" in banco
+    assert "ID interno, SPL, API-Football ou Transfermarkt" in tela
     assert "data-ordem=\"tm_ar\"" in tela and "com_tm_arabe" in banco + tela
     assert "capturarNomeTM" in tela
     with open(os.path.join(RAIZ, "elenco_tm.py"), encoding="utf-8") as f:
