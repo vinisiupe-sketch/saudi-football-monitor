@@ -15169,10 +15169,19 @@ function numerosFicha(d){
 // a ficha era a que mentia com mais confiança.
 function avisoIncompleto(d){
   if (!d.incompletas) return '';
+  // O TEXTO DIZ QUE É UMA VEZ SÓ, PARA TODO MUNDO.
+  //
+  // A primeira versão dizia "até a releitura" ao lado de um botão, e o Vini
+  // perguntou, com razão, se ia ter de clicar em cada jogador toda vez. Não
+  // vai: o app se completa sozinho de madrugada, e o botão é só um atalho
+  // para quem não quer esperar. Um aviso que não diz isso transforma um
+  // conserto automático numa tarefa recorrente na cabeça de quem lê.
   return '<div class="ficha-incompleto">' +
-    '<span>' + d.incompletas + ' partida(s) ainda sem os números do jogo — ' +
-    'gols, assistências, cartões e nota aparecem como “—” até a releitura.</span>' +
-    '<button class="ctrl" id="btnReler" onclick="relerEscalacoes(this)">↻ Ler agora</button>' +
+    '<span>' + d.incompletas + ' partida(s) desta temporada ainda sem os ' +
+    'números do jogo. <b>O app completa isso sozinho, de madrugada</b> — e ' +
+    'vale para todos os jogadores de uma vez, não só para este. O botão é ' +
+    'só para não esperar.</span>' +
+    '<button class="ctrl" id="btnReler" onclick="relerEscalacoes(this)">↻ Completar agora</button>' +
     '</div>';
 }
 
@@ -15181,9 +15190,12 @@ async function relerEscalacoes(botao){
   botao.disabled = true;
   botao.textContent = 'lendo… (pode levar um minuto)';
   try {
+    // Uma chamada, a temporada inteira, todos os clubes. Não é por jogador —
+    // o que sai daqui vale para as 601 fichas.
     const r = await fetch('/api/escalacoes/reler');
     const d = await r.json();
-    botao.textContent = (d.partidas || 0) + ' partidas lidas — recarregando…';
+    botao.textContent = (d.partidas || 0) + ' partidas lidas para o campeonato '
+      + 'inteiro — recarregando…';
     setTimeout(function(){ if (FICHA_ID) verFicha(FICHA_ID); }, 900);
   } catch(e) {
     botao.textContent = 'não deu: ' + (e.message || e);
@@ -15206,8 +15218,9 @@ function jogosFicha(d){
   const ps = d.partidas || [];
   if (!ps.length) {
     return '<div class="estado">' + (d.sem_leitura
-      ? 'Ainda não li as escalações desta temporada para este jogador. ' +
-        'Toque em “Ler agora” acima para preencher.'
+      ? 'Ainda não li as escalações desta temporada. O app faz isso sozinho ' +
+        'de madrugada, para o elenco inteiro — ou toque em “Completar agora” ' +
+        'acima para não esperar.'
       : 'Sem partidas registradas nesta temporada.') + '</div>';
   }
   // O CABEÇALHO EM ÍCONES, como na referência. Numa tabela de nove colunas

@@ -307,12 +307,45 @@ async def run_retornos():
     cresce, cheia de gente que está em campo há semanas.
     """
     try:
+        from database import (esquecer_escalacoes_lidas,
+                              partidas_com_atuacao_incompleta)
         from main import _ler_escalacoes, _marcar_retornos
-        lidas = await _ler_escalacoes()
+
+        # ── O APP SE COMPLETA SOZINHO ───────────────────────────────────
+        #
+        # O Vini perguntou se ia ter de clicar em "Ler agora" em cada jogador,
+        # toda vez. A resposta é não — e o botão só existia porque eu tinha
+        # deixado o conserto na mão dele, o que é o mesmo tipo de trabalho
+        # repetido que este projeto inteiro tenta tirar do caminho.
+        #
+        # Por meses a leitura gravou só minutos e titular, jogando fora gols,
+        # assistências, cartões e nota que vinham na MESMA resposta. Aquelas
+        # partidas ficaram carimbadas como lidas e nada iria buscá-las de
+        # novo. Aqui elas são desmarcadas — SÓ ELAS — e relidas por passadas,
+        # até não sobrar nenhuma. Depois disso a rotina não faz mais nada:
+        # partida nova já nasce completa.
+        #
+        # Em passadas porque cada partida custa uma chamada. Uma temporada
+        # inteira leva alguns dias de madrugada, sem atrapalhar o resto.
+        incompletas = await asyncio.to_thread(partidas_com_atuacao_incompleta)
+        if incompletas:
+            await asyncio.to_thread(esquecer_escalacoes_lidas, "incompletas")
+            print(f"📋 {incompletas} partida(s) sem os números do jogo — "
+                  f"completando")
+
+        lidas = {"partidas": 0}
+        for _ in range(8):
+            d = await _ler_escalacoes()
+            lidas["partidas"] += d.get("partidas") or 0
+            if not d.get("faltam") or not d.get("partidas"):
+                break
+
         r = await _marcar_retornos()
+        restam = await asyncio.to_thread(partidas_com_atuacao_incompleta)
         print(f"🏃 Retornos: {lidas.get('partidas')} escalação(ões) lida(s), "
               f"{r.get('marcados')} marcado(s) como recuperado(s), "
-              f"{r.get('sem_af_id')} sem id cruzado")
+              f"{r.get('sem_af_id')} sem id cruzado"
+              + (f", {restam} partida(s) ainda por completar" if restam else ""))
         return r
     except Exception as e:
         print(f"❌ Erro ao conferir retornos: {e}")

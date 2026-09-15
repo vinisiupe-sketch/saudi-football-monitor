@@ -3367,7 +3367,31 @@ def jogo_a_jogo(af_id: int, season: int = 0, teto: int = 60) -> list[dict]:
         return []
 
 
-def esquecer_escalacoes_lidas() -> int:
+def partidas_com_atuacao_incompleta() -> int:
+    """Quantas partidas foram lidas ANTES de eu guardar os números do jogo.
+
+    Por meses a leitura gravou só minutos e titular, e jogou fora gols,
+    assistências, cartões e nota — que vinham na MESMA resposta. Essas
+    partidas ficaram marcadas como lidas, então nada iria buscá-las de novo, e
+    a ficha do jogador mostrava "—" para sempre.
+
+    Este número é o que permite consertar isso sozinho: a rotina de madrugada
+    pergunta, e só relê enquanto houver o que completar. Sem ele, ou eu releria
+    a temporada toda todo dia — caro e à toa — ou dependeria de alguém lembrar
+    de clicar num botão.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_atuacao(c)
+            c.execute("SELECT COUNT(DISTINCT fixture_id) FROM atuacao "
+                      "WHERE gols IS NULL")
+            return c.fetchone()[0] or 0
+    except Exception:
+        return 0
+
+
+def esquecer_escalacoes_lidas(fixtures=None) -> int:
     """Faz o app reler as escalações de toda a temporada.
 
     Existe porque a leitura guardava MENOS do que a resposta trazia: por meses
@@ -3378,12 +3402,22 @@ def esquecer_escalacoes_lidas() -> int:
     NÃO apaga as atuações — só o carimbo de "já li esta partida". Assim a
     releitura completa o que falta em vez de zerar o que já funciona, e a
     detecção de retorno continua de pé enquanto ela acontece.
+
+    `fixtures="incompletas"` esquece SÓ as que estão pela metade. É o que a
+    rotina de madrugada usa: reler a temporada inteira todo dia custaria uma
+    chamada por partida para reconfirmar o que já está certo.
     """
     try:
         with get_conn() as conn:
             c = conn.cursor()
             _cria_atuacao(c)
-            c.execute("DELETE FROM atuacao_partida_lida")
+            if fixtures == "incompletas":
+                c.execute("""DELETE FROM atuacao_partida_lida
+                              WHERE fixture_id IN (
+                                  SELECT DISTINCT fixture_id FROM atuacao
+                                   WHERE gols IS NULL)""")
+            else:
+                c.execute("DELETE FROM atuacao_partida_lida")
             return c.rowcount
     except Exception:
         return 0

@@ -200,6 +200,61 @@ def testar():
     conferir("com tudo lido, não sobra pendência",
              asyncio.run(main.api_jogador_ficha(tm_id="8198"))["incompletas"], 0)
 
+    # ── 1b2. E O APP SE COMPLETA SOZINHO ─────────────────────────────────
+    #
+    # "Eu vou ter que clicar em LER AGORA em todos os jogadores, todas as
+    # vezes?" — não, e o botão só existia porque eu tinha deixado o conserto
+    # na mão dele. A rotina de madrugada desmarca as partidas pela metade e as
+    # relê, até não sobrar nenhuma.
+    import ast as _ast
+    sched = open(os.path.join(RAIZ, "scheduler.py"), encoding="utf-8").read()
+    ret = next((_ast.get_source_segment(sched, n)
+                for n in _ast.walk(_ast.parse(sched))
+                if isinstance(n, (_ast.FunctionDef, _ast.AsyncFunctionDef))
+                and n.name == "run_retornos"), "")
+    # A LINHA EXATA: o nome da função também aparece no import e no balanço
+    # do fim, então procurá-lo solto deixava passar um `incompletas = 0`.
+    ok("incompletas = await asyncio.to_thread(partidas_com_atuacao_incompleta)"
+       in ret,
+       "a rotina de madrugada não pergunta se há partidas pela metade — o "
+       "conserto volta a depender de alguém clicar num botão")
+    ok('esquecer_escalacoes_lidas, "incompletas"' in ret,
+       "a rotina desmarca TODAS as partidas em vez de só as incompletas. "
+       "Reler a temporada inteira toda noite é uma chamada por partida para "
+       "reconfirmar o que já está certo")
+    ok("if incompletas:" in ret,
+       "a releitura deixou de ser condicional — ela passa a rodar todo dia "
+       "mesmo quando não há nada a completar")
+    # E O NÚMERO DE PASSADAS, não só a existência do laço: `range(1)` é um
+    # laço que não repete, e passava na versão anterior desta asserção.
+    import re as _re
+    _m = _re.search(r"for _ in range\((\d+)\)", ret)
+    ok(_m and int(_m.group(1)) > 1,
+       "a rotina lê uma passada só. Uma temporada não cabe numa passada, e o "
+       "teto por passada existe porque cada partida custa uma chamada")
+
+    banco = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+    esq = next((_ast.get_source_segment(banco, n)
+                for n in _ast.walk(_ast.parse(banco))
+                if isinstance(n, _ast.FunctionDef)
+                and n.name == "esquecer_escalacoes_lidas"), "")
+    ok('WHERE fixture_id IN (' in esq and "gols IS NULL" in esq,
+       "o modo 'incompletas' deixou de escolher pelas partidas sem números")
+    inc = next((_ast.get_source_segment(banco, n)
+                for n in _ast.walk(_ast.parse(banco))
+                if isinstance(n, _ast.FunctionDef)
+                and n.name == "partidas_com_atuacao_incompleta"), "")
+    ok("COUNT(DISTINCT fixture_id)" in inc and "gols IS NULL" in inc,
+       "a contagem de partidas pela metade mudou de critério")
+
+    # E A TELA DIZ QUE É AUTOMÁTICO. Um aviso que não diz isso transforma um
+    # conserto automático numa tarefa recorrente na cabeça de quem lê.
+    ok("completa isso sozinho" in _elencos_html(),
+       "o aviso não diz que o app se completa sozinho — foi exatamente o que "
+       "fez o Vini achar que teria de clicar em cada jogador, toda vez")
+    ok("todos os jogadores de uma vez" in _elencos_html(),
+       "o aviso não diz que a releitura vale para o elenco inteiro")
+
     # E A TELA OFERECE O CONSERTO, em vez de só mostrar "—".
     el_ = _elencos_html()
     # A LINHA EXATA, e não o nome da função: um `return ''` posto na frente
