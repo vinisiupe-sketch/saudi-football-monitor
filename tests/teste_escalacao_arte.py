@@ -36,6 +36,18 @@ os.chdir(RAIZ)
 import escalacao_arte
 
 FONTE = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
+
+# O CAMPINHO MUDOU DE ARQUIVO (14/09/26).
+#
+# Ele era um pedaço da guia de Elencos, dentro de uma string do main.py. Virou
+# guia própria e mora em public/campinho.html — Elencos passou a ser a ficha do
+# jogador, e as duas telas respondiam perguntas diferentes no mesmo lugar.
+#
+# A projeção é a MESMA, e este teste continua lendo o arquivo onde ela está de
+# verdade, sem cópia. Uma cópia aqui diria que a conta bate consigo mesma.
+FONTE_CAMPO = open(os.path.join(RAIZ, "public", "campinho.html"),
+                   encoding="utf-8").read()
+
 falhas = []
 
 
@@ -66,12 +78,12 @@ def _formacoes() -> dict:
 
 
 def _projetar_no_navegador(node: str, pedidos: list) -> list:
-    ini = FONTE.find("const PROJ = {")
-    marca = FONTE.find("function projetar(", ini)
-    fim = FONTE.find("\n}\n", marca)
-    codigo = FONTE[ini:fim + 3] if ini >= 0 and fim > 0 else ""
+    ini = FONTE_CAMPO.find("const PROJ = {")
+    marca = FONTE_CAMPO.find("function projetar(", ini)
+    fim = FONTE_CAMPO.find("\n}\n", marca)
+    codigo = FONTE_CAMPO[ini:fim + 3] if ini >= 0 and fim > 0 else ""
     if not codigo:
-        falhas.append("não achei o projetar() da página de Elencos")
+        falhas.append("não achei o projetar() da página do Campinho")
         return []
     script = (codigo + "\nconsole.log(JSON.stringify(" + json.dumps(pedidos)
               + ".map(function(p){ return projetar(p[0], p[1]); })));\n")

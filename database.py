@@ -3223,6 +3223,20 @@ def _cria_atuacao(c) -> None:
             PRIMARY KEY (fixture_id, af_id)
         )
     """)
+    # O RESTO DO QUE A CHAMADA JÁ TRAZIA E EU JOGAVA FORA.
+    #
+    # `fixtures/players` devolve gols, assistências, cartões, nota e posição de
+    # cada jogador em cada partida. Eu guardava só minutos e titular, porque
+    # era só isso que a detecção de retorno precisava — e pagava a chamada
+    # inteira do mesmo jeito.
+    #
+    # A ficha do jogador pede exatamente esses campos. Não é fonte nova nem
+    # chamada nova: é parar de desperdiçar a que já estava aberta.
+    for coluna, tipo in (("gols", "INTEGER"), ("assistencias", "INTEGER"),
+                         ("amarelos", "INTEGER"), ("vermelhos", "INTEGER"),
+                         ("nota", "NUMERIC(4,2)"), ("posicao", "TEXT"),
+                         ("capitao", "BOOLEAN")):
+        c.execute(f"ALTER TABLE atuacao ADD COLUMN IF NOT EXISTS {coluna} {tipo}")
     c.execute("CREATE INDEX IF NOT EXISTS atuacao_por_jogador "
               "ON atuacao (af_id, jogo_em)")
     # Que partidas já tiveram a escalação lida. Sem isto, toda passagem
@@ -3247,12 +3261,23 @@ def salvar_atuacoes(fixture_id: int, jogo_em: str, linhas: list[dict]) -> int:
                     continue
                 c.execute("""
                     INSERT INTO atuacao (fixture_id, af_id, minutos, titular,
-                                         jogo_em, clube)
-                    VALUES (%s,%s,%s,%s,%s,%s)
+                                         jogo_em, clube, gols, assistencias,
+                                         amarelos, vermelhos, nota, posicao,
+                                         capitao)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (fixture_id, af_id) DO UPDATE SET
-                        minutos = EXCLUDED.minutos, titular = EXCLUDED.titular
+                        minutos = EXCLUDED.minutos, titular = EXCLUDED.titular,
+                        gols = EXCLUDED.gols,
+                        assistencias = EXCLUDED.assistencias,
+                        amarelos = EXCLUDED.amarelos,
+                        vermelhos = EXCLUDED.vermelhos,
+                        nota = EXCLUDED.nota, posicao = EXCLUDED.posicao,
+                        capitao = EXCLUDED.capitao
                 """, [fixture_id, l["af_id"], l.get("minutos"),
-                      l.get("titular"), jogo_em, l.get("clube")])
+                      l.get("titular"), jogo_em, l.get("clube"),
+                      l.get("gols"), l.get("assistencias"), l.get("amarelos"),
+                      l.get("vermelhos"), l.get("nota"), l.get("posicao"),
+                      l.get("capitao")])
                 n += 1
             # A partida é marcada como lida mesmo sem ninguém: escalação
             # vazia é resposta, e reconsultá-la todo dia é gastar para
@@ -3261,6 +3286,80 @@ def salvar_atuacoes(fixture_id: int, jogo_em: str, linhas: list[dict]) -> int:
                          VALUES (%s) ON CONFLICT (fixture_id) DO NOTHING""",
                       [fixture_id])
             return n
+    except Exception:
+        return 0
+
+
+def jogo_a_jogo(af_id: int, season: int = 0, teto: int = 60) -> list[dict]:
+    """O que este jogador fez em cada partida, do mais recente ao mais antigo.
+
+    Sai da junção de `atuacao` (o que ele fez) com `partida_liga` (contra quem,
+    quando, em que rodada). As duas já existiam e já eram preenchidas; o que
+    faltava era ler a resposta inteira da API e juntar as duas aqui.
+
+    O CASAMENTO É POR `af_id` E `fixture_id`, dois inteiros. Nenhuma linha
+    desta consulta passa por nome — é o que torna a ficha confiável num app
+    onde o nome do jogador chega escrito de cinco jeitos.
+    """
+    if not af_id:
+        return []
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_atuacao(c)
+            filtro = "AND p.season = %s" if season else ""
+            valores = [int(af_id)] + ([int(season)] if season else []) + [int(teto)]
+            c.execute(f"""
+                SELECT a.fixture_id, a.minutos, a.titular, a.gols,
+                       a.assistencias, a.amarelos, a.vermelhos, a.nota,
+                       a.posicao, a.capitao, a.clube,
+                       COALESCE(p.data, a.jogo_em) AS data,
+                       p.rodada, p.casa, p.fora, p.casa_id, p.fora_id,
+                       p.status
+                  FROM atuacao a
+                  LEFT JOIN partida_liga p ON p.fixture_id = a.fixture_id
+                 WHERE a.af_id = %s {filtro}
+                 ORDER BY COALESCE(p.data, a.jogo_em) DESC
+                 LIMIT %s
+            """, valores)
+            linhas = []
+            for r in c.fetchall():
+                d = dict(r)
+                # De quem é a casa e quem é o adversário — daqui, e não da
+                # tela: ela não deveria precisar saber que a partida guarda os
+                # dois lados sem dizer qual é o "nosso".
+                clube = (d.get("clube") or "").strip()
+                casa, fora = (d.get("casa") or ""), (d.get("fora") or "")
+                em_casa = bool(casa and clube and _clube(casa) == _clube(clube))
+                d["em_casa"] = em_casa
+                d["adversario"] = fora if em_casa else casa
+                if d.get("nota") is not None:
+                    d["nota"] = float(d["nota"])
+                linhas.append(d)
+            return linhas
+    except Exception as e:
+        print(f"⚠️ jogo a jogo: {type(e).__name__}: {e}")
+        return []
+
+
+def esquecer_escalacoes_lidas() -> int:
+    """Faz o app reler as escalações de toda a temporada.
+
+    Existe porque a leitura guardava MENOS do que a resposta trazia: por meses
+    eu gravei só minutos e titular, e joguei fora gols, assistências, cartões e
+    nota que vinham na mesma chamada. As partidas antigas ficaram marcadas como
+    lidas, então nada iria buscá-las de novo.
+
+    NÃO apaga as atuações — só o carimbo de "já li esta partida". Assim a
+    releitura completa o que falta em vez de zerar o que já funciona, e a
+    detecção de retorno continua de pé enquanto ela acontece.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_atuacao(c)
+            c.execute("DELETE FROM atuacao_partida_lida")
+            return c.rowcount
     except Exception:
         return 0
 

@@ -594,6 +594,7 @@ _NAV_MAIS = [
     ("/aspas",       _ICO_ASPAS,   "Aspas",      "", ""),
     ("/janela",      _ICO_JANELA,  "Janela",     "", "#B6FF00"),
     ("/elencos",     _ICO_ELENCOS, "Elencos",    "", "#B6FF00"),
+    ("/campinho",    _ICO_ESCALACAO, "Campinho",  "", "#B6FF00"),
     ("/arbitragem",  _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
     ("/previa",      _ICO_PREVIA,  "Prévia",     "", "#B6FF00"),
     ("/escalacao-pdf", _ICO_ESCALACAO, "Escalações", "", "#B6FF00"),
@@ -7832,9 +7833,31 @@ async def _ler_escalacoes(season: int = 0, teto: int = 20) -> dict:
                 # relacionado não é o mesmo que recuperado.
                 if not minutos:
                     continue
-                linhas.append({"af_id": jogador.get("id"), "minutos": minutos,
-                               "titular": bool(jogos.get("substitute") is False),
-                               "clube": nome_clube})
+
+                # TUDO QUE A RESPOSTA JÁ TRAZIA e eu descartava. Não é chamada
+                # nova nem fonte nova — é a mesma resposta, lida inteira. A
+                # ficha do jogador pede exatamente isto.
+                gols_ = est.get("goals") or {}
+                cartoes_ = est.get("cards") or {}
+                nota = jogos.get("rating")
+                try:
+                    nota = round(float(nota), 2) if nota not in (None, "") else None
+                except (TypeError, ValueError):
+                    # A API manda a nota como texto ("7.666666"). Se um dia vier
+                    # outra coisa, prefiro sem nota a com nota inventada.
+                    nota = None
+                linhas.append({
+                    "af_id": jogador.get("id"), "minutos": minutos,
+                    "titular": bool(jogos.get("substitute") is False),
+                    "clube": nome_clube,
+                    "gols": gols_.get("total") or 0,
+                    "assistencias": gols_.get("assists") or 0,
+                    "amarelos": cartoes_.get("yellow") or 0,
+                    "vermelhos": cartoes_.get("red") or 0,
+                    "nota": nota,
+                    "posicao": jogos.get("position") or "",
+                    "capitao": bool(jogos.get("captain")),
+                })
         diag["atuacoes"] += salvar_atuacoes(fid, p.get("data") or "", linhas)
         diag["partidas"] += 1
     return diag
@@ -7957,13 +7980,51 @@ async def _marcar_retornos(season: int = 0) -> dict:
 
 
 @app.post("/api/injuries/retornos")
-async def api_injuries_retornos(season: int = 0, ler: int = 1):
-    """Lê escalações e marca quem já voltou. É o botão da guia."""
+async def api_injuries_retornos(season: int = 0, ler: int = 1, refazer: int = 0):
+    """Lê escalações e marca quem já voltou. É o botão da guia.
+
+    `refazer=1` apaga o carimbo de "já li esta partida" e faz a temporada
+    inteira ser lida de novo. Serve para completar o que a leitura antiga
+    guardava pela metade: por meses eu gravei só minutos e titular e joguei
+    fora gols, assistências, cartões e nota, que vinham na MESMA resposta.
+
+    Não apaga as atuações, só o carimbo — a releitura completa em vez de
+    zerar, e a detecção de retorno continua de pé enquanto ela acontece.
+    """
     saida = {}
+    if refazer:
+        from database import esquecer_escalacoes_lidas
+        saida["esquecidas"] = await asyncio.to_thread(esquecer_escalacoes_lidas)
     if ler:
         saida["escalacoes"] = await _ler_escalacoes(season)
     saida["retornos"] = await _marcar_retornos(season)
     return saida
+
+
+@app.get("/api/escalacoes/reler")
+async def api_escalacoes_reler(season: int = 0):
+    """Relê a temporada inteira para preencher os números jogo a jogo.
+
+    Acionável colando o endereço no navegador — o Vini já se perdeu uma vez
+    quando eu mandei "rode POST <url>" e ele colou na barra de endereço.
+
+    Roda em passadas porque cada partida custa uma chamada: o teto por passada
+    está em `_ler_escalacoes`, e este laço repete até não faltar nada.
+    """
+    from database import esquecer_escalacoes_lidas
+    apagadas = await asyncio.to_thread(esquecer_escalacoes_lidas)
+    total = {"esquecidas": apagadas, "partidas": 0, "atuacoes": 0,
+             "ids_cruzados": 0, "passadas": 0, "erros": []}
+    for _ in range(40):
+        d = await _ler_escalacoes(season)
+        total["passadas"] += 1
+        for campo in ("partidas", "atuacoes", "ids_cruzados"):
+            total[campo] += d.get(campo) or 0
+        total["erros"] += (d.get("erros") or [])[:3]
+        if not d.get("faltam") or not d.get("partidas"):
+            break
+    total["faltam"] = 0
+    return total
 
 
 @app.get("/api/injuries/retornos")
@@ -14573,37 +14634,94 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .pos-A{background:#FD5D5D22;color:#FD5D5D}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
 .aviso{font-size:.72rem;color:#FFBE5D;margin:8px 0 0}
+
+/* ── A FICHA DO JOGADOR ────────────────────────────────────────────────────
+   Ela ocupa o lugar onde estava o campinho, que virou guia própria. A largura
+   é a mesma: a coluna da esquerda continua sendo a do "olhar de perto", só
+   mudou o que se olha. */
+.ficha-caixa{background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;overflow:hidden;position:sticky;top:12px}
+.ficha-topo{display:flex;gap:16px;align-items:center;padding:18px;
+  background:var(--surface2);border-bottom:1px solid var(--border)}
+.ficha-foto{width:92px;height:92px;border-radius:50%;flex:none;overflow:hidden;
+  background:var(--surface);border:1px solid var(--border)}
+.ficha-foto img{width:100%;height:100%;object-fit:cover}
+.ficha-quem{min-width:0}
+.ficha-quem h2{margin:0;font-size:1.45rem;line-height:1.15}
+.ficha-clube{margin:5px 0 0;font-size:.82rem;color:var(--text2)}
+.ficha-linha{margin:7px 0 0;font-size:.74rem;color:var(--text2);line-height:1.7}
+.band-ficha{height:11px;width:auto;vertical-align:-1px;border-radius:2px}
+
+/* Os oito números da temporada, em duas fileiras de quatro — como na
+   referência que o Vini mandou. No celular viram duas de duas. */
+.ficha-numeros{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;
+  background:var(--border)}
+.num-cel{background:var(--surface);padding:13px 8px;text-align:center}
+.num-cel strong{display:block;font-size:1.3rem;line-height:1.1}
+.num-cel span{display:block;font-size:.62rem;color:var(--text2);margin-top:4px;
+  text-transform:uppercase;letter-spacing:.03em}
+
+/* A nota ganha cor, na mesma escala da referência. SEM NOTA NÃO GANHA COR:
+   cinza quer dizer "não sei", e um zero colorido de vermelho seria uma
+   avaliação péssima que ninguém deu. */
+.nota{display:inline-block;min-width:34px;padding:2px 6px;border-radius:6px;
+  font-weight:800;font-size:.72rem;background:var(--surface2);color:var(--text2)}
+/* As cores são as DA PALETA do app, não as da referência. O Sofascore usa a
+   escala dele; aqui o verde é o verde daqui, senão a ficha destoa de todas as
+   outras telas — e o teste visual reprova, com razão. */
+.nota-otima{background:var(--c-acento);color:var(--c-acento-texto)}
+.nota-boa{background:color-mix(in srgb,var(--c-acento) 62%,var(--c-bg));color:var(--c-text)}
+.nota-media{background:#FFBE5D;color:#111}
+.nota-ruim{background:#FD5D5D;color:#fff}
+.num-cel strong.nota-otima,.num-cel strong.nota-boa,
+.num-cel strong.nota-media,.num-cel strong.nota-ruim{
+  background:none;color:inherit;padding:0}
+.num-cel strong.nota-otima{color:var(--c-acento)}
+.num-cel strong.nota-boa{color:var(--c-acento)}
+.num-cel strong.nota-media{color:#FFBE5D}
+.num-cel strong.nota-ruim{color:#FD5D5D}
+
+.ficha-jogos{padding:6px 0 0}
+.jogos-tit{padding:12px 16px 8px;font-size:.78rem;font-weight:800;
+  text-transform:uppercase;letter-spacing:.05em;color:var(--text2)}
+.tab-jogos{width:100%;border-collapse:collapse;font-size:.74rem}
+.tab-jogos th{position:static;background:var(--surface2);color:var(--text2);
+  font-size:.6rem;padding:6px 7px;text-transform:uppercase;cursor:default}
+.tab-jogos td{padding:7px;border-top:1px solid var(--border)}
+.tab-jogos tbody tr{cursor:default}
+.jg-data{color:var(--text2);white-space:nowrap}
+.jg-adv{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jg-tit{color:var(--text2);font-size:.64rem;white-space:nowrap}
+.fora{color:var(--text2);font-size:.6rem;text-transform:uppercase}
+
+@media(max-width:900px){
+  .painel{grid-template-columns:1fr}
+  .ficha-caixa{position:static}
+  .ficha-numeros{grid-template-columns:repeat(2,1fr)}
+  .ficha-topo{padding:14px}
+  .ficha-foto{width:70px;height:70px}
+}
 </style>
 </head>
 <body>
 __HDR__
 <div class="wrap">
   <h1>Elencos</h1>
-  <p class="sub">Dados do Transfermarkt: elenco, posição detalhada, pé preferido e números da temporada.
-     Campos que a fonte não informa aparecem como “—”; nada é estimado.</p>
+  <p class="sub">Clique num jogador da lista para ver a ficha dele: cadastro, números da
+     temporada e o que ele fez partida a partida. Campos que a fonte não informa
+     aparecem como “—”; nada é estimado.</p>
 
   <div id="escudos" class="escudos"></div>
 
   <div class="barra">
-    <select id="formacao" class="ctrl" onchange="trocarFormacao()"></select>
-    <button class="ctrl" onclick="voltarEscalacao()">⚽ Última escalação</button>
-    <button class="ctrl" id="btnSalvar" onclick="salvarEscalacao()">💾 Salvar escalação</button>
-    <button class="ctrl" id="btnDescartar" onclick="descartarSalva()" style="display:none">🗑️ Descartar salva</button>
-    <button class="ctrl" onclick="limparCampo()">Limpar campo</button>
     <label class="chk"><input type="checkbox" id="soEstrangeiros" onchange="renderTabela()"> Só estrangeiros</label>
+    <button class="ctrl" id="btnCampinho" onclick="irAoCampinho()">🟩 Montar no Campinho</button>
     <span id="contador" class="sub" style="margin:0"></span>
   </div>
 
   <div class="painel">
-    <div class="campo-caixa">
-      <!-- Vazio: as linhas do campo vêm na própria arte de fundo. -->
-      <div id="campo" class="campo"></div>
-      <div class="arte">
-        <button class="ctrl" id="btnArte" onclick="baixarArte()">⬇️ Baixar imagem</button>
-        <span id="arteAviso" class="sub" style="margin:0"></span>
-      </div>
-      <p id="infoJogo" class="sub" style="margin:8px 0 0"></p>
-      <p class="sub" style="margin:4px 0 0">Arraste um jogador da lista para uma posição. Arraste entre posições para trocar. Clique numa posição ocupada para esvaziar.</p>
+    <div id="ficha" class="ficha-caixa">
+      <div class="estado">Escolha um clube e clique num jogador da lista.</div>
     </div>
 
     <div>
@@ -14611,18 +14729,12 @@ __HDR__
       <p id="avisos" class="aviso" style="display:none"></p>
     </div>
   </div>
+
 </div>
 
 <script>
-const FORMACOES = __FORMACOES__;
+
 let ELENCO = [];        // jogadores do clube atual
-// Cada casa do campo carrega a própria coordenada: assim o campinho pode mostrar
-// a escalação REAL da última partida, cujas posições vêm da API e não batem
-// necessariamente com nenhum dos moldes de formação daqui.
-let SLOTS = [];         // [{x, y, g, id}]
-let FORM = '4-3-3';
-let ESCALACAO = null;   // última escalação carregada, pra poder voltar a ela
-let SALVA = null;       // ajuste do usuário, que tem precedência ao abrir
 let TIME_ATUAL = null;
 let ordenarPor = null, ordemAsc = false;
 
@@ -14630,10 +14742,47 @@ let ordenarPor = null, ordemAsc = false;
 // do TM — não há mais rótulo em inglês pra traduzir aqui.
 const GRUPO_PT = {G:'GOL', D:'DEF', M:'MEI', A:'ATA'};
 
+let TIME_NOME = '';
+
+async function selecionarTime(id, el){
+  TIME_ATUAL = id;
+  TIME_NOME = (el && el.dataset.nome) || '';
+  document.querySelectorAll('.escudo').forEach(function(e){
+    e.classList.toggle('active', Number(e.dataset.id) === id);
+  });
+  document.getElementById('tabela').innerHTML = '<div class="estado">Carregando elenco…</div>';
+  try {
+    // Só o elenco. A escalação e o campo saíram para a guia Campinho, e com
+    // eles duas das três chamadas que esta tela fazia ao abrir.
+    const r = await fetch('/api/elencos/jogadores?team=' + id);
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    ELENCO = d.jogadores;
+    const av = document.getElementById('avisos');
+    if (d.avisos && d.avisos.length) { av.textContent = '⚠️ ' + d.avisos.join(' · '); av.style.display = ''; }
+    else av.style.display = 'none';
+    renderTabela();
+    // Abre já na ficha de quem mais jogou: a tela nunca fica vazia, e quem
+    // mais jogou é quase sempre por quem se começa a olhar um elenco.
+    const primeiro = ELENCO.slice().sort(function(a,b){
+      return (b.minutos || 0) - (a.minutos || 0); })[0];
+    if (primeiro) verFicha(primeiro.id);
+  } catch(e) {
+    document.getElementById('tabela').innerHTML = '<div class="estado">Erro: ' + e.message + '</div>';
+  }
+}
+
+function irAoCampinho(){
+  // Leva o clube junto: o Campinho abre já montando este elenco, sem obrigar
+  // a escolher o escudo de novo.
+  location.href = '/campinho' + (TIME_ATUAL ? '?team=' + TIME_ATUAL : '');
+}
+
 function na(v, suf){ return (v === null || v === undefined) ? '—' : (v + (suf || '')); }
 
 // "Youssef En-Nesyri" -> "En-Nesyri"; "Farhah Al-Shamrani" -> "Al-Shamrani".
 // O nome completo continua no title e na tabela.
+
 function nomeCurto(n){
   const partes = (n || '').trim().split(/\s+/).filter(Boolean);
   return partes.length ? partes[partes.length - 1] : '';
@@ -14643,6 +14792,7 @@ function nomeCurto(n){
 // O endereço reserva vai num data-attribute e o tratador é ligado depois, em
 // ligarReserva: escrever onerror inline exigiria aspas dentro de aspas dentro
 // de string, e o escape se perdia entre as camadas.
+
 function imgFoto(j, classe, alt){
   if (!j || !j.foto) return '';
   return '<img class="' + (classe || '') + '" src="' + j.foto + '" alt="' + (alt || '') + '"' +
@@ -14655,6 +14805,7 @@ function ligarReserva(raiz){
     im.onerror = function(){ this.onerror = null; this.src = this.dataset.res; };
   });
 }
+
 function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
 
 // 🇧🇷 -> 'br'. A bandeira em emoji JÁ É a sigla do país: são duas letras A-Z
@@ -14663,6 +14814,7 @@ function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
 // o navegador do Vini mostrava um "SA" e um "NL" em letrinha no lugar da
 // bandeira. Com a sigla em mãos, uso a imagem de verdade, a mesma que entra no
 // PNG baixado.
+
 function isoBandeira(emoji){
   if (!emoji) return '';
   const letras = [];
@@ -14674,6 +14826,7 @@ function isoBandeira(emoji){
 }
 
 // ── carga ──
+
 async function carregarTimes(){
   const r = await fetch('/api/elencos/times');
   const d = await r.json();
@@ -14692,65 +14845,6 @@ async function carregarTimes(){
   }).join('');
 }
 
-async function selecionarTime(id, el){
-  TIME_ATUAL = id;
-  document.querySelectorAll('.escudo').forEach(function(e){
-    e.classList.toggle('active', Number(e.dataset.id) === id);
-  });
-  document.getElementById('tabela').innerHTML = '<div class="estado">Carregando elenco…</div>';
-  document.getElementById('infoJogo').textContent = '';
-  try {
-    // Elenco e escalação em paralelo: a segunda é o que desenha o campo.
-    const [rj, re, rs] = await Promise.all([
-      fetch('/api/elencos/jogadores?team=' + id),
-      fetch('/api/elencos/escalacao?team=' + id),
-      fetch('/api/elencos/escalacao-salva?team=' + id)
-    ]);
-    const d = await rj.json();
-    if (d.erro) throw new Error(d.erro);
-    ELENCO = d.jogadores;
-    const av = document.getElementById('avisos');
-    if (d.avisos && d.avisos.length) { av.textContent = '⚠️ ' + d.avisos.join(' · '); av.style.display = ''; }
-    else av.style.display = 'none';
-
-    let esc = null, sv = null;
-    try { esc = await re.json(); } catch(e) {}
-    try { sv = await rs.json(); } catch(e) {}
-    ESCALACAO = (esc && !esc.erro) ? esc : null;
-    SALVA = (sv && sv.salva && (sv.salva.slots || []).length) ? sv.salva : null;
-
-    mostrarBotaoDescartar();
-    if (SALVA) aplicarSalva();
-    else if (ESCALACAO) aplicarEscalacao();
-    else {
-      document.getElementById('infoJogo').textContent =
-        'Escalação da última partida indisponível' + (esc && esc.erro ? ' (' + esc.erro + ')' : '') +
-        ' — campo montado pela formação escolhida.';
-      aplicarFormacao(FORM);
-    }
-    renderTabela();
-  } catch(e) {
-    document.getElementById('tabela').innerHTML = '<div class="estado">Erro: ' + e.message + '</div>';
-  }
-}
-
-// Monta o campo a partir do grupo de cada jogador, quando a API não publica a
-// grade tática da partida (caso do Al Diriyah). Mantém o XI real, só arruma.
-function porGrupos(lista){
-  const ordem = ['G','D','M','A'];
-  const linhas = ordem.map(function(g){ return lista.filter(function(p){ return grupoDe(p) === g; }); })
-                      .filter(function(l){ return l.length; });
-  const slots = [];
-  linhas.forEach(function(linha, i){
-    const y = linhas.length <= 1 ? 92 : 92 - i * (76 / (linhas.length - 1));
-    linha.forEach(function(p, k){
-      slots.push({x: ((k + 1) / (linha.length + 1)) * 100, y: y,
-                  g: grupoDe(p), id: p.id, rotulo: p.nome, numero: p.numero});
-    });
-  });
-  return slots;
-}
-
 function grupoDe(p){
   if (p.grupo) return p.grupo;
   const j = porId(p.id);
@@ -14761,345 +14855,6 @@ function grupoDe(p){
 // do goleiro ao ataque, mas NÃO da esquerda para a direita dentro da linha —
 // por isso Faris Abdi (lateral-esquerdo) aparecia como zagueiro e En-Nesyri
 // (centroavante) saía na ponta. Com a posição em mãos, a linha é reordenada.
-function ladoDaPosicao(pos){
-  const p = (pos || '').toLowerCase();
-  if (p.indexOf('esquerd') > -1) return 0;   // lateral/ponta/meia esquerda
-  if (p.indexOf('direit') > -1)  return 2;   // lateral/ponta/meia direita
-  return 1;                                   // zagueiro, volante, centroavante
-}
-
-// Reordena cada faixa horizontal do campo pela lateralidade. Empate mantém a
-// ordem da súmula: sem informação de lado, inventar posição seria pior.
-function ordenarPorLado(slots){
-  const porFaixa = {};
-  slots.forEach(function(s){ (porFaixa[s.y] = porFaixa[s.y] || []).push(s); });
-  Object.keys(porFaixa).forEach(function(y){
-    const faixa = porFaixa[y];
-    if (faixa.length < 2) return;
-    const xs = faixa.map(function(s){ return s.x; }).sort(function(a,b){ return a-b; });
-    const comLado = faixa.map(function(s, i){
-      const j = porId(s.id);
-      return {slot:s, lado: ladoDaPosicao(j && j.posicao), ordem:i};
-    });
-    comLado.sort(function(a,b){ return a.lado - b.lado || a.ordem - b.ordem; });
-    comLado.forEach(function(c, i){ c.slot.x = xs[i]; });
-  });
-  return slots;
-}
-
-function aplicarEscalacao(){
-  const e = ESCALACAO;
-  if (!e) return;
-  SLOTS = e.sem_posicoes
-    ? porGrupos(e.titulares)
-    : ordenarPorLado(e.titulares.map(function(t){
-        return {x: t.x, y: t.y, g: grupoDe(t), id: t.id};
-      }));
-  if (e.formacao) {
-    FORM = e.formacao;
-    const sel = document.getElementById('formacao');
-    // A formação real pode não estar entre os moldes — entra na lista pra aparecer.
-    if (!Array.prototype.some.call(sel.options, function(o){ return o.value === e.formacao; })) {
-      const op = document.createElement('option');
-      op.value = e.formacao; op.textContent = e.formacao + ' (do jogo)';
-      sel.insertBefore(op, sel.firstChild);
-    }
-    sel.value = e.formacao;
-  }
-  document.getElementById('infoJogo').textContent =
-    'Escalação de ' + (e.mandante ? 'casa' : 'fora') + ' contra ' + (e.adversario || '?') +
-    ' em ' + (e.data || '?') + ' (' + (e.placar || '') + ')' +
-    (e.formacao ? ' · ' + e.formacao : '') +
-    (e.sem_posicoes ? ' · a API não publicou as posições deste jogo; os 11 são os que atuaram, dispostos por setor' : '');
-  renderCampo();
-}
-
-function aplicarSalva(){
-  if (!SALVA) return;
-  SLOTS = SALVA.slots.map(function(s){ return {x:s.x, y:s.y, g:s.g, id:s.id}; });
-  if (SALVA.formacao) {
-    FORM = SALVA.formacao;
-    const sel = document.getElementById('formacao');
-    if (!Array.prototype.some.call(sel.options, function(o){ return o.value === SALVA.formacao; })) {
-      const op = document.createElement('option');
-      op.value = SALVA.formacao; op.textContent = SALVA.formacao;
-      sel.insertBefore(op, sel.firstChild);
-    }
-    sel.value = SALVA.formacao;
-  }
-  document.getElementById('infoJogo').textContent =
-    'Sua escalação salva em ' + (SALVA.salvo_em || '').replace('T', ' ').slice(0, 16) +
-    ' · use “Última escalação” e salve de novo para voltar à do jogo.';
-  renderCampo(); renderTabela();
-}
-
-function mostrarBotaoDescartar(){
-  document.getElementById('btnDescartar').style.display = SALVA ? '' : 'none';
-}
-
-async function descartarSalva(){
-  if (!TIME_ATUAL || !SALVA) return;
-  try {
-    const r = await fetch('/api/elencos/escalacao-salva', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({team: TIME_ATUAL, limpar: true})
-    });
-    const d = await r.json();
-    if (d.erro) throw new Error(d.erro);
-    SALVA = null;
-    mostrarBotaoDescartar();
-    if (ESCALACAO) { aplicarEscalacao(); renderTabela(); }
-    else { document.getElementById('infoJogo').textContent = 'Escalação salva descartada.'; }
-  } catch(e) {
-    alert('Não consegui descartar: ' + e.message);
-  }
-}
-
-async function salvarEscalacao(){
-  if (!TIME_ATUAL) return;
-  const btn = document.getElementById('btnSalvar');
-  const orig = btn.textContent;
-  btn.textContent = 'salvando…'; btn.disabled = true;
-  try {
-    const r = await fetch('/api/elencos/escalacao-salva', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({team: TIME_ATUAL, formacao: FORM,
-        slots: SLOTS.map(function(s){ return {id:s.id, x:s.x, y:s.y, g:s.g}; })})
-    });
-    const d = await r.json();
-    if (d.erro) throw new Error(d.erro);
-    SALVA = {formacao: FORM, slots: SLOTS.map(function(s){ return {id:s.id,x:s.x,y:s.y,g:s.g}; }),
-             salvo_em: d.salvo_em};
-    mostrarBotaoDescartar();
-    document.getElementById('infoJogo').textContent =
-      'Sua escalação salva em ' + (d.salvo_em || '').replace('T', ' ').slice(0, 16) +
-      ' · use “Última escalação” e salve de novo para voltar à do jogo.';
-    btn.textContent = '✅ Salva!';
-    setTimeout(function(){ btn.textContent = orig; btn.disabled = false; }, 1600);
-    return;
-  } catch(e) {
-    alert('Não consegui salvar: ' + e.message);
-  }
-  btn.textContent = orig; btn.disabled = false;
-}
-
-function voltarEscalacao(){
-  if (ESCALACAO) { aplicarEscalacao(); renderTabela(); }
-  else { preencherAuto(); }
-}
-
-// ── campo ──
-function trocarFormacao(){
-  const escolhida = document.getElementById('formacao').value;
-  // Se voltou pra formação do jogo, restaura as posições reais em vez do molde.
-  if (ESCALACAO && escolhida === ESCALACAO.formacao) { aplicarEscalacao(); renderTabela(); return; }
-  aplicarFormacao(escolhida);
-  preencherAuto();
-}
-
-function aplicarFormacao(nome){
-  if (!FORMACOES[nome]) nome = '4-3-3';
-  FORM = nome;
-  SLOTS = FORMACOES[nome].map(function(c){ return {x:c.x, y:c.y, g:c.g, id:null}; });
-}
-
-function limparCampo(){
-  SLOTS.forEach(function(s){ s.id = null; });
-  renderCampo(); renderTabela();
-}
-
-function preencherAuto(){
-  // Preenche por grupo, priorizando quem mais jogou. Sem minutagem (pré-temporada),
-  // o desempate é o número da camisa, que já reflete a hierarquia do elenco.
-  const usados = new Set();
-  SLOTS.forEach(function(s){ s.id = null; });
-  const disponiveis = function(g){
-    return ELENCO.filter(function(j){ return j.grupo === g && !usados.has(j.id); })
-      .sort(function(a,b){
-        const ma = a.minutos || 0, mb = b.minutos || 0;
-        if (mb !== ma) return mb - ma;
-        return (a.numero || 99) - (b.numero || 99);
-      });
-  };
-  SLOTS.forEach(function(s){
-    const cand = disponiveis(s.g)[0];
-    if (cand) { s.id = cand.id; usados.add(cand.id); }
-  });
-  renderCampo(); renderTabela();
-}
-
-// ── projeção sobre a arte do campo ──────────────────────────────────────────
-// O fundo é um campo em perspectiva. Medi as quatro quinas na própria imagem e
-// converti para % da caixa, para a conta acompanhar qualquer redimensionamento:
-// a linha de fundo de LONGE tem 47,91% da largura e fica a 5,98% do topo; a de
-// PERTO tem 89,77% e fica a 89,92%. O eixo central cai em 49,53%.
-// Medidas em % da ARTE INTEIRA (1080x1350), não de um recorte: a guia mostra o
-// template completo porque é ele que o Vini baixa no fim.
-// yMeio é a linha do meio-campo desenhada na arte, e não a média das outras
-// duas: numa perspectiva ela fica bem acima do meio do campo (42,1% da altura,
-// e não 49,9%).
-const PROJ = {cx:49.95, yLonge:29.19, yMeio:42.15, yPerto:70.59,
-              wLonge:34.54, wPerto:75.78};
-// Sem aperto lateral: x=0 é a linha lateral e ponto. A placa da ponta passa
-// por cima da lateral, e é para passar — apertar o leque para mantê-la sobre a
-// grama espremia os onze no meio do campo, que foi exatamente o que o Vini viu
-// e reclamou.
-const APERTO = 1.00;
-
-// Mapa projetivo y(v) = (a*v + b)/(c*v + 1), ajustado para passar EXATO pelas
-// três linhas que dá para medir na arte: fundo de longe (v=0), meio-campo
-// (v=0,5) e fundo de perto (v=1). Tentei antes o modelo de câmera ideal
-// (largura ∝ 1/profundidade) e ele errava o meio-campo em 15px — a arte foi
-// desenhada à mão no Canva, não fotografada, então o certo é ajustar ao que
-// está desenhado em vez de ao que uma câmera faria.
-const _pb = PROJ.yLonge;
-const _pc = (2*PROJ.yMeio - _pb - PROJ.yPerto) / (PROJ.yPerto - PROJ.yMeio);
-const _pa = PROJ.yMeio*_pc + 2*PROJ.yMeio - 2*_pb;
-
-// (x, y) continuam sendo as coordenadas de campo visto de cima que estão em
-// FORMACOES — nada lá muda. O que muda é a leitura delas aqui.
-function projetar(x, y){
-  const u = 0.5 + (x/100 - 0.5) * APERTO;
-  const v = Math.max(0, Math.min(1, y/100));           // 0 = longe, 1 = perto
-  const py = (_pa*v + _pb) / (_pc*v + 1);
-  // A largura é linear na ALTURA DA TELA — o gramado é um trapézio —, e não
-  // em v. Trocar uma pela outra afina o campo no meio.
-  const larg = PROJ.wLonge + (py - PROJ.yLonge)
-               * (PROJ.wPerto - PROJ.wLonge)/(PROJ.yPerto - PROJ.yLonge);
-  return {
-    x: PROJ.cx + (u - 0.5)*larg,
-    y: py,
-    // Quem está no fundo é um pouco menor, mas só um pouco: medi na arte
-    // pronta do Vini e a placa do goleiro adversário tem 32px contra 35 do
-    // goleiro de perto — 0,91. Perspectiva de verdade daria 0,46 e deixaria o
-    // ataque ilegível. Aqui o intervalo é 0,88 a 1,00.
-    e: 0.88 + 0.12*(larg - PROJ.wLonge)/(PROJ.wPerto - PROJ.wLonge)
-  };
-}
-
-function renderCampo(){
-  const campo = document.getElementById('campo');
-  campo.querySelectorAll('.slot').forEach(function(s){ s.remove(); });
-  SLOTS.forEach(function(c, i){
-    // Quem escalou pode não estar na lista do elenco (caso de clube sem elenco
-    // publicado); nesse caso usa o nome que veio na própria escalação.
-    const j = c.id ? (porId(c.id) || {id:c.id, nome:c.rotulo, numero:c.numero, foto:null}) : null;
-    const el = document.createElement('div');
-    el.className = 'slot' + (j ? ' ocupado' : '');
-    const p = projetar(c.x, c.y);
-    el.style.left = p.x + '%';
-    el.style.top = p.y + '%';
-    el.style.setProperty('--e', p.e.toFixed(3));
-    el.draggable = true;
-    el.dataset.slot = i;
-    let disco = '<div class="disco">';
-    disco += (j && j.foto) ? imgFoto(j, 'foto', '')
-                           : '<span>' + GRUPO_PT[c.g] + '</span>';
-    disco += '</div>';
-    // Só o sobrenome, sem número: nome inteiro encavalava no vizinho no celular.
-    // A bandeira agora abre a placa, à esquerda do nome, como na arte pronta.
-    const iso = isoBandeira(j && j.pais_bandeira);
-    const rot = j ? '<div class="rot" title="' + (j.nome || '') + '">' +
-                    (iso ? '<img class="band" alt="" src="https://flagcdn.com/w40/'
-                           + iso + '.png">' : '') +
-                    '<span>' + nomeCurto(j.nome) + '</span></div>' : '';
-    el.innerHTML = disco + rot;
-    ligarReserva(el);
-    el.addEventListener('dragstart', function(ev){
-      ev.dataTransfer.setData('text/plain', JSON.stringify({de:'campo', slot:i}));
-    });
-    el.addEventListener('dragover', function(ev){ ev.preventDefault(); el.classList.add('alvo'); });
-    el.addEventListener('dragleave', function(){ el.classList.remove('alvo'); });
-    el.addEventListener('drop', function(ev){
-      ev.preventDefault(); el.classList.remove('alvo');
-      soltarEm(i, ev.dataTransfer.getData('text/plain'));
-    });
-    el.addEventListener('click', function(){ if (SLOTS[i].id) { SLOTS[i].id = null; renderCampo(); renderTabela(); } });
-    campo.appendChild(el);
-  });
-}
-
-// ── baixar a arte ───────────────────────────────────────────────────────────
-// Quem monta o PNG é o servidor. Tentar montar aqui num <canvas> não funciona:
-// a foto do jogador vem do Transfermarkt, de outro domínio, e um único pixel
-// de fora CONTAMINA o canvas — o toBlob passa a lançar erro de segurança.
-async function baixarArte(){
-  const btn = document.getElementById('btnArte');
-  const aviso = document.getElementById('arteAviso');
-  const ocupados = SLOTS.filter(function(s){ return s.id; });
-  if (!ocupados.length) { aviso.textContent = 'Escale alguém antes.'; return; }
-  btn.disabled = true; aviso.textContent = 'Montando a imagem…';
-  try {
-    const r = await fetch('/api/elencos/arte', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        jogadores: ocupados.map(function(s){
-          const j = porId(s.id) || {};
-          // O endereço DIRETO do Transfermarkt. Mandar o do nosso proxy faria
-          // o servidor pedir uma imagem a si mesmo — um pulo a mais para
-          // chegar no mesmo lugar. Quem põe o Referer que o TM exige é o
-          // _baixar() lá.
-          return {nome: nomeCurto(j.nome) || j.nome || '',
-                  foto: j.foto || null,
-                  bandeira: j.pais_bandeira || null,
-                  x: s.x, y: s.y};
-        })
-      })
-    });
-    if (!r.ok) {
-      let m = 'HTTP ' + r.status;
-      try { m = (await r.json()).erro || m; } catch(e) {}
-      aviso.textContent = 'Não deu: ' + m; return;
-    }
-    const fotos = r.headers.get('X-Fotos') || '';
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = ((TIME_ATUAL && TIME_ATUAL.nome ? TIME_ATUAL.nome : 'escalacao')
-                    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-                  || 'escalacao') + '.png';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-    // Dizer QUANTAS fotos entraram: se o Transfermarkt voltar a recusar, isso
-    // aparece aqui na hora, e não depois na arte já postada.
-    aviso.textContent = fotos ? ('Baixou. Fotos: ' + fotos) : 'Baixou.';
-  } catch(e) {
-    aviso.textContent = 'Não deu: ' + e;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-function soltarEm(slot, carga){
-  let d; try { d = JSON.parse(carga); } catch(e) { return; }
-  if (d.de === 'campo') {
-    const t = SLOTS[slot].id; SLOTS[slot].id = SLOTS[d.slot].id; SLOTS[d.slot].id = t;   // troca
-    const r = SLOTS[slot].rotulo; SLOTS[slot].rotulo = SLOTS[d.slot].rotulo; SLOTS[d.slot].rotulo = r;
-  } else {
-    SLOTS.forEach(function(s){ if (s.id === d.id) { s.id = null; s.rotulo = null; } });  // ninguém joga em dois lugares
-    SLOTS[slot].id = d.id;
-    SLOTS[slot].rotulo = null;
-  }
-  renderCampo(); renderTabela();
-}
-
-// ── tabela ──
-const COLUNAS = [
-  {k:'numero',       t:'#',    num:true},
-  {k:'nome',         t:'Jogador'},
-  {k:'nacionalidade',t:'País'},
-  {k:'idade',        t:'Idade', num:true},
-  {k:'altura',       t:'Alt.',  num:true},
-  {k:'pe',           t:'Pé'},
-  {k:'posicao',      t:'Posição'},
-  {k:'jogos',        t:'J',     num:true},
-  {k:'gols',         t:'G',     num:true},
-  {k:'assistencias', t:'A',     num:true},
-  {k:'amarelos',     t:'🟨',    num:true},
-  {k:'vermelhos',    t:'🟥',    num:true},
-  {k:'minutos',      t:'Min',   num:true},
-];
 
 function ordenar(k){
   if (ordenarPor === k) ordemAsc = !ordemAsc; else { ordenarPor = k; ordemAsc = false; }
@@ -15135,8 +14890,8 @@ function renderTabela(){
   });
   h += '</tr></thead><tbody>';
   lista.forEach(function(j){
-    const escalado = SLOTS.some(function(s){ return s.id === j.id; });
-    h += '<tr draggable="true" data-id="' + j.id + '"' + (escalado ? ' class="escalado"' : '') + '>';
+    h += '<tr data-id="' + j.id + '" onclick="verFicha(' + j.id + ')"'
+         + (j.id === FICHA_ID ? ' class="escalado"' : '') + '>';
     h += '<td class="num">' + (j.numero !== null ? j.numero : '<span class="vazio">—</span>') + '</td>';
     h += '<td><div class="jog">' + (j.foto ? imgFoto(j, '', '') : '<img alt="">') +
          '<span>' + (j.nome || '—') + (j.lesionado ? ' 🤕' : '') + '</span></div></td>';
@@ -15161,21 +14916,152 @@ function renderTabela(){
   const cont = document.getElementById('tabela');
   cont.innerHTML = h;
   ligarReserva(cont);
-  cont.querySelectorAll('tbody tr').forEach(function(tr){
-    tr.addEventListener('dragstart', function(ev){
-      ev.dataTransfer.setData('text/plain', JSON.stringify({de:'lista', id:Number(tr.dataset.id)}));
-    });
+}
+
+
+
+// ── A FICHA DO JOGADOR ──────────────────────────────────────────────────────
+//
+// O Vini pediu que esta guia deixasse de ser uma tabela e passasse a AVALIAR
+// jogador. A tabela continua ao lado, para comparar; a ficha responde a outra
+// pergunta, sobre um só: como ele está.
+//
+// Ela só é possível porque o glossário ligou as três bases. O cadastro vem do
+// Transfermarkt, os números de partida vêm da API-Football, e o que diz que
+// são a mesma pessoa é um identificador auditado à mão — não um palpite por
+// nome. A ficha do jogador errado tem toda a cara de certa.
+let FICHA_ID = null;
+
+function _nada(v){ return (v === null || v === undefined || v === '') ? '—' : v; }
+
+async function verFicha(tmId){
+  FICHA_ID = tmId;
+  renderTabela();
+  const caixa = document.getElementById('ficha');
+  const doElenco = porId(tmId) || {};
+  // Desenho o cabeçalho JÁ, com o que a lista tem em mãos, e completo quando a
+  // resposta chegar. Sem isto a ficha pisca em branco a cada clique, e numa
+  // lista de 26 jogadores isso é o que mais se vê.
+  caixa.innerHTML = cabecalhoFicha(doElenco, null) +
+    '<div class="estado">Carregando números…</div>';
+  try {
+    const r = await fetch('/api/jogador/ficha?tm_id=' + encodeURIComponent(tmId));
+    const d = await r.json();
+    if (d.sem_glossario) {
+      caixa.innerHTML = cabecalhoFicha(doElenco, null) +
+        '<div class="estado">Este jogador ainda não está ligado no glossário, ' +
+        'então eu não consigo buscar os números dele. Abra o Glossário e ' +
+        'vincule-o para a ficha aparecer.</div>';
+      return;
+    }
+    if (d.erro) throw new Error(d.erro);
+    caixa.innerHTML = cabecalhoFicha(doElenco, d) + numerosFicha(d) + jogosFicha(d);
+    ligarReserva(caixa);
+  } catch(e) {
+    caixa.innerHTML = cabecalhoFicha(doElenco, null) +
+      '<div class="estado">Não consegui buscar os números: ' + e.message + '</div>';
+  }
+}
+
+function cabecalhoFicha(j, d){
+  const g = (d && d.jogador) || {};
+  const nome = g.nome || j.nome || '—';
+  const foto = g.foto || j.foto || '';
+  const iso = isoBandeira(g.bandeira || j.pais_bandeira);
+  const linha = [
+    (iso ? '<img class="band-ficha" alt="" src="https://flagcdn.com/w40/' + iso + '.png"> ' : '')
+      + _nada(g.nacionalidade || j.nacionalidade),
+    (g.nascimento || j.nascimento ? dataBr(g.nascimento || j.nascimento) : '') +
+      ((g.idade || j.idade) ? ' (' + (g.idade || j.idade) + ')' : ''),
+    _nada(j.posicao || g.posicao),
+    (j.altura ? j.altura + ' cm' : '—'),
+    _nada(j.pe),
+    ((j.numero !== null && j.numero !== undefined) ? 'Camisa ' + j.numero
+      : (g.camisa ? 'Camisa ' + g.camisa : '—')),
+  ].filter(function(x){ return x && x !== '—'; });
+  return '<div class="ficha-topo">' +
+    '<div class="ficha-foto">' + (foto ? '<img src="' + foto + '" alt=""' +
+      (j.foto_reserva ? ' data-res="' + j.foto_reserva + '"' : '') + '>' : '') + '</div>' +
+    '<div class="ficha-quem"><h2>' + nome + '</h2>' +
+    '<p class="ficha-clube">' + _nada(TIME_NOME || g.clube) +
+    (j.contrato ? ' · Contrato até ' + j.contrato : '') + '</p>' +
+    '<p class="ficha-linha">' + linha.join(' · ') + '</p>' +
+    '</div></div>';
+}
+
+function dataBr(iso){
+  // Sem expressão regular de propósito: esta página mora dentro de uma string
+  // do Python, e uma barra invertida aqui vira aviso de escape inválido lá —
+  // foi o que encheu a tela do Vini de SyntaxWarning. Fatiar resolve igual.
+  const t = String(iso || '').slice(0, 10).split('-');
+  return (t.length === 3 && t[0].length === 4) ? t[2] + '/' + t[1] + '/' + t[0]
+                                               : String(iso || '');
+}
+
+function numerosFicha(d){
+  const t = d.totais || {};
+  const cel = function(v, r, cor){
+    return '<div class="num-cel"><strong' + (cor ? ' class="' + cor + '"' : '') + '>' +
+           (v === null || v === undefined ? '—' : v) + '</strong><span>' + r + '</span></div>';
+  };
+  return '<div class="ficha-numeros">' +
+    cel(t.gols, 'Gols') + cel(t.assistencias, 'Assistências') +
+    cel(t.comecou, 'Começou') + cel(t.jogos, 'Jogos') +
+    cel(t.minutos === null ? null : t.minutos + "'", 'Minutos jogados') +
+    cel(t.nota_media, 'Avaliação', notaCor(t.nota_media)) +
+    cel(t.amarelos, 'Cartões amarelos') + cel(t.vermelhos, 'Cartões vermelhos') +
+    '</div>';
+}
+
+// A faixa de cor é a mesma escala do Sofascore, que é a referência que o Vini
+// mandou. Sem nota, sem cor — cinza é "não sei", e não "foi mal".
+function notaCor(n){
+  if (n === null || n === undefined) return '';
+  if (n >= 7.5) return 'nota-otima';
+  if (n >= 7.0) return 'nota-boa';
+  if (n >= 6.5) return 'nota-media';
+  return 'nota-ruim';
+}
+
+function jogosFicha(d){
+  const ps = d.partidas || [];
+  if (!ps.length) {
+    return '<div class="estado">' + (d.sem_leitura
+      ? 'Ainda não li as escalações desta temporada para este jogador. ' +
+        'Abra /api/escalacoes/reler no navegador para preencher — são os ' +
+        'mesmos dados que a guia de Lesões já usa.'
+      : 'Sem partidas registradas nesta temporada.') + '</div>';
+  }
+  let h = '<div class="ficha-jogos"><div class="jogos-tit">Todas as partidas' +
+          ' <span class="sub">(' + ps.length + ')</span></div>' +
+          '<table class="tab-jogos"><thead><tr>' +
+          '<th>Data</th><th>Adversário</th><th></th>' +
+          '<th title="Minutos">Min</th><th title="Gols">G</th>' +
+          '<th title="Assistências">A</th><th>🟨</th><th>🟥</th>' +
+          '<th title="Avaliação">★</th></tr></thead><tbody>';
+  ps.forEach(function(p){
+    const cor = notaCor(p.nota);
+    h += '<tr>' +
+      '<td class="jg-data">' + dataBr(p.data) + '</td>' +
+      '<td class="jg-adv">' + (p.em_casa ? '' : '<span class="fora">fora</span> ') +
+        _nada(p.adversario) + '</td>' +
+      '<td class="jg-tit">' + (p.titular ? 'titular' : 'banco') +
+        (p.capitao ? ' ©' : '') + '</td>' +
+      '<td class="num">' + (p.minutos === null ? '—' : p.minutos + "'") + '</td>' +
+      '<td class="num">' + (p.gols || 0) + '</td>' +
+      '<td class="num">' + (p.assistencias || 0) + '</td>' +
+      '<td class="num">' + (p.amarelos || 0) + '</td>' +
+      '<td class="num">' + (p.vermelhos || 0) + '</td>' +
+      '<td class="num"><span class="nota ' + cor + '">' +
+        (p.nota === null || p.nota === undefined ? '—' : p.nota.toFixed(1)) +
+      '</span></td></tr>';
   });
+  return h + '</tbody></table></div>';
 }
 
 // ── início ──
-document.getElementById('formacao').innerHTML =
-  Object.keys(FORMACOES).map(function(f){
-    return '<option value="' + f + '"' + (f === FORM ? ' selected' : '') + '>' + f + '</option>';
-  }).join('');
-aplicarFormacao(FORM);
-renderCampo();
 carregarTimes();
+
 </script>
 </body>
 </html>
@@ -15191,6 +15077,41 @@ carregarTimes();
 # tabelas diferentes antes, e a divergência entre elas foi um defeito de
 # verdade — a história está escrita lá.
 _ELENCOS_FORMACOES = formacoes.QUADROS
+
+
+@app.get("/campinho", response_class=HTMLResponse)
+async def campinho_page():
+    """O campinho, que era um pedaço da guia de Elencos e virou guia própria.
+
+    POR QUE ELE SAIU DE LÁ
+        As duas telas respondiam perguntas diferentes no mesmo lugar. Elencos
+        é "como este jogador está?" — número ao lado de número, para comparar.
+        O campinho é "quem eu ponho nesta vaga?" — e isso se responde pelo
+        rosto e pela posição, não por uma coluna de gols.
+
+        Juntas, cada uma atrapalhava a outra: o campo comia metade da largura
+        que a tabela queria, e a tabela dava doze colunas a quem só precisava
+        achar um lateral.
+
+    A ESCALAÇÃO SALVA MORA AQUI AGORA, e só aqui — decisão do Vini. O
+    armazenamento é o mesmo de sempre (por clube), então a arte, a prévia e o
+    resto do app continuam lendo o que ele montar.
+
+    Mora em public/ e não numa string do Python porque tem 39 mil caracteres
+    de HTML, CSS e JS. O mesmo caminho do glossario-lab.
+    """
+    caminho = os.path.join(os.path.dirname(__file__), "public", "campinho.html")
+    with open(caminho, encoding="utf-8") as f:
+        pagina = f.read()
+    return HTMLResponse(
+        pagina
+        .replace("__HEADER_CSS__", _HEADER_CSS)
+        .replace("__THEME__", _HEAD_COMUM)
+        .replace("__HDR__", _header("/campinho"))
+        .replace("__FORMACOES__", json.dumps(
+            {k: [{"x": x, "y": y, "g": g} for x, y, g in v]
+             for k, v in _ELENCOS_FORMACOES.items()}, ensure_ascii=False))
+    )
 
 
 @app.get("/elencos", response_class=HTMLResponse)
@@ -16272,6 +16193,105 @@ def _elenco_pais(nacs: list[str]) -> dict:
         "pais_bandeira": _janela_bandeira(principal) if principal else None,
         "estrangeiro": (principal.strip().lower() != "arábia saudita") if principal else None,
     }
+
+
+@app.get("/api/jogador/ficha")
+async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
+                            season: int = 0):
+    """Tudo que a ficha do jogador precisa, numa resposta só.
+
+    A GUIA DE ELENCOS DEIXA DE SER UMA TABELA E PASSA A AVALIAR JOGADOR — foi
+    o pedido do Vini. Para isso ela precisa de três coisas que hoje moram em
+    lugares diferentes: o cadastro (Transfermarkt), os totais da temporada
+    (API-Football) e o que ele fez em cada partida.
+
+    A COSTURA É PELO GLOSSÁRIO, e é ela que torna isto possível. Três bases,
+    três jeitos de escrever o mesmo nome, e um identificador que liga os três
+    — o Vini montou e auditou à mão. Sem ele, esta rota seria uma sequência de
+    palpites por nome, e a ficha do jogador errado tem toda a cara de certa.
+
+    Aceita qualquer um dos três identificadores porque cada tela tem o seu em
+    mãos: a guia de Elencos sabe o do Transfermarkt, o Mercado sabe o da
+    API-Football, e o campinho sabe o da liga.
+    """
+    import glossario
+    from database import jogo_a_jogo
+
+    g = ({}
+         or (glossario.por_tm_id(tm_id) if tm_id else {})
+         or (glossario.por_af_id(af_id) if af_id else {})
+         or (glossario.por_spl_id(spl_id) if spl_id else {}))
+    if not g:
+        return {"erro": "não achei este jogador no glossário",
+                "sem_glossario": True}
+
+    f = glossario.ficha(g)
+    temporada = season or _af_temporada_corrente()
+    partidas = await asyncio.to_thread(jogo_a_jogo, f.get("af_id"), temporada)
+
+    # OS TOTAIS SAEM DA SOMA DAS PARTIDAS, e não de uma tabela de agregados.
+    #
+    # Assim eles nunca discordam da lista logo abaixo. Um total vindo de outro
+    # lugar pode dizer 8 jogos enquanto a lista mostra 7, e aí a tela obriga a
+    # escolher em qual acreditar — sem dar nenhuma pista de qual está certa.
+    def _soma(campo):
+        return sum((p.get(campo) or 0) for p in partidas)
+
+    notas = [p["nota"] for p in partidas if p.get("nota")]
+    totais = {
+        "jogos": len(partidas),
+        "comecou": sum(1 for p in partidas if p.get("titular")),
+        "minutos": _soma("minutos"),
+        "gols": _soma("gols"),
+        "assistencias": _soma("assistencias"),
+        "amarelos": _soma("amarelos"),
+        "vermelhos": _soma("vermelhos"),
+        # A média só existe se houver nota. Zero seria uma nota péssima
+        # inventada, e ela apareceria ao lado de um jogador que foi bem.
+        "nota_media": round(sum(notas) / len(notas), 2) if notas else None,
+    }
+    return {
+        "jogador": {
+            "id": f.get("id"), "spl_id": f.get("spl_id"),
+            "af_id": f.get("af_id"), "tm_id": f.get("tm_id"),
+            "nome": f.get("nome_principal") or "",
+            "nome_curto": f.get("nome_curto") or "",
+            "nome_ar": f.get("nome_ar") or "",
+            "clube": f.get("clube") or "",
+            "posicao": f.get("posicao") or "",
+            "camisa": f.get("camisa") or "",
+            "nacionalidade": f.get("nacionalidade") or "",
+            "bandeira": _janela_bandeira(f.get("nacionalidade")),
+            "nascimento": str(f.get("nascimento") or "")[:10],
+            "idade": _idade_em_anos(f.get("nascimento")),
+            "foto": f.get("foto") or "",
+            "foto_fonte": f.get("foto_fonte") or "",
+        },
+        "temporada": temporada,
+        "totais": totais,
+        "partidas": partidas,
+        # Quando não há partida nenhuma, a tela precisa distinguir "ele não
+        # jogou" de "eu ainda não li as escalações desta temporada".
+        "sem_leitura": not partidas,
+    }
+
+
+def _idade_em_anos(nascimento) -> int | None:
+    """Idade hoje, ou None. Calculada aqui para a tela não fazer conta de data.
+
+    Conta de data em JavaScript é onde o fuso horário entra sem ser convidado:
+    um nascimento em 31/12 vira 30/12 num navegador a oeste, e a idade sai um
+    ano errada por um dia.
+    """
+    t = str(nascimento or "")[:10]
+    if len(t) != 10:
+        return None
+    try:
+        nasc = datetime.strptime(t, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    hoje = datetime.now(BRT).date()
+    return hoje.year - nasc.year - ((hoje.month, hoje.day) < (nasc.month, nasc.day))
 
 
 @app.get("/api/elencos/jogadores")

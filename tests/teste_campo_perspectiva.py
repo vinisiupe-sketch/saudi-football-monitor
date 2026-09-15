@@ -34,6 +34,18 @@ sys.path.insert(0, RAIZ)
 os.chdir(RAIZ)
 
 FONTE = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
+
+# O CAMPINHO MUDOU DE ARQUIVO (14/09/26).
+#
+# Ele era um pedaço da guia de Elencos, dentro de uma string do main.py. Virou
+# guia própria e mora em public/campinho.html — Elencos passou a ser a ficha do
+# jogador, e as duas telas respondiam perguntas diferentes no mesmo lugar.
+#
+# A projeção é a MESMA, e este teste continua lendo o arquivo onde ela está de
+# verdade, sem cópia. Uma cópia aqui diria que a conta bate consigo mesma.
+FONTE_CAMPO = open(os.path.join(RAIZ, "public", "campinho.html"),
+                   encoding="utf-8").read()
+
 ARTE = os.path.join(RAIZ, "public", "masks", "campo-perspectiva.png")
 
 # A arte com que as constantes de projetar() foram medidas. Está aqui para que
@@ -75,14 +87,14 @@ def _tem_node() -> str:
 
 def _codigo_da_projecao() -> str:
     """O trecho de projeção como ele está na página, sem cópia."""
-    ini = FONTE.find("const PROJ = {")
+    ini = FONTE_CAMPO.find("const PROJ = {")
     if ini < 0:
         return ""
-    marca = FONTE.find("function projetar(", ini)
+    marca = FONTE_CAMPO.find("function projetar(", ini)
     if marca < 0:
         return ""
-    fim = FONTE.find("\n}\n", marca)
-    return FONTE[ini:fim + 3] if fim > 0 else ""
+    fim = FONTE_CAMPO.find("\n}\n", marca)
+    return FONTE_CAMPO[ini:fim + 3] if fim > 0 else ""
 
 
 def _formacoes() -> dict:
@@ -146,7 +158,7 @@ def testar():
 
     codigo = _codigo_da_projecao()
     ok(bool(codigo), "não achei o bloco const PROJ / function projetar na "
-                     "página de Elencos")
+                     "página do Campinho")
     formacoes = _formacoes()
     ok(len(formacoes) >= 5, "sumiram formações de _ELENCOS_FORMACOES")
     if not codigo or not formacoes:

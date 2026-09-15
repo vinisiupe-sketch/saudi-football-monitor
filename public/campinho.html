@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Campinho · IARABÃO</title>
+__THEME__
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
+<style>
+__HEADER_CSS__
+:root{
+  --bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);
+  --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:var(--c-acento);
+}
+*{box-sizing:border-box}
+/* O nome do jogador no campinho usa Work Sans SemiBold (SIL OFL, sem Reserved
+   Font Name). A Canva Sans do template NÃO entra aqui: a licença dela é de uso
+   dentro do Canva, e servir o arquivo numa página pública é distribuição —
+   qualquer visitante baixaria a fonte pelo inspetor.
+
+   Medi a semelhança de forma glifo a glifo contra a Canva Sans Bold: Work Sans
+   SemiBold 90,6%, Work Sans Bold 85,6%, Poppins Bold 83,7%. O peso SemiBold
+   ganha do Bold porque a Canva Sans Bold é mais leve do que o nome sugere.
+
+   O arquivo é um SUBCONJUNTO (latim básico + acentuado + hifens tipográficos):
+   23 KB em vez de 191 KB, e esta fonte só desenha sobrenome em caixa alta. */
+@font-face{font-family:'Work Sans';src:url('/fonts/WorkSans-SemiBold-latin.ttf') format('truetype');
+  font-weight:600;font-style:normal;font-display:swap}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
+.wrap{max-width:1600px;margin:0 auto;padding:18px 20px 60px}
+h1{font-size:1.5rem;margin:0 0 4px}
+.sub{color:var(--text2);font-size:.8rem;margin:0 0 16px}
+
+.escudos{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.escudo{width:44px;height:44px;border-radius:10px;border:1px solid var(--border);
+  background:var(--surface);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .15s;padding:5px}
+.escudo img{max-width:100%;max-height:100%;object-fit:contain}
+.escudo:hover{border-color:var(--accent);transform:translateY(-2px)}
+.escudo.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 18%,transparent)}
+
+.barra{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.ctrl{padding:7px 12px;border-radius:8px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:13px;cursor:pointer}
+.chk{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text2);
+  cursor:pointer;padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--surface)}
+.chk input{width:14px;height:14px;accent-color:var(--accent);cursor:pointer}
+
+/* A coluna do campo cresceu junto com a arte: em perspectiva a linha de fundo
+   de longe tem metade da largura da de perto, e com 460px os três atacantes
+   ficavam com o nome um em cima do outro. */
+.painel{display:grid;grid-template-columns:minmax(320px,560px) 1fr;gap:20px;align-items:start}
+/* Sem isso a coluna do grid assume a largura da tabela (min-width:auto) e a
+   página inteira estoura no celular, em vez de a tabela rolar por dentro. */
+.painel>*{min-width:0}
+@media(max-width:1100px){
+  .painel{grid-template-columns:1fr}
+  .campo-caixa{max-width:620px;margin:0 auto;width:100%}
+  table{min-width:720px}
+}
+@media(max-width:520px){
+  .wrap{padding:12px 10px 40px}
+  /* Sem teto de largura no celular: o campo agora é largo e baixo (860x635),
+     não alto como o retângulo antigo, então apertá-lo só encolhia os nomes.
+     Disco, nome e bandeira já acompanham a largura sozinhos, em cqw — as
+     quatro regras que existiam aqui viviam desencontradas das de cima. */
+  .campo-caixa{max-width:none;padding:8px}
+}
+
+/* ── campo ── */
+/* O gramado agora é a arte em PERSPECTIVA, e não um retângulo montado com
+   divs. Duas consequências: as linhas do campo vêm desenhadas na imagem (não
+   existe mais nenhum .linha) e a posição de cada jogador precisa passar por
+   uma projeção antes de virar left/top — ver projetar(), no JS.
+
+   As medidas ficam em cqw (percentual da LARGURA do campo) para que disco,
+   nome e bandeira encolham juntos em qualquer tamanho de tela. Antes isso era
+   feito à mão em três media queries, que viviam desencontradas entre si. */
+.campo-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px}
+/* 4:5 é o tamanho da arte inteira. A guia mostra exatamente o que vai sair no
+   PNG — inclusive o preto de cima e a faixa dos escudos —, porque discutir
+   posição de jogador num recorte e baixar outra coisa é receita de surpresa. */
+.campo{position:relative;width:100%;aspect-ratio:1080/1350;border-radius:16px;
+  container-type:inline-size;
+  background:#000 url('/masks/campo-perspectiva.png') center/100% 100% no-repeat;
+  overflow:hidden}
+
+/* --e é a escala de perspectiva daquele slot (0,88 no fundo, 1,00 na frente).
+   Quem escreve é o JS, jogador por jogador.
+   O slot tem largura ZERO de propósito: o disco e a placa transbordam
+   centrados, então um sobrenome comprido não empurra o vizinho. */
+.slot{position:absolute;transform:translate(-50%,-50%);width:0;
+  display:flex;flex-direction:column;align-items:center;cursor:grab}
+.slot .disco{position:relative;flex:none;
+  width:calc(7.96cqw*var(--e,1));height:calc(7.96cqw*var(--e,1));
+  min-width:32px;min-height:32px;border-radius:50%;
+  background:rgba(255,255,255,.32);border:2px dashed rgba(48,48,48,.6);
+  display:flex;align-items:center;justify-content:center;
+  font-size:max(8px,2.0cqw*var(--e,1));color:#303030;font-weight:800}
+/* Anel #303030 em volta da foto, e só ele: sem borda branca e sem sombra. */
+.slot.ocupado .disco{border:max(2px,0.33cqw*var(--e,1)) solid #303030;background:#eef2f5}
+.slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover}
+/* A placa de nome encosta POR CIMA da base do círculo — 12px de sobreposição
+   na arte do Vini, num 1080 de largura. Sem isso ela flutua solta e a leitura
+   muda completamente. */
+.slot .rot{position:absolute;top:calc(100% - 1.1cqw*var(--e,1));left:50%;
+  transform:translateX(-50%);
+  display:flex;align-items:center;gap:calc(.7cqw*var(--e,1));
+  height:calc(3.24cqw*var(--e,1));min-height:15px;
+  padding:0 calc(1.1cqw*var(--e,1));background:#303030;
+  white-space:nowrap;text-transform:uppercase;
+  font-family:'Work Sans',-apple-system,BlinkMacSystemFont,sans-serif;
+  font-weight:600;color:#fff;line-height:1;letter-spacing:.02em;
+  font-size:max(8px,2.04cqw*var(--e,1));pointer-events:none}
+/* Bandeira à ESQUERDA do nome, DENTRO da placa — não mais a bolinha grudada no
+   canto do círculo. É IMAGEM, e não o emoji: o Windows não tem fonte colorida
+   com bandeiras, então o emoji virava as duas letras da sigla na tela do Vini
+   ("SA", "NL"). A mesma imagem entra no PNG baixado. */
+.slot .band{height:calc(1.47cqw*var(--e,1));min-height:7px;width:auto;
+  display:block;flex:none}
+/* A placa passa POR CIMA do círculo do vizinho. Sem isto, o slot desenhado
+   depois cobre o fim da placa do anterior — "RENAN LODI" virava "RENAN LO". */
+.slot .rot{z-index:5}
+
+.arte{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+.arte input{flex:1 1 190px;min-width:150px}
+.arte input::placeholder{color:var(--text2)}
+.slot.alvo .disco{border-color:#fde047;box-shadow:0 0 0 4px rgba(253,224,71,.55)}
+
+/* ── tabela ── */
+.tab-caixa{background:var(--surface);border:1px solid var(--border);border-radius:14px;
+  overflow-x:auto;overflow-y:visible;-webkit-overflow-scrolling:touch}
+table{border-collapse:collapse;width:100%;font-size:.78rem}
+th,td{padding:7px 8px;text-align:left;white-space:nowrap}
+thead th{position:sticky;top:0;background:var(--surface2);color:var(--text2);
+  font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;user-select:none;z-index:2}
+tbody tr{border-top:1px solid var(--border);cursor:grab}
+tbody tr:hover{background:var(--surface2)}
+tbody tr.escalado{background:color-mix(in srgb,var(--accent) 12%,transparent)}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+.jog{display:flex;align-items:center;gap:8px}
+.jog img{width:26px;height:26px;border-radius:50%;object-fit:cover;background:var(--surface2)}
+.vazio{color:var(--text2)}
+.pos-tag{display:inline-block;padding:1px 6px;border-radius:5px;font-size:.62rem;font-weight:700}
+.pos-G{background:#FFBE5D22;color:#FFBE5D}
+.pos-D{background:#B6FF0022;color:#60a5fa}
+.pos-M{background:#B6FF0022;color:#B6FF00}
+.pos-A{background:#FD5D5D22;color:#FD5D5D}
+.estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
+.aviso{font-size:.72rem;color:#FFBE5D;margin:8px 0 0}
+
+/* ── A LISTA DO CAMPINHO É DE CARTÕES, NÃO DE LINHAS ──────────────────────
+   Na guia de Elencos a lista é uma tabela: ali a pergunta é "quem rendeu
+   mais?", e número ao lado de número se compara. Aqui a pergunta é outra —
+   "quem eu ponho nesta vaga?" — e ela se responde pelo rosto e pela posição.
+   Por isso foto grande, nome, clube e posição, e nada de coluna de gols. */
+.painel-campinho{display:grid;grid-template-columns:minmax(320px,620px) 1fr;
+  gap:20px;align-items:start}
+.painel-campinho>*{min-width:0}
+.lista-caixa{background:var(--surface);border:1px solid var(--border);
+  border-radius:14px;padding:14px;position:sticky;top:12px}
+.busca{width:100%;padding:10px 12px;border-radius:9px;border:1px solid var(--border);
+  background:var(--surface2);color:var(--text);font:inherit;font-size:.9rem}
+.busca::placeholder{color:var(--text2)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.chip{padding:5px 11px;border-radius:99px;border:1.5px solid var(--border);
+  background:transparent;color:var(--text2);font:inherit;font-size:.68rem;
+  font-weight:800;text-transform:uppercase;letter-spacing:.04em;cursor:pointer}
+.chip:hover{border-color:var(--text);color:var(--text)}
+.chip.ativo{background:var(--text);color:var(--bg);border-color:var(--text)}
+.cartoes{display:flex;flex-direction:column;gap:7px;max-height:64vh;overflow:auto;
+  padding-right:4px}
+.cartao{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:11px;
+  border:1px solid var(--border);background:var(--surface2);cursor:grab}
+.cartao:hover{border-color:var(--accent)}
+.cartao.escalado{opacity:.42}
+.cartao.escalado::after{content:'em campo';margin-left:auto;font-size:.6rem;
+  font-weight:800;text-transform:uppercase;color:var(--accent)}
+.cartao img{width:46px;height:46px;border-radius:50%;object-fit:cover;flex:none;
+  background:var(--surface)}
+.cartao .quem{min-width:0}
+.cartao .quem strong{display:block;font-size:.88rem;line-height:1.25;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cartao .quem span{display:block;font-size:.7rem;color:var(--text2);margin-top:2px}
+.cartao .cam{margin-left:auto;font-size:.8rem;color:var(--text2);
+  font-variant-numeric:tabular-nums;flex:none}
+.cartao.escalado .cam{display:none}
+.vaga-aviso{font-size:.72rem;color:var(--accent);margin:0 0 9px}
+.slot.vazia-alvo .disco{border-color:var(--accent);
+  box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 45%,transparent)}
+@media(max-width:900px){
+  .painel-campinho{grid-template-columns:1fr}
+  .lista-caixa{position:static}
+  .cartoes{max-height:none}
+}
+
+</style>
+</head>
+<body>
+__HDR__
+<div class="wrap">
+  <h1>Campinho</h1>
+  <p class="sub">Monte a escalação: arraste um jogador para o campo, ou toque
+     numa vaga vazia e escolha na lista — ela se filtra pela posição da vaga.</p>
+
+  <div id="escudos" class="escudos"></div>
+
+  <div class="barra">
+    <select id="formacao" class="ctrl" onchange="trocarFormacao()"></select>
+    <button class="ctrl" onclick="voltarEscalacao()">⚽ Última escalação</button>
+    <button class="ctrl" id="btnSalvar" onclick="salvarEscalacao()">💾 Salvar escalação</button>
+    <button class="ctrl" id="btnDescartar" onclick="descartarSalva()" style="display:none">🗑️ Descartar salva</button>
+    <button class="ctrl" onclick="limparCampo()">Limpar campo</button>
+    <span id="contador" class="sub" style="margin:0"></span>
+  </div>
+
+  <div class="painel-campinho">
+    <div class="campo-caixa">
+      <div id="campo" class="campo"></div>
+      <div class="arte">
+        <button class="ctrl" id="btnArte" onclick="baixarArte()">⬇️ Baixar imagem</button>
+        <span id="arteAviso" class="sub" style="margin:0"></span>
+      </div>
+      <p id="infoJogo" class="sub" style="margin:8px 0 0"></p>
+    </div>
+
+    <div class="lista-caixa">
+      <input id="busca" class="busca" type="search" autocomplete="off"
+             placeholder="Pesquisar por nome ou posição…" oninput="renderElenco()">
+      <div id="chips" class="chips">
+        <button class="chip" data-g="G" onclick="filtrarGrupo('G', this)">Goleiros</button>
+        <button class="chip" data-g="D" onclick="filtrarGrupo('D', this)">Defesa</button>
+        <button class="chip" data-g="M" onclick="filtrarGrupo('M', this)">Meio</button>
+        <button class="chip" data-g="A" onclick="filtrarGrupo('A', this)">Ataque</button>
+      </div>
+      <p id="vagaAviso" class="vaga-aviso" style="display:none"></p>
+      <div id="lista" class="cartoes"><div class="estado">Escolha um clube acima.</div></div>
+      <p id="avisos" class="aviso" style="display:none"></p>
+    </div>
+  </div>
+</div>
+
+<script>
+const FORMACOES = __FORMACOES__;
+let ELENCO = [];        // jogadores do clube atual
+// Cada casa do campo carrega a própria coordenada: assim o campinho pode mostrar
+// a escalação REAL da última partida, cujas posições vêm da API e não batem
+// necessariamente com nenhum dos moldes de formação daqui.
+let SLOTS = [];         // [{x, y, g, id}]
+let FORM = '4-3-3';
+let ESCALACAO = null;   // última escalação carregada, pra poder voltar a ela
+let SALVA = null;       // ajuste do usuário, que tem precedência ao abrir
+let TIME_ATUAL = null;
+let ordenarPor = null, ordemAsc = false;
+
+// O setor (G/D/M/A) já vem pronto do backend, derivado da posição detalhada
+// do TM — não há mais rótulo em inglês pra traduzir aqui.
+const GRUPO_PT = {G:'GOL', D:'DEF', M:'MEI', A:'ATA'};
+
+
+function na(v, suf){ return (v === null || v === undefined) ? '—' : (v + (suf || '')); }
+
+// "Youssef En-Nesyri" -> "En-Nesyri"; "Farhah Al-Shamrani" -> "Al-Shamrani".
+// O nome completo continua no title e na tabela.
+
+function nomeCurto(n){
+  const partes = (n || '').trim().split(/\s+/).filter(Boolean);
+  return partes.length ? partes[partes.length - 1] : '';
+}
+
+// Foto direto do Transfermarkt; se falhar, cai no nosso proxy uma única vez.
+// O endereço reserva vai num data-attribute e o tratador é ligado depois, em
+// ligarReserva: escrever onerror inline exigiria aspas dentro de aspas dentro
+// de string, e o escape se perdia entre as camadas.
+
+function imgFoto(j, classe, alt){
+  if (!j || !j.foto) return '';
+  return '<img class="' + (classe || '') + '" src="' + j.foto + '" alt="' + (alt || '') + '"' +
+         (j.foto_reserva ? ' data-res="' + j.foto_reserva + '"' : '') + '>';
+}
+
+function ligarReserva(raiz){
+  if (!raiz || !raiz.querySelectorAll) return;
+  raiz.querySelectorAll('img[data-res]').forEach(function(im){
+    im.onerror = function(){ this.onerror = null; this.src = this.dataset.res; };
+  });
+}
+
+function porId(id){ return ELENCO.find(function(j){ return j.id === id; }); }
+
+// 🇧🇷 -> 'br'. A bandeira em emoji JÁ É a sigla do país: são duas letras A-Z
+// deslocadas para o bloco 1F1E6. Preciso disso porque o WINDOWS NÃO DESENHA
+// bandeira nenhuma — não existe fonte de emoji colorida com elas no sistema, e
+// o navegador do Vini mostrava um "SA" e um "NL" em letrinha no lugar da
+// bandeira. Com a sigla em mãos, uso a imagem de verdade, a mesma que entra no
+// PNG baixado.
+
+function isoBandeira(emoji){
+  if (!emoji) return '';
+  const letras = [];
+  for (const ch of emoji) {
+    const c = ch.codePointAt(0);
+    if (c >= 0x1F1E6 && c <= 0x1F1FF) letras.push(String.fromCharCode(65 + c - 0x1F1E6));
+  }
+  return letras.length === 2 ? letras.join('').toLowerCase() : '';
+}
+
+// ── carga ──
+
+async function carregarTimes(){
+  const r = await fetch('/api/elencos/times');
+  const d = await r.json();
+  if (d.erro) {
+    // O TM às vezes recusa a consulta por excesso de acessos; costuma liberar
+    // sozinho, então o caminho aqui é oferecer nova tentativa, não travar.
+    document.getElementById('escudos').innerHTML =
+      '<div class="sub" style="max-width:640px">Não consegui carregar a lista de clubes agora: ' + d.erro +
+      '<br>O Transfermarkt limita consultas seguidas. Espere alguns segundos e tente de novo. ' +
+      '<button class="ctrl" style="margin-top:8px" onclick="carregarTimes()">Tentar de novo</button></div>';
+    return;
+  }
+  document.getElementById('escudos').innerHTML = d.times.map(function(t){
+    return '<div class="escudo" data-id="' + t.id + '" title="' + t.nome + '" onclick="selecionarTime(' + t.id + ',this)">' +
+           '<img src="' + t.escudo + '" alt="' + t.nome + '"></div>';
+  }).join('');
+}
+
+async function selecionarTime(id, el){
+  TIME_ATUAL = id;
+  document.querySelectorAll('.escudo').forEach(function(e){
+    e.classList.toggle('active', Number(e.dataset.id) === id);
+  });
+  document.getElementById('lista').innerHTML = '<div class="estado">Carregando elenco…</div>';
+  document.getElementById('infoJogo').textContent = '';
+  try {
+    // Elenco e escalação em paralelo: a segunda é o que desenha o campo.
+    const [rj, re, rs] = await Promise.all([
+      fetch('/api/elencos/jogadores?team=' + id),
+      fetch('/api/elencos/escalacao?team=' + id),
+      fetch('/api/elencos/escalacao-salva?team=' + id)
+    ]);
+    const d = await rj.json();
+    if (d.erro) throw new Error(d.erro);
+    ELENCO = d.jogadores;
+    TIME_NOME = (el && el.dataset.nome) || TIME_NOME;
+    VAGA = null;
+    const av = document.getElementById('avisos');
+    if (d.avisos && d.avisos.length) { av.textContent = '⚠️ ' + d.avisos.join(' · '); av.style.display = ''; }
+    else av.style.display = 'none';
+
+    let esc = null, sv = null;
+    try { esc = await re.json(); } catch(e) {}
+    try { sv = await rs.json(); } catch(e) {}
+    ESCALACAO = (esc && !esc.erro) ? esc : null;
+    SALVA = (sv && sv.salva && (sv.salva.slots || []).length) ? sv.salva : null;
+
+    mostrarBotaoDescartar();
+    if (SALVA) aplicarSalva();
+    else if (ESCALACAO) aplicarEscalacao();
+    else {
+      document.getElementById('infoJogo').textContent =
+        'Escalação da última partida indisponível' + (esc && esc.erro ? ' (' + esc.erro + ')' : '') +
+        ' — campo montado pela formação escolhida.';
+      aplicarFormacao(FORM);
+    }
+    renderElenco();
+  } catch(e) {
+    document.getElementById('lista').innerHTML = '<div class="estado">Erro: ' + e.message + '</div>';
+  }
+}
+
+// Monta o campo a partir do grupo de cada jogador, quando a API não publica a
+// grade tática da partida (caso do Al Diriyah). Mantém o XI real, só arruma.
+
+function porGrupos(lista){
+  const ordem = ['G','D','M','A'];
+  const linhas = ordem.map(function(g){ return lista.filter(function(p){ return grupoDe(p) === g; }); })
+                      .filter(function(l){ return l.length; });
+  const slots = [];
+  linhas.forEach(function(linha, i){
+    const y = linhas.length <= 1 ? 92 : 92 - i * (76 / (linhas.length - 1));
+    linha.forEach(function(p, k){
+      slots.push({x: ((k + 1) / (linha.length + 1)) * 100, y: y,
+                  g: grupoDe(p), id: p.id, rotulo: p.nome, numero: p.numero});
+    });
+  });
+  return slots;
+}
+
+function grupoDe(p){
+  if (p.grupo) return p.grupo;
+  const j = porId(p.id);
+  return (j && j.grupo) || 'M';
+}
+
+// Lado do campo a partir da posição detalhada do TM. A súmula lista os titulares
+// do goleiro ao ataque, mas NÃO da esquerda para a direita dentro da linha —
+// por isso Faris Abdi (lateral-esquerdo) aparecia como zagueiro e En-Nesyri
+// (centroavante) saía na ponta. Com a posição em mãos, a linha é reordenada.
+
+function ladoDaPosicao(pos){
+  const p = (pos || '').toLowerCase();
+  if (p.indexOf('esquerd') > -1) return 0;   // lateral/ponta/meia esquerda
+  if (p.indexOf('direit') > -1)  return 2;   // lateral/ponta/meia direita
+  return 1;                                   // zagueiro, volante, centroavante
+}
+
+// Reordena cada faixa horizontal do campo pela lateralidade. Empate mantém a
+// ordem da súmula: sem informação de lado, inventar posição seria pior.
+
+function ordenarPorLado(slots){
+  const porFaixa = {};
+  slots.forEach(function(s){ (porFaixa[s.y] = porFaixa[s.y] || []).push(s); });
+  Object.keys(porFaixa).forEach(function(y){
+    const faixa = porFaixa[y];
+    if (faixa.length < 2) return;
+    const xs = faixa.map(function(s){ return s.x; }).sort(function(a,b){ return a-b; });
+    const comLado = faixa.map(function(s, i){
+      const j = porId(s.id);
+      return {slot:s, lado: ladoDaPosicao(j && j.posicao), ordem:i};
+    });
+    comLado.sort(function(a,b){ return a.lado - b.lado || a.ordem - b.ordem; });
+    comLado.forEach(function(c, i){ c.slot.x = xs[i]; });
+  });
+  return slots;
+}
+
+function aplicarEscalacao(){
+  const e = ESCALACAO;
+  if (!e) return;
+  SLOTS = e.sem_posicoes
+    ? porGrupos(e.titulares)
+    : ordenarPorLado(e.titulares.map(function(t){
+        return {x: t.x, y: t.y, g: grupoDe(t), id: t.id};
+      }));
+  if (e.formacao) {
+    FORM = e.formacao;
+    const sel = document.getElementById('formacao');
+    // A formação real pode não estar entre os moldes — entra na lista pra aparecer.
+    if (!Array.prototype.some.call(sel.options, function(o){ return o.value === e.formacao; })) {
+      const op = document.createElement('option');
+      op.value = e.formacao; op.textContent = e.formacao + ' (do jogo)';
+      sel.insertBefore(op, sel.firstChild);
+    }
+    sel.value = e.formacao;
+  }
+  document.getElementById('infoJogo').textContent =
+    'Escalação de ' + (e.mandante ? 'casa' : 'fora') + ' contra ' + (e.adversario || '?') +
+    ' em ' + (e.data || '?') + ' (' + (e.placar || '') + ')' +
+    (e.formacao ? ' · ' + e.formacao : '') +
+    (e.sem_posicoes ? ' · a API não publicou as posições deste jogo; os 11 são os que atuaram, dispostos por setor' : '');
+  renderCampo();
+}
+
+function aplicarSalva(){
+  if (!SALVA) return;
+  SLOTS = SALVA.slots.map(function(s){ return {x:s.x, y:s.y, g:s.g, id:s.id}; });
+  if (SALVA.formacao) {
+    FORM = SALVA.formacao;
+    const sel = document.getElementById('formacao');
+    if (!Array.prototype.some.call(sel.options, function(o){ return o.value === SALVA.formacao; })) {
+      const op = document.createElement('option');
+      op.value = SALVA.formacao; op.textContent = SALVA.formacao;
+      sel.insertBefore(op, sel.firstChild);
+    }
+    sel.value = SALVA.formacao;
+  }
+  document.getElementById('infoJogo').textContent =
+    'Sua escalação salva em ' + (SALVA.salvo_em || '').replace('T', ' ').slice(0, 16) +
+    ' · use “Última escalação” e salve de novo para voltar à do jogo.';
+  renderCampo(); renderElenco();
+}
+
+function mostrarBotaoDescartar(){
+  document.getElementById('btnDescartar').style.display = SALVA ? '' : 'none';
+}
+
+async function descartarSalva(){
+  if (!TIME_ATUAL || !SALVA) return;
+  try {
+    const r = await fetch('/api/elencos/escalacao-salva', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({team: TIME_ATUAL, limpar: true})
+    });
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    SALVA = null;
+    mostrarBotaoDescartar();
+    if (ESCALACAO) { aplicarEscalacao(); renderElenco(); }
+    else { document.getElementById('infoJogo').textContent = 'Escalação salva descartada.'; }
+  } catch(e) {
+    alert('Não consegui descartar: ' + e.message);
+  }
+}
+
+async function salvarEscalacao(){
+  if (!TIME_ATUAL) return;
+  const btn = document.getElementById('btnSalvar');
+  const orig = btn.textContent;
+  btn.textContent = 'salvando…'; btn.disabled = true;
+  try {
+    const r = await fetch('/api/elencos/escalacao-salva', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({team: TIME_ATUAL, formacao: FORM,
+        slots: SLOTS.map(function(s){ return {id:s.id, x:s.x, y:s.y, g:s.g}; })})
+    });
+    const d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+    SALVA = {formacao: FORM, slots: SLOTS.map(function(s){ return {id:s.id,x:s.x,y:s.y,g:s.g}; }),
+             salvo_em: d.salvo_em};
+    mostrarBotaoDescartar();
+    document.getElementById('infoJogo').textContent =
+      'Sua escalação salva em ' + (d.salvo_em || '').replace('T', ' ').slice(0, 16) +
+      ' · use “Última escalação” e salve de novo para voltar à do jogo.';
+    btn.textContent = '✅ Salva!';
+    setTimeout(function(){ btn.textContent = orig; btn.disabled = false; }, 1600);
+    return;
+  } catch(e) {
+    alert('Não consegui salvar: ' + e.message);
+  }
+  btn.textContent = orig; btn.disabled = false;
+}
+
+function voltarEscalacao(){
+  if (ESCALACAO) { aplicarEscalacao(); renderElenco(); }
+  else { preencherAuto(); }
+}
+
+// ── campo ──
+
+function trocarFormacao(){
+  const escolhida = document.getElementById('formacao').value;
+  // Se voltou pra formação do jogo, restaura as posições reais em vez do molde.
+  if (ESCALACAO && escolhida === ESCALACAO.formacao) { aplicarEscalacao(); renderElenco(); return; }
+  aplicarFormacao(escolhida);
+  preencherAuto();
+}
+
+function aplicarFormacao(nome){
+  if (!FORMACOES[nome]) nome = '4-3-3';
+  FORM = nome;
+  SLOTS = FORMACOES[nome].map(function(c){ return {x:c.x, y:c.y, g:c.g, id:null}; });
+}
+
+function limparCampo(){
+  SLOTS.forEach(function(s){ s.id = null; });
+  renderCampo(); renderElenco();
+}
+
+function preencherAuto(){
+  // Preenche por grupo, priorizando quem mais jogou. Sem minutagem (pré-temporada),
+  // o desempate é o número da camisa, que já reflete a hierarquia do elenco.
+  const usados = new Set();
+  SLOTS.forEach(function(s){ s.id = null; });
+  const disponiveis = function(g){
+    return ELENCO.filter(function(j){ return j.grupo === g && !usados.has(j.id); })
+      .sort(function(a,b){
+        const ma = a.minutos || 0, mb = b.minutos || 0;
+        if (mb !== ma) return mb - ma;
+        return (a.numero || 99) - (b.numero || 99);
+      });
+  };
+  SLOTS.forEach(function(s){
+    const cand = disponiveis(s.g)[0];
+    if (cand) { s.id = cand.id; usados.add(cand.id); }
+  });
+  renderCampo(); renderElenco();
+}
+
+// ── projeção sobre a arte do campo ──────────────────────────────────────────
+// O fundo é um campo em perspectiva. Medi as quatro quinas na própria imagem e
+// converti para % da caixa, para a conta acompanhar qualquer redimensionamento:
+// a linha de fundo de LONGE tem 47,91% da largura e fica a 5,98% do topo; a de
+// PERTO tem 89,77% e fica a 89,92%. O eixo central cai em 49,53%.
+// Medidas em % da ARTE INTEIRA (1080x1350), não de um recorte: a guia mostra o
+// template completo porque é ele que o Vini baixa no fim.
+// yMeio é a linha do meio-campo desenhada na arte, e não a média das outras
+// duas: numa perspectiva ela fica bem acima do meio do campo (42,1% da altura,
+// e não 49,9%).
+const PROJ = {cx:49.95, yLonge:29.19, yMeio:42.15, yPerto:70.59,
+              wLonge:34.54, wPerto:75.78};
+// Sem aperto lateral: x=0 é a linha lateral e ponto. A placa da ponta passa
+// por cima da lateral, e é para passar — apertar o leque para mantê-la sobre a
+// grama espremia os onze no meio do campo, que foi exatamente o que o Vini viu
+// e reclamou.
+const APERTO = 1.00;
+
+// Mapa projetivo y(v) = (a*v + b)/(c*v + 1), ajustado para passar EXATO pelas
+// três linhas que dá para medir na arte: fundo de longe (v=0), meio-campo
+// (v=0,5) e fundo de perto (v=1). Tentei antes o modelo de câmera ideal
+// (largura ∝ 1/profundidade) e ele errava o meio-campo em 15px — a arte foi
+// desenhada à mão no Canva, não fotografada, então o certo é ajustar ao que
+// está desenhado em vez de ao que uma câmera faria.
+const _pb = PROJ.yLonge;
+const _pc = (2*PROJ.yMeio - _pb - PROJ.yPerto) / (PROJ.yPerto - PROJ.yMeio);
+const _pa = PROJ.yMeio*_pc + 2*PROJ.yMeio - 2*_pb;
+
+// (x, y) continuam sendo as coordenadas de campo visto de cima que estão em
+// FORMACOES — nada lá muda. O que muda é a leitura delas aqui.
+
+function projetar(x, y){
+  const u = 0.5 + (x/100 - 0.5) * APERTO;
+  const v = Math.max(0, Math.min(1, y/100));           // 0 = longe, 1 = perto
+  const py = (_pa*v + _pb) / (_pc*v + 1);
+  // A largura é linear na ALTURA DA TELA — o gramado é um trapézio —, e não
+  // em v. Trocar uma pela outra afina o campo no meio.
+  const larg = PROJ.wLonge + (py - PROJ.yLonge)
+               * (PROJ.wPerto - PROJ.wLonge)/(PROJ.yPerto - PROJ.yLonge);
+  return {
+    x: PROJ.cx + (u - 0.5)*larg,
+    y: py,
+    // Quem está no fundo é um pouco menor, mas só um pouco: medi na arte
+    // pronta do Vini e a placa do goleiro adversário tem 32px contra 35 do
+    // goleiro de perto — 0,91. Perspectiva de verdade daria 0,46 e deixaria o
+    // ataque ilegível. Aqui o intervalo é 0,88 a 1,00.
+    e: 0.88 + 0.12*(larg - PROJ.wLonge)/(PROJ.wPerto - PROJ.wLonge)
+  };
+}
+
+function renderCampo(){
+  const campo = document.getElementById('campo');
+  campo.querySelectorAll('.slot').forEach(function(s){ s.remove(); });
+  SLOTS.forEach(function(c, i){
+    // Quem escalou pode não estar na lista do elenco (caso de clube sem elenco
+    // publicado); nesse caso usa o nome que veio na própria escalação.
+    const j = c.id ? (porId(c.id) || {id:c.id, nome:c.rotulo, numero:c.numero, foto:null}) : null;
+    const el = document.createElement('div');
+    el.className = 'slot' + (j ? ' ocupado' : '')
+      + (VAGA === i ? ' vazia-alvo' : '');
+    const p = projetar(c.x, c.y);
+    el.style.left = p.x + '%';
+    el.style.top = p.y + '%';
+    el.style.setProperty('--e', p.e.toFixed(3));
+    el.draggable = true;
+    el.dataset.slot = i;
+    let disco = '<div class="disco">';
+    disco += (j && j.foto) ? imgFoto(j, 'foto', '')
+                           : '<span>' + GRUPO_PT[c.g] + '</span>';
+    disco += '</div>';
+    // Só o sobrenome, sem número: nome inteiro encavalava no vizinho no celular.
+    // A bandeira agora abre a placa, à esquerda do nome, como na arte pronta.
+    const iso = isoBandeira(j && j.pais_bandeira);
+    const rot = j ? '<div class="rot" title="' + (j.nome || '') + '">' +
+                    (iso ? '<img class="band" alt="" src="https://flagcdn.com/w40/'
+                           + iso + '.png">' : '') +
+                    '<span>' + nomeCurto(j.nome) + '</span></div>' : '';
+    el.innerHTML = disco + rot;
+    ligarReserva(el);
+    el.addEventListener('dragstart', function(ev){
+      ev.dataTransfer.setData('text/plain', JSON.stringify({de:'campo', slot:i}));
+    });
+    el.addEventListener('dragover', function(ev){ ev.preventDefault(); el.classList.add('alvo'); });
+    el.addEventListener('dragleave', function(){ el.classList.remove('alvo'); });
+    el.addEventListener('drop', function(ev){
+      ev.preventDefault(); el.classList.remove('alvo');
+      soltarEm(i, ev.dataTransfer.getData('text/plain'));
+    });
+    el.addEventListener('click', function(){
+      // Ocupado: esvazia, como sempre foi. VAZIO: escolhe a vaga e filtra a
+      // lista pela posição dela — é o caminho contrário do arrastar, e o que
+      // funciona no celular.
+      if (SLOTS[i].id) { SLOTS[i].id = null; SLOTS[i].rotulo = null; VAGA = null;
+                         renderCampo(); renderElenco(); }
+      else { escolherVaga(i); }
+    });
+    campo.appendChild(el);
+  });
+}
+
+// ── baixar a arte ───────────────────────────────────────────────────────────
+// Quem monta o PNG é o servidor. Tentar montar aqui num <canvas> não funciona:
+// a foto do jogador vem do Transfermarkt, de outro domínio, e um único pixel
+// de fora CONTAMINA o canvas — o toBlob passa a lançar erro de segurança.
+
+async function baixarArte(){
+  const btn = document.getElementById('btnArte');
+  const aviso = document.getElementById('arteAviso');
+  const ocupados = SLOTS.filter(function(s){ return s.id; });
+  if (!ocupados.length) { aviso.textContent = 'Escale alguém antes.'; return; }
+  btn.disabled = true; aviso.textContent = 'Montando a imagem…';
+  try {
+    const r = await fetch('/api/elencos/arte', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        jogadores: ocupados.map(function(s){
+          const j = porId(s.id) || {};
+          // O endereço DIRETO do Transfermarkt. Mandar o do nosso proxy faria
+          // o servidor pedir uma imagem a si mesmo — um pulo a mais para
+          // chegar no mesmo lugar. Quem põe o Referer que o TM exige é o
+          // _baixar() lá.
+          return {nome: nomeCurto(j.nome) || j.nome || '',
+                  foto: j.foto || null,
+                  bandeira: j.pais_bandeira || null,
+                  x: s.x, y: s.y};
+        })
+      })
+    });
+    if (!r.ok) {
+      let m = 'HTTP ' + r.status;
+      try { m = (await r.json()).erro || m; } catch(e) {}
+      aviso.textContent = 'Não deu: ' + m; return;
+    }
+    const fotos = r.headers.get('X-Fotos') || '';
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = ((TIME_ATUAL && TIME_ATUAL.nome ? TIME_ATUAL.nome : 'escalacao')
+                    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+                  || 'escalacao') + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    // Dizer QUANTAS fotos entraram: se o Transfermarkt voltar a recusar, isso
+    // aparece aqui na hora, e não depois na arte já postada.
+    aviso.textContent = fotos ? ('Baixou. Fotos: ' + fotos) : 'Baixou.';
+  } catch(e) {
+    aviso.textContent = 'Não deu: ' + e;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function soltarEm(slot, carga){
+  let d; try { d = JSON.parse(carga); } catch(e) { return; }
+  if (d.de === 'campo') {
+    const t = SLOTS[slot].id; SLOTS[slot].id = SLOTS[d.slot].id; SLOTS[d.slot].id = t;   // troca
+    const r = SLOTS[slot].rotulo; SLOTS[slot].rotulo = SLOTS[d.slot].rotulo; SLOTS[d.slot].rotulo = r;
+  } else {
+    SLOTS.forEach(function(s){ if (s.id === d.id) { s.id = null; s.rotulo = null; } });  // ninguém joga em dois lugares
+    SLOTS[slot].id = d.id;
+    SLOTS[slot].rotulo = null;
+  }
+  renderCampo(); renderElenco();
+}
+
+// ── tabela ──
+const COLUNAS = [
+  {k:'numero',       t:'#',    num:true},
+  {k:'nome',         t:'Jogador'},
+  {k:'nacionalidade',t:'País'},
+  {k:'idade',        t:'Idade', num:true},
+  {k:'altura',       t:'Alt.',  num:true},
+  {k:'pe',           t:'Pé'},
+  {k:'posicao',      t:'Posição'},
+  {k:'jogos',        t:'J',     num:true},
+  {k:'gols',         t:'G',     num:true},
+  {k:'assistencias', t:'A',     num:true},
+  {k:'amarelos',     t:'🟨',    num:true},
+  {k:'vermelhos',    t:'🟥',    num:true},
+  {k:'minutos',      t:'Min',   num:true},
+];
+
+
+// ── A LISTA, E O QUE ELA FILTRA ─────────────────────────────────────────────
+//
+// Três filtros que se combinam, porque as três perguntas são feitas juntas:
+// o setor (chips), o nome (busca) e a VAGA escolhida no campo.
+//
+// A vaga é a ideia do Vini: clicar num lugar vazio do campo mostra só quem
+// joga ali. É o caminho contrário do arrastar — em vez de procurar o jogador
+// e levá-lo até a vaga, você aponta a vaga e a lista se encolhe sozinha.
+let FILTRO_GRUPO = '';     // '' | G | D | M | A  (os chips)
+let VAGA = null;           // índice do slot escolhido no campo, ou null
+
+function filtrarGrupo(g, botao){
+  // Tocar de novo no mesmo chip desliga o filtro. Sem isso, a única saída
+  // seria achar o "Todos" — e num celular ele some no fim da linha.
+  FILTRO_GRUPO = (FILTRO_GRUPO === g) ? '' : g;
+  document.querySelectorAll('#chips .chip').forEach(function(b){
+    b.classList.toggle('ativo', b.dataset.g === FILTRO_GRUPO);
+  });
+  renderElenco();
+}
+
+function escolherVaga(i){
+  // Clicar na MESMA vaga desfaz a escolha. A vaga escolhida vira o filtro de
+  // posição e ganha destaque no campo, para não haver dúvida de onde o próximo
+  // toque vai colocar o jogador.
+  VAGA = (VAGA === i) ? null : i;
+  if (VAGA !== null) {
+    FILTRO_GRUPO = '';
+    document.querySelectorAll('#chips .chip').forEach(function(b){
+      b.classList.remove('ativo');
+    });
+  }
+  renderCampo(); renderElenco();
+}
+
+function escalarNaVaga(id){
+  // Toque na lista com uma vaga escolhida: entra ali. É o que faz o caminho
+  // funcionar no celular, onde arrastar é ruim.
+  if (VAGA === null) return false;
+  soltarEm(VAGA, JSON.stringify({de:'lista', id:id}));
+  VAGA = null;
+  renderCampo(); renderElenco();
+  return true;
+}
+
+function renderElenco(){
+  const alvo = document.getElementById('lista');
+  if (!alvo) return;
+  const termo = (document.getElementById('busca').value || '').trim().toLowerCase();
+  const emCampo = {};
+  SLOTS.forEach(function(s){ if (s.id) emCampo[s.id] = true; });
+
+  // A vaga escolhida manda no setor; os chips valem quando não há vaga.
+  const grupoDaVaga = (VAGA !== null && SLOTS[VAGA]) ? SLOTS[VAGA].g : '';
+  const grupo = grupoDaVaga || FILTRO_GRUPO;
+
+  const aviso = document.getElementById('vagaAviso');
+  if (VAGA !== null) {
+    aviso.textContent = 'Vaga de ' + (GRUPO_PT[grupoDaVaga] || '—')
+      + ' escolhida. Toque num jogador para escalá-lo, ou na vaga de novo para desistir.';
+    aviso.style.display = '';
+  } else {
+    aviso.style.display = 'none';
+  }
+
+  let lista = ELENCO.slice();
+  if (grupo) lista = lista.filter(function(j){ return j.grupo === grupo; });
+  if (termo) {
+    lista = lista.filter(function(j){
+      return ((j.nome || '') + ' ' + (j.posicao || '')).toLowerCase().indexOf(termo) >= 0;
+    });
+  }
+  // Quem já está em campo vai para o fim, apagado, mas NÃO some: sumir faria
+  // a lista saltar a cada escalação e esconderia quem você quer trocar.
+  lista.sort(function(a, b){
+    const ea = emCampo[a.id] ? 1 : 0, eb = emCampo[b.id] ? 1 : 0;
+    if (ea !== eb) return ea - eb;
+    const oa = ORDEM_GRUPO[a.grupo] === undefined ? 9 : ORDEM_GRUPO[a.grupo];
+    const ob = ORDEM_GRUPO[b.grupo] === undefined ? 9 : ORDEM_GRUPO[b.grupo];
+    if (oa !== ob) return oa - ob;
+    return (a.numero === null ? 999 : a.numero) - (b.numero === null ? 999 : b.numero);
+  });
+
+  document.getElementById('contador').textContent =
+    lista.length + ' de ' + ELENCO.length + ' jogadores';
+
+  if (!lista.length) {
+    alvo.innerHTML = '<div class="estado">Ninguém com esse filtro.</div>';
+    return;
+  }
+  alvo.innerHTML = '';
+  lista.forEach(function(j){
+    const el = document.createElement('div');
+    el.className = 'cartao' + (emCampo[j.id] ? ' escalado' : '');
+    el.draggable = true;
+    el.dataset.id = j.id;
+    el.innerHTML =
+      (j.foto ? imgFoto(j, '', j.nome) : '<img alt="">') +
+      '<div class="quem"><strong title="' + (j.nome || '') + '">' + (j.nome || '') + '</strong>' +
+      '<span>' + (j.clube_nome || TIME_NOME || '') + ' · ' + (j.posicao || '—') + '</span></div>' +
+      '<span class="cam">' + (j.numero === null || j.numero === undefined ? '' : '#' + j.numero) + '</span>';
+    ligarReserva(el);
+    el.addEventListener('dragstart', function(ev){
+      ev.dataTransfer.setData('text/plain', JSON.stringify({de:'lista', id:j.id}));
+    });
+    el.addEventListener('click', function(){ escalarNaVaga(j.id); });
+    alvo.appendChild(el);
+  });
+}
+
+const ORDEM_GRUPO = {G:0, D:1, M:2, A:3};
+let TIME_NOME = '';
+
+carregarTimes();
+
+</script>
+</body>
+</html>
