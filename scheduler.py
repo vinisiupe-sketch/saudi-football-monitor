@@ -327,6 +327,22 @@ async def run_retornos():
         #
         # Em passadas porque cada partida custa uma chamada. Uma temporada
         # inteira leva alguns dias de madrugada, sem atrapalhar o resto.
+        # AS OUTRAS COMPETIÇÕES ENTRAM ANTES DE LER AS ESCALAÇÕES.
+        #
+        # A ordem importa: a leitura de escalações percorre o calendário que
+        # está no banco. Se a AFC e a Copa do Rei entrarem depois, os jogos
+        # delas só seriam lidos na madrugada seguinte — um dia de atraso em
+        # cima de uma partida que já aconteceu.
+        #
+        # Pergunta pelo CLUBE, e não pela competição: assim não há lista de
+        # códigos de liga para manter, e competição nova aparece sozinha.
+        from main import _calendario_de_todas_as_competicoes
+        cal = await _calendario_de_todas_as_competicoes()
+        if cal.get("competicoes"):
+            print(f"🏆 Calendário: {cal.get('partidas')} jogo(s) de "
+                  f"{len(cal['competicoes'])} competição(ões) — "
+                  + ", ".join(cal["competicoes"][:6]))
+
         incompletas = await asyncio.to_thread(partidas_com_atuacao_incompleta)
         if incompletas:
             await asyncio.to_thread(esquecer_escalacoes_lidas, "incompletas")

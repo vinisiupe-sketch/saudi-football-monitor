@@ -7798,6 +7798,93 @@ def _af_do_elenco(nome_af: str, elenco_do_clube: list[dict]) -> dict:
     return {}
 
 
+async def _calendario_de_todas_as_competicoes(season: int = 0) -> dict:
+    """O calendário dos clubes da liga em TODAS as competições que disputam.
+
+    POR QUE PELOS CLUBES, E NÃO PELAS COMPETIÇÕES
+        O caminho óbvio seria listar os códigos da AFC, da Copa do Rei e da
+        Supercopa e pedir o calendário de cada uma. Eu teria de descobrir esses
+        códigos e mantê-los — e no dia em que a AFC trocasse de formato (já
+        trocou: virou Elite e Two em 2024) o app perderia uma competição em
+        silêncio, sem nada na tela dizendo que faltava algo.
+
+        Perguntando pelo CLUBE, a API responde tudo que ele jogou: liga, copa,
+        continental, Supercopa, amistoso. Não há lista para manter, não há
+        código para eu errar, e competição nova aparece sozinha.
+
+        Custa 18 chamadas por passada em vez de uma. O Vini disse que não é
+        problema, e a troca é boa: 18 chamadas por dia contra uma lista de
+        códigos que envelhece calada.
+
+    As partidas entram na MESMA tabela, com o id da competição em cada uma —
+    então quem quer só a liga continua tendo só a liga.
+    """
+    from database import partidas_da_liga, salvar_partidas_liga
+    temporada = season or _af_temporada_corrente()
+    diag = {"temporada": temporada, "clubes": 0, "partidas": 0,
+            "competicoes": [], "erros": []}
+
+    # Os clubes saem do calendário da liga que já está no banco: eles são os
+    # mesmos, e assim esta função não depende de mais uma chamada para saber
+    # de quem perguntar.
+    clubes = {}
+    for p in partidas_da_liga(temporada):
+        for cid, nome in ((p.get("casa_id"), p.get("casa")),
+                          (p.get("fora_id"), p.get("fora"))):
+            if cid and cid not in clubes:
+                clubes[cid] = nome
+    if not clubes:
+        diag["erros"].append("não há calendário da liga no banco para saber "
+                             "quais são os clubes")
+        return diag
+
+    vistas, linhas = {}, []
+    for cid in clubes:
+        dados, err = await _af_get("fixtures", {"team": cid, "season": temporada})
+        if err:
+            diag["erros"].append(f"clube {cid}: {err}")
+            continue
+        diag["clubes"] += 1
+        for f in (dados or {}).get("response", []):
+            fx = f.get("fixture") or {}
+            if not fx.get("id"):
+                continue
+            liga = f.get("league") or {}
+            if liga.get("id"):
+                vistas[liga["id"]] = liga.get("name") or ""
+            linhas.append({
+                "fixture_id": fx.get("id"), "season": temporada,
+                "liga_id": liga.get("id"),
+                "data": (fx.get("date") or "")[:10],
+                "status": ((fx.get("status")) or {}).get("short"),
+                "rodada": liga.get("round") or "",
+                "casa_id": ((f.get("teams") or {}).get("home") or {}).get("id"),
+                "casa": ((f.get("teams") or {}).get("home") or {}).get("name"),
+                "fora_id": ((f.get("teams") or {}).get("away") or {}).get("id"),
+                "fora": ((f.get("teams") or {}).get("away") or {}).get("name"),
+                "gols_casa": ((f.get("goals") or {}).get("home")),
+                "gols_fora": ((f.get("goals") or {}).get("away")),
+                "liga_nome": liga.get("name") or "",
+                "liga_logo": liga.get("logo") or "",
+            })
+
+    # Uma gravação só, no fim. A tabela tem chave por fixture_id, então o
+    # clássico que aparece na lista dos DOIS clubes entra uma vez.
+    diag["partidas"] = await asyncio.to_thread(salvar_partidas_liga, linhas)
+    diag["competicoes"] = sorted(vistas.values())
+    return diag
+
+
+@app.get("/api/competicoes/atualizar")
+async def api_competicoes_atualizar(season: int = 0):
+    """Traz para o banco os jogos dos clubes em todas as competições.
+
+    Acionável colando o endereço no navegador, como as outras — o Vini já se
+    perdeu uma vez quando eu mandei "rode POST <url>".
+    """
+    return await _calendario_de_todas_as_competicoes(season)
+
+
 async def _ler_escalacoes(season: int = 0, teto: int = 20) -> dict:
     """Lê quem atuou nas partidas encerradas que ainda não li.
 
@@ -7815,7 +7902,13 @@ async def _ler_escalacoes(season: int = 0, teto: int = 20) -> dict:
     # que faltam. A escalação já vem por clube: é a lista fechada de que eu
     # preciso para casar por nome sem chutar.
     ctx = await asyncio.to_thread(_contexto_de_elenco)
-    calendario = partidas_da_liga(temporada)
+    # TODAS AS COMPETIÇÕES aqui, de propósito: a ficha do jogador mostra o que
+    # ele fez em Copa do Rei e AFC também, e é desta leitura que ela sai.
+    #
+    # Os pendurados continuam usando só a liga — amarelo de campeonato se
+    # cumpre em campeonato, e um jogo de copa no meio da semana viraria "a
+    # partida da suspensão" sem nada na tela denunciar.
+    calendario = partidas_da_liga(temporada, todas=True)
     lidas = partidas_com_escalacao_lida()
     pendentes = [p for p in calendario
                  if _ja_aconteceu(p, hoje) and p.get("fixture_id") not in lidas]
@@ -16783,6 +16876,45 @@ def _elenco_pais(nacs: list[str]) -> dict:
     }
 
 
+_ESCUDOS_CACHE: dict = {}
+
+
+def _escudos_em_cache(temporada: int) -> dict:
+    """A tabela de escudos, lida do banco uma vez a cada dez minutos.
+
+    POR QUE ELA PRECISAVA DE CACHE
+        O Vini perguntou se filtrar um jogador gera chamada na API. Não gera —
+        a ficha lê do banco, e o filtro de competição nem vai ao servidor: ele
+        repinta com o que já está no navegador.
+
+        Mas cada abertura de ficha varria DUAS tabelas inteiras de escudos
+        para desenhar meia dúzia de emblemas, e a resposta é a mesma para
+        qualquer jogador. Clicar em dez nomes do elenco fazia vinte varreduras
+        para obter vinte vezes o mesmo resultado.
+
+        Dez minutos é bem mais do que uma sessão de cliques e bem menos do que
+        a vida de um escudo — clube não troca de emblema no meio da tarde.
+
+    A ORDEM IMPORTA: o da liga sobrescreve o geral. A tabela mundial de
+    transferências devolve o Al Nasr de DUBAI para quem pede o Al Nassr de
+    Riade — os dois normalizam para a mesma chave, e lá ganha quem entrou
+    primeiro. Já custou uma correção antes.
+    """
+    agora = time.time()
+    guardado = _ESCUDOS_CACHE.get(temporada)
+    if guardado and (agora - guardado[0]) < 600:
+        return guardado[1]
+    try:
+        from database import escudos_da_liga, escudos_por_clube
+        escudos = dict(escudos_por_clube())
+        escudos.update(escudos_da_liga(temporada))
+    except Exception as e:
+        print(f"⚠️ escudos: {type(e).__name__}: {e}")
+        return (guardado or (0, {}))[1]
+    _ESCUDOS_CACHE[temporada] = (agora, escudos)
+    return escudos
+
+
 @app.get("/api/jogador/ficha")
 async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
                             season: int = 0):
@@ -16817,17 +16949,7 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
     temporada = season or _af_temporada_corrente()
     partidas = await asyncio.to_thread(jogo_a_jogo, f.get("af_id"), temporada)
 
-    # O ESCUDO DO ADVERSÁRIO E O DO PRÓPRIO CLUBE.
-    #
-    # Vem do calendário da LIGA, e não da tabela mundial de transferências: os
-    # dois "Al Nasr" existem, e a tabela mundial devolve o de Dubai para quem
-    # pedir o de Riade. Já custou uma correção antes; é o mesmo cuidado aqui.
-    try:
-        from database import escudos_da_liga, escudos_por_clube
-        escudos = dict(await asyncio.to_thread(escudos_por_clube))
-        escudos.update(await asyncio.to_thread(escudos_da_liga, temporada))
-    except Exception:
-        escudos = {}
+    escudos = await asyncio.to_thread(_escudos_em_cache, temporada)
 
     def _escudo(nome: str) -> str:
         import glossary

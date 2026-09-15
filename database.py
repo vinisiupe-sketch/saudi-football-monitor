@@ -4829,24 +4829,41 @@ def salvar_partidas_liga(linhas: list[dict]) -> int:
         return 0
 
 
-def partidas_da_liga(season: int) -> list[dict]:
+def partidas_da_liga(season: int, liga_id=307, todas: bool = False) -> list[dict]:
     """O calendário da temporada, em ordem de data.
 
     A ordem sai do SQL porque é ela que define "o jogo seguinte" — deixar
     cada tela ordenar do seu jeito seria deixar cada tela ter a sua ideia de
     quem está suspenso.
+
+    SÓ A LIGA, POR PADRÃO — e isto virou importante em 15/09/26, quando o
+    calendário passou a guardar também AFC, Copa do Rei e Supercopa.
+
+    Quem pergunta "qual é o próximo jogo dele?" para cumprir suspensão precisa
+    do próximo jogo DA LIGA: amarelo de campeonato se cumpre em campeonato. Se
+    esta função devolvesse tudo, um jogo de Copa do Rei no meio da semana
+    viraria "a partida da suspensão" — e o app diria que o cara está liberado
+    para o clássico de domingo quando ele não está.
+
+    Esse erro não apareceria na tela: sairia um nome a mais na escalação, e a
+    descoberta seria no apito inicial. `todas=True` é para quem quer o
+    calendário inteiro, como a leitura de escalações.
     """
     try:
         with get_conn() as conn:
             c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             _cria_partida_liga(c)
-            c.execute("""
+            onde, valores = "WHERE season = %s", [season]
+            if not todas and liga_id:
+                onde += " AND liga_id = %s"
+                valores.append(int(liga_id))
+            c.execute(f"""
                 SELECT fixture_id, data, status, rodada,
-                       casa_id, casa, fora_id, fora
+                       casa_id, casa, fora_id, fora, liga_id, liga_nome
                   FROM partida_liga
-                 WHERE season = %s
+                 {onde}
                  ORDER BY data NULLS LAST, fixture_id
-            """, [season])
+            """, valores)
             return [dict(r) for r in c.fetchall()]
     except Exception:
         return []

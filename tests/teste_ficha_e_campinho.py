@@ -540,6 +540,111 @@ def testar():
     ok('"liga_logo": (f.get("league") or {}).get("logo")' in FONTE,
        "a leitura do calendário parou de tirar o emblema da resposta da API")
 
+    # ── 5g. AS OUTRAS COMPETIÇÕES, SEM ESTRAGAR OS PENDURADOS ────────────
+    #
+    # "Eu quero mais competições. Inclua as demais." O calendário passa a
+    # guardar AFC, Copa do Rei e Supercopa — e aí nasce uma armadilha que NÃO
+    # aparece na tela: quem pergunta "qual é o próximo jogo dele?" para cumprir
+    # suspensão precisa do próximo jogo DA LIGA. Amarelo de campeonato se
+    # cumpre em campeonato.
+    #
+    # Se o calendário dos pendurados passasse a devolver tudo, um jogo de Copa
+    # do Rei no meio da semana viraria "a partida da suspensão", e o app diria
+    # que o cara está liberado para o clássico de domingo quando ele não está.
+    # Sairia um nome a mais na escalação, e a descoberta seria no apito.
+    _pl = next((_ast2.get_source_segment(_banco, n)
+                for n in _ast2.walk(_ast2.parse(_banco))
+                if isinstance(n, _ast2.FunctionDef) and n.name == "partidas_da_liga"), "")
+    ok("def partidas_da_liga(season: int, liga_id=307, todas: bool = False)" in _pl,
+       "partidas_da_liga voltou a não distinguir competição — com AFC e Copa "
+       "do Rei no banco, a suspensão passa a ser cumprida no jogo errado")
+    ok("if not todas and liga_id:" in _pl and "AND liga_id = %s" in _pl,
+       "o filtro por competição sumiu da consulta do calendário")
+
+    _pend = FONTE[FONTE.find("async def _atualizar_cartoes"):]
+    for _fn in ("_ler_escalacoes",):
+        _c = next((_ast2.get_source_segment(FONTE, n)
+                   for n in _ast2.walk(_ast2.parse(FONTE))
+                   if isinstance(n, (_ast2.FunctionDef, _ast2.AsyncFunctionDef))
+                   and n.name == _fn), "")
+        ok("partidas_da_liga(temporada, todas=True)" in _c,
+           f"{_fn} parou de ler TODAS as competições — a ficha do jogador "
+           "perde o que ele fez em copa e na AFC")
+
+    # E as competições são descobertas PELO CLUBE, não por uma lista de códigos
+    # que eu teria de manter. A AFC já trocou de formato uma vez; uma lista
+    # envelhece calada.
+    _todas = next((_ast2.get_source_segment(FONTE, n)
+                   for n in _ast2.walk(_ast2.parse(FONTE))
+                   if isinstance(n, (_ast2.FunctionDef, _ast2.AsyncFunctionDef))
+                   and n.name == "_calendario_de_todas_as_competicoes"), "")
+    ok('_af_get("fixtures", {"team": cid, "season": temporada})' in _todas,
+       "a descoberta de competições voltou a perguntar por LIGA. Perguntando "
+       "pelo clube não há lista de códigos para manter, e competição nova "
+       "aparece sozinha")
+    ok('"liga_id": liga.get("id")' in _todas and '"liga_logo": liga.get("logo")' in _todas,
+       "as partidas das outras competições entram sem dizer de qual são")
+    _sched = open(os.path.join(RAIZ, "scheduler.py"), encoding="utf-8").read()
+    _rr = next((_ast2.get_source_segment(_sched, n)
+                for n in _ast2.walk(_ast2.parse(_sched))
+                if isinstance(n, (_ast2.FunctionDef, _ast2.AsyncFunctionDef))
+                and n.name == "run_retornos"), "")
+    # A CHAMADA, e não o nome: ele também aparece no import logo acima, então
+    # procurá-lo solto deixava passar um `cal = {}`.
+    ok("cal = await _calendario_de_todas_as_competicoes()" in _rr,
+       "a rotina de madrugada não busca as outras competições — elas só "
+       "entrariam se alguém abrisse a rota à mão")
+    ok(_rr.find("cal = await _calendario_de_todas_as_competicoes()")
+       < _rr.find("d = await _ler_escalacoes()"),
+       "o calendário passou a ser buscado DEPOIS da leitura de escalações — "
+       "os jogos das outras competições só seriam lidos na madrugada "
+       "seguinte, um dia depois de acontecerem")
+
+    # ── 5h. O CACHE DOS ESCUDOS ──────────────────────────────────────────
+    # "Ou toda a vez que se filtra um jogador gera chamada na api?" Não gera: a
+    # ficha lê do banco, e o filtro nem vai ao servidor. Mas cada abertura
+    # varria DUAS tabelas de escudos para desenhar meia dúzia de emblemas — e
+    # a resposta é a mesma para qualquer jogador.
+    _ec = next((_ast2.get_source_segment(FONTE, n)
+                for n in _ast2.walk(_ast2.parse(FONTE))
+                if isinstance(n, _ast2.FunctionDef) and n.name == "_escudos_em_cache"), "")
+    # EXECUTADO, e não procurado: conferir que a variável do cache aparece no
+    # texto prova que eu a escrevi, não que ela guarda. Aqui eu conto quantas
+    # vezes o banco é varrido em três aberturas de ficha seguidas.
+    _vezes = {"n": 0}
+    def _conta():
+        _vezes["n"] += 1
+        return {"Al Nassr": "escudo.png"}
+    _gp, _gl = database.escudos_por_clube, database.escudos_da_liga
+    database.escudos_por_clube = _conta
+    database.escudos_da_liga = lambda t: {}
+    main._ESCUDOS_CACHE.clear()
+    try:
+        for _ in range(3):
+            main._escudos_em_cache(2026)
+        conferir("três aberturas de ficha, uma varredura só", _vezes["n"], 1)
+        # Temporada diferente é outra pergunta, e tem de ir ao banco.
+        main._escudos_em_cache(2025)
+        conferir("temporada diferente não reaproveita o cache errado",
+                 _vezes["n"], 2)
+    finally:
+        database.escudos_por_clube, database.escudos_da_liga = _gp, _gl
+        main._ESCUDOS_CACHE.clear()
+    ok("< 600" in _ec,
+       "o cache dos escudos perdeu o prazo — ele tem de durar mais que uma "
+       "sessão de cliques e menos que a vida de um escudo")
+    ok(_ec.find("escudos_por_clube()") < _ec.find("escudos_da_liga("),
+       "a ordem dos escudos inverteu. O da liga tem de sobrescrever o geral: "
+       "a tabela mundial devolve o Al Nasr de Dubai para quem pede o de Riade")
+    ok("return (guardado or (0, {}))[1]" in _ec,
+       "com o banco fora do ar, o cache deixou de servir o que já tinha")
+    ok('_af_get' not in next((_ast2.get_source_segment(FONTE, n)
+                              for n in _ast2.walk(_ast2.parse(FONTE))
+                              if isinstance(n, (_ast2.FunctionDef, _ast2.AsyncFunctionDef))
+                              and n.name == "api_jogador_ficha"), ""),
+       "a ficha do jogador passou a chamar a API-Football. Ela tem de ler do "
+       "banco: abrir uma ficha não pode custar cota")
+
     el2 = _elencos_html()
     ok("function seletorCompeticao(d){" in el2 and "comps.length < 2" in el2,
        "sumiu o seletor de competição — ou ele passou a aparecer com uma "
