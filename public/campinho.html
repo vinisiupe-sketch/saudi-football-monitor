@@ -189,6 +189,11 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .vaga-aviso{font-size:.72rem;color:var(--accent);margin:0 0 9px}
 .slot.vazia-alvo .disco{border-color:var(--accent);
   box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 45%,transparent)}
+
+.cartao.da-vaga{border-color:var(--accent)}
+.cartao.da-vaga .quem strong::after{content:'• da posição';margin-left:7px;
+  font-size:.58rem;font-weight:800;text-transform:uppercase;color:var(--accent);
+  letter-spacing:.03em}
 @media(max-width:900px){
   .painel-campinho{grid-template-columns:1fr}
   .lista-caixa{position:static}
@@ -751,22 +756,6 @@ function soltarEm(slot, carga){
   renderCampo(); renderElenco();
 }
 
-// ── tabela ──
-const COLUNAS = [
-  {k:'numero',       t:'#',    num:true},
-  {k:'nome',         t:'Jogador'},
-  {k:'nacionalidade',t:'País'},
-  {k:'idade',        t:'Idade', num:true},
-  {k:'altura',       t:'Alt.',  num:true},
-  {k:'pe',           t:'Pé'},
-  {k:'posicao',      t:'Posição'},
-  {k:'jogos',        t:'J',     num:true},
-  {k:'gols',         t:'G',     num:true},
-  {k:'assistencias', t:'A',     num:true},
-  {k:'amarelos',     t:'🟨',    num:true},
-  {k:'vermelhos',    t:'🟥',    num:true},
-  {k:'minutos',      t:'Min',   num:true},
-];
 
 
 // ── A LISTA, E O QUE ELA FILTRA ─────────────────────────────────────────────
@@ -823,19 +812,35 @@ function renderElenco(){
 
   // A vaga escolhida manda no setor; os chips valem quando não há vaga.
   const grupoDaVaga = (VAGA !== null && SLOTS[VAGA]) ? SLOTS[VAGA].g : '';
-  const grupo = grupoDaVaga || FILTRO_GRUPO;
+  // `grupoDaVaga` ORDENA; `FILTRO_GRUPO` (os chips) FILTRA. São coisas
+  // diferentes desde que o Vini apontou, e por isso deixaram de ser a mesma
+  // variável — juntá-las foi o que fez a vaga limitar a lista.
 
   const aviso = document.getElementById('vagaAviso');
   if (VAGA !== null) {
     aviso.textContent = 'Vaga de ' + (GRUPO_PT[grupoDaVaga] || '—')
-      + ' escolhida. Toque num jogador para escalá-lo, ou na vaga de novo para desistir.';
+      + ' escolhida — os dessa posição vêm primeiro, mas dá para escalar '
+      + 'qualquer um. Toque num jogador, ou na vaga de novo para desistir.';
     aviso.style.display = '';
   } else {
     aviso.style.display = 'none';
   }
 
   let lista = ELENCO.slice();
-  if (grupo) lista = lista.filter(function(j){ return j.grupo === grupo; });
+  // A VAGA SUGERE, NÃO LIMITA — correção que o Vini pediu.
+  //
+  // Escolher uma vaga de meia mostrava SÓ meias. Ele cortou: "se eu quiser
+  // colocar um DEF lá, eu posso; o filtro não pode ser limitante". Ele está
+  // certo, e o caso é comum — zagueiro improvisado de volante, lateral
+  // subindo na ala, o time jogando com três atacantes num 4-4-2.
+  //
+  // Então a vaga ORDENA: quem joga na posição vem primeiro, e o resto continua
+  // logo abaixo, a um rolar de distância. Já os CHIPS continuam filtrando de
+  // verdade — eles são uma escolha explícita de ver só aquele setor, e quem
+  // clicou neles sabe o que pediu.
+  if (FILTRO_GRUPO) {
+    lista = lista.filter(function(j){ return j.grupo === FILTRO_GRUPO; });
+  }
   if (termo) {
     lista = lista.filter(function(j){
       return ((j.nome || '') + ' ' + (j.posicao || '')).toLowerCase().indexOf(termo) >= 0;
@@ -846,6 +851,13 @@ function renderElenco(){
   lista.sort(function(a, b){
     const ea = emCampo[a.id] ? 1 : 0, eb = emCampo[b.id] ? 1 : 0;
     if (ea !== eb) return ea - eb;
+    // Quem joga na posição da vaga sobe para o topo — sem que ninguém desça
+    // para fora da lista.
+    if (grupoDaVaga) {
+      const da = a.grupo === grupoDaVaga ? 0 : 1;
+      const db = b.grupo === grupoDaVaga ? 0 : 1;
+      if (da !== db) return da - db;
+    }
     const oa = ORDEM_GRUPO[a.grupo] === undefined ? 9 : ORDEM_GRUPO[a.grupo];
     const ob = ORDEM_GRUPO[b.grupo] === undefined ? 9 : ORDEM_GRUPO[b.grupo];
     if (oa !== ob) return oa - ob;
@@ -862,7 +874,8 @@ function renderElenco(){
   alvo.innerHTML = '';
   lista.forEach(function(j){
     const el = document.createElement('div');
-    el.className = 'cartao' + (emCampo[j.id] ? ' escalado' : '');
+    el.className = 'cartao' + (emCampo[j.id] ? ' escalado' : '')
+      + (grupoDaVaga && j.grupo === grupoDaVaga ? ' da-vaga' : '');
     el.draggable = true;
     el.dataset.id = j.id;
     el.innerHTML =
@@ -882,6 +895,18 @@ function renderElenco(){
 const ORDEM_GRUPO = {G:0, D:1, M:2, A:3};
 let TIME_NOME = '';
 
+// ── início ──
+//
+// A LISTA DE FORMAÇÕES tem que existir ANTES de qualquer clube ser escolhido.
+// Ao separar as páginas eu levei as funções e esqueci este trecho, que é o que
+// preenche o seletor — e sem ele a guia abria com um campo vazio e só a
+// formação do último jogo, que vem depois, junto com a escalação.
+document.getElementById('formacao').innerHTML =
+  Object.keys(FORMACOES).map(function(f){
+    return '<option value="' + f + '"' + (f === FORM ? ' selected' : '') + '>' + f + '</option>';
+  }).join('');
+aplicarFormacao(FORM);
+renderCampo();
 carregarTimes();
 
 </script>

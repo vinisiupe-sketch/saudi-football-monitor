@@ -235,6 +235,31 @@ def testar():
            f"'{preciso}' não chegou na guia Campinho — ela precisa fazer tudo "
            "que a de Elencos fazia com o campo")
     ok('@app.get("/campinho"' in FONTE, "sumiu a rota da guia Campinho")
+
+    # A LISTA DE FORMAÇÕES tem que existir antes de qualquer clube. Ao separar
+    # as páginas eu levei as funções e esqueci o trecho que preenche o seletor
+    # — a guia abria com o campo vazio e só a formação do último jogo, que vem
+    # depois, junto com a escalação.
+    ok("Object.keys(FORMACOES).map(function(f){" in CAMPINHO,
+       "o seletor de formações não é preenchido no Campinho — sobra só a "
+       "formação do último jogo, que chega junto com a escalação")
+    ok("aplicarFormacao(FORM);" in CAMPINHO.split("// ── início ──")[-1],
+       "o Campinho não monta um campo antes de o clube ser escolhido")
+
+    # E O COLUNAS É DE ELENCOS, não do Campinho. Ele morava no fim do bloco do
+    # `soltarEm` — código do campo — e o meu corte por função levou o vizinho
+    # junto. A guia abriu com "COLUNAS is not defined".
+    ok("const COLUNAS = [" in el,
+       "sumiu a lista de colunas da tabela de Elencos — é o 'COLUNAS is not "
+       "defined' que o Vini viu")
+    ok("const COLUNAS = [" not in CAMPINHO,
+       "o COLUNAS continua no Campinho, que não tem tabela nenhuma")
+    for coluna in ("'numero'", "'nome'", "'nacionalidade'", "'idade'",
+                   "'altura'", "'pe'", "'posicao'", "'jogos'", "'gols'",
+                   "'assistencias'", "'amarelos'", "'vermelhos'", "'minutos'"):
+        ok(coluna in el.split("const COLUNAS = [")[-1].split("];")[0],
+           f"a coluna {coluna} sumiu da tabela de Elencos — ele pediu "
+           "exatamente as que estavam antes")
     ok('("/campinho"' in FONTE, "a guia Campinho não está no menu")
 
     # ── 6. O CAMPINHO FILTRA PELA VAGA — a ideia do Vini ─────────────────
@@ -310,9 +335,25 @@ var iGol = -1;
 SLOTS.forEach(function(s, i){ if (s.g === 'G' && iGol < 0) iGol = i; });
 escolherVaga(iGol);
 saida.na_vaga_de_goleiro = _nomes();
+saida.primeiro_na_vaga = _nomes()[0];
 saida.aviso = _els['vagaAviso'].textContent;
 
+// A VAGA DE ATAQUE é o caso que distingue ordenar de não ordenar.
+// Na ordem natural o goleiro vem primeiro (G, D, M, A). Se a vaga não
+// ordenasse, o atacante continuaria lá embaixo — e o teste do goleiro não via
+// diferença nenhuma, porque ele já era o primeiro de qualquer jeito.
+var iAta = -1;
+SLOTS.forEach(function(s, i){ if (s.g === 'A' && iAta < 0) iAta = i; });
+escolherVaga(iGol);            // desfaz a do goleiro
+escolherVaga(iAta);
+saida.primeiro_na_vaga_de_ataque = _nomes()[0];
+saida.total_na_vaga_de_ataque = _nomes().length;
+saida.ordem_na_vaga_de_ataque = _nomes();
+escolherVaga(iAta);            // desfaz
+saida.primeiro_sem_vaga = _nomes()[0];
+
 // Tocar num jogador com a vaga escolhida escala ele ali.
+escolherVaga(iGol);
 escalarNaVaga(1);
 saida.escalado_no_gol = SLOTS[iGol].id;
 saida.vaga_apos_escalar = VAGA;
@@ -350,8 +391,29 @@ console.log(JSON.stringify(saida));
     else:
         s = json.loads(r.stdout.strip().splitlines()[-1])
         conferir("sem filtro, o elenco inteiro aparece", s["sem_filtro"], 5)
-        conferir("na vaga de goleiro sobra só o goleiro",
-                 s["na_vaga_de_goleiro"], ["Goleiro Um"])
+        # A VAGA SUGERE, NÃO LIMITA. O Vini cortou a primeira versão: "se eu
+        # quiser colocar um DEF lá, eu posso; o filtro não pode ser
+        # limitante". Zagueiro improvisado de volante e lateral subindo na ala
+        # são comuns demais para a lista escondê-los.
+        conferir("na vaga de goleiro, o goleiro vem PRIMEIRO",
+                 s["primeiro_na_vaga"], "Goleiro Um")
+        conferir("mas o elenco inteiro continua alcançável",
+                 len(s["na_vaga_de_goleiro"]), 5)
+        # A vaga de ataque prova que a ORDEM muda: sem ela, o goleiro seria o
+        # primeiro (a ordem natural é G, D, M, A).
+        conferir("na vaga de ataque, o atacante sobe para o topo",
+                 s["primeiro_na_vaga_de_ataque"], "Atacante Um")
+        conferir("e ninguém é escondido por isso",
+                 s["total_na_vaga_de_ataque"], 5)
+        # A ORDEM INTEIRA, e não só o primeiro. Conferir só o topo deixava
+        # passar um comparador meio quebrado: ele ainda punha um atacante na
+        # frente, e o resto embaralhava sem ninguém ver.
+        conferir("os dois atacantes vêm primeiro, e o resto na ordem natural",
+                 s["ordem_na_vaga_de_ataque"],
+                 ["Atacante Um", "Atacante Dois", "Goleiro Um",
+                  "Zagueiro Um", "Meia Um"])
+        conferir("desfeita a vaga, volta a ordem natural",
+                 s["primeiro_sem_vaga"], "Goleiro Um")
         ok("GOL" in (s["aviso"] or ""),
            "a tela não diz de que posição é a vaga escolhida — sem isso o "
            "filtro encolhe a lista e ninguém sabe por quê")

@@ -252,6 +252,19 @@ _ICO_POSTS   = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stro
 _ICO_ELENCOS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>'
 _ICO_ESCALACAO = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6a1 1 0 0 1 1 1v2H8V3a1 1 0 0 1 1-1z"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="8" y1="11" x2="16" y2="11"/><line x1="8" y1="15" x2="13" y2="15"/></svg>'
 _ICO_INJURY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>'
+# O campo visto de cima: linha de meio, círculo central e as duas áreas.
+#
+# Precisou ser desenhado, e não emprestado: o Vini notou que a guia Campinho
+# tinha nascido com o mesmo ícone da guia Escalações — uma prancheta. Dois
+# ícones iguais na mesma barra não são um detalhe estético; eles obrigam a ler
+# o rótulo para saber onde se está, que é justamente o trabalho que o ícone
+# deveria poupar.
+_ICO_CAMPO   = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
+                'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
+                'stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="1.5"/>'
+                '<line x1="12" y1="4" x2="12" y2="20"/>'
+                '<circle cx="12" cy="12" r="3"/>'
+                '<path d="M2 9h3v6H2"/><path d="M22 9h-3v6h3"/></svg>')
 _ICO_CLIPE   = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="none" '
                 'stroke="currentColor" stroke-width="2.2" stroke-linecap="round" '
                 'stroke-linejoin="round"><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 '
@@ -594,7 +607,7 @@ _NAV_MAIS = [
     ("/aspas",       _ICO_ASPAS,   "Aspas",      "", ""),
     ("/janela",      _ICO_JANELA,  "Janela",     "", "#B6FF00"),
     ("/elencos",     _ICO_ELENCOS, "Elencos",    "", "#B6FF00"),
-    ("/campinho",    _ICO_ESCALACAO, "Campinho",  "", "#B6FF00"),
+    ("/campinho",    _ICO_CAMPO,   "Campinho",   "", "#B6FF00"),
     ("/arbitragem",  _ICO_ARBITRO, "Arbitragem", "", "#FFBE5D"),
     ("/previa",      _ICO_PREVIA,  "Prévia",     "", "#B6FF00"),
     ("/escalacao-pdf", _ICO_ESCALACAO, "Escalações", "", "#B6FF00"),
@@ -14877,6 +14890,26 @@ function ordenar(k){
   if (ordenarPor === k) ordemAsc = !ordemAsc; else { ordenarPor = k; ordemAsc = false; }
   renderTabela();
 }
+
+// ── As colunas da tabela ──
+// São exatamente as de antes, e vindas de onde vinham. A guia mudou de foco —
+// ela agora abre a ficha do jogador — mas a tabela ao lado é a mesma: é por ela
+// que se compara um elenco inteiro, e comparar é o que ela sempre fez bem.
+const COLUNAS = [
+  {k:'numero',       t:'#',    num:true},
+  {k:'nome',         t:'Jogador'},
+  {k:'nacionalidade',t:'País'},
+  {k:'idade',        t:'Idade', num:true},
+  {k:'altura',       t:'Alt.',  num:true},
+  {k:'pe',           t:'Pé'},
+  {k:'posicao',      t:'Posição'},
+  {k:'jogos',        t:'J',     num:true},
+  {k:'gols',         t:'G',     num:true},
+  {k:'assistencias', t:'A',     num:true},
+  {k:'amarelos',     t:'🟨',    num:true},
+  {k:'vermelhos',    t:'🟥',    num:true},
+  {k:'minutos',      t:'Min',   num:true},
+];
 
 function renderTabela(){
   const soEstr = document.getElementById('soEstrangeiros').checked;

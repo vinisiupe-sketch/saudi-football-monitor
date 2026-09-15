@@ -169,7 +169,31 @@ for rota in ("/noticias", "/mercado", "/aspas", "/janela", "/elencos",
              "/arbitragem", "/previa", "/numeros", "/descartadas", "/lixeira",
              "/analise", "/fontes"):
     ok(rota in rotas_painel, f"{rota} sumiu do painel — e não está na barra")
+ok("/campinho" in rotas_painel, "a guia Campinho sumiu da navegação")
 print(f"  painel: {len(rotas_painel)} rotas, Lesões migrou para a barra")
+
+# ── 9b. DOIS LUGARES NÃO PODEM TER O MESMO ÍCONE ──────────────────────────
+#
+# O Vini viu a guia Campinho nascer com o mesmo desenho da guia Escalações —
+# uma prancheta nas duas. Não é detalhe estético: dois ícones iguais na mesma
+# navegação obrigam a LER o rótulo para saber onde se está, que é exatamente o
+# trabalho que o ícone deveria poupar.
+# A conferência é DENTRO de cada superfície, e não entre as duas.
+#
+# A barra e o painel nunca aparecem juntos: o painel abre por cima. Dois
+# destinos do mesmo assunto podem repetir o desenho de um lado para o outro
+# ("Notícias do Mercado" na barra e "Mercado" no painel) sem confundir
+# ninguém, porque nunca se olha para os dois ao mesmo tempo. O que confunde é
+# repetir na MESMA lista, que foi o caso do Campinho com Escalações.
+for _onde, _lista in (("barra", ns["_NAV_BOTTOM"]), ("painel", ns["_NAV_MAIS"])):
+    _por_desenho = {}
+    for _rota, _icone, _rotulo, *_ in _lista:
+        _por_desenho.setdefault(_icone, []).append(_rotulo)
+    _repetidos = [v for v in _por_desenho.values() if len(v) > 1]
+    ok(not _repetidos,
+       f"no {_onde}, guias diferentes com o MESMO ícone: {_repetidos}. Quem "
+       "olha tem de distinguir sem ler o rótulo")
+print("  ícones distintos dentro da barra e dentro do painel")
 
 # ── 10. o ativo é único — na barra OU no painel, nunca nos dois ───────────
 for rota in ("/", "/clipes", "/posts", "/fim-de-jogo", "/mercado/noticias", "/lesoes"):
