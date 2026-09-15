@@ -22,3 +22,12 @@ openpyxl==3.1.5
 # Descobri por outro caminho: no Windows do Vini essa base não existe, e
 # metade da suíte morria com "No time zone found with key America/Sao_Paulo".
 tzdata==2024.1
+# O Pillow, DECLARADO. Ele já estava vindo — de carona no pdfplumber — e é com
+# ele que o app monta as duas artes que o Vini publica: o campinho da escalação
+# e a ficha do jogador. Dependência de carona some no dia em que a carona
+# muda de rota, e some calada: o `escalacao_arte` importa PIL dentro da função,
+# então nada quebraria no boot, só na hora de baixar a arte.
+#
+# A versão importa por causa do WEBP: a foto oficial da SPL vem em .webp, e é
+# o Pillow quem abre. Sem webp, a arte sai sem rosto e sem erro nenhum.
+Pillow==10.4.0

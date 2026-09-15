@@ -352,6 +352,24 @@ def _do_campo(j: dict, campo: str, fonte: str):
     return _endereco_de_foto(valor) if campo == "foto" else valor
 
 
+def foto_da_fonte(j: dict, fonte: str) -> str:
+    """A foto de UMA fonte específica, ignorando a configuração de Ajustes.
+
+    POR QUE ISTO EXISTE, se já existe `ficha()`
+        A configuração de fonte é para a TELA, onde o Vini compara as três
+        bases e escolhe qual prefere ver. A arte que ele baixa para publicar
+        tem outra exigência: a foto da SPL é a única com fundo recortado e
+        enquadramento igual para todo mundo, e é isso que faz uma medida fixa
+        de foto servir para as 601 fichas. Se a arte obedecesse a configuração,
+        trocar a preferência na tela quebraria o enquadramento do arquivo.
+
+        Continua sendo a mesma porta: quem pede recebe um endereço que o
+        navegador abre, e ninguém de fora precisa saber que a liga guarda
+        caminho e o Transfermarkt guarda URL.
+    """
+    return _do_campo(j or {}, "foto", fonte) or ""
+
+
 def ficha(j: dict) -> dict:
     """A ficha do jogador com foto, posição e nacionalidade já resolvidas.
 

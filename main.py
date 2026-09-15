@@ -15305,7 +15305,8 @@ const ICO = {
   relogio:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
   bola:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m12 7.6 3.7 2.7-1.4 4.4H9.7L8.3 10.3z"/><path d="M12 3v4.6M20.4 9.6l-4.7.7M18 19.3l-3.7-4.6M6 19.3l3.7-4.6M3.6 9.6l4.7.7"/></svg>',
   passe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4-9 11-11 18-11"/><path d="M15 3.5 21 6l-2.4 6"/></svg>',
-  trofeu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 5H4v2a3 3 0 0 0 3 3"/><path d="M17 5h3v2a3 3 0 0 1-3 3"/><path d="M12 14v3"/><path d="M8.5 20h7"/><path d="M10 17h4l1 3H9z"/></svg>'
+  trofeu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 5H4v2a3 3 0 0 0 3 3"/><path d="M17 5h3v2a3 3 0 0 1-3 3"/><path d="M12 14v3"/><path d="M8.5 20h7"/><path d="M10 17h4l1 3H9z"/></svg>',
+  baixar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg>'
 };
 
 function atributo(icone, texto){
@@ -15372,7 +15373,70 @@ function cabecalhoFicha(j, d){
       '</span></p>' +
     '<p class="ficha-linha">' + pais + '</p>' +
     '<p class="ficha-linha ficha-cadastro">' + cadastro + '</p>' +
+    '<p class="ficha-linha">' +
+      '<button class="ctrl" id="btnArte" onclick="baixarArte(this)">' +
+      '<i class="ico">' + ICO.baixar + '</i>Baixar imagem</button></p>' +
     '</div></div>';
+}
+
+// ── O BOTÃO DE BAIXAR A ARTE ────────────────────────────────────────────────
+//
+// Pedido do Vini (15/09/26): a ficha vira uma imagem 1080x1350 pronta para
+// publicar, no molde da arte que ele já faz no Canva.
+//
+// O QUE VAI DAQUI é só a identidade do jogador e QUAL COMPETIÇÃO ESTÁ
+// FILTRADA — não os números. Mandar os números seria mais rápido e estaria
+// errado: o servidor tem as partidas e a mesma função de somar, e duas contas
+// para o mesmo número é exatamente como elas passam a divergir. O que a arte
+// mostra tem de ser o que a tela mostra, sempre.
+//
+// O arquivo desce como Blob e não como link direto porque a rota é POST e
+// porque, com <a download>, o navegador do celular abriria a imagem numa aba
+// em vez de salvar.
+async function baixarArte(botao){
+  if (!FICHA_DADOS) return;
+  const d = FICHA_DADOS.dados || {};
+  const g = d.jogador || {};
+  const antes = botao.innerHTML;
+  botao.disabled = true;
+  botao.textContent = 'montando a imagem…';
+  let url = '';
+  try {
+    const r = await fetch('/api/jogador/arte', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({spl_id: g.spl_id || '', af_id: g.af_id || 0,
+                            tm_id: g.tm_id || '', season: d.temporada || 0,
+                            competicao: COMP_ESCOLHIDA || ''})});
+    if (!r.ok) {
+      let msg = 'erro ' + r.status;
+      try { msg = (await r.json()).erro || msg; } catch(e) {}
+      throw new Error(msg);
+    }
+    const nome = (r.headers.get('Content-Disposition') || '')
+      .split('filename=')[1];
+    const blob = await r.blob();
+    url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (nome || '"jogador.png"').replace(/"/g, '');
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // O AVISO DO QUE FALTOU, se faltou. Sem ele, uma arte sem escudo sairia
+    // parecendo escolha de design — e ele só descobriria depois de publicar.
+    const pecas = (r.headers.get('X-Pecas') || '').split(',')
+      .filter(function(p){ return p.indexOf('sem-') === 0; })
+      .map(function(p){ return p.slice(4); });
+    botao.innerHTML = pecas.length ? ('baixou, mas sem ' + pecas.join(' e '))
+                                   : 'baixou!';
+  } catch(e) {
+    botao.innerHTML = 'não deu: ' + (e.message || e);
+  }
+  botao.disabled = false;
+  setTimeout(function(){
+    botao.innerHTML = antes;
+    if (url) URL.revokeObjectURL(url);
+  }, 4000);
 }
 
 function dataBr(iso){
@@ -17052,10 +17116,69 @@ def _escudo_do_clube_pelo_nome(clube: str, temporada: int) -> str:
         return ""
 
 
+def _somar_partidas(partidas: list[dict]) -> dict:
+    """OS TOTAIS SAEM DA SOMA DAS PARTIDAS, e não de uma tabela de agregados.
+
+    Assim eles nunca discordam da lista logo abaixo. Um total vindo de outro
+    lugar pode dizer 8 jogos enquanto a lista mostra 7, e aí a tela obriga a
+    escolher em qual acreditar — sem dar nenhuma pista de qual está certa.
+
+    MORA AQUI FORA porque três lugares precisam dela e precisam que seja a
+    MESMA: esta rota, o JavaScript que refaz os totais quando o Vini filtra por
+    competição, e a arte que ele baixa. Duas contas para o mesmo número é como
+    elas divergem.
+    """
+    def soma(campo):
+        """A soma, ou None se NENHUMA partida sabe o valor.
+
+        ZERO E "NÃO SEI" NÃO SÃO A MESMA COISA — e eu tinha misturado os dois
+        aqui, depois de passar semanas caçando isso em outras telas.
+
+        As partidas lidas antes de 14/09 guardaram só minutos e titular: gols
+        e assistências ficaram NULOS, não zerados. Somando com `or 0`, o João
+        Félix apareceu com 0 gols e 0 assistências na ficha enquanto a tabela
+        ao lado, que vem do Transfermarkt, mostrava os números certos. Uma
+        contradição na mesma tela, e a ficha era a que mentia com mais
+        confiança.
+
+        Agora, se ninguém sabe, a resposta é None e a tela mostra "—" com o
+        botão de reler ao lado. "Ainda não li" tem conserto; "ele não fez
+        gol" não tem, e não se conserta o que não parece quebrado.
+        """
+        valores = [p.get(campo) for p in partidas if p.get(campo) is not None]
+        return sum(valores) if valores else None
+
+    notas = [p["nota"] for p in partidas if p.get("nota")]
+    return {
+        "jogos": len(partidas),
+        "comecou": sum(1 for p in partidas if p.get("titular")),
+        "minutos": soma("minutos"),
+        "gols": soma("gols"),
+        "assistencias": soma("assistencias"),
+        "amarelos": soma("amarelos"),
+        "vermelhos": soma("vermelhos"),
+        # A média só existe se houver nota. Zero seria uma nota péssima
+        # inventada, e ela apareceria ao lado de um jogador que foi bem.
+        "nota_media": round(sum(notas) / len(notas), 2) if notas else None,
+    }
+
+
 @app.get("/api/jogador/ficha")
 async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
                             season: int = 0):
+    """A ficha, pela porta do navegador. O miolo é o `_ficha_do_jogador`."""
+    return await _ficha_do_jogador(tm_id, af_id, spl_id, season)
+
+
+async def _ficha_do_jogador(tm_id: str = "", af_id: int = 0, spl_id: str = "",
+                            season: int = 0) -> dict:
     """Tudo que a ficha do jogador precisa, numa resposta só.
+
+    NÃO É A ROTA, e essa separação é do dia em que a arte entrou: o botão de
+    baixar imagem precisa EXATAMENTE dos mesmos números que estão na tela. Se
+    a arte os recalculasse por conta, o dia em que as duas contas divergissem
+    seria o dia em que o Vini publicaria um número que o app não mostra — e
+    ele descobriria pelo comentário de alguém no Instagram.
 
     A GUIA DE ELENCOS DEIXA DE SER UMA TABELA E PASSA A AVALIAR JOGADOR — foi
     o pedido do Vini. Para isso ela precisa de três coisas que hoje moram em
@@ -17140,39 +17263,7 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
     # Assim eles nunca discordam da lista logo abaixo. Um total vindo de outro
     # lugar pode dizer 8 jogos enquanto a lista mostra 7, e aí a tela obriga a
     # escolher em qual acreditar — sem dar nenhuma pista de qual está certa.
-    def _soma(campo):
-        """A soma, ou None se NENHUMA partida sabe o valor.
-
-        ZERO E "NÃO SEI" NÃO SÃO A MESMA COISA — e eu tinha misturado os dois
-        aqui, depois de passar semanas caçando isso em outras telas.
-
-        As partidas lidas antes de 14/09 guardaram só minutos e titular: gols
-        e assistências ficaram NULOS, não zerados. Somando com `or 0`, o João
-        Félix apareceu com 0 gols e 0 assistências na ficha enquanto a tabela
-        ao lado, que vem do Transfermarkt, mostrava os números certos. Uma
-        contradição na mesma tela, e a ficha era a que mentia com mais
-        confiança.
-
-        Agora, se ninguém sabe, a resposta é None e a tela mostra "—" com o
-        botão de reler ao lado. "Ainda não li" tem conserto; "ele não fez
-        gol" não tem, e não se conserta o que não parece quebrado.
-        """
-        valores = [p.get(campo) for p in partidas if p.get(campo) is not None]
-        return sum(valores) if valores else None
-
-    notas = [p["nota"] for p in partidas if p.get("nota")]
-    totais = {
-        "jogos": len(partidas),
-        "comecou": sum(1 for p in partidas if p.get("titular")),
-        "minutos": _soma("minutos"),
-        "gols": _soma("gols"),
-        "assistencias": _soma("assistencias"),
-        "amarelos": _soma("amarelos"),
-        "vermelhos": _soma("vermelhos"),
-        # A média só existe se houver nota. Zero seria uma nota péssima
-        # inventada, e ela apareceria ao lado de um jogador que foi bem.
-        "nota_media": round(sum(notas) / len(notas), 2) if notas else None,
-    }
+    totais = _somar_partidas(partidas)
     # QUANTAS PARTIDAS AINDA ESTÃO PELA METADE. É o que distingue "ele não fez
     # gol" de "eu ainda não li esta partida inteira", e é o que faz a tela
     # poder oferecer o conserto em vez de só mostrar um zero.
@@ -17204,6 +17295,117 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
         # jogou" de "eu ainda não li as escalações desta temporada".
         "sem_leitura": not partidas,
     }
+
+
+@app.post("/api/jogador/arte")
+async def api_jogador_arte(request: Request):
+    """O PNG 1080x1350 da ficha, no molde da arte que o Vini publica.
+
+    OS NÚMEROS SÃO OS DA TELA, e não outros. A página manda qual competição
+    está escolhida no filtro; aqui eu refaço a MESMA soma, com a mesma função,
+    sobre as mesmas partidas. Se a arte tivesse a conta dela, o dia em que as
+    duas divergissem seria o dia em que ele publicaria um número que o app não
+    mostra — e descobriria pelo comentário de alguém embaixo do post.
+
+    A FOTO É A DA SPL, por pedido dele, e não a que estiver configurada em
+    Ajustes. A configuração existe para a TELA, onde ele compara fontes; a
+    arte é para publicar, e ali a foto oficial da liga é a que tem fundo
+    recortado e enquadramento igual para todos. É o que torna possível uma
+    medida fixa de foto valer para as 601 fichas.
+
+    MONTAR AQUI, E NÃO NO NAVEGADOR: a foto vem de outro domínio, e pixel
+    estrangeiro contamina o <canvas> — o toBlob passa a lançar exceção de
+    segurança. Mesmo motivo da arte do campinho, e está explicado por extenso
+    no `escalacao_arte.py`.
+    """
+    import asyncio
+
+    import ficha_arte
+    import glossario
+
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+
+    d = await _ficha_do_jogador(str(corpo.get("tm_id") or ""),
+                                int(corpo.get("af_id") or 0),
+                                str(corpo.get("spl_id") or ""),
+                                int(corpo.get("season") or 0))
+    if d.get("erro"):
+        return JSONResponse(d, status_code=404)
+
+    # O RECORTE DE COMPETIÇÃO, com a mesma regra da tela: vazio é "todas".
+    escolhida = (corpo.get("competicao") or "").strip()
+    partidas = [p for p in d["partidas"]
+                if not escolhida or p.get("competicao") == escolhida]
+    totais = _somar_partidas(partidas)
+
+    j = d["jogador"]
+
+    # A FOTO DA SPL, buscada no glossário pela porta de sempre. Se ela não
+    # existir para este jogador, uso a que a ficha já resolveu — arte sem
+    # rosto é pior que arte com o rosto de outra fonte, e o enquadramento das
+    # três é parecido o bastante.
+    bruto = (glossario.por_spl_id(j.get("spl_id") or "")
+             or glossario.por_af_id(j.get("af_id") or 0)
+             or glossario.por_tm_id(j.get("tm_id") or ""))
+    foto = glossario.foto_da_fonte(bruto, "spl") or j.get("foto") or ""
+
+    iso = None
+    try:
+        import escalacao_arte
+        iso = escalacao_arte.iso_da_bandeira(j.get("bandeira"))
+    except Exception:
+        pass
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        # w320 para uma bandeira de 120px: reduzir de uma imagem maior sai
+        # limpo, subir de uma menor sai borrado.
+        baixados = await asyncio.gather(
+            _baixar_foto(client, foto),
+            _baixar(client, j.get("escudo_clube") or None),
+            _baixar(client, f"https://flagcdn.com/w320/{iso}.png" if iso else None))
+
+    # O NOME CURTO quando existe: é como ele é chamado, e é o que cabe em duas
+    # linhas. "Cristiano Ronaldo dos Santos Aveiro" não é um nome de arte.
+    nome = j.get("nome_curto") or j.get("nome") or ""
+
+    try:
+        png = await asyncio.to_thread(ficha_arte.montar, {
+            "nome": nome,
+            "jogos": totais.get("jogos"),
+            "gols": totais.get("gols"),
+            "assistencias": totais.get("assistencias"),
+            "foto": baixados[0], "escudo": baixados[1],
+            "bandeira": baixados[2]})
+    except Exception as e:
+        return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, status_code=500)
+
+    arquivo = _nome_de_arquivo(nome) or "jogador"
+    # O que chegou vai no cabeçalho: se a SPL sair do ar, a tela avisa em vez
+    # de o Vini descobrir olhando a arte já publicada.
+    return Response(png, media_type="image/png", headers={
+        "Content-Disposition": f'attachment; filename="{arquivo}.png"',
+        "X-Pecas": ("foto" if baixados[0] else "sem-foto") + "," +
+                   ("escudo" if baixados[1] else "sem-escudo") + "," +
+                   ("bandeira" if baixados[2] else "sem-bandeira")})
+
+
+def _nome_de_arquivo(nome: str) -> str:
+    """'João Félix' -> 'joao-felix'. Sem acento, sem espaço, sem surpresa.
+
+    Nome de arquivo com acento atravessa três sistemas antes de chegar ao
+    celular dele — cabeçalho HTTP, sistema de arquivos e o app onde ele vai
+    postar — e cada um tem uma opinião sobre como gravar um ã.
+    """
+    import unicodedata
+    plano = unicodedata.normalize("NFKD", nome or "")
+    plano = "".join(c for c in plano if not unicodedata.combining(c))
+    limpo = "".join(c if c.isalnum() else "-" for c in plano.lower())
+    while "--" in limpo:
+        limpo = limpo.replace("--", "-")
+    return limpo.strip("-")
 
 
 def _idade_em_anos(nascimento) -> int | None:

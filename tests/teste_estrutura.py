@@ -367,6 +367,27 @@ if usa_fuso:
        "SOBE — servidor fora do ar, com um erro que não menciona fuso")
     print(f"  fuso declarado no requirements ({', '.join(usa_fuso)} usam ZoneInfo)")
 
+
+# A MESMA HISTÓRIA DO tzdata, outra biblioteca: o Pillow vinha de carona no
+# pdfplumber, e é ele quem monta as duas artes que o Vini publica. Carona some
+# sem avisar no dia em que a carona muda de rota.
+#
+# SÓ AS LINHAS DE PACOTE, sem os comentários — e isto é conserto de um escape:
+# eu procurava "pillow" no arquivo inteiro, apaguei a linha do pacote para
+# testar, e o teste passou porque a palavra continuava escrita no comentário
+# logo acima dela. Um teste que lê o próprio comentário não confere nada.
+pacotes = [l.split("#")[0].strip().lower()
+           for l in open("requirements.txt", encoding="utf-8")
+           if l.split("#")[0].strip()]
+usa_pil = [a for a in ("ficha_arte.py", "escalacao_arte.py", "gravador.py")
+           if os.path.exists(a) and "from PIL" in open(a, encoding="utf-8").read()]
+if usa_pil:
+    ok(any(p.startswith("pillow") for p in pacotes),
+       f"{', '.join(usa_pil)} importam PIL e o requirements.txt não declara o "
+       "Pillow. Sem ele as artes param de sair — e param só na hora de baixar: "
+       "o import é dentro da função, então o app sobe normalmente")
+    print(f"  Pillow declarado no requirements ({', '.join(usa_pil)} usam PIL)")
+
 print()
 print("FALHAS:", len(falhas))
 for f in falhas:
