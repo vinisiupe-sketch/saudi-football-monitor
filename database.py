@@ -3290,6 +3290,22 @@ def salvar_atuacoes(fixture_id: int, jogo_em: str, linhas: list[dict]) -> int:
         return 0
 
 
+def placar_do_jogador(gols_casa, gols_fora, em_casa: bool) -> tuple[str, str]:
+    """O placar do ponto de vista DELE, e o resultado como letra.
+
+    Mora fora da consulta, e é pura, para poder ser exercitada sem banco — o
+    ponto de vista é onde um sinal trocado passa despercebido: o jogo fica com
+    o placar certo e a vitória vira derrota, e a tela não tem como denunciar.
+
+    Sem placar guardado, devolve vazio nos dois. Um "0 - 0" inventado para
+    jogo que ainda não aconteceu seria pior que a coluna em branco.
+    """
+    if gols_casa is None or gols_fora is None:
+        return "", ""
+    nos, eles = (gols_casa, gols_fora) if em_casa else (gols_fora, gols_casa)
+    return f"{nos} - {eles}", ("V" if nos > eles else "D" if nos < eles else "E")
+
+
 def jogo_a_jogo(af_id: int, season: int = 0, teto: int = 60) -> list[dict]:
     """O que este jogador fez em cada partida, do mais recente ao mais antigo.
 
@@ -3315,7 +3331,7 @@ def jogo_a_jogo(af_id: int, season: int = 0, teto: int = 60) -> list[dict]:
                        a.posicao, a.capitao, a.clube,
                        COALESCE(p.data, a.jogo_em) AS data,
                        p.rodada, p.casa, p.fora, p.casa_id, p.fora_id,
-                       p.status
+                       p.status, p.gols_casa, p.gols_fora
                   FROM atuacao a
                   LEFT JOIN partida_liga p ON p.fixture_id = a.fixture_id
                  WHERE a.af_id = %s {filtro}
@@ -3335,6 +3351,15 @@ def jogo_a_jogo(af_id: int, season: int = 0, teto: int = 60) -> list[dict]:
                 d["adversario"] = fora if em_casa else casa
                 if d.get("nota") is not None:
                     d["nota"] = float(d["nota"])
+
+                # O PLACAR DO PONTO DE VISTA DELE, e o resultado como letra.
+                #
+                # Sai daqui, e não da tela, porque depende de saber quem era o
+                # mandante — e a tela não deveria precisar saber que a partida
+                # guarda os dois lados sem dizer qual é o "nosso". Foi o mesmo
+                # motivo de `adversario` morar aqui.
+                d["placar"], d["resultado"] = placar_do_jogador(
+                    d.get("gols_casa"), d.get("gols_fora"), em_casa)
                 linhas.append(d)
             return linhas
     except Exception as e:
@@ -4709,7 +4734,13 @@ def _cria_partida_liga(c) -> None:
     """)
     c.execute("CREATE INDEX IF NOT EXISTS partida_liga_temporada "
               "ON partida_liga (season, data)")
-
+    # O PLACAR, que vinha na mesma resposta e eu descartava.
+    #
+    # A ficha do jogador mostra a partida com o resultado ao lado — foi o que
+    # o Vini destacou na referência. Sem o placar aqui, a linha diria contra
+    # quem ele jogou e não diria como acabou, que é metade da informação.
+    for coluna in ("gols_casa", "gols_fora"):
+        c.execute(f"ALTER TABLE partida_liga ADD COLUMN IF NOT EXISTS {coluna} INTEGER")
 
 def salvar_partidas_liga(linhas: list[dict]) -> int:
     """Grava (ou atualiza) o calendário. Devolve quantas linhas entraram.
@@ -4729,16 +4760,19 @@ def salvar_partidas_liga(linhas: list[dict]) -> int:
                 c.execute("""
                     INSERT INTO partida_liga (fixture_id, season, liga_id, data,
                                               status, rodada, casa_id, casa,
-                                              fora_id, fora)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                              fora_id, fora, gols_casa, gols_fora)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (fixture_id) DO UPDATE SET
                         data = EXCLUDED.data, status = EXCLUDED.status,
                         rodada = EXCLUDED.rodada, casa = EXCLUDED.casa,
-                        fora = EXCLUDED.fora, visto_em = NOW()
+                        fora = EXCLUDED.fora, visto_em = NOW(),
+                        gols_casa = COALESCE(EXCLUDED.gols_casa, partida_liga.gols_casa),
+                        gols_fora = COALESCE(EXCLUDED.gols_fora, partida_liga.gols_fora)
                 """, [l.get("fixture_id"), l.get("season"), l.get("liga_id"),
                       l.get("data"), l.get("status"), l.get("rodada"),
                       l.get("casa_id"), l.get("casa"),
-                      l.get("fora_id"), l.get("fora")])
+                      l.get("fora_id"), l.get("fora"),
+                      l.get("gols_casa"), l.get("gols_fora")])
                 n += 1
             return n
     except Exception:

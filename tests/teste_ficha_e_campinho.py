@@ -162,6 +162,75 @@ def testar():
     # jogador que fez três gols.
     conferir("média das notas ignora quem não tem nota", t["nota_media"], 7.15)
 
+    # ── 1b. ZERO E "NÃO SEI" NÃO SÃO A MESMA COISA ───────────────────────
+    #
+    # O João Félix apareceu com 0 gols e 0 assistências na ficha enquanto a
+    # tabela AO LADO, vinda do Transfermarkt, mostrava os números certos. Uma
+    # contradição na mesma tela, e a ficha era a que mentia com mais confiança.
+    #
+    # A causa: as partidas lidas antes de 14/09 guardaram só minutos e titular,
+    # então gols e assistências ficaram NULOS — e eu somava com `or 0`. Eu
+    # passei semanas caçando exatamente este erro em outras telas e o cometi
+    # aqui.
+    INCOMPLETAS = [dict(p, gols=None, assistencias=None, amarelos=None,
+                        vermelhos=None, nota=None) for p in PARTIDAS]
+    database.jogo_a_jogo = lambda af, season=0, teto=60: [dict(p) for p in INCOMPLETAS]
+    meia = asyncio.run(main.api_jogador_ficha(tm_id="8198"))
+    tm_ = meia["totais"]
+    conferir("sem nenhum dado de gol, o total é 'não sei' e não zero",
+             tm_["gols"], None)
+    conferir("o mesmo para assistências", tm_["assistencias"], None)
+    conferir("e para os cartões", tm_["amarelos"], None)
+    # Minutos e jogos CONTINUAM contando: esses sempre foram guardados, e
+    # apagá-los junto seria jogar fora o que está certo.
+    conferir("minutos continuam somando", tm_["minutos"], 202)
+    conferir("jogos continuam contando", tm_["jogos"], 3)
+    conferir("e a tela sabe quantas partidas estão pela metade",
+             meia["incompletas"], 3)
+
+    # Com UMA partida completa, a soma é dela — e não some por causa das outras.
+    MISTO = [dict(INCOMPLETAS[0], gols=2, assistencias=1, amarelos=1,
+                  vermelhos=0)] + INCOMPLETAS[1:]
+    database.jogo_a_jogo = lambda af, season=0, teto=60: [dict(p) for p in MISTO]
+    mx = asyncio.run(main.api_jogador_ficha(tm_id="8198"))
+    conferir("uma partida completa já dá total", mx["totais"]["gols"], 2)
+    conferir("e as outras continuam sendo contadas como pendentes",
+             mx["incompletas"], 2)
+    database.jogo_a_jogo = lambda af, season=0, teto=60: [dict(p) for p in PARTIDAS]
+    conferir("com tudo lido, não sobra pendência",
+             asyncio.run(main.api_jogador_ficha(tm_id="8198"))["incompletas"], 0)
+
+    # E A TELA OFERECE O CONSERTO, em vez de só mostrar "—".
+    el_ = _elencos_html()
+    # A LINHA EXATA, e não o nome da função: um `return ''` posto na frente
+    # deixa os dois textos no arquivo e mata o aviso. Já caí nessa antes.
+    ok("function avisoIncompleto(d){\n  if (!d.incompletas) return '';" in el_,
+       "a ficha não avisa que faltam números por partida")
+    # Dentro do avisoIncompleto, e não em qualquer lugar do arquivo.
+    _aviso = el_.split("function avisoIncompleto(d){")[-1].split("\n}")[0]
+    ok('onclick="relerEscalacoes(this)"' in _aviso,
+       "o aviso não oferece a releitura. 'Ainda não li' tem conserto, e não se "
+       "conserta o que não parece quebrado")
+    ok("'/api/escalacoes/reler'" in el_, "o botão de reler não chama a rota")
+
+    # ── 1c. O PLACAR DO PONTO DE VISTA DELE ──────────────────────────────
+    #
+    # É onde um sinal trocado passa despercebido: o jogo fica com o placar
+    # certo e a vitória vira derrota, e a tela não tem como denunciar — quem
+    # olha vê "2 - 1 D" e acredita.
+    from database import placar_do_jogador as _pj
+    conferir("em casa, vitória", _pj(3, 1, True), ("3 - 1", "V"))
+    conferir("em casa, derrota", _pj(1, 3, True), ("1 - 3", "D"))
+    conferir("FORA, o placar inverte", _pj(3, 1, False), ("1 - 3", "D"))
+    conferir("fora, vitória", _pj(1, 3, False), ("3 - 1", "V"))
+    conferir("empate em casa", _pj(2, 2, True), ("2 - 2", "E"))
+    conferir("empate fora", _pj(2, 2, False), ("2 - 2", "E"))
+    conferir("0 a 0 é empate, não ausência", _pj(0, 0, True), ("0 - 0", "E"))
+    # Jogo sem placar guardado fica VAZIO. Um "0 - 0" inventado para partida
+    # que não aconteceu seria pior que a coluna em branco.
+    conferir("sem placar, nada é inventado", _pj(None, None, True), ("", ""))
+    conferir("com metade do placar, também não", _pj(2, None, True), ("", ""))
+
     # ── 2. IDENTIDADE PELO GLOSSÁRIO, E PELOS TRÊS IDENTIFICADORES ───────
     # Cada tela tem um id em mãos: Elencos sabe o do Transfermarkt, o Mercado
     # sabe o da API-Football, o campinho sabe o da liga.
@@ -227,6 +296,40 @@ def testar():
        "sumiu o atalho de Elencos para o Campinho, levando o clube junto")
     ok("verFicha" in el and "jogosFicha" in el,
        "a ficha do jogador não está na guia de Elencos")
+
+    # ── 5b. OS ELEMENTOS VISUAIS QUE ELE CIRCULOU NO PRINT ───────────────
+    # Cada um faz o mesmo trabalho: deixar o olho pousar no lugar certo sem
+    # ler. Numa ficha de quarenta números, é a diferença entre consultar e
+    # decifrar.
+    for peca, porque in (
+        ("function atributo(icone, texto)",
+         "a linha de atributos perdeu os ícones — vira seis informações "
+         "separadas por ponto, que se leem todas ou nenhuma"),
+        ("escudo-ficha",
+         "sumiu o escudo ao lado do clube. Numa liga em que 15 dos 18 nomes "
+         "começam com 'Al-', o escudo é o que se reconhece"),
+        ("cel(t.amarelos, 'Cartões amarelos', {icone: ICO.amarelo})",
+         "sumiu o cartão ao lado do número de amarelos"),
+        ("cel(t.vermelhos, 'Cartões vermelhos', {icone: ICO.vermelho})",
+         "sumiu o cartão ao lado do número de vermelhos"),
+        ("p.escudo_adversario ? '<img class=\"escudo-jg\"",
+         "sumiu o escudo do adversário na lista de partidas"),
+        ("res-V",
+         "sumiu o V/D/E colorido. É ele que deixa varrer a campanha sem ler"),
+        ("jg-placar", "sumiu o placar da partida"),
+        ('<th title="Avaliação"><i class="ico">',
+         "o cabeçalho da tabela voltou a ser letra. Em nove colunas estreitas, "
+         "'G' e 'A' não se distinguem de relance; a bola e o cartão sim"),
+    ):
+        ok(peca in el, porque)
+    # A bandeira é IMAGEM, não emoji: no Windows o emoji de bandeira sai como
+    # duas letras, e é no Windows que ele abre isto.
+    ok('p["escudo_adversario"] = _escudo(p.get("adversario") or "")' in FONTE,
+       "o servidor parou de preencher o escudo do adversário — a tela tem o "
+       "lugar dele e nada para pôr lá")
+    ok("flagcdn.com/w40/" in el,
+       "a bandeira da ficha voltou a ser emoji — no Windows ela vira um par "
+       "de letras")
 
     # E o Campinho tem tudo que saiu de lá.
     for preciso in ("salvarEscalacao", "renderCampo", "aplicarFormacao",

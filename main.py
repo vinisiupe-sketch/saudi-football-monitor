@@ -6438,6 +6438,11 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
         "casa": ((f.get("teams") or {}).get("home") or {}).get("name"),
         "fora_id": ((f.get("teams") or {}).get("away") or {}).get("id"),
         "fora": ((f.get("teams") or {}).get("away") or {}).get("name"),
+        # O placar vinha na mesma resposta e eu descartava. A ficha do jogador
+        # mostra a partida com o resultado ao lado; sem isto, a linha diria
+        # contra quem ele jogou e não como acabou.
+        "gols_casa": ((f.get("goals") or {}).get("home")),
+        "gols_fora": ((f.get("goals") or {}).get("away")),
     } for f in (jogos or {}).get("response", [])
         if (f.get("fixture") or {}).get("id")])
 
@@ -14661,9 +14666,22 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .ficha-foto img{width:100%;height:100%;object-fit:cover}
 .ficha-quem{min-width:0}
 .ficha-quem h2{margin:0;font-size:1.45rem;line-height:1.15}
-.ficha-clube{margin:5px 0 0;font-size:.82rem;color:var(--text2)}
-.ficha-linha{margin:7px 0 0;font-size:.74rem;color:var(--text2);line-height:1.7}
-.band-ficha{height:11px;width:auto;vertical-align:-1px;border-radius:2px}
+.ficha-clube{margin:7px 0 0;font-size:.85rem;color:var(--text);
+  display:flex;align-items:center;gap:8px}
+.ficha-clube small{display:block;font-size:.68rem;color:var(--text2);
+  margin-top:1px;font-weight:400}
+.escudo-ficha{width:24px;height:24px;object-fit:contain;flex:none}
+
+/* A LINHA DE ATRIBUTOS, com um ícone antes de cada um.
+   É o primeiro retângulo verde do print. Numa linha de seis informações
+   separadas por ponto, o olho lê tudo ou não lê nada; com o ícone, ele pousa
+   direto na altura, ou no pé, ou na camisa. */
+.ficha-linha{margin:9px 0 0;font-size:.74rem;color:var(--text2);
+  display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.atrib{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.ico{display:inline-flex;width:13px;height:13px;flex:none;opacity:.75}
+.ico svg{width:100%;height:100%}
+.band-ficha{height:11px;width:auto;border-radius:2px}
 
 /* Os oito números da temporada, em duas fileiras de quatro — como na
    referência que o Vini mandou. No celular viram duas de duas. */
@@ -14673,6 +14691,21 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .num-cel strong{display:block;font-size:1.3rem;line-height:1.1}
 .num-cel span{display:block;font-size:.62rem;color:var(--text2);margin-top:4px;
   text-transform:uppercase;letter-spacing:.03em}
+/* O cartão ao lado do número, e a nota numa etiqueta — o segundo retângulo
+   verde. Zero amarelo sem o cartão é só um zero entre oito números. */
+.ico-num{width:11px;height:15px;margin-right:5px;opacity:1;vertical-align:-2px}
+.num-cel .ico-num + strong{display:inline-block}
+.num-cel .nota{font-size:1rem;padding:3px 9px}
+
+/* O aviso de que faltam números, com o conserto ao lado. "Ainda não li" tem
+   conserto; "ele não fez gol" não tem — e não se conserta o que não parece
+   quebrado. */
+.ficha-incompleto{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  padding:10px 14px;font-size:.72rem;line-height:1.5;color:var(--text2);
+  background:color-mix(in srgb,#FFBE5D 9%,transparent);
+  border-top:1px solid var(--border)}
+.ficha-incompleto span{flex:1 1 200px}
+.ficha-incompleto .ctrl{font-size:.7rem;padding:5px 10px}
 
 /* A nota ganha cor, na mesma escala da referência. SEM NOTA NÃO GANHA COR:
    cinza quer dizer "não sei", e um zero colorido de vermelho seria uma
@@ -14703,9 +14736,22 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .tab-jogos td{padding:7px;border-top:1px solid var(--border)}
 .tab-jogos tbody tr{cursor:default}
 .jg-data{color:var(--text2);white-space:nowrap}
-.jg-adv{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jg-adv{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .jg-tit{color:var(--text2);font-size:.64rem;white-space:nowrap}
 .fora{color:var(--text2);font-size:.6rem;text-transform:uppercase}
+/* O escudo do adversário e o V/D/E com cor — o terceiro e o quarto retângulos
+   verdes. Juntos, eles deixam varrer a campanha inteira sem ler uma palavra. */
+.escudo-jg{width:16px;height:16px;object-fit:contain;vertical-align:-3px;
+  margin-right:6px}
+.jg-res{padding-right:2px !important}
+.res{display:inline-block;width:15px;line-height:15px;border-radius:3px;
+  font-size:.58rem;font-weight:800;text-align:center;color:#111}
+.res-V{background:var(--c-acento)}
+.res-E{background:var(--text2);color:var(--bg)}
+.res-D{background:#FD5D5D;color:#fff}
+.jg-placar{color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;
+  padding-left:2px !important}
+.tab-jogos th .ico{width:11px;height:14px;opacity:1}
 
 @media(max-width:900px){
   .painel{grid-template-columns:1fr}
@@ -15013,29 +15059,65 @@ async function verFicha(tmId){
   }
 }
 
+// ── OS ÍCONES DA FICHA ──────────────────────────────────────────────────────
+//
+// O Vini circulou na referência os lugares onde o ícone faz o trabalho que o
+// rótulo faria: a linha de atributos, o escudo ao lado do clube, o cartão ao
+// lado do número. A razão é a mesma nos três — numa ficha de 40 números, o
+// desenho é o que deixa o olho pousar no lugar certo sem ler.
+//
+// São desenhados aqui, e não emprestados de uma biblioteca: a página não faz
+// nenhuma outra chamada de rede para se desenhar, e não vou criar a primeira
+// por causa de seis ícones de 16 pixels.
+const ICO = {
+  bolo:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-8H4v8"/><path d="M2 21h20"/><path d="M7 13V9a5 5 0 0 1 10 0v4"/><path d="M12 4V2"/></svg>',
+  alvo:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/></svg>',
+  regua: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18"/><path d="M8 3h8"/><path d="M8 21h8"/></svg>',
+  pe:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 19c-1 0-2-1-2-3 0-3 1-4 1-7a5 5 0 0 1 10 0c0 4-2 5-2 8 0 2-1 2-2 2z"/></svg>',
+  camisa:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 5 3 9l3 2v10h12V11l3-2-2-4-4-2a3 3 0 0 1-6 0z"/></svg>',
+  amarelo:'<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="1.5" fill="#FFBE5D"/></svg>',
+  vermelho:'<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="1.5" fill="#FD5D5D"/></svg>',
+  estrela:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.6 5.6 6 .8-4.4 4.2 1.1 6.1L12 16.8 6.7 19.7l1.1-6.1L3.4 9.4l6-.8z"/></svg>'
+};
+
+function atributo(icone, texto){
+  if (!texto || texto === '—') return '';
+  return '<span class="atrib"><i class="ico">' + icone + '</i>' + texto + '</span>';
+}
+
 function cabecalhoFicha(j, d){
   const g = (d && d.jogador) || {};
   const nome = g.nome || j.nome || '—';
   const foto = g.foto || j.foto || '';
   const iso = isoBandeira(g.bandeira || j.pais_bandeira);
-  const linha = [
-    (iso ? '<img class="band-ficha" alt="" src="https://flagcdn.com/w40/' + iso + '.png"> ' : '')
-      + _nada(g.nacionalidade || j.nacionalidade),
-    (g.nascimento || j.nascimento ? dataBr(g.nascimento || j.nascimento) : '') +
-      ((g.idade || j.idade) ? ' (' + (g.idade || j.idade) + ')' : ''),
-    _nada(j.posicao || g.posicao),
-    (j.altura ? j.altura + ' cm' : '—'),
-    _nada(j.pe),
-    ((j.numero !== null && j.numero !== undefined) ? 'Camisa ' + j.numero
-      : (g.camisa ? 'Camisa ' + g.camisa : '—')),
-  ].filter(function(x){ return x && x !== '—'; });
+  const nasc = g.nascimento || j.nascimento;
+  const idade = g.idade || j.idade;
+  const camisa = (j.numero !== null && j.numero !== undefined) ? j.numero
+                 : (g.camisa || '');
+  // A BANDEIRA É UMA IMAGEM, não um emoji. O emoji de bandeira não desenha no
+  // Windows — sai um par de letras — e o Vini abre isto no Windows.
+  const linha =
+    (iso ? '<span class="atrib"><img class="band-ficha" alt="" src="https://flagcdn.com/w40/'
+           + iso + '.png">' + _nada(g.nacionalidade || j.nacionalidade) + '</span>' : '') +
+    atributo(ICO.bolo, (nasc ? dataBr(nasc) : '') + (idade ? ' (' + idade + ')' : '')) +
+    atributo(ICO.alvo, j.posicao || g.posicao) +
+    atributo(ICO.regua, j.altura ? j.altura + ' cm' : '') +
+    atributo(ICO.pe, j.pe) +
+    atributo(ICO.camisa, camisa === '' ? '' : 'Camisa ' + camisa);
+
+  const escudo = g.escudo_clube || '';
   return '<div class="ficha-topo">' +
     '<div class="ficha-foto">' + (foto ? '<img src="' + foto + '" alt=""' +
       (j.foto_reserva ? ' data-res="' + j.foto_reserva + '"' : '') + '>' : '') + '</div>' +
     '<div class="ficha-quem"><h2>' + nome + '</h2>' +
-    '<p class="ficha-clube">' + _nada(TIME_NOME || g.clube) +
-    (j.contrato ? ' · Contrato até ' + j.contrato : '') + '</p>' +
-    '<p class="ficha-linha">' + linha.join(' · ') + '</p>' +
+    // O ESCUDO AO LADO DO CLUBE, como ele circulou. Numa lista de 18 clubes
+    // com nomes que começam todos com "Al-", o escudo é o que se reconhece.
+    '<p class="ficha-clube">' +
+      (escudo ? '<img class="escudo-ficha" src="' + escudo + '" alt="">' : '') +
+      '<span>' + _nada(TIME_NOME || g.clube) +
+      (j.contrato ? '<small>Contrato até ' + j.contrato + '</small>' : '') +
+      '</span></p>' +
+    '<p class="ficha-linha">' + linha + '</p>' +
     '</div></div>';
 }
 
@@ -15050,17 +15132,64 @@ function dataBr(iso){
 
 function numerosFicha(d){
   const t = d.totais || {};
-  const cel = function(v, r, cor){
-    return '<div class="num-cel"><strong' + (cor ? ' class="' + cor + '"' : '') + '>' +
-           (v === null || v === undefined ? '—' : v) + '</strong><span>' + r + '</span></div>';
+  // O CARTÃO AO LADO DO NÚMERO, e a nota numa etiqueta colorida — os dois
+  // lugares que o Vini circulou na referência. Zero amarelo sem o cartão ao
+  // lado é só um zero no meio de oito números; com o cartão, ele se lê sem
+  // procurar o rótulo embaixo.
+  const cel = function(v, rotulo, opc){
+    opc = opc || {};
+    const vazio = (v === null || v === undefined);
+    const valor = vazio ? '—' : v;
+    const corpo = opc.etiqueta && !vazio
+      ? '<span class="nota ' + notaCor(v) + '">' + valor + '</span>'
+      : '<strong>' + valor + '</strong>';
+    return '<div class="num-cel">' +
+      (opc.icone ? '<i class="ico ico-num">' + opc.icone + '</i>' : '') +
+      corpo + '<span>' + rotulo + '</span></div>';
   };
   return '<div class="ficha-numeros">' +
     cel(t.gols, 'Gols') + cel(t.assistencias, 'Assistências') +
     cel(t.comecou, 'Começou') + cel(t.jogos, 'Jogos') +
-    cel(t.minutos === null ? null : t.minutos + "'", 'Minutos jogados') +
-    cel(t.nota_media, 'Avaliação', notaCor(t.nota_media)) +
-    cel(t.amarelos, 'Cartões amarelos') + cel(t.vermelhos, 'Cartões vermelhos') +
+    cel(t.minutos === null || t.minutos === undefined ? null : t.minutos + "'",
+        'Minutos jogados') +
+    cel(t.nota_media, 'Avaliação', {etiqueta: true}) +
+    cel(t.amarelos, 'Cartões amarelos', {icone: ICO.amarelo}) +
+    cel(t.vermelhos, 'Cartões vermelhos', {icone: ICO.vermelho}) +
+    '</div>' + avisoIncompleto(d);
+}
+
+// Quando os números por partida ainda não foram lidos, a ficha DIZ e oferece
+// o conserto.
+//
+// Foi o defeito que o Vini viu: o João Félix apareceu com 0 gols e 0
+// assistências enquanto a tabela ao lado, vinda do Transfermarkt, mostrava os
+// números certos. As partidas lidas antes de 14/09 guardaram só minutos e
+// titular — gols e assistências ficaram NULOS, não zerados —, e eu somava
+// tratando nulo como zero. Zero e "não sei" viraram a mesma coisa na tela, e
+// a ficha era a que mentia com mais confiança.
+function avisoIncompleto(d){
+  if (!d.incompletas) return '';
+  return '<div class="ficha-incompleto">' +
+    '<span>' + d.incompletas + ' partida(s) ainda sem os números do jogo — ' +
+    'gols, assistências, cartões e nota aparecem como “—” até a releitura.</span>' +
+    '<button class="ctrl" id="btnReler" onclick="relerEscalacoes(this)">↻ Ler agora</button>' +
     '</div>';
+}
+
+async function relerEscalacoes(botao){
+  const antes = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'lendo… (pode levar um minuto)';
+  try {
+    const r = await fetch('/api/escalacoes/reler');
+    const d = await r.json();
+    botao.textContent = (d.partidas || 0) + ' partidas lidas — recarregando…';
+    setTimeout(function(){ if (FICHA_ID) verFicha(FICHA_ID); }, 900);
+  } catch(e) {
+    botao.textContent = 'não deu: ' + (e.message || e);
+    botao.disabled = false;
+    setTimeout(function(){ botao.textContent = antes; }, 3000);
+  }
 }
 
 // A faixa de cor é a mesma escala do Sofascore, que é a referência que o Vini
@@ -15078,31 +15207,40 @@ function jogosFicha(d){
   if (!ps.length) {
     return '<div class="estado">' + (d.sem_leitura
       ? 'Ainda não li as escalações desta temporada para este jogador. ' +
-        'Abra /api/escalacoes/reler no navegador para preencher — são os ' +
-        'mesmos dados que a guia de Lesões já usa.'
+        'Toque em “Ler agora” acima para preencher.'
       : 'Sem partidas registradas nesta temporada.') + '</div>';
   }
+  // O CABEÇALHO EM ÍCONES, como na referência. Numa tabela de nove colunas
+  // estreitas, "G" e "A" não se distinguem de relance; a bola e o cartão sim.
   let h = '<div class="ficha-jogos"><div class="jogos-tit">Todas as partidas' +
           ' <span class="sub">(' + ps.length + ')</span></div>' +
           '<table class="tab-jogos"><thead><tr>' +
-          '<th>Data</th><th>Adversário</th><th></th>' +
-          '<th title="Minutos">Min</th><th title="Gols">G</th>' +
-          '<th title="Assistências">A</th><th>🟨</th><th>🟥</th>' +
-          '<th title="Avaliação">★</th></tr></thead><tbody>';
+          '<th>Data</th><th>Adversário</th><th></th><th></th>' +
+          '<th title="Minutos">MIN</th>' +
+          '<th title="Gols">G</th><th title="Assistências">A</th>' +
+          '<th title="Cartões amarelos"><i class="ico">' + ICO.amarelo + '</i></th>' +
+          '<th title="Cartões vermelhos"><i class="ico">' + ICO.vermelho + '</i></th>' +
+          '<th title="Avaliação"><i class="ico">' + ICO.estrela + '</i></th>' +
+          '</tr></thead><tbody>';
+  const n = function(v){ return (v === null || v === undefined) ? '—' : v; };
   ps.forEach(function(p){
-    const cor = notaCor(p.nota);
     h += '<tr>' +
       '<td class="jg-data">' + dataBr(p.data) + '</td>' +
-      '<td class="jg-adv">' + (p.em_casa ? '' : '<span class="fora">fora</span> ') +
-        _nada(p.adversario) + '</td>' +
-      '<td class="jg-tit">' + (p.titular ? 'titular' : 'banco') +
-        (p.capitao ? ' ©' : '') + '</td>' +
-      '<td class="num">' + (p.minutos === null ? '—' : p.minutos + "'") + '</td>' +
-      '<td class="num">' + (p.gols || 0) + '</td>' +
-      '<td class="num">' + (p.assistencias || 0) + '</td>' +
-      '<td class="num">' + (p.amarelos || 0) + '</td>' +
-      '<td class="num">' + (p.vermelhos || 0) + '</td>' +
-      '<td class="num"><span class="nota ' + cor + '">' +
+      // O ESCUDO DO ADVERSÁRIO, que ele circulou na primeira coluna da lista.
+      '<td class="jg-adv">' +
+        (p.escudo_adversario ? '<img class="escudo-jg" src="' + p.escudo_adversario + '" alt="">' : '') +
+        (p.em_casa ? '' : '<span class="fora">fora</span> ') + _nada(p.adversario) + '</td>' +
+      // V / D / E com cor, e o placar ao lado — a coluna que ele marcou no
+      // meio da lista. Dá para varrer a campanha sem ler número nenhum.
+      '<td class="jg-res">' + (p.resultado
+        ? '<span class="res res-' + p.resultado + '">' + p.resultado + '</span>' : '') + '</td>' +
+      '<td class="jg-placar">' + (p.placar || '') + '</td>' +
+      '<td class="num">' + (p.minutos === null || p.minutos === undefined ? '—' : p.minutos + "'") + '</td>' +
+      '<td class="num">' + n(p.gols) + '</td>' +
+      '<td class="num">' + n(p.assistencias) + '</td>' +
+      '<td class="num">' + n(p.amarelos) + '</td>' +
+      '<td class="num">' + n(p.vermelhos) + '</td>' +
+      '<td class="num"><span class="nota ' + notaCor(p.nota) + '">' +
         (p.nota === null || p.nota === undefined ? '—' : p.nota.toFixed(1)) +
       '</span></td></tr>';
   });
@@ -16478,13 +16616,53 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
     temporada = season or _af_temporada_corrente()
     partidas = await asyncio.to_thread(jogo_a_jogo, f.get("af_id"), temporada)
 
+    # O ESCUDO DO ADVERSÁRIO E O DO PRÓPRIO CLUBE.
+    #
+    # Vem do calendário da LIGA, e não da tabela mundial de transferências: os
+    # dois "Al Nasr" existem, e a tabela mundial devolve o de Dubai para quem
+    # pedir o de Riade. Já custou uma correção antes; é o mesmo cuidado aqui.
+    try:
+        from database import escudos_da_liga, escudos_por_clube
+        escudos = dict(await asyncio.to_thread(escudos_por_clube))
+        escudos.update(await asyncio.to_thread(escudos_da_liga, temporada))
+    except Exception:
+        escudos = {}
+
+    def _escudo(nome: str) -> str:
+        import glossary
+        if not nome:
+            return ""
+        return (escudos.get(nome)
+                or escudos.get(glossary.padronizar_clube(nome) or "")
+                or "")
+
+    for p in partidas:
+        p["escudo_adversario"] = _escudo(p.get("adversario") or "")
+
     # OS TOTAIS SAEM DA SOMA DAS PARTIDAS, e não de uma tabela de agregados.
     #
     # Assim eles nunca discordam da lista logo abaixo. Um total vindo de outro
     # lugar pode dizer 8 jogos enquanto a lista mostra 7, e aí a tela obriga a
     # escolher em qual acreditar — sem dar nenhuma pista de qual está certa.
     def _soma(campo):
-        return sum((p.get(campo) or 0) for p in partidas)
+        """A soma, ou None se NENHUMA partida sabe o valor.
+
+        ZERO E "NÃO SEI" NÃO SÃO A MESMA COISA — e eu tinha misturado os dois
+        aqui, depois de passar semanas caçando isso em outras telas.
+
+        As partidas lidas antes de 14/09 guardaram só minutos e titular: gols
+        e assistências ficaram NULOS, não zerados. Somando com `or 0`, o João
+        Félix apareceu com 0 gols e 0 assistências na ficha enquanto a tabela
+        ao lado, que vem do Transfermarkt, mostrava os números certos. Uma
+        contradição na mesma tela, e a ficha era a que mentia com mais
+        confiança.
+
+        Agora, se ninguém sabe, a resposta é None e a tela mostra "—" com o
+        botão de reler ao lado. "Ainda não li" tem conserto; "ele não fez
+        gol" não tem, e não se conserta o que não parece quebrado.
+        """
+        valores = [p.get(campo) for p in partidas if p.get(campo) is not None]
+        return sum(valores) if valores else None
 
     notas = [p["nota"] for p in partidas if p.get("nota")]
     totais = {
@@ -16499,6 +16677,10 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
         # inventada, e ela apareceria ao lado de um jogador que foi bem.
         "nota_media": round(sum(notas) / len(notas), 2) if notas else None,
     }
+    # QUANTAS PARTIDAS AINDA ESTÃO PELA METADE. É o que distingue "ele não fez
+    # gol" de "eu ainda não li esta partida inteira", e é o que faz a tela
+    # poder oferecer o conserto em vez de só mostrar um zero.
+    incompletas = sum(1 for p in partidas if p.get("gols") is None)
     return {
         "jogador": {
             "id": f.get("id"), "spl_id": f.get("spl_id"),
@@ -16515,10 +16697,12 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
             "idade": _idade_em_anos(f.get("nascimento")),
             "foto": f.get("foto") or "",
             "foto_fonte": f.get("foto_fonte") or "",
+            "escudo_clube": _escudo(f.get("clube") or ""),
         },
         "temporada": temporada,
         "totais": totais,
         "partidas": partidas,
+        "incompletas": incompletas,
         # Quando não há partida nenhuma, a tela precisa distinguir "ele não
         # jogou" de "eu ainda não li as escalações desta temporada".
         "sem_leitura": not partidas,
