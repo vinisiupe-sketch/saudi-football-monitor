@@ -377,6 +377,56 @@ def testar():
          "'G' e 'A' não se distinguem de relance; a bola e o cartão sim"),
     ):
         ok(peca in el, porque)
+    # ── 5c. OS AJUSTES DE 15/09 ──────────────────────────────────────────
+    #
+    # A ficha aberta no celular vinha CORTADA e sem como arrastar. A lista do
+    # elenco rolava; esta não, porque o corte acontecia no cartão da ficha, que
+    # esconde o que transborda por causa das bordas arredondadas.
+    ok('<div class="rolagem-jogos">' in el and ".rolagem-jogos{overflow-x:auto" in el,
+       "a tabela de partidas voltou a não rolar de lado — no celular ela fica "
+       "cortada e metade das colunas some sem jeito de alcançar")
+    ok(".ficha-caixa{overflow:visible" in el,
+       "a ficha voltou a esconder o que transborda no celular. É isso que "
+       "corta a tabela e impede o arraste")
+    ok(".rolagem-jogos .tab-jogos{min-width:" in el,
+       "a tabela perdeu a largura mínima — sem ela as colunas se espremem em "
+       "vez de rolar, e os números ficam ilegíveis")
+
+    # A data curta, para sobrar largura ao nome do adversário.
+    ok("function dataCurta(iso){" in el and "MESES_CURTOS" in el,
+       "sumiu a data curta (dd mmm) da lista de partidas")
+    ok("dataCurta(p.data)" in el,
+       "a lista de partidas voltou à data por extenso, que come a largura do "
+       "nome do adversário")
+
+    # Casa e avião em vez da palavra "fora".
+    ok("(p.em_casa ? ICO.casa : ICO.aviao)" in el,
+       "voltou a palavra 'fora' no lugar dos ícones de casa e avião — numa "
+       "coluna que se repete dez vezes, a palavra rouba o nome do adversário")
+    ok('title="' + "' + (p.em_casa ? 'Em casa' : 'Fora de casa') + '" in el,
+       "os ícones de casa e avião ficaram sem explicação ao passar o mouse")
+
+    # Competição, placar e resultado na mesma linha.
+    ok('class="jg-comp"' in el and "ICO.trofeu" in el,
+       "sumiu a coluna de competição da lista de partidas")
+    ok("'<span class=\"jg-placar\">' + (p.placar || '')" in el,
+       "o placar saiu da linha da partida")
+
+    # Ícones no cabeçalho de minutos, gols e assistências.
+    for icone, coluna in ((("ICO.relogio"), "minutos"), ("ICO.bola", "gols"),
+                          ("ICO.passe", "assistências")):
+        ok(icone in el, f"o cabeçalho de {coluna} voltou a ser letra")
+
+    # O cabeçalho quebra em duas linhas, e a camisa vai para o lado do nome.
+    ok('class="ficha-linha ficha-cadastro"' in el,
+       "a linha de atributos voltou a ser uma só. No celular as seis "
+       "informações viram um bloco de texto corrido que ninguém lê")
+    ok("<h2>' + nome + numero + '</h2>" in el,
+       "a camisa saiu de junto do nome. Ela não é dado de cadastro como "
+       "altura ou pé — é como o jogador é chamado em campo")
+    ok("atributo(ICO.camisa" not in el,
+       "a camisa continua na lista de atributos, repetida")
+
     # A bandeira é IMAGEM, não emoji: no Windows o emoji de bandeira sai como
     # duas letras, e é no Windows que ele abre isto.
     ok('p["escudo_adversario"] = _escudo(p.get("adversario") or "")' in FONTE,
@@ -419,6 +469,46 @@ def testar():
            f"a coluna {coluna} sumiu da tabela de Elencos — ele pediu "
            "exatamente as que estavam antes")
     ok('("/campinho"' in FONTE, "a guia Campinho não está no menu")
+
+    # ── 5d. A DATA CURTA, EXECUTADA ──────────────────────────────────────
+    # Procurar o nome da função no arquivo prova que eu a escrevi, não que ela
+    # converte certo. Um mês fora da faixa, ou o índice trocado, sai como uma
+    # data plausível e errada — "12 out" onde era setembro.
+    node = _tem_node()
+    if not node:
+        print("PULAR: o Node nao esta instalado nesta maquina")
+        return 1
+    _dc = el[el.find("const MESES_CURTOS"):el.find("function jogosFicha")]
+    _prova = _dc + """
+var casos = ['2026-09-12','2026-01-01','2026-12-31','2026-08-05',
+             '2026-09-12T20:00:00Z','','2026-13-01','ontem'];
+console.log(JSON.stringify(casos.map(dataCurta)));
+"""
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                     encoding="utf-8") as f:
+        f.write(_prova)
+        _cam = f.name
+    try:
+        _r = subprocess.run([node, _cam], capture_output=True, text=True, timeout=30)
+    except (FileNotFoundError, OSError):
+        print("PULAR: o Node nao esta instalado nesta maquina")
+        return 1
+    finally:
+        os.unlink(_cam)
+    if _r.returncode != 0:
+        falhas.append("a data curta quebrou: " + (_r.stderr or "")[-300:])
+    else:
+        _saiu = json.loads(_r.stdout.strip().splitlines()[-1])
+        conferir("setembro vira 'set'", _saiu[0], "12 set")
+        conferir("janeiro é o primeiro mês, não o zero", _saiu[1], "01 jan")
+        conferir("dezembro é o último, e não estoura a lista", _saiu[2], "31 dez")
+        conferir("agosto", _saiu[3], "05 ago")
+        conferir("data com hora também", _saiu[4], "12 set")
+        conferir("vazio não vira data", _saiu[5], "")
+        # Mês impossível NÃO pode virar um mês plausível: melhor mostrar o
+        # número cru do que dizer outubro onde era outra coisa.
+        conferir("mês fora da faixa mostra o número", _saiu[6], "01 13")
+        conferir("texto que não é data passa inteiro", _saiu[7], "ontem")
 
     # ── 6. O CAMPINHO FILTRA PELA VAGA — a ideia do Vini ─────────────────
     # "Clicar no vazio no campinho e ele filtrar a lista de acordo com a

@@ -14739,19 +14739,41 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .jg-adv{max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .jg-tit{color:var(--text2);font-size:.64rem;white-space:nowrap}
 .fora{color:var(--text2);font-size:.6rem;text-transform:uppercase}
-/* O escudo do adversário e o V/D/E com cor — o terceiro e o quarto retângulos
-   verdes. Juntos, eles deixam varrer a campanha inteira sem ler uma palavra. */
+/* O escudo do adversário e o V/D/E com cor. Juntos, eles deixam varrer a
+   campanha inteira sem ler uma palavra. */
 .escudo-jg{width:16px;height:16px;object-fit:contain;vertical-align:-3px;
   margin-right:6px}
-.jg-res{padding-right:2px !important}
+.jg-comp{padding-right:0 !important;color:var(--text2)}
+.jg-comp .ico{width:14px;height:14px;opacity:.6}
+/* Casa ou avião no lugar da palavra "fora": numa coluna que se repete dez
+   vezes, a palavra rouba a largura do nome do adversário. */
+.jg-onde{padding:0 4px !important;color:var(--text2)}
+.jg-onde .ico{width:13px;height:13px;opacity:.65}
+.jg-res{white-space:nowrap;padding-right:6px !important}
 .res{display:inline-block;width:15px;line-height:15px;border-radius:3px;
-  font-size:.58rem;font-weight:800;text-align:center;color:#111}
+  font-size:.58rem;font-weight:800;text-align:center;color:#111;
+  vertical-align:1px}
 .res-V{background:var(--c-acento)}
 .res-E{background:var(--text2);color:var(--bg)}
 .res-D{background:#FD5D5D;color:#fff}
-.jg-placar{color:var(--text2);white-space:nowrap;font-variant-numeric:tabular-nums;
-  padding-left:2px !important}
-.tab-jogos th .ico{width:11px;height:14px;opacity:1}
+.jg-placar{color:var(--text2);font-variant-numeric:tabular-nums;
+  margin-left:6px;font-size:.72rem}
+.tab-jogos th .ico{width:12px;height:14px;opacity:1}
+
+/* ── A ROLAGEM LATERAL DA TABELA DE PARTIDAS ──────────────────────────────
+   No celular ela ficava CORTADA e sem como arrastar — o Vini viu a ficha
+   perder metade das colunas. A lista do elenco já rolava; esta não, porque o
+   corte acontecia no cartão da ficha, que tem overflow escondido para as
+   bordas arredondadas.
+   Aqui a rolagem fica no elemento certo: o que envolve a tabela, e só ele. */
+.rolagem-jogos{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.rolagem-jogos .tab-jogos{min-width:520px}
+
+/* A camisa ao lado do nome, como ele pediu — ela não é dado de cadastro como
+   altura ou pé, é como o jogador é chamado em campo. */
+.camisa-ficha{margin-left:9px;font-size:.9rem;font-weight:800;
+  color:var(--accent);vertical-align:3px}
+.ficha-cadastro{margin-top:5px}
 
 @media(max-width:900px){
   .painel{grid-template-columns:1fr}
@@ -14759,6 +14781,14 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   .ficha-numeros{grid-template-columns:repeat(2,1fr)}
   .ficha-topo{padding:14px}
   .ficha-foto{width:70px;height:70px}
+  /* A ficha não pode esconder o que transborda: era isso que cortava a
+     tabela de partidas sem deixar arrastar. As bordas arredondadas passam a
+     ser do próprio cabeçalho, que não transborda. */
+  .ficha-caixa{overflow:visible;border-radius:14px}
+  .ficha-topo{border-radius:14px 14px 0 0}
+  .tab-jogos{font-size:.7rem}
+  .tab-jogos td,.tab-jogos th{padding:6px 5px}
+  .jg-adv{max-width:120px}
 }
 </style>
 </head>
@@ -15077,7 +15107,16 @@ const ICO = {
   camisa:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3 5 5 3 9l3 2v10h12V11l3-2-2-4-4-2a3 3 0 0 1-6 0z"/></svg>',
   amarelo:'<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="1.5" fill="#FFBE5D"/></svg>',
   vermelho:'<svg viewBox="0 0 24 24"><rect x="7" y="3" width="10" height="18" rx="1.5" fill="#FD5D5D"/></svg>',
-  estrela:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.6 5.6 6 .8-4.4 4.2 1.1 6.1L12 16.8 6.7 19.7l1.1-6.1L3.4 9.4l6-.8z"/></svg>'
+  estrela:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="m12 3 2.6 5.6 6 .8-4.4 4.2 1.1 6.1L12 16.8 6.7 19.7l1.1-6.1L3.4 9.4l6-.8z"/></svg>',
+  // CASA E AVIÃO em vez de escrever "fora" — pedido dele. Numa coluna que
+  // repete dez vezes, a palavra rouba espaço do nome do adversário, que é o
+  // que a pessoa está procurando.
+  casa:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>',
+  aviao: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5a2.1 2.1 0 0 0-3-3L13 8 4.8 6.2a.5.5 0 0 0-.5.8L8 11l-2 2-2.5-.5a.4.4 0 0 0-.4.6L5 16l2.9 1.9a.4.4 0 0 0 .6-.4L8 15l2-2 3.9 3.7a.5.5 0 0 0 .8-.5z"/></svg>',
+  relogio:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  bola:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m12 7.6 3.7 2.7-1.4 4.4H9.7L8.3 10.3z"/><path d="M12 3v4.6M20.4 9.6l-4.7.7M18 19.3l-3.7-4.6M6 19.3l3.7-4.6M3.6 9.6l4.7.7"/></svg>',
+  passe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4-9 11-11 18-11"/><path d="M15 3.5 21 6l-2.4 6"/></svg>',
+  trofeu:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 5H4v2a3 3 0 0 0 3 3"/><path d="M17 5h3v2a3 3 0 0 1-3 3"/><path d="M12 14v3"/><path d="M8.5 20h7"/><path d="M10 17h4l1 3H9z"/></svg>'
 };
 
 function atributo(icone, texto){
@@ -15094,30 +15133,45 @@ function cabecalhoFicha(j, d){
   const idade = g.idade || j.idade;
   const camisa = (j.numero !== null && j.numero !== undefined) ? j.numero
                  : (g.camisa || '');
-  // A BANDEIRA É UMA IMAGEM, não um emoji. O emoji de bandeira não desenha no
-  // Windows — sai um par de letras — e o Vini abre isto no Windows.
-  const linha =
-    (iso ? '<span class="atrib"><img class="band-ficha" alt="" src="https://flagcdn.com/w40/'
-           + iso + '.png">' + _nada(g.nacionalidade || j.nacionalidade) + '</span>' : '') +
+
+  // ── DUAS LINHAS, E NÃO UMA ────────────────────────────────────────────
+  //
+  // O Vini pediu a quebra depois da nacionalidade: no celular as seis
+  // informações viravam um bloco de texto corrido que ninguém lê. Agora a
+  // nacionalidade fica sozinha na primeira linha — é a que tem a bandeira e
+  // se reconhece de relance — e o cadastro (nascimento, posição, altura, pé)
+  // desce para a segunda.
+  //
+  // A BANDEIRA É IMAGEM, não emoji: no Windows o emoji de bandeira sai como
+  // um par de letras, e é no Windows que ele abre isto.
+  const pais = (iso
+    ? '<span class="atrib"><img class="band-ficha" alt="" src="https://flagcdn.com/w40/'
+      + iso + '.png">' + _nada(g.nacionalidade || j.nacionalidade) + '</span>'
+    : atributo('', g.nacionalidade || j.nacionalidade));
+  const cadastro =
     atributo(ICO.bolo, (nasc ? dataBr(nasc) : '') + (idade ? ' (' + idade + ')' : '')) +
     atributo(ICO.alvo, j.posicao || g.posicao) +
     atributo(ICO.regua, j.altura ? j.altura + ' cm' : '') +
-    atributo(ICO.pe, j.pe) +
-    atributo(ICO.camisa, camisa === '' ? '' : 'Camisa ' + camisa);
+    atributo(ICO.pe, j.pe);
+
+  // A CAMISA SAI DA LISTA DE ATRIBUTOS E VAI PARA O LADO DO NOME, como ele
+  // pediu. Ela não é um dado de cadastro como altura ou pé — é como o jogador
+  // é chamado em campo, e pertence ao nome.
+  const numero = (camisa === '' || camisa === null || camisa === undefined)
+    ? '' : '<span class="camisa-ficha">#' + camisa + '</span>';
 
   const escudo = g.escudo_clube || '';
   return '<div class="ficha-topo">' +
     '<div class="ficha-foto">' + (foto ? '<img src="' + foto + '" alt=""' +
       (j.foto_reserva ? ' data-res="' + j.foto_reserva + '"' : '') + '>' : '') + '</div>' +
-    '<div class="ficha-quem"><h2>' + nome + '</h2>' +
-    // O ESCUDO AO LADO DO CLUBE, como ele circulou. Numa lista de 18 clubes
-    // com nomes que começam todos com "Al-", o escudo é o que se reconhece.
+    '<div class="ficha-quem"><h2>' + nome + numero + '</h2>' +
     '<p class="ficha-clube">' +
       (escudo ? '<img class="escudo-ficha" src="' + escudo + '" alt="">' : '') +
       '<span>' + _nada(TIME_NOME || g.clube) +
       (j.contrato ? '<small>Contrato até ' + j.contrato + '</small>' : '') +
       '</span></p>' +
-    '<p class="ficha-linha">' + linha + '</p>' +
+    '<p class="ficha-linha">' + pais + '</p>' +
+    '<p class="ficha-linha ficha-cadastro">' + cadastro + '</p>' +
     '</div></div>';
 }
 
@@ -15214,6 +15268,17 @@ function notaCor(n){
   return 'nota-ruim';
 }
 
+// "2026-09-12" -> "12 set". Pedido dele, para sobrar largura ao nome do
+// adversário, que é o que se procura na linha.
+const MESES_CURTOS = ['jan','fev','mar','abr','mai','jun',
+                      'jul','ago','set','out','nov','dez'];
+function dataCurta(iso){
+  const t = String(iso || '').slice(0, 10).split('-');
+  if (t.length !== 3 || t[0].length !== 4) return String(iso || '');
+  const m = parseInt(t[1], 10);
+  return t[2] + ' ' + (MESES_CURTOS[m - 1] || t[1]);
+}
+
 function jogosFicha(d){
   const ps = d.partidas || [];
   if (!ps.length) {
@@ -15223,14 +15288,17 @@ function jogosFicha(d){
         'acima para não esperar.'
       : 'Sem partidas registradas nesta temporada.') + '</div>';
   }
-  // O CABEÇALHO EM ÍCONES, como na referência. Numa tabela de nove colunas
-  // estreitas, "G" e "A" não se distinguem de relance; a bola e o cartão sim.
+  // O CABEÇALHO EM ÍCONES, como na referência. Numa tabela estreita, "MIN",
+  // "G" e "A" não se distinguem de relance; o relógio, a bola e o passe sim.
   let h = '<div class="ficha-jogos"><div class="jogos-tit">Todas as partidas' +
           ' <span class="sub">(' + ps.length + ')</span></div>' +
+          '<div class="rolagem-jogos">' +
           '<table class="tab-jogos"><thead><tr>' +
+          '<th title="Competição"><i class="ico">' + ICO.trofeu + '</i></th>' +
           '<th>Data</th><th>Adversário</th><th></th><th></th>' +
-          '<th title="Minutos">MIN</th>' +
-          '<th title="Gols">G</th><th title="Assistências">A</th>' +
+          '<th title="Minutos"><i class="ico">' + ICO.relogio + '</i></th>' +
+          '<th title="Gols"><i class="ico">' + ICO.bola + '</i></th>' +
+          '<th title="Assistências"><i class="ico">' + ICO.passe + '</i></th>' +
           '<th title="Cartões amarelos"><i class="ico">' + ICO.amarelo + '</i></th>' +
           '<th title="Cartões vermelhos"><i class="ico">' + ICO.vermelho + '</i></th>' +
           '<th title="Avaliação"><i class="ico">' + ICO.estrela + '</i></th>' +
@@ -15238,16 +15306,23 @@ function jogosFicha(d){
   const n = function(v){ return (v === null || v === undefined) ? '—' : v; };
   ps.forEach(function(p){
     h += '<tr>' +
-      '<td class="jg-data">' + dataBr(p.data) + '</td>' +
-      // O ESCUDO DO ADVERSÁRIO, que ele circulou na primeira coluna da lista.
+      // A competição. Hoje só lemos a Saudi Pro League, então é sempre ela —
+      // mas a coluna já nasce pronta para o dia em que a AFC entrar, e o
+      // `title` diz qual é, que é o que faltaria se fosse só um desenho.
+      '<td class="jg-comp" title="' + (p.competicao || 'Saudi Pro League') + '">' +
+        '<i class="ico">' + ICO.trofeu + '</i></td>' +
+      '<td class="jg-data">' + dataCurta(p.data) + '</td>' +
       '<td class="jg-adv">' +
         (p.escudo_adversario ? '<img class="escudo-jg" src="' + p.escudo_adversario + '" alt="">' : '') +
-        (p.em_casa ? '' : '<span class="fora">fora</span> ') + _nada(p.adversario) + '</td>' +
-      // V / D / E com cor, e o placar ao lado — a coluna que ele marcou no
-      // meio da lista. Dá para varrer a campanha sem ler número nenhum.
+        _nada(p.adversario) + '</td>' +
+      // CASA OU AVIÃO, em vez da palavra "fora". Numa coluna que se repete
+      // dez vezes, a palavra rouba a largura do nome do adversário.
+      '<td class="jg-onde" title="' + (p.em_casa ? 'Em casa' : 'Fora de casa') + '">' +
+        '<i class="ico">' + (p.em_casa ? ICO.casa : ICO.aviao) + '</i></td>' +
       '<td class="jg-res">' + (p.resultado
-        ? '<span class="res res-' + p.resultado + '">' + p.resultado + '</span>' : '') + '</td>' +
-      '<td class="jg-placar">' + (p.placar || '') + '</td>' +
+        ? '<span class="res res-' + p.resultado + '">' + p.resultado + '</span>' +
+          '<span class="jg-placar">' + (p.placar || '') + '</span>'
+        : '') + '</td>' +
       '<td class="num">' + (p.minutos === null || p.minutos === undefined ? '—' : p.minutos + "'") + '</td>' +
       '<td class="num">' + n(p.gols) + '</td>' +
       '<td class="num">' + n(p.assistencias) + '</td>' +
@@ -15257,7 +15332,7 @@ function jogosFicha(d){
         (p.nota === null || p.nota === undefined ? '—' : p.nota.toFixed(1)) +
       '</span></td></tr>';
   });
-  return h + '</tbody></table></div>';
+  return h + '</tbody></table></div></div>';
 }
 
 // ── início ──
