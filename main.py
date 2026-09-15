@@ -16302,11 +16302,28 @@ async def api_elencos_jogadores(team: int):
                 do_glossario += 1
                 f = glossario.ficha(g)
                 foto = f.get("foto") or foto_tm
-                posicao = f.get("posicao") or posicao
-                if f.get("nacionalidade"):
-                    # Substitui só a PRINCIPAL. As demais continuam como o TM
-                    # listou: é ele que distingue a nacionalidade esportiva da
-                    # de nascimento, e essa distinção não está nas outras.
+
+                # SÓ TROCO O QUE ELE ESCOLHEU TROCAR.
+                #
+                # A primeira versão trocava posição e nacionalidade junto, e o
+                # Vini só tinha pedido foto. O estrago foi silencioso e nas duas
+                # coisas que esta guia faz melhor que as outras: a posição
+                # DETALHADA ("Centre-Forward") virou o rótulo genérico da SPL
+                # ("Forward"), e a nacionalidade mudou de grafia, o que derrubou
+                # as bandeiras já mapeadas.
+                #
+                # Por isso a troca agora exige escolha EXPLÍCITA. "melhor
+                # disponível" — que é o padrão — deixa esta guia como sempre
+                # foi. Configuração padrão não pode mudar a tela de ninguém;
+                # quem instalou o ajuste fui eu, a tela é dele.
+                if f.get("posicao_fonte") not in ("melhor disponível", "transfermarkt"):
+                    posicao = f.get("posicao") or posicao
+                if (f.get("nacionalidade_fonte") not in
+                        ("melhor disponível", "transfermarkt")
+                        and f.get("nacionalidade")):
+                    # Só a PRINCIPAL. As demais continuam como o TM listou: é
+                    # ele que distingue a nacionalidade esportiva da de
+                    # nascimento — o que faz o Bounou sair como Marrocos.
                     nacs = [f["nacionalidade"]] + [
                         n for n in nacs if n != f["nacionalidade"]]
         except Exception:
@@ -17356,6 +17373,59 @@ JANELA_PAIS_ISO = {
 JANELA_BANDEIRA_ESPECIAL = {
     "Inglaterra": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Escócia": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "País de Gales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
     "Irlanda do Norte": "🇬🇧", "Reino Unido": "🇬🇧",
+    "England": "🏴󠁧󠁢󠁥󠁮󠁧󠁿", "Scotland": "🏴󠁧󠁢󠁳󠁣󠁴󠁿", "Wales": "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
+    "Northern Ireland": "🇬🇧", "United Kingdom": "🇬🇧",
+}
+
+# ── O MESMO PAÍS, NA LÍNGUA DE CADA FONTE ───────────────────────────────────
+#
+# O mapa de cima é em português porque o Transfermarkt que a gente lê é o
+# brasileiro (transfermarkt.com.br): de lá vem "Brasil", "Arábia Saudita",
+# "Espanha". A SPL escreve em inglês: "Brazil", "Saudi Arabia", "Spain".
+#
+# Enquanto cada guia usava uma fonte só, isso nunca apareceu. Apareceu no dia
+# em que eu deixei o Vini ESCOLHER a fonte: ele trocou, a nacionalidade passou
+# a vir em inglês, e as bandeiras sumiram — sem erro, sem aviso, só um espaço
+# vazio onde antes havia uma bandeira.
+#
+# É o preço de conectar as tabelas, e é aqui que ele se paga: se dá para
+# escolher a fonte, o resto do app não pode depender de qual foi escolhida.
+JANELA_PAIS_EN_PT = {
+    "Saudi Arabia": "Arábia Saudita", "Brazil": "Brasil", "Spain": "Espanha",
+    "France": "França", "Portugal": "Portugal", "Senegal": "Senegal",
+    "Morocco": "Marrocos", "Algeria": "Argélia", "Egypt": "Egito",
+    "Tunisia": "Tunísia", "Nigeria": "Nigéria", "Ghana": "Gana",
+    "Mali": "Mali", "Ivory Coast": "Costa do Marfim",
+    "Côte d'Ivoire": "Costa do Marfim", "Cameroon": "Camarões",
+    "Guinea": "Guiné", "Gambia": "Gâmbia", "Sudan": "Sudão",
+    "Congo": "Congo", "DR Congo": "RD do Congo", "Netherlands": "Holanda",
+    "Belgium": "Bélgica", "Germany": "Alemanha", "Italy": "Itália",
+    "Croatia": "Croácia", "Serbia": "Sérvia", "Montenegro": "Montenegro",
+    "Slovenia": "Eslovênia", "Slovakia": "Eslováquia", "Poland": "Polônia",
+    "Ukraine": "Ucrânia", "Russia": "Rússia", "Turkey": "Turquia",
+    "Greece": "Grécia", "Switzerland": "Suíça", "Austria": "Áustria",
+    "Sweden": "Suécia", "Norway": "Noruega", "Denmark": "Dinamarca",
+    "Argentina": "Argentina", "Uruguay": "Uruguai", "Colombia": "Colômbia",
+    "Ecuador": "Equador", "Peru": "Peru", "Chile": "Chile",
+    "Mexico": "México", "Paraguay": "Paraguai", "Venezuela": "Venezuela",
+    "Albania": "Albânia", "Bosnia-Herzegovina": "Bósnia e Herzegovina",
+    "North Macedonia": "Macedônia do Norte", "Romania": "Romênia",
+    "Bulgaria": "Bulgária", "Czech Republic": "República Tcheca",
+    "Hungary": "Hungria", "Jordan": "Jordânia", "Syria": "Síria",
+    "Iraq": "Iraque", "Lebanon": "Líbano", "Palestine": "Palestina",
+    "Yemen": "Iêmen", "Oman": "Omã", "Qatar": "Catar", "Kuwait": "Kuwait",
+    "Bahrain": "Bahrein", "United Arab Emirates": "Emirados Árabes Unidos",
+    "Iran": "Irã", "South Korea": "Coreia do Sul", "Japan": "Japão",
+    "Australia": "Austrália", "Uzbekistan": "Uzbequistão",
+    "Tajikistan": "Tajiquistão", "Kyrgyzstan": "Quirguistão",
+    "Comoros": "Comores", "Mauritania": "Mauritânia", "Libya": "Líbia",
+    "Burkina Faso": "Burkina Faso", "Benin": "Benim", "Togo": "Togo",
+    "Gabon": "Gabão", "Angola": "Angola", "Mozambique": "Moçambique",
+    "Cape Verde": "Cabo Verde", "Guinea-Bissau": "Guiné-Bissau",
+    "South Africa": "África do Sul", "Kenya": "Quênia",
+    "United States": "Estados Unidos", "Canada": "Canadá",
+    "Jamaica": "Jamaica", "Costa Rica": "Costa Rica", "Panama": "Panamá",
+    "Honduras": "Honduras", "Curacao": "Curaçao", "Curaçao": "Curaçao",
 }
 
 
@@ -17369,6 +17439,11 @@ def _janela_bandeira(pais: str | None) -> str | None:
         return None
     if p in JANELA_BANDEIRA_ESPECIAL:
         return JANELA_BANDEIRA_ESPECIAL[p]
+    # O nome pode vir na língua de qualquer uma das três fontes. Traduzo antes
+    # de procurar, e a tradução vem DEPOIS da busca direta: se o nome já está
+    # no mapa, ele manda — a tabela de línguas é conserto, não substituta.
+    if p not in JANELA_PAIS_ISO:
+        p = JANELA_PAIS_EN_PT.get(p, p)
     iso = JANELA_PAIS_ISO.get(p)
     if not iso:
         return None

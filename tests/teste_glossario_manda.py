@@ -461,9 +461,9 @@ def testar():
            "a foto da SPL saiu como caminho e não como endereço. O navegador "
            "não abre, cai calado na reserva do Transfermarkt, e parece que a "
            "configuração foi ignorada")
-        conferir("Elencos passou a obedecer a fonte da posição",
+        conferir("Elencos obedece a fonte da posição quando ESCOLHIDA",
                  por_nome["Hamdallah"]["posicao"], "Atacante")
-        conferir("Elencos passou a obedecer a fonte da nacionalidade",
+        conferir("Elencos obedece a fonte da nacionalidade quando ESCOLHIDA",
                  por_nome["Hamdallah"]["nacionalidade"], "Marrocos")
         # A reserva continua sendo a do TM: se a escolhida não abrir, o card
         # mostra alguém em vez de um buraco.
@@ -492,6 +492,42 @@ def testar():
         ok(any("glossário" in a for a in r["avisos"]),
            "a guia não avisa que parte do elenco está fora do glossário — sem "
            "isso, trocar a fonte e nada mudar vira mistério")
+
+        # ── O PADRÃO NÃO PODE MUDAR A TELA DE NINGUÉM ───────────────
+        #
+        # O Vini pediu FOTO e eu troquei posição e nacionalidade junto, porque
+        # o padrão "melhor disponível" põe a SPL na frente. O estrago foi
+        # silencioso e nas duas coisas que esta guia faz melhor que as outras:
+        # a posição DETALHADA do TM ("Centre-Forward") virou o rótulo genérico
+        # da SPL, e a nacionalidade mudou de língua, o que derrubou as
+        # bandeiras já mapeadas.
+        #
+        # Configuração padrão não muda a tela de quem não pediu. Quem instalou
+        # o ajuste fui eu; a tela é dele.
+        _ajuste_fixo({})
+        r0 = _asyncio.run(main.api_elencos_jogadores(1))
+        p0 = {j["nome"]: j for j in r0["jogadores"]}
+        conferir("no padrão, a posição DETALHADA do TM fica",
+                 p0["Hamdallah"]["posicao"], "Centre-Forward")
+        conferir("no padrão, a nacionalidade do TM fica",
+                 p0["Hamdallah"]["nacionalidade"], "Morocco")
+        conferir("e a foto continua obedecendo, que foi o que ele pediu",
+                 p0["Hamdallah"]["foto"],
+                 "https://media-sdp.spl.com.sa/spl/ham.png")
+
+        # ── TROCAR A FONTE NÃO PODE DERRUBAR A BANDEIRA ─────────────────
+        # O TM que a gente lê é o brasileiro e escreve "Brasil"; a SPL escreve
+        # "Brazil". O mapa de bandeiras só conhecia português, então escolher a
+        # SPL apagava a bandeira — sem erro, sem aviso, só um espaço vazio.
+        # Se dá para escolher a fonte, o resto do app não pode depender de
+        # qual foi escolhida.
+        for nome_pais in ("Brazil", "Saudi Arabia", "Spain", "Morocco",
+                          "Brasil", "Arábia Saudita", "Espanha"):
+            ok(main._janela_bandeira(nome_pais),
+               f"'{nome_pais}' ficou sem bandeira. Trocar a fonte da "
+               "nacionalidade não pode apagar a bandeira da tela")
+        conferir("país desconhecido continua sem bandeira, e não com a errada",
+                 main._janela_bandeira("Narnia"), None)
 
         # Trocar a configuração troca o que a guia mostra, sem mexer em código.
         _ajuste_fixo({"glossario_fonte_foto": "transfermarkt"})
