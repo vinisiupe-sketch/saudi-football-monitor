@@ -6443,6 +6443,12 @@ async def _coletar_cartoes(season: int, teto: int = 0) -> dict:
         # contra quem ele jogou e não como acabou.
         "gols_casa": ((f.get("goals") or {}).get("home")),
         "gols_fora": ((f.get("goals") or {}).get("away")),
+        # O NOME E O EMBLEMA DA COMPETIÇÃO, idem. Enquanto o app lê uma
+        # competição só, o id bastava — mas a ficha mostra o emblema ao lado da
+        # partida, e um número não desenha nada. Guardar agora é o que faz o
+        # dia em que a AFC entrar não exigir reler a temporada inteira.
+        "liga_nome": (f.get("league") or {}).get("name") or "",
+        "liga_logo": (f.get("league") or {}).get("logo") or "",
     } for f in (jogos or {}).get("response", [])
         if (f.get("fixture") or {}).get("id")])
 
@@ -14745,6 +14751,24 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
   margin-right:6px}
 .jg-comp{padding-right:0 !important;color:var(--text2)}
 .jg-comp .ico{width:14px;height:14px;opacity:.6}
+.logo-comp{width:16px;height:16px;object-fit:contain;vertical-align:-3px}
+
+/* ── O SELETOR DE COMPETIÇÃO ──────────────────────────────────────────────
+   Ele REFAZ o card: escolher a Copa do Rei muda os gols, os minutos e a média,
+   não só as linhas da lista. Um filtro que mexesse só na tabela deixaria o
+   cabeçalho falando da temporada toda enquanto a lista fala de outra coisa. */
+.comp-barra{display:flex;gap:6px;padding:10px 12px;overflow-x:auto;
+  border-bottom:1px solid var(--border);background:var(--surface2);
+  -webkit-overflow-scrolling:touch}
+.comp{display:inline-flex;align-items:center;gap:7px;white-space:nowrap;
+  padding:6px 11px;border-radius:99px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text2);font:inherit;font-size:.72rem;
+  font-weight:700;cursor:pointer}
+.comp:hover{border-color:var(--text);color:var(--text)}
+.comp.ativa{background:var(--text);color:var(--bg);border-color:var(--text)}
+.comp img{width:15px;height:15px;object-fit:contain}
+.comp .ico{width:14px;height:14px;opacity:.8}
+.comp small{opacity:.65;font-size:.62rem;font-weight:800}
 /* Casa ou avião no lugar da palavra "fora": numa coluna que se repete dez
    vezes, a palavra rouba a largura do nome do adversário. */
 .jg-onde{padding:0 4px !important;color:var(--text2)}
@@ -15081,8 +15105,12 @@ async function verFicha(tmId){
       return;
     }
     if (d.erro) throw new Error(d.erro);
-    caixa.innerHTML = cabecalhoFicha(doElenco, d) + numerosFicha(d) + jogosFicha(d);
-    ligarReserva(caixa);
+    // A competição escolhida NÃO sobrevive à troca de jogador: o filtro é do
+    // que está na tela, e um recorte herdado do jogador anterior mostraria a
+    // ficha pela metade sem ninguém ter pedido.
+    COMP_ESCOLHIDA = '';
+    FICHA_DADOS = {dados: d, elenco: doElenco};
+    pintarFicha(FICHA_DADOS);
   } catch(e) {
     caixa.innerHTML = cabecalhoFicha(doElenco, null) +
       '<div class="estado">Não consegui buscar os números: ' + e.message + '</div>';
@@ -15122,6 +15150,17 @@ const ICO = {
 function atributo(icone, texto){
   if (!texto || texto === '—') return '';
   return '<span class="atrib"><i class="ico">' + icone + '</i>' + texto + '</span>';
+}
+
+// Desenha a ficha com o recorte atual. Separado do `verFicha` porque o filtro
+// de competição repinta sem ir à rede de novo — as partidas já estão todas
+// aqui, e filtrar é decisão de exibição.
+function pintarFicha(f){
+  const d = f.dados, ps = partidasVisiveis(d);
+  const caixa = document.getElementById('ficha');
+  caixa.innerHTML = cabecalhoFicha(f.elenco, d) + seletorCompeticao(d) +
+                    numerosFicha(d, ps) + jogosFicha(d, ps);
+  ligarReserva(caixa);
 }
 
 function cabecalhoFicha(j, d){
@@ -15184,8 +15223,78 @@ function dataBr(iso){
                                                : String(iso || '');
 }
 
-function numerosFicha(d){
-  const t = d.totais || {};
+// ── O FILTRO DE COMPETIÇÃO, QUE REFAZ O CARD INTEIRO ────────────────────────
+//
+// Pedido do Vini, e a palavra dele foi "altera todo o card". É o que muda o
+// sentido do filtro: esconder linhas na lista seria um filtro de tabela;
+// aqui, escolher a Copa do Rei tem de mudar também os gols, os minutos e a
+// média — senão o cabeçalho continua falando da temporada toda enquanto a
+// lista fala de outra coisa, e a tela passa a se contradizer.
+//
+// Por isso os TOTAIS SÃO RECALCULADOS AQUI a partir das partidas visíveis, com
+// a mesma regra do servidor: soma o que se sabe, e devolve "não sei" quando
+// ninguém sabe. Duas contas para o mesmo número é como elas divergem — então
+// esta é a única no navegador, e ela vale para qualquer recorte, inclusive o
+// "todas".
+let COMP_ESCOLHIDA = '';
+let FICHA_DADOS = null;
+
+function partidasVisiveis(d){
+  const ps = d.partidas || [];
+  return COMP_ESCOLHIDA ? ps.filter(function(p){
+    return p.competicao === COMP_ESCOLHIDA; }) : ps;
+}
+
+function somarPartidas(ps){
+  const soma = function(campo){
+    const vs = ps.map(function(p){ return p[campo]; })
+                 .filter(function(v){ return v !== null && v !== undefined; });
+    return vs.length ? vs.reduce(function(a, b){ return a + b; }, 0) : null;
+  };
+  const notas = ps.map(function(p){ return p.nota; })
+                  .filter(function(v){ return v; });
+  return {
+    jogos: ps.length,
+    comecou: ps.filter(function(p){ return p.titular; }).length,
+    minutos: soma('minutos'), gols: soma('gols'),
+    assistencias: soma('assistencias'),
+    amarelos: soma('amarelos'), vermelhos: soma('vermelhos'),
+    nota_media: notas.length
+      ? Math.round(notas.reduce(function(a, b){ return a + b; }, 0) / notas.length * 100) / 100
+      : null
+  };
+}
+
+function escolherCompeticao(nome){
+  // Sem argumento = "todas as ligas". Evita ter de escapar aspas dentro de um
+  // onclick que já vive dentro de uma string de JavaScript, dentro de uma
+  // string de Python — três camadas, e cada uma come uma barra invertida.
+  nome = nome || '';
+  COMP_ESCOLHIDA = (COMP_ESCOLHIDA === nome && nome) ? '' : nome;
+  if (FICHA_DADOS) pintarFicha(FICHA_DADOS);
+}
+
+function seletorCompeticao(d){
+  const comps = d.competicoes || [];
+  // COM UMA COMPETIÇÃO SÓ, O SELETOR NÃO APARECE. Hoje o app lê apenas a
+  // Saudi Pro League, então é esse o caso normal — e um seletor com uma
+  // opção é um botão que não faz nada, o que é pior que não ter botão.
+  if (comps.length < 2) return '';
+  let h = '<div class="comp-barra">' +
+    '<button class="comp' + (COMP_ESCOLHIDA ? '' : ' ativa') +
+    '" onclick="escolherCompeticao()"><i class="ico">' + ICO.trofeu +
+    '</i>Todas as ligas</button>';
+  comps.forEach(function(c){
+    h += '<button class="comp' + (COMP_ESCOLHIDA === c.nome ? ' ativa' : '') +
+      '" onclick="escolherCompeticao(' + JSON.stringify(c.nome).replace(/"/g, '&quot;') + ')">' +
+      (c.logo ? '<img src="' + c.logo + '" alt="">' : '<i class="ico">' + ICO.trofeu + '</i>') +
+      esc(c.nome) + '<small>' + c.jogos + '</small></button>';
+  });
+  return h + '</div>';
+}
+
+function numerosFicha(d, ps){
+  const t = somarPartidas(ps);
   // O CARTÃO AO LADO DO NÚMERO, e a nota numa etiqueta colorida — os dois
   // lugares que o Vini circulou na referência. Zero amarelo sem o cartão ao
   // lado é só um zero no meio de oito números; com o cartão, ele se lê sem
@@ -15279,8 +15388,8 @@ function dataCurta(iso){
   return t[2] + ' ' + (MESES_CURTOS[m - 1] || t[1]);
 }
 
-function jogosFicha(d){
-  const ps = d.partidas || [];
+function jogosFicha(d, ps){
+  ps = ps || d.partidas || [];
   if (!ps.length) {
     return '<div class="estado">' + (d.sem_leitura
       ? 'Ainda não li as escalações desta temporada. O app faz isso sozinho ' +
@@ -15309,8 +15418,12 @@ function jogosFicha(d){
       // A competição. Hoje só lemos a Saudi Pro League, então é sempre ela —
       // mas a coluna já nasce pronta para o dia em que a AFC entrar, e o
       // `title` diz qual é, que é o que faltaria se fosse só um desenho.
-      '<td class="jg-comp" title="' + (p.competicao || 'Saudi Pro League') + '">' +
-        '<i class="ico">' + ICO.trofeu + '</i></td>' +
+      // O EMBLEMA DA COMPETIÇÃO, quando a API mandou um. O troféu desenhado
+      // fica como reserva: partida antiga, lida antes de eu guardar o logo,
+      // continua com uma marca em vez de uma célula vazia.
+      '<td class="jg-comp" title="' + esc(p.competicao || 'Saudi Pro League') + '">' +
+        (p.liga_logo ? '<img class="logo-comp" src="' + p.liga_logo + '" alt="">'
+                     : '<i class="ico">' + ICO.trofeu + '</i>') + '</td>' +
       '<td class="jg-data">' + dataCurta(p.data) + '</td>' +
       '<td class="jg-adv">' +
         (p.escudo_adversario ? '<img class="escudo-jg" src="' + p.escudo_adversario + '" alt="">' : '') +
@@ -16726,6 +16839,27 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
 
     for p in partidas:
         p["escudo_adversario"] = _escudo(p.get("adversario") or "")
+        p["competicao"] = p.get("liga_nome") or "Saudi Pro League"
+
+    # AS COMPETIÇÕES QUE ESTE JOGADOR DISPUTOU, para o filtro da tela.
+    #
+    # Sai daqui e não da tela porque a lista tem de ser das partidas DELE — um
+    # seletor com todas as competições do país mostraria opções que não mudam
+    # nada quando escolhidas, e opção que não faz nada é pior que opção que
+    # não existe.
+    #
+    # Hoje o app lê só a Saudi Pro League, então esta lista costuma ter um item
+    # — e o filtro se esconde sozinho nesse caso. Ele já nasce pronto para o
+    # dia em que a AFC e a Copa do Rei entrarem.
+    competicoes, vistas = [], set()
+    for p in partidas:
+        nome = p["competicao"]
+        if nome in vistas:
+            continue
+        vistas.add(nome)
+        competicoes.append({"nome": nome, "logo": p.get("liga_logo") or "",
+                            "jogos": sum(1 for x in partidas
+                                         if x["competicao"] == nome)})
 
     # OS TOTAIS SAEM DA SOMA DAS PARTIDAS, e não de uma tabela de agregados.
     #
@@ -16790,6 +16924,7 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
         "temporada": temporada,
         "totais": totais,
         "partidas": partidas,
+        "competicoes": competicoes,
         "incompletas": incompletas,
         # Quando não há partida nenhuma, a tela precisa distinguir "ele não
         # jogou" de "eu ainda não li as escalações desta temporada".

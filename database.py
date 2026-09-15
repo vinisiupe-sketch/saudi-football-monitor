@@ -3331,7 +3331,8 @@ def jogo_a_jogo(af_id: int, season: int = 0, teto: int = 60) -> list[dict]:
                        a.posicao, a.capitao, a.clube,
                        COALESCE(p.data, a.jogo_em) AS data,
                        p.rodada, p.casa, p.fora, p.casa_id, p.fora_id,
-                       p.status, p.gols_casa, p.gols_fora
+                       p.status, p.gols_casa, p.gols_fora,
+                       p.liga_id, p.liga_nome, p.liga_logo
                   FROM atuacao a
                   LEFT JOIN partida_liga p ON p.fixture_id = a.fixture_id
                  WHERE a.af_id = %s {filtro}
@@ -4775,6 +4776,17 @@ def _cria_partida_liga(c) -> None:
     # quem ele jogou e não diria como acabou, que é metade da informação.
     for coluna in ("gols_casa", "gols_fora"):
         c.execute(f"ALTER TABLE partida_liga ADD COLUMN IF NOT EXISTS {coluna} INTEGER")
+    # A COMPETIÇÃO, com nome e logo.
+    #
+    # Vinha na mesma resposta e eu guardava só o id. Enquanto o app lia uma
+    # competição só, o id bastava — mas a ficha do jogador mostra a partida com
+    # o emblema da competição ao lado, e um número não desenha nada.
+    #
+    # Guardar nome e logo AGORA, mesmo com uma competição só, é o que faz o dia
+    # em que a AFC entrar não exigir reler a temporada inteira para descobrir
+    # como ela se chama.
+    for coluna in ("liga_nome", "liga_logo"):
+        c.execute(f"ALTER TABLE partida_liga ADD COLUMN IF NOT EXISTS {coluna} TEXT")
 
 def salvar_partidas_liga(linhas: list[dict]) -> int:
     """Grava (ou atualiza) o calendário. Devolve quantas linhas entraram.
@@ -4794,19 +4806,23 @@ def salvar_partidas_liga(linhas: list[dict]) -> int:
                 c.execute("""
                     INSERT INTO partida_liga (fixture_id, season, liga_id, data,
                                               status, rodada, casa_id, casa,
-                                              fora_id, fora, gols_casa, gols_fora)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                                              fora_id, fora, gols_casa, gols_fora,
+                                              liga_nome, liga_logo)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                     ON CONFLICT (fixture_id) DO UPDATE SET
                         data = EXCLUDED.data, status = EXCLUDED.status,
                         rodada = EXCLUDED.rodada, casa = EXCLUDED.casa,
                         fora = EXCLUDED.fora, visto_em = NOW(),
                         gols_casa = COALESCE(EXCLUDED.gols_casa, partida_liga.gols_casa),
-                        gols_fora = COALESCE(EXCLUDED.gols_fora, partida_liga.gols_fora)
+                        gols_fora = COALESCE(EXCLUDED.gols_fora, partida_liga.gols_fora),
+                        liga_nome = COALESCE(EXCLUDED.liga_nome, partida_liga.liga_nome),
+                        liga_logo = COALESCE(EXCLUDED.liga_logo, partida_liga.liga_logo)
                 """, [l.get("fixture_id"), l.get("season"), l.get("liga_id"),
                       l.get("data"), l.get("status"), l.get("rodada"),
                       l.get("casa_id"), l.get("casa"),
                       l.get("fora_id"), l.get("fora"),
-                      l.get("gols_casa"), l.get("gols_fora")])
+                      l.get("gols_casa"), l.get("gols_fora"),
+                      l.get("liga_nome"), l.get("liga_logo")])
                 n += 1
             return n
     except Exception:

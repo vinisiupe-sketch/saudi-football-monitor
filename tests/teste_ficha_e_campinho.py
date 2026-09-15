@@ -106,19 +106,27 @@ PARTIDAS = [
      "assistencias": 1, "amarelos": 1, "vermelhos": 0, "nota": 8.5,
      "clube": "Al Nassr", "data": "2026-09-11", "casa": "Al Nassr",
      "fora": "Al Hazem", "em_casa": True, "adversario": "Al Hazem",
-     "capitao": True, "posicao": "F", "rodada": "4", "status": "FT"},
+     "capitao": True, "posicao": "F", "rodada": "4", "status": "FT",
+     "liga_id": 307, "liga_nome": "Saudi Pro League",
+     "liga_logo": "https://media.api-sports.io/football/leagues/307.png"},
     {"fixture_id": 2, "minutos": 45, "titular": False, "gols": 0,
      "assistencias": 0, "amarelos": 0, "vermelhos": 1, "nota": 5.8,
      "clube": "Al Nassr", "data": "2026-09-01", "casa": "Al Hilal",
      "fora": "Al Nassr", "em_casa": False, "adversario": "Al Hilal",
-     "capitao": False, "posicao": "F", "rodada": "3", "status": "FT"},
+     "capitao": False, "posicao": "F", "rodada": "3", "status": "FT",
+     "liga_id": 307, "liga_nome": "Saudi Pro League",
+     "liga_logo": "https://media.api-sports.io/football/leagues/307.png"},
     # Partida SEM nota: acontece quando a API não publica. A média não pode
     # contá-la como zero.
     {"fixture_id": 3, "minutos": 67, "titular": True, "gols": 1,
      "assistencias": 0, "amarelos": 0, "vermelhos": 0, "nota": None,
      "clube": "Al Nassr", "data": "2026-08-26", "casa": "Al Nassr",
      "fora": "Abha", "em_casa": True, "adversario": "Abha",
-     "capitao": False, "posicao": "F", "rodada": "2", "status": "FT"},
+     "capitao": False, "posicao": "F", "rodada": "2", "status": "FT",
+     # Outra competição, de propósito: é ela que faz o filtro ter o que
+     # filtrar, e o seletor ter mais de uma opção para aparecer.
+     "liga_id": 504, "liga_nome": "King Cup",
+     "liga_logo": "https://media.api-sports.io/football/leagues/504.png"},
 ]
 
 FICHA_GLOSSARIO = {
@@ -469,6 +477,125 @@ def testar():
            f"a coluna {coluna} sumiu da tabela de Elencos — ele pediu "
            "exatamente as que estavam antes")
     ok('("/campinho"' in FONTE, "a guia Campinho não está no menu")
+
+    # ── 5e. O FILTRO DE COMPETIÇÃO REFAZ O CARD ──────────────────────────
+    #
+    # "Inclua aquele filtro de competição que altera todo o card do jogador."
+    # A palavra é "altera todo o card": escolher a Copa do Rei tem de mudar os
+    # GOLS, os minutos e a média — não só esconder linhas da lista. Um filtro
+    # que mexesse só na tabela deixaria o cabeçalho falando da temporada
+    # inteira enquanto a lista fala de outra coisa, e a tela se contradiria.
+    database.jogo_a_jogo = lambda af, season=0, teto=60: [dict(p) for p in PARTIDAS]
+    dc = asyncio.run(main.api_jogador_ficha(tm_id="8198"))
+    comps = {c["nome"]: c for c in dc["competicoes"]}
+    conferir("as competições saem das partidas DELE", sorted(comps), 
+             ["King Cup", "Saudi Pro League"])
+    conferir("com a contagem de jogos em cada uma",
+             comps["Saudi Pro League"]["jogos"], 2)
+    conferir("e com o emblema para a tela desenhar",
+             comps["King Cup"]["logo"],
+             "https://media.api-sports.io/football/leagues/504.png")
+    conferir("a competição chega em cada partida",
+             dc["partidas"][0]["competicao"], "Saudi Pro League")
+    # Partida antiga, lida antes de eu guardar o nome da liga, não fica sem
+    # competição: ela cai na liga que o app lê, que é a única que existe hoje.
+    database.jogo_a_jogo = lambda af, season=0, teto=60: [
+        dict(p, liga_nome=None) for p in PARTIDAS]
+    antiga = asyncio.run(main.api_jogador_ficha(tm_id="8198"))
+    conferir("sem nome de liga, a partida não fica órfã",
+             antiga["partidas"][0]["competicao"], "Saudi Pro League")
+    database.jogo_a_jogo = lambda af, season=0, teto=60: [dict(p) for p in PARTIDAS]
+
+    # A CONSULTA tem de trazer as colunas da liga. Este é dos poucos pontos
+    # que eu confiro no texto do SQL e não executando: o teste troca o
+    # `jogo_a_jogo` inteiro por um dublê, então a consulta de verdade não roda
+    # aqui. Digo isso em voz alta porque conferir texto é o tipo de teste que
+    # eu já vi passar com o defeito plantado — aqui ele cobre só a lista de
+    # colunas, que é o que mudou.
+    import ast as _ast2
+    _banco = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+    _jaj = next((_ast2.get_source_segment(_banco, n)
+                 for n in _ast2.walk(_ast2.parse(_banco))
+                 if isinstance(n, _ast2.FunctionDef) and n.name == "jogo_a_jogo"), "")
+    for _col in ("p.liga_id", "p.liga_nome", "p.liga_logo",
+                 "p.gols_casa", "p.gols_fora"):
+        ok(_col in _jaj,
+           f"a consulta jogo a jogo parou de trazer {_col} — a tela tem o "
+           "lugar dele e nada para pôr lá")
+    _sal = next((_ast2.get_source_segment(_banco, n)
+                 for n in _ast2.walk(_ast2.parse(_banco))
+                 if isinstance(n, _ast2.FunctionDef)
+                 and n.name == "salvar_partidas_liga"), "")
+    # As DUAS pontas: a coluna no INSERT e o valor vindo de quem chama. Só a
+    # coluna passava com os nomes trocados aos pares.
+    ok('l.get("liga_nome"), l.get("liga_logo")' in _sal,
+       "o calendário parou de guardar o nome e o emblema da competição — eles "
+       "vêm na MESMA resposta que já pagamos")
+    ok("liga_nome = COALESCE(EXCLUDED.liga_nome" in _sal,
+       "a atualização do calendário apaga a competição já guardada em vez de "
+       "manter o que existe")
+    ok('"liga_nome": (f.get("league") or {}).get("name")' in FONTE,
+       "a leitura do calendário parou de tirar o nome da competição da "
+       "resposta da API")
+    ok('"liga_logo": (f.get("league") or {}).get("logo")' in FONTE,
+       "a leitura do calendário parou de tirar o emblema da resposta da API")
+
+    el2 = _elencos_html()
+    ok("function seletorCompeticao(d){" in el2 and "comps.length < 2" in el2,
+       "sumiu o seletor de competição — ou ele passou a aparecer com uma "
+       "opção só, que é um botão que não faz nada")
+    ok("function somarPartidas(ps){" in el2,
+       "o filtro voltou a só esconder linhas. Os totais têm de ser refeitos "
+       "com o recorte, senão o cabeçalho e a lista falam de coisas diferentes")
+    ok("numerosFicha(d, ps)" in el2 and "jogosFicha(d, ps)" in el2,
+       "os números e a lista deixaram de receber as partidas filtradas")
+    ok("COMP_ESCOLHIDA = '';\n    FICHA_DADOS" in el2,
+       "a competição escolhida sobrevive à troca de jogador — a ficha do "
+       "próximo abriria pela metade sem ninguém ter pedido")
+    ok("p.liga_logo ? '<img class=\"logo-comp\"" in el2,
+       "a lista de partidas parou de usar o emblema real da competição")
+
+    # ── 5f. A SOMA DO NAVEGADOR TEM DE BATER COM A DO SERVIDOR ───────────
+    # Duas contas para o mesmo número é como elas divergem. Aqui a do
+    # navegador é EXECUTADA contra as mesmas partidas, e o resultado é
+    # comparado com o que o servidor devolveu.
+    node = _tem_node()
+    if not node:
+        print("PULAR: o Node nao esta instalado nesta maquina")
+        return 1
+    _som = el2[el2.find("function somarPartidas(ps){"):el2.find("function escolherCompeticao")]
+    _prova = _som + "\nconsole.log(JSON.stringify(somarPartidas(" + \
+             json.dumps(PARTIDAS) + ")));"
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                     encoding="utf-8") as f:
+        f.write(_prova)
+        _c2 = f.name
+    try:
+        _r2 = subprocess.run([node, _c2], capture_output=True, text=True, timeout=30)
+    finally:
+        os.unlink(_c2)
+    if _r2.returncode != 0:
+        falhas.append("a soma do navegador quebrou: " + (_r2.stderr or "")[-300:])
+    else:
+        _js = json.loads(_r2.stdout.strip().splitlines()[-1])
+        _py = asyncio.run(main.api_jogador_ficha(tm_id="8198"))["totais"]
+        for campo in ("jogos", "comecou", "minutos", "gols", "assistencias",
+                      "amarelos", "vermelhos", "nota_media"):
+            conferir(f"navegador e servidor concordam em {campo}",
+                     _js[campo], _py[campo])
+        # E a regra do "não sei" também tem de ser a mesma nos dois lados.
+        _prova2 = _som + "\nconsole.log(JSON.stringify(somarPartidas(" + \
+                  json.dumps([dict(p, gols=None) for p in PARTIDAS]) + ")));"
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                         encoding="utf-8") as f:
+            f.write(_prova2)
+            _c3 = f.name
+        try:
+            _r3 = subprocess.run([node, _c3], capture_output=True, text=True, timeout=30)
+        finally:
+            os.unlink(_c3)
+        conferir("sem nenhum gol sabido, o navegador também diz 'não sei'",
+                 json.loads(_r3.stdout.strip().splitlines()[-1])["gols"], None)
 
     # ── 5d. A DATA CURTA, EXECUTADA ──────────────────────────────────────
     # Procurar o nome da função no arquivo prova que eu a escrevi, não que ela
