@@ -300,11 +300,23 @@ def agrupar(extracoes: list[dict]) -> list[dict]:
 def procurar_na_liga(nome: str, indice: dict) -> str:
     """O spl_id de quem já joga na liga, ou "".
 
-    Aqui eu reaproveito o índice de nomes que já existe para as notícias:
-    chave completa, nas duas escritas, ambiguidade descartada. Quem está nos
-    573 sai daqui com foto, nascimento, altura e clube — sem gastar uma única
-    requisição em lugar nenhum.
+    O GLOSSÁRIO PRIMEIRO, desde 14/09/26. São 601 jogadores que o Vini audita
+    à mão, com as grafias de todas as fontes — inclusive as tortas que a IA
+    produziu a partir do árabe. É ele quem responde "quem é este nome" no
+    resto do app, e não podia ser diferente aqui: duas telas que discordam
+    sobre a mesma pessoa não dá para conferir olhando.
+
+    O índice de nomes continua abaixo, para quem o glossário não cobre. Nesta
+    guia isso importa mais que nas outras: metade das negociações é sobre
+    gente que ainda não chegou na liga e não tem por que estar no glossário.
     """
+    try:
+        import glossario
+        achado = glossario.identidade(nome)
+        if achado and achado.get("spl_id"):
+            return str(achado["spl_id"])
+    except Exception:
+        pass
     import elos
     achados = elos.jogadores_no_texto("", nome, indice)
     if not achados:

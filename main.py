@@ -8039,8 +8039,21 @@ async def api_injuries_manual(request: Request):
         return JSONResponse({"erro": "diga o nome do jogador"}, 400)
     if not clube:
         # Sem clube o upsert recusa (ele casa por clube + nome). Tento achar
-        # pelo elenco antes de desistir: o Vini escolheu o jogador numa
-        # busca, então o clube quase sempre dá para deduzir.
+        # antes de desistir: o Vini escolheu o jogador numa busca, então o
+        # clube quase sempre dá para deduzir.
+        #
+        # O GLOSSÁRIO PRIMEIRO, como no resto do app. O índice de nomes fica
+        # abaixo, para quem ele não cobre — aqui isso ainda acontece, porque
+        # dá para cadastrar à mão a lesão de um reforço que acabou de chegar e
+        # ainda não entrou no glossário.
+        try:
+            import glossario
+            achado = glossario.identidade(nome)
+            if achado:
+                clube = achado.get("clube") or ""
+        except Exception:
+            pass
+    if not clube:
         try:
             import elos
             from database import listar_jogadores
@@ -20761,6 +20774,22 @@ async def _achar_de_fora(nome: str, clube_origem: str) -> dict | None:
     """
     if not nome or not clube_origem:
         return None, "notícia não disse de que clube ele sai"
+
+    # SE O GLOSSÁRIO JÁ SABE QUEM É, ELE NÃO É "DE FORA".
+    #
+    # Esta função existe para jogador que não está na liga, e custa DUAS
+    # chamadas à API-Football por tentativa. Procurar aqui alguém que o Vini
+    # já mapeou é gastar cota para descobrir o que ele já respondeu — e, pior,
+    # é aceitar como resposta o que a busca por nome devolver, que é
+    # exatamente o tipo de palpite do qual o glossário nos tirou.
+    try:
+        import glossario
+        if glossario.identidade(nome):
+            return None, ("este jogador está no glossário — ele é da liga, "
+                          "e a ficha dele vale mais que uma busca por nome")
+    except Exception:
+        pass
+
     import mercado as _m
     times, erro = await _af_get("teams", {"search": clube_origem[:30]}, ttl=86400)
     if erro:

@@ -88,15 +88,27 @@ fi
 echo "$SAIDA" | tail -n 25
 echo ""
 echo "  ================================================================"
-echo "   ENVIO BARRADO: tem teste quebrado."
+echo "   ATENCAO: tem teste quebrado. O envio VAI acontecer mesmo assim."
 echo ""
-echo "   Isso quase sempre quer dizer que uma mudança sua e uma mudança"
-echo "   feita no outro lugar (ChatGPT) se atrapalharam. Nada se perdeu."
+echo "   Se voce nao mexeu nessa parte, provavelmente uma mudanca sua e"
+echo "   uma mudanca feita no outro lugar (ChatGPT) se atrapalharam."
+echo "   Nada se perdeu."
 echo ""
 echo "   Mande a tela acima para o Claude e ele conserta."
-echo ""
-echo "   Se for urgência de verdade e você PRECISA enviar assim mesmo:"
-echo "       git push --no-verify"
 echo "  ================================================================"
 echo ""
-exit 1
+
+# AVISO, E NÃO BLOQUEIO — decisão do Vini em 14/09/26, e ele tem razão.
+#
+# O placar honesto desta rede de proteção foi: cinco bloqueios, quatro deles
+# por defeito do meu PRÓPRIO aparato (console em cp1252, fim de linha do
+# Windows, bibliotecas que só existem no servidor, caminho /tmp) e um achado
+# de verdade — o tzdata, que era sério.
+#
+# Uma proteção que erra quatro em cinco não protege: ela ensina a pessoa a
+# desligá-la. E o custo não era meu, era do tempo dele, no meio de uma rodada.
+#
+# Então ela continua rodando e continua dizendo tudo que vê — só não decide
+# mais por ele. Quem olha a tela é quem decide, que é como tem sido em todas
+# as vezes em que este projeto acertou.
+exit 0

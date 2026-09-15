@@ -79,6 +79,16 @@ def _importar_main():
     return main
 
 
+def _corpo_py(nome: str, arquivo: str = "main.py") -> str:
+    """O código-fonte de uma função, para conferir a ORDEM das tentativas."""
+    import ast
+    texto = open(os.path.join(RAIZ, arquivo), encoding="utf-8").read()
+    for n in ast.walk(ast.parse(texto)):
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == nome:
+            return ast.get_source_segment(texto, n) or ""
+    return ""
+
+
 def ok(condicao, mensagem):
     if not condicao:
         falhas.append(mensagem)
@@ -538,6 +548,72 @@ def testar():
     finally:
         tm.elenco, tm.desempenho = guardado
         _ajuste_fixo({})
+
+    # ── 12. OS QUATRO LUGARES QUE AINDA DECIDIAM SOZINHOS ────────────────
+    # O Vini perguntou se eu tinha conectado o glossário de ponta a ponta.
+    # Não tinha: eu fui ligando por partes e anunciei como se estivesse
+    # pronto. Faltavam quatro, e aqui cada um é exercitado.
+    _plantar()
+    _ajuste_fixo({})
+    import mercado
+
+    # 12a. A GUIA DE MERCADO. Ela é a que mais recebe nome torto, porque vem
+    # de notícia em árabe sobre negociação.
+    conferir("Mercado resolve pela grafia torta que só o glossário conhece",
+             mercado.procurar_na_liga("Rúger Fernández", {"chave": {}}), "s2")
+    conferir("Mercado resolve por sobrenome solto",
+             mercado.procurar_na_liga("Hamdallah", {"chave": {}}), "s1")
+    conferir("e continua sem inventar quem não está",
+             mercado.procurar_na_liga("Jogador Inexistente", {"chave": {}}), "")
+
+    # E O GLOSSÁRIO GANHA DO ÍNDICE, não empata com ele. Ponho um índice que
+    # responde OUTRO jogador para a mesma pergunta: se a ordem se inverter, o
+    # resultado muda de pessoa — e é isso que eu quero que o teste veja.
+    import elos as _elos
+    _real_indice = _elos.jogadores_no_texto
+    _elos.jogadores_no_texto = lambda *a, **k: {"s99"}
+    try:
+        conferir("com o índice discordando, o glossário é quem manda",
+                 mercado.procurar_na_liga("Rúger Fernández", {"chave": {}}), "s2")
+        # E onde o glossário não sabe, o índice continua servindo — é o que
+        # mantém a guia funcionando para quem ainda não chegou na liga.
+        conferir("onde o glossário não sabe, o índice ainda responde",
+                 mercado.procurar_na_liga("Alguem De Fora", {"chave": {}}), "s99")
+    finally:
+        _elos.jogadores_no_texto = _real_indice
+
+    # 12b. O CASAMENTO DE LESÃO NO BANCO.
+    #
+    # O degrau perigoso é a semelhança de texto a 0,75: ela casa "Rúger
+    # Fernández" com "Roger Fernandes" por sorte e casa dois irmãos por azar.
+    # Quando erra, funde a lesão de um na ficha de outro, calada.
+    #
+    # Dentro da liga ela não roda mais: se o glossário sabe quem é, a resposta
+    # dele é final. Confiro pela ÁRVORE, porque o que importa é a condição.
+    import ast as _ast
+    banco_txt = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+    up = next((_ast.get_source_segment(banco_txt, n)
+               for n in _ast.walk(_ast.parse(banco_txt))
+               if isinstance(n, _ast.FunctionDef) and n.name == "upsert_injury"), "")
+    ok("conhecido_pelo_glossario = bool(eu)" in up
+       and "if existing is None and not conhecido_pelo_glossario:" in up,
+       "a semelhança de texto voltou a rodar para quem o glossário conhece. "
+       "É o degrau que funde a lesão de um jogador na ficha de outro")
+
+    # 12c. O CADASTRO MANUAL DE LESÃO deduz o clube pelo glossário.
+    manual = _corpo_py("api_injuries_manual")
+    ok("glossario.identidade(nome)" in manual
+       and manual.find("glossario.identidade") < manual.find("elos.jogadores_no_texto"),
+       "o cadastro manual voltou a deduzir o clube só pelo índice de nomes, "
+       "que recusa sobrenome solto — e é assim que o Vini digita")
+
+    # 12d. NÃO GASTAR CHAMADA DE API PROCURANDO QUEM JÁ ESTÁ MAPEADO.
+    fora = _corpo_py("_achar_de_fora")
+    ok("glossario.identidade(nome)" in fora
+       and fora.find("glossario.identidade") < fora.find("_af_get"),
+       "a busca por jogador de fora voltou a rodar antes de consultar o "
+       "glossário. São duas chamadas à API-Football para descobrir o que ele "
+       "já respondeu — e a resposta que volta é um palpite por nome")
 
     for f_ in falhas:
         print("  ✗", f_)

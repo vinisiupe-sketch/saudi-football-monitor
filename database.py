@@ -3115,9 +3115,20 @@ def upsert_injury(data: dict) -> str:
                     existing = cand
                     break
 
-        # 2ª TENTATIVA: semelhança de texto, para quem o elenco não conhece —
-        # recém-contratado, jogador de base, nome que o índice não resolve.
-        if existing is None:
+        # 2ª TENTATIVA: semelhança de texto, para quem o GLOSSÁRIO NÃO COBRE.
+        #
+        # Este é o degrau mais perigoso do app inteiro: um corte em 0,75 casa
+        # "Rúger Fernández" com "Roger Fernandes" por sorte e casa dois irmãos
+        # por azar — e quando erra, funde a lesão de um jogador na ficha de
+        # outro, calado.
+        #
+        # Desde 14/09/26 ele não roda mais dentro da liga. Se o glossário sabe
+        # quem é este nome (`eu`), a resposta dele é final: não achou par entre
+        # os candidatos, então é lesão nova, e não uma parecida. Só quem o
+        # glossário desconhece — reforço, jogador de fora numa notícia de
+        # transferência — continua passando por aqui.
+        conhecido_pelo_glossario = bool(eu)
+        if existing is None and not conhecido_pelo_glossario:
             player_norm = _normalize(player_name)
             best_match, best_ratio = None, 0.0
             for cand in candidates:
