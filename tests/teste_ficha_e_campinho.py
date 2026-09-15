@@ -267,11 +267,14 @@ def testar():
     el_ = _elencos_html()
     # A LINHA EXATA, e não o nome da função: um `return ''` posto na frente
     # deixa os dois textos no arquivo e mata o aviso. Já caí nessa antes.
-    ok("function avisoIncompleto(d){\n  if (!d.incompletas) return '';" in el_,
+    ok("function avisoIncompleto(d, emprestados){\n  if (!d.incompletas) return '';"
+       in el_,
        "a ficha não avisa que faltam números por partida")
-    # Dentro do avisoIncompleto, e não em qualquer lugar do arquivo.
-    _aviso = el_.split("function avisoIncompleto(d){")[-1].split("\n}")[0]
-    ok('onclick="relerEscalacoes(this)"' in _aviso,
+    # Dentro do avisoIncompleto, e não em qualquer lugar do arquivo. Agora ele
+    # tem DOIS caminhos — com e sem os números emprestados do Transfermarkt —
+    # e os dois têm de oferecer o conserto.
+    _aviso = el_.split("function avisoIncompleto(d, emprestados){")[-1].split("\n}")[0]
+    ok(_aviso.count('onclick="relerEscalacoes(this)"') >= 2,
        "o aviso não oferece a releitura. 'Ainda não li' tem conserto, e não se "
        "conserta o que não parece quebrado")
     ok("'/api/escalacoes/reler'" in el_, "o botão de reler não chama a rota")
@@ -371,9 +374,9 @@ def testar():
         ("escudo-ficha",
          "sumiu o escudo ao lado do clube. Numa liga em que 15 dos 18 nomes "
          "começam com 'Al-', o escudo é o que se reconhece"),
-        ("cel(t.amarelos, 'Cartões amarelos', {icone: ICO.amarelo})",
+        ("'Cartões amarelos', {icone: ICO.amarelo})",
          "sumiu o cartão ao lado do número de amarelos"),
-        ("cel(t.vermelhos, 'Cartões vermelhos', {icone: ICO.vermelho})",
+        ("'Cartões vermelhos', {icone: ICO.vermelho})",
          "sumiu o cartão ao lado do número de vermelhos"),
         ("p.escudo_adversario ? '<img class=\"escudo-jg\"",
          "sumiu o escudo do adversário na lista de partidas"),
@@ -701,6 +704,83 @@ def testar():
             os.unlink(_c3)
         conferir("sem nenhum gol sabido, o navegador também diz 'não sei'",
                  json.loads(_r3.stdout.strip().splitlines()[-1])["gols"], None)
+
+    # ── 5i. A ESCALA DE COR DA NOTA, EXECUTADA ───────────────────────────
+    #
+    # Ele mandou a régua: vermelho abaixo de 6, laranja em 6, amarelo em 6,5
+    # (o "starting rating"), verde em 7, azul claro em 8, azul forte em 9.
+    #
+    # A escala NÃO é linear de propósito, e é isso que a torna útil: 6,5 é a
+    # nota de quem entrou e fez o esperado, então o que interessa está nos
+    # poucos décimos ao redor dela. Um corte trocado por 0,1 pinta de verde um
+    # jogo apagado — e ninguém confere cor olhando a tela.
+    node = _tem_node()
+    if not node:
+        print("PULAR: o Node nao esta instalado nesta maquina")
+        return 1
+    _nc = el2[el2.find("function notaCor(n){"):]
+    _nc = _nc[:_nc.find("\n}") + 2]
+    _casos = [10, 9.1, 9.0, 8.9, 8.0, 7.9, 7.0, 6.9, 6.5, 6.4, 6.0, 5.9, 3.0,
+              None]
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                     encoding="utf-8") as f:
+        f.write(_nc + "\nconsole.log(JSON.stringify(" + json.dumps(_casos) +
+                ".map(notaCor)));")
+        _c4 = f.name
+    try:
+        _r4 = subprocess.run([node, _c4], capture_output=True, text=True, timeout=30)
+    finally:
+        os.unlink(_c4)
+    if _r4.returncode != 0:
+        falhas.append("a escala de cor quebrou: " + (_r4.stderr or "")[-300:])
+    else:
+        _cores = json.loads(_r4.stdout.strip().splitlines()[-1])
+        conferir("a escala de cor, faixa por faixa",
+                 _cores,
+                 ["nota-9", "nota-9", "nota-9", "nota-8", "nota-8",
+                  "nota-7", "nota-7", "nota-65", "nota-65", "nota-6",
+                  "nota-6", "nota-baixa", "nota-baixa", ""])
+    for _classe in ("nota-baixa", "nota-6", "nota-65", "nota-7", "nota-8",
+                    "nota-9"):
+        ok("." + _classe + "{background:" in el2,
+           f"a faixa {_classe} ficou sem cor no CSS — a função classifica e "
+           "nada pinta")
+
+    # A AVALIAÇÃO SEM RÓTULO, preenchendo o quadradinho. A etiqueta colorida já
+    # diz o que é; a palavra embaixo repetia em cinza o que a cor mostra.
+    ok("{etiqueta: true, semRotulo: true}" in el2,
+       "a avaliação voltou a ter a legenda embaixo")
+    # A classe TEM de existir nos dois lados: quem a escreve no HTML e quem a
+    # pinta no CSS. Só um dos dois é uma classe que não faz nada.
+    ok("' num-cel-nota'" in el2, "a célula da nota parou de receber a classe")
+    ok(".num-cel-nota{display:flex" in el2 and ".num-cel-nota .nota{" in el2,
+       "a célula da nota perdeu o estilo próprio — sem ele ela fica do tamanho "
+       "de um número comum e some no meio dos outros sete")
+
+    # ── 5j. OS NÚMEROS QUE A LISTA JÁ CARREGOU ───────────────────────────
+    #
+    # "Se já carregam ali, por que não usar a mesma rotina?" A tabela do elenco
+    # traz jogos, gols, assistências, cartões e minutos do Transfermarkt,
+    # prontos, antes de qualquer clique. Eles entram quando a nossa leitura
+    # partida a partida ainda não tem o número — a ficha deixa de abrir com
+    # "—" ao lado de uma tabela que mostra 4 gols.
+    ok("const doTM = (COMP_ESCOLHIDA || !FICHA_DADOS) ? {} : (FICHA_DADOS.elenco || {});"
+       in el2,
+       "a ficha parou de aproveitar os números que a lista do elenco já tem — "
+       "ela volta a mostrar '—' ao lado de uma tabela que mostra os números")
+    ok("emprestados.push(campo);" in el2 and 'class="de-fora"' in el2,
+       "o número emprestado do Transfermarkt entrou SEM MARCA. Ele é da "
+       "temporada inteira e pode não bater com a lista abaixo — emprestar sem "
+       "avisar é como a tela passa a mentir com confiança")
+    # E COM O RECORTE POR COMPETIÇÃO LIGADO ELE NÃO ENTRA: o total do
+    # Transfermarkt é da temporada, e mostrá-lo sob o rótulo "Copa do Rei"
+    # trocaria o significado do dado sem trocar o dado.
+    ok("COMP_ESCOLHIDA ||" in el2.split("const doTM")[1][:80],
+       "o número da temporada inteira passou a aparecer sob o recorte de uma "
+       "competição — o rótulo diz uma coisa e o número diz outra")
+    ok("if (meu !== null && meu !== undefined) return {v: meu, tm: false};" in el2,
+       "o emprestado passou a ganhar do nosso. O nosso número bate com a "
+       "lista logo abaixo; o dele, não necessariamente")
 
     # ── 5d. A DATA CURTA, EXECUTADA ──────────────────────────────────────
     # Procurar o nome da função no arquivo prova que eu a escrevi, não que ela

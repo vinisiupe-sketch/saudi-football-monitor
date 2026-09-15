@@ -14794,7 +14794,18 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
    verde. Zero amarelo sem o cartão é só um zero entre oito números. */
 .ico-num{width:11px;height:15px;margin-right:5px;opacity:1;vertical-align:-2px}
 .num-cel .ico-num + strong{display:inline-block}
-.num-cel .nota{font-size:1rem;padding:3px 9px}
+/* A NOTA SEM RÓTULO, preenchendo o quadradinho — como ele pediu. A etiqueta
+   colorida já diz o que é; a palavra "avaliação" embaixo só repetia em cinza
+   o que a cor mostra. Sem ela, a célula ganha ar e a nota fica maior. */
+.num-cel-nota{display:flex;align-items:center;justify-content:center}
+.num-cel-nota .nota{font-size:1.2rem;padding:7px 16px;min-width:0;
+  border-radius:8px;line-height:1.1}
+/* O número emprestado do Transfermarkt fica MARCADO. Ele é da temporada
+   inteira e pode não bater com a lista abaixo; número emprestado sem aviso é
+   como a tela passa a mentir com confiança. */
+.de-fora{font-style:normal;font-size:.55rem;font-weight:800;padding:0 3px;
+  border-radius:3px;background:var(--surface2);color:var(--accent);
+  border:1px solid var(--border);cursor:help}
 
 /* O aviso de que faltam números, com o conserto ao lado. "Ainda não li" tem
    conserto; "ele não fez gol" não tem — e não se conserta o que não parece
@@ -14806,25 +14817,20 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .ficha-incompleto span{flex:1 1 200px}
 .ficha-incompleto .ctrl{font-size:.7rem;padding:5px 10px}
 
-/* A nota ganha cor, na mesma escala da referência. SEM NOTA NÃO GANHA COR:
-   cinza quer dizer "não sei", e um zero colorido de vermelho seria uma
-   avaliação péssima que ninguém deu. */
+/* A NOTA, NA ESCALA DE COR DA REFERÊNCIA. Seis faixas, não quatro — o Vini
+   mandou a régua do Sofascore e ela distingue 8 de 9, que é a diferença entre
+   um bom jogo e um jogo decisivo.
+
+   SEM NOTA NÃO GANHA COR: cinza quer dizer "não sei". Um "—" pintado de
+   vermelho seria uma avaliação péssima que ninguém deu. */
 .nota{display:inline-block;min-width:34px;padding:2px 6px;border-radius:6px;
   font-weight:800;font-size:.72rem;background:var(--surface2);color:var(--text2)}
-/* As cores são as DA PALETA do app, não as da referência. O Sofascore usa a
-   escala dele; aqui o verde é o verde daqui, senão a ficha destoa de todas as
-   outras telas — e o teste visual reprova, com razão. */
-.nota-otima{background:var(--c-acento);color:var(--c-acento-texto)}
-.nota-boa{background:color-mix(in srgb,var(--c-acento) 62%,var(--c-bg));color:var(--c-text)}
-.nota-media{background:#FFBE5D;color:#111}
-.nota-ruim{background:#FD5D5D;color:#fff}
-.num-cel strong.nota-otima,.num-cel strong.nota-boa,
-.num-cel strong.nota-media,.num-cel strong.nota-ruim{
-  background:none;color:inherit;padding:0}
-.num-cel strong.nota-otima{color:var(--c-acento)}
-.num-cel strong.nota-boa{color:var(--c-acento)}
-.num-cel strong.nota-media{color:#FFBE5D}
-.num-cel strong.nota-ruim{color:#FD5D5D}
+.nota-baixa{background:#E53935;color:#fff}
+.nota-6{background:#F57C00;color:#fff}
+.nota-65{background:#D4B106;color:#111}
+.nota-7{background:#18A34A;color:#fff}
+.nota-8{background:#0E9BB5;color:#fff}
+.nota-9{background:#2B5CE6;color:#fff}
 
 .ficha-jogos{padding:6px 0 0}
 .jogos-tit{padding:12px 16px 8px;font-size:.78rem;font-weight:800;
@@ -15177,6 +15183,22 @@ let FICHA_ID = null;
 
 function _nada(v){ return (v === null || v === undefined || v === '') ? '—' : v; }
 
+// Escapa texto que vai para dentro do HTML.
+//
+// Faltava nesta página: eu escrevi `esc(...)` ao montar a ficha e ela nunca
+// existiu aqui — a função mora na guia de Mercado e no campinho. Resultado:
+// "esc is not defined", e a ficha inteira parava de carregar com o cabeçalho
+// já desenhado, o que faz parecer defeito de rede.
+//
+// O JavaScript só descobre isso ao EXECUTAR a linha, então compilar não
+// acusa. Por isso entrou junto um teste que exige que toda função chamada
+// dentro desta página exista dentro dela.
+function esc(t){
+  const d = document.createElement('div');
+  d.textContent = (t === null || t === undefined) ? '' : t;
+  return d.innerHTML;
+}
+
 async function verFicha(tmId){
   FICHA_ID = tmId;
   renderTabela();
@@ -15388,30 +15410,68 @@ function seletorCompeticao(d){
 
 function numerosFicha(d, ps){
   const t = somarPartidas(ps);
-  // O CARTÃO AO LADO DO NÚMERO, e a nota numa etiqueta colorida — os dois
-  // lugares que o Vini circulou na referência. Zero amarelo sem o cartão ao
-  // lado é só um zero no meio de oito números; com o cartão, ele se lê sem
-  // procurar o rótulo embaixo.
-  const cel = function(v, rotulo, opc){
+
+  // ── O QUE A LISTA AO LADO JÁ SABE ────────────────────────────────────
+  //
+  // O Vini apontou: "a maior parte dos números que você precisa estão ali onde
+  // sinalizei; se já carregam ali, por que não usar a mesma rotina?". Ele tem
+  // razão — a tabela do elenco traz jogos, gols, assistências, cartões e
+  // minutos do Transfermarkt, prontos, antes de qualquer clique.
+  //
+  // Então eles entram quando a nossa leitura partida a partida ainda não
+  // tem o número. A ficha deixa de abrir com "—" ao lado de uma tabela que
+  // mostra 4 gols, que era a contradição mais feia desta tela.
+  //
+  // MAS ELES SÃO DE OUTRA FONTE, E ISSO APARECE. O total do Transfermarkt é
+  // da temporada dele, que pode não bater com a soma das partidas listadas
+  // abaixo — e um número emprestado sem aviso é como a tela passa a mentir
+  // com confiança. Por isso ele vem marcado, e só enquanto o nosso falta.
+  //
+  // Com o recorte por competição ligado, o emprestado NÃO entra: o número do
+  // Transfermarkt é da temporada inteira, e exibi-lo sob o rótulo "Copa do
+  // Rei" seria trocar o significado do dado sem trocar o dado.
+  const doTM = (COMP_ESCOLHIDA || !FICHA_DADOS) ? {} : (FICHA_DADOS.elenco || {});
+  const emprestados = [];
+  const ou = function(meu, campo) {
+    if (meu !== null && meu !== undefined) return {v: meu, tm: false};
+    const v = doTM[campo];
+    if (v === null || v === undefined) return {v: null, tm: false};
+    emprestados.push(campo);
+    return {v: v, tm: true};
+  };
+
+  const cel = function(dado, rotulo, opc){
     opc = opc || {};
+    const v = (dado && typeof dado === 'object') ? dado.v : dado;
+    const doOutro = !!(dado && typeof dado === 'object' && dado.tm);
     const vazio = (v === null || v === undefined);
     const valor = vazio ? '—' : v;
     const corpo = opc.etiqueta && !vazio
       ? '<span class="nota ' + notaCor(v) + '">' + valor + '</span>'
       : '<strong>' + valor + '</strong>';
-    return '<div class="num-cel">' +
+    // A AVALIAÇÃO NÃO LEVA RÓTULO, como ele pediu: a etiqueta colorida já diz
+    // o que é, e a palavra embaixo só repetia em cinza o que a cor mostra.
+    const legenda = opc.semRotulo ? '' : '<span>' + rotulo +
+      (doOutro ? ' <i class="de-fora" title="número do Transfermarkt, '
+                 + 'enquanto a leitura partida a partida não termina">TM</i>' : '') +
+      '</span>';
+    return '<div class="num-cel' + (opc.semRotulo ? ' num-cel-nota' : '') + '">' +
       (opc.icone ? '<i class="ico ico-num">' + opc.icone + '</i>' : '') +
-      corpo + '<span>' + rotulo + '</span></div>';
+      corpo + legenda + '</div>';
   };
+
+  const min = ou(t.minutos, 'minutos');
   return '<div class="ficha-numeros">' +
-    cel(t.gols, 'Gols') + cel(t.assistencias, 'Assistências') +
-    cel(t.comecou, 'Começou') + cel(t.jogos, 'Jogos') +
-    cel(t.minutos === null || t.minutos === undefined ? null : t.minutos + "'",
-        'Minutos jogados') +
-    cel(t.nota_media, 'Avaliação', {etiqueta: true}) +
-    cel(t.amarelos, 'Cartões amarelos', {icone: ICO.amarelo}) +
-    cel(t.vermelhos, 'Cartões vermelhos', {icone: ICO.vermelho}) +
-    '</div>' + avisoIncompleto(d);
+    cel(ou(t.gols, 'gols'), 'Gols') +
+    cel(ou(t.assistencias, 'assistencias'), 'Assistências') +
+    cel(t.comecou, 'Começou') +
+    cel(ou(t.jogos, 'jogos'), 'Jogos') +
+    cel({v: (min.v === null || min.v === undefined) ? null : min.v + "'",
+         tm: min.tm}, 'Minutos jogados') +
+    cel(t.nota_media, 'Avaliação', {etiqueta: true, semRotulo: true}) +
+    cel(ou(t.amarelos, 'amarelos'), 'Cartões amarelos', {icone: ICO.amarelo}) +
+    cel(ou(t.vermelhos, 'vermelhos'), 'Cartões vermelhos', {icone: ICO.vermelho}) +
+    '</div>' + avisoIncompleto(d, emprestados.length);
 }
 
 // Quando os números por partida ainda não foram lidos, a ficha DIZ e oferece
@@ -15423,8 +15483,20 @@ function numerosFicha(d, ps){
 // titular — gols e assistências ficaram NULOS, não zerados —, e eu somava
 // tratando nulo como zero. Zero e "não sei" viraram a mesma coisa na tela, e
 // a ficha era a que mentia com mais confiança.
-function avisoIncompleto(d){
+function avisoIncompleto(d, emprestados){
   if (!d.incompletas) return '';
+  if (emprestados) {
+    // Com os números do Transfermarkt no lugar, o buraco deixa de ser visível
+    // — e por isso o aviso passa a ser mais brando, mas não some: os totais
+    // dele são da temporada inteira e podem não bater com a lista abaixo.
+    return '<div class="ficha-incompleto"><span>' + d.incompletas +
+      ' partida(s) ainda sem os números do jogo. Os totais marcados com ' +
+      '<b>TM</b> vêm do Transfermarkt e são da temporada inteira — podem não ' +
+      'bater com a lista abaixo. <b>O app completa isso sozinho, de ' +
+      'madrugada.</b></span>' +
+      '<button class="ctrl" id="btnReler" onclick="relerEscalacoes(this)">↻ Completar agora</button>' +
+      '</div>';
+  }
   // O TEXTO DIZ QUE É UMA VEZ SÓ, PARA TODO MUNDO.
   //
   // A primeira versão dizia "até a releitura" ao lado de um botão, e o Vini
@@ -15460,14 +15532,23 @@ async function relerEscalacoes(botao){
   }
 }
 
-// A faixa de cor é a mesma escala do Sofascore, que é a referência que o Vini
-// mandou. Sem nota, sem cor — cinza é "não sei", e não "foi mal".
+// A ESCALA DE COR DA REFERÊNCIA QUE ELE MANDOU, faixa por faixa.
+//
+// Ela não é linear de propósito, e é isso que a torna útil: 6,5 é a nota de
+// quem entrou e fez o esperado (o Sofascore chama de "starting rating"), então
+// o interessante está nos poucos décimos ao redor dela. Uma escala linear
+// pintaria 6,4 e 7,4 quase da mesma cor, e é justamente aí que mora a
+// diferença entre um jogo apagado e um jogo bom.
+//
+// Sem nota, sem cor: cinza é "não sei", e não "foi mal".
 function notaCor(n){
   if (n === null || n === undefined) return '';
-  if (n >= 7.5) return 'nota-otima';
-  if (n >= 7.0) return 'nota-boa';
-  if (n >= 6.5) return 'nota-media';
-  return 'nota-ruim';
+  if (n >= 9.0) return 'nota-9';    // azul forte
+  if (n >= 8.0) return 'nota-8';    // azul claro
+  if (n >= 7.0) return 'nota-7';    // verde
+  if (n >= 6.5) return 'nota-65';   // amarelo — o ponto de partida
+  if (n >= 6.0) return 'nota-6';    // laranja
+  return 'nota-baixa';              // vermelho
 }
 
 // "2026-09-12" -> "12 set". Pedido dele, para sobrar largura ao nome do
