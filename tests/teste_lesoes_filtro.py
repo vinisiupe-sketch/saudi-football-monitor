@@ -210,11 +210,21 @@ def testar():
        "a guia voltou a tirar escudo só da tabela de transferências. Lá há "
        "clube do mundo inteiro, e homônimo do Golfo colide na mesma chave — "
        "foi assim que o Al-Nassr saiu com o escudo do Al Nasr de Dubai")
-    i_geral = tela.find("escudos_por_clube()")
-    i_liga = tela.find("escudos_da_liga(")
-    ok(-1 < i_geral < i_liga,
-       "a ordem inverteu: o mapa geral precisa entrar PRIMEIRO e o da liga "
-       "por cima, senão o homônimo volta a ganhar")
+    # DUAS TABELAS SEPARADAS, e não um dicionário único com `update`.
+    #
+    # O `update` PARECE dar prioridade à liga, e dá — mas só quando as duas
+    # tabelas escrevem a chave igual. Quando a mundial guarda "Al Nasr" e a da
+    # liga guarda "Al-Nassr", ele não sobrescreve nada: cria uma segunda
+    # entrada, e quem perguntar pela primeira grafia segue recebendo Dubai.
+    ok("_escudos.update(escudos_da_liga" not in tela,
+       "voltou o dicionário único com update — ele só prioriza a liga quando "
+       "as duas tabelas grafam o nome igual, que é justamente o que não "
+       "acontece entre Al-Nassr e Al Nasr")
+    i_liga = tela.find("_escudos_liga.get(nome)")
+    i_mundo = tela.find("_escudos_mundo.get(nome)")
+    ok(-1 < i_liga < i_mundo,
+       "a ordem inverteu: a tabela da LIGA tem de responder primeiro, e a "
+       "mundial só para quem a liga não conhece (lesionado no exterior)")
 
     # E a função da liga tem que sair mesmo do CALENDÁRIO da competição —
     # é de lá que vem a garantia de só haver os 18 clubes da Roshn. Checar só

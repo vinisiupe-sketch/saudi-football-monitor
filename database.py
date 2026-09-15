@@ -1906,6 +1906,29 @@ def negociacoes(limite: int = 60, dias: int = 45) -> list[dict]:
         return []
 
 
+def escudo_de_af_id(af_id) -> str:
+    """O escudo de um clube a partir do id da API-Football. Só isso.
+
+    POR QUE ISTO EXISTE, sendo uma linha
+        A ficha do jogador montava o escudo do adversário procurando o NOME do
+        clube numa tabela de escudos. O Al-Nassr de Riade saiu com o emblema do
+        Al Nasr de Dubai, porque os dois nomes normalizam igual.
+
+        Só que o id do adversário já vinha na mesma consulta — `partida_liga`
+        guarda `casa_id` e `fora_id` desde sempre. Não havia nada a adivinhar:
+        havia um número sendo ignorado ao lado de um nome sendo interpretado.
+
+        O endereço do escudo na API-Football é o id dentro da URL. Sem tabela
+        nova, sem cache, sem nome no meio. Dois clubes diferentes têm ids
+        diferentes, então não existe colisão possível.
+    """
+    try:
+        n = int(af_id or 0)
+    except (TypeError, ValueError):
+        return ""
+    return f"https://media.api-sports.io/football/teams/{n}.png" if n > 0 else ""
+
+
 def escudos_da_liga(season: int) -> dict:
     """Escudo dos clubes DA LIGA, e só deles. Nome canônico -> URL.
 

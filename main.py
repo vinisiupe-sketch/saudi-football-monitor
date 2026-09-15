@@ -4248,15 +4248,37 @@ async def _page_lesoes_impl(request: Request):
         _apelidos = apelidos_de_jogador()
         _indice, _ = elos.indice_de_jogadores(_gente)
         _por_id = {j["spl_id"]: j for j in _gente}
-        # O da LIGA primeiro, e o geral só como reserva. Sem essa ordem, o
-        # Al-Nassr de Riade sai com o escudo do Al Nasr de Dubai: os dois
-        # normalizam para a mesma chave na tabela de transferências, e lá
-        # ganha quem entrou primeiro. Ver o comentário em escudos_da_liga.
-        _escudos = dict(escudos_por_clube())
-        _escudos.update(escudos_da_liga(_af_temporada_corrente()))
+        # DUAS TABELAS SEPARADAS, e a da liga responde primeiro.
+        #
+        # Elas ficaram juntas num dicionário só, com `update`, e isso PARECE
+        # dar prioridade à liga — mas só quando as duas escrevem a chave
+        # igual. Quando a tabela mundial guarda "Al Nasr" e a da liga guarda
+        # "Al-Nassr", o `update` não sobrescreve nada: cria uma segunda
+        # entrada, e quem perguntar pela primeira grafia continua recebendo o
+        # clube de Dubai. Foi assim que o Vini viu o escudo errado.
+        #
+        # Separadas, a ordem é de verdade: pergunto à liga, e só se ela não
+        # conhecer aquele nome é que caio no mundo — que aqui é necessário,
+        # porque lesionado pode estar num clube de fora.
+        _escudos_liga = dict(escudos_da_liga(_af_temporada_corrente()))
+        _escudos_mundo = dict(escudos_por_clube())
     except Exception as e:
         print(f"⚠️ lesões, rosto: {type(e).__name__}: {e}")
-        _indice, _por_id, _escudos, _apelidos = {"chave": {}}, {}, {}, {}
+        _indice, _por_id, _apelidos = {"chave": {}}, {}, {}
+        _escudos_liga, _escudos_mundo = {}, {}
+
+    def _escudo_do_clube(nome: str) -> str:
+        """Liga primeiro, mundo depois. Nesta ordem, sempre."""
+        if not nome:
+            return ""
+        try:
+            import glossary
+            padrao = glossary.padronizar_clube(nome) or ""
+        except Exception:
+            padrao = ""
+        return (_escudos_liga.get(nome) or (_escudos_liga.get(padrao) if padrao else "")
+                or _escudos_mundo.get(nome) or (_escudos_mundo.get(padrao) if padrao else "")
+                or "")
 
     # Elenco agrupado por clube, para a segunda tentativa de identificação.
     _chave_clube = _chave_de_clube
@@ -4457,7 +4479,7 @@ async def _page_lesoes_impl(request: Request):
         #
         # Layout: escudo · nome e detalhe · tipo · estado. Uma linha só, que
         # se lê varrendo de cima a baixo, como a de pendurados e suspensos.
-        escudo = _escudos.get(club) or ""
+        escudo = _escudo_do_clube(club)
         escudo_html = ('<img src="' + escudo + '" alt="" loading="lazy">'
                        if escudo else "")
         detalhe = tipo_full + retorno_html
@@ -8120,7 +8142,7 @@ async def api_injuries_retornos(season: int = 0, ler: int = 1, refazer: int = 0)
 
 @app.get("/api/escalacoes/reler")
 async def api_escalacoes_reler(season: int = 0):
-    """Relê a temporada inteira para preencher os números jogo a jogo.
+    """Atualiza o calendário de todas as competições e lê o que falta.
 
     Acionável colando o endereço no navegador — o Vini já se perdeu uma vez
     quando eu mandei "rode POST <url>" e ele colou na barra de endereço.
@@ -8129,9 +8151,33 @@ async def api_escalacoes_reler(season: int = 0):
     está em `_ler_escalacoes`, e este laço repete até não faltar nada.
     """
     from database import esquecer_escalacoes_lidas
-    apagadas = await asyncio.to_thread(esquecer_escalacoes_lidas)
+
+    # PRIMEIRO O CALENDÁRIO, DEPOIS AS ESCALAÇÕES. Nesta ordem, e é a correção
+    # do que o Vini relatou: "as outras competições seguem sem aparecer".
+    #
+    # Este botão relia as escalações do calendário que estivesse no banco — e o
+    # banco só tinha a Saudi Pro League. Não havia o que ler de AFC ou Copa do
+    # Rei porque essas partidas nunca tinham entrado na tabela. Eu tinha
+    # escrito a descoberta das competições e deixado num endereço separado que
+    # ele teria de abrir na mão, o que na prática é o mesmo que não existir.
+    #
+    # Agora um toque faz as duas coisas: descobre os jogos de todas as
+    # competições e lê os que ainda faltam.
+    comp = await _calendario_de_todas_as_competicoes(season)
+
+    # SÓ AS INCOMPLETAS, e não a temporada inteira.
+    #
+    # Antes eu apagava o carimbo de TODAS as partidas lidas, o que fazia o
+    # botão reler quinhentos jogos para reconfirmar os que já estavam certos.
+    # Com AFC e Copa do Rei entrando no calendário isso passaria de mil
+    # chamadas. As partidas novas não têm carimbo nenhum: entram na fila
+    # sozinhas. O que precisa ser esquecido é só o que foi lido pela metade,
+    # na época em que eu gravava minutos e jogava os gols fora.
+    apagadas = await asyncio.to_thread(esquecer_escalacoes_lidas, "incompletas")
     total = {"esquecidas": apagadas, "partidas": 0, "atuacoes": 0,
-             "ids_cruzados": 0, "passadas": 0, "erros": []}
+             "ids_cruzados": 0, "passadas": 0, "erros": [],
+             "competicoes": comp.get("competicoes") or [],
+             "partidas_no_calendario": comp.get("partidas") or 0}
     for _ in range(40):
         d = await _ler_escalacoes(season)
         total["passadas"] += 1
@@ -15518,12 +15564,14 @@ async function relerEscalacoes(botao){
   botao.disabled = true;
   botao.textContent = 'lendo… (pode levar um minuto)';
   try {
-    // Uma chamada, a temporada inteira, todos os clubes. Não é por jogador —
-    // o que sai daqui vale para as 601 fichas.
+    // Uma chamada, a temporada inteira, todos os clubes, TODAS as
+    // competições. Não é por jogador — o que sai daqui vale para as 601
+    // fichas. O servidor descobre os jogos de AFC e Copa do Rei antes de ler.
     const r = await fetch('/api/escalacoes/reler');
     const d = await r.json();
-    botao.textContent = (d.partidas || 0) + ' partidas lidas para o campeonato '
-      + 'inteiro — recarregando…';
+    const comps = (d.competicoes || []).length;
+    botao.textContent = (d.partidas || 0) + ' partidas lidas'
+      + (comps > 1 ? ' em ' + comps + ' competições' : '') + ' — recarregando…';
     setTimeout(function(){ if (FICHA_ID) verFicha(FICHA_ID); }, 900);
   } catch(e) {
     botao.textContent = 'não deu: ' + (e.message || e);
@@ -16960,40 +17008,48 @@ def _elenco_pais(nacs: list[str]) -> dict:
 _ESCUDOS_CACHE: dict = {}
 
 
-def _escudos_em_cache(temporada: int) -> dict:
-    """A tabela de escudos, lida do banco uma vez a cada dez minutos.
+def _escudo_do_clube_pelo_nome(clube: str, temporada: int) -> str:
+    """O último recurso: achar o escudo pelo NOME do clube.
 
-    POR QUE ELA PRECISAVA DE CACHE
-        O Vini perguntou se filtrar um jogador gera chamada na API. Não gera —
-        a ficha lê do banco, e o filtro de competição nem vai ao servidor: ele
-        repinta com o que já está no navegador.
+    QUANDO ISTO É USADO — e por que é pouco
+        Só para o escudo do próprio jogador, e só quando ele não tem nenhuma
+        partida na temporada. Com partida, o escudo sai do id do lado dele
+        (`escudo_de_af_id`) e nenhum nome é consultado.
 
-        Mas cada abertura de ficha varria DUAS tabelas inteiras de escudos
-        para desenhar meia dúzia de emblemas, e a resposta é a mesma para
-        qualquer jogador. Clicar em dez nomes do elenco fazia vinte varreduras
-        para obter vinte vezes o mesmo resultado.
+    POR QUE SÓ A TABELA DA LIGA
+        A outra tabela de escudos que o app tem sai das transferências e
+        cobre o mundo inteiro com o NOME normalizado como chave. Foi ela que
+        pôs o emblema do Al Nasr de Dubai no Al-Nassr de Riade. Esta aqui
+        nasce do calendário da Saudi Pro League: dezoito clubes, nenhum
+        homônimo. Se o nome não estiver nela, devolvo vazio — o card mostra o
+        nome do clube, que é melhor do que mostrar o escudo errado.
 
-        Dez minutos é bem mais do que uma sessão de cliques e bem menos do que
-        a vida de um escudo — clube não troca de emblema no meio da tarde.
-
-    A ORDEM IMPORTA: o da liga sobrescreve o geral. A tabela mundial de
-    transferências devolve o Al Nasr de DUBAI para quem pede o Al Nassr de
-    Riade — os dois normalizam para a mesma chave, e lá ganha quem entrou
-    primeiro. Já custou uma correção antes.
+    O CACHE existe porque o Vini perguntou se filtrar um jogador gera chamada
+    na API. Não gera: a ficha lê do banco e o filtro repinta no navegador. Mas
+    abrir dez fichas varria a tabela dez vezes para a mesma resposta. Dez
+    minutos é mais que uma sessão de cliques e menos que a vida de um escudo.
     """
+    if not clube:
+        return ""
     agora = time.time()
     guardado = _ESCUDOS_CACHE.get(temporada)
-    if guardado and (agora - guardado[0]) < 600:
-        return guardado[1]
+    if not guardado or (agora - guardado[0]) >= 600:
+        try:
+            from database import escudos_da_liga
+            guardado = (agora, dict(escudos_da_liga(temporada)))
+            _ESCUDOS_CACHE[temporada] = guardado
+        except Exception as e:
+            print(f"⚠️ escudos: {type(e).__name__}: {e}")
+            guardado = guardado or (0, {})
+    escudos = guardado[1]
+    achado = escudos.get(clube)
+    if achado:
+        return achado
     try:
-        from database import escudos_da_liga, escudos_por_clube
-        escudos = dict(escudos_por_clube())
-        escudos.update(escudos_da_liga(temporada))
-    except Exception as e:
-        print(f"⚠️ escudos: {type(e).__name__}: {e}")
-        return (guardado or (0, {}))[1]
-    _ESCUDOS_CACHE[temporada] = (agora, escudos)
-    return escudos
+        import glossary
+        return escudos.get(glossary.padronizar_clube(clube) or "") or ""
+    except Exception:
+        return ""
 
 
 @app.get("/api/jogador/ficha")
@@ -17016,7 +17072,7 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
     API-Football, e o campinho sabe o da liga.
     """
     import glossario
-    from database import jogo_a_jogo
+    from database import jogo_a_jogo, escudo_de_af_id
 
     g = ({}
          or (glossario.por_tm_id(tm_id) if tm_id else {})
@@ -17030,19 +17086,34 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
     temporada = season or _af_temporada_corrente()
     partidas = await asyncio.to_thread(jogo_a_jogo, f.get("af_id"), temporada)
 
-    escudos = await asyncio.to_thread(_escudos_em_cache, temporada)
-
-    def _escudo(nome: str) -> str:
-        import glossary
-        if not nome:
-            return ""
-        return (escudos.get(nome)
-                or escudos.get(glossary.padronizar_clube(nome) or "")
-                or "")
-
+    # O ESCUDO SAI DO ID, NÃO DO NOME.
+    #
+    # O Vini viu o Al Nassr com o escudo do Al Nasr de Dubai e perguntou por
+    # que eu ainda pareava logo por semelhança de nome se cada jogador tem um
+    # clube vinculado. A resposta é que ele estava certo e isto aqui era uma
+    # gambiarra: a consulta já trazia `casa_id` e `fora_id`, e eu pegava o
+    # `adversario` (texto) para procurar numa tabela de escudos do mundo
+    # inteiro cuja chave é o nome normalizado. Dois clubes, uma chave.
+    #
+    # Agora o número vira endereço direto. Não há tabela para colidir.
     for p in partidas:
-        p["escudo_adversario"] = _escudo(p.get("adversario") or "")
+        do_adversario = p.get("fora_id") if p.get("em_casa") else p.get("casa_id")
+        p["escudo_adversario"] = escudo_de_af_id(do_adversario)
         p["competicao"] = p.get("liga_nome") or "Saudi Pro League"
+
+    # O escudo DELE sai do lado que era o dele no jogo mais recente — o mesmo
+    # caminho por id. Se ele não tem jogo nenhum nesta temporada, aí sim caio
+    # na tabela por nome, mas só na da LIGA, que nasce do calendário da própria
+    # competição e onde não existe clube homônimo de fora.
+    escudo_dele = ""
+    for p in partidas:
+        meu = p.get("casa_id") if p.get("em_casa") else p.get("fora_id")
+        escudo_dele = escudo_de_af_id(meu)
+        if escudo_dele:
+            break
+    if not escudo_dele:
+        escudo_dele = await asyncio.to_thread(
+            _escudo_do_clube_pelo_nome, f.get("clube") or "", temporada)
 
     # AS COMPETIÇÕES QUE ESTE JOGADOR DISPUTOU, para o filtro da tela.
     #
@@ -17122,7 +17193,7 @@ async def api_jogador_ficha(tm_id: str = "", af_id: int = 0, spl_id: str = "",
             "idade": _idade_em_anos(f.get("nascimento")),
             "foto": f.get("foto") or "",
             "foto_fonte": f.get("foto_fonte") or "",
-            "escudo_clube": _escudo(f.get("clube") or ""),
+            "escudo_clube": escudo_dele,
         },
         "temporada": temporada,
         "totais": totais,

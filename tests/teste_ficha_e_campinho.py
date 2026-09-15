@@ -440,9 +440,10 @@ def testar():
 
     # A bandeira é IMAGEM, não emoji: no Windows o emoji de bandeira sai como
     # duas letras, e é no Windows que ele abre isto.
-    ok('p["escudo_adversario"] = _escudo(p.get("adversario") or "")' in FONTE,
-       "o servidor parou de preencher o escudo do adversário — a tela tem o "
-       "lugar dele e nada para pôr lá")
+    ok('p["escudo_adversario"] = escudo_de_af_id(do_adversario)' in FONTE,
+       "o servidor parou de preencher o escudo do adversário pelo ID — a tela "
+       "tem o lugar dele e nada para pôr lá. (Se voltou a ser por nome, é o "
+       "Al Nassr de Dubai de novo: ver teste_escudo_pelo_id.py)")
     ok("flagcdn.com/w40/" in el,
        "a bandeira da ficha voltou a ser emoji — no Windows ela vira um par "
        "de letras")
@@ -603,44 +604,54 @@ def testar():
        "os jogos das outras competições só seriam lidos na madrugada "
        "seguinte, um dia depois de acontecerem")
 
-    # ── 5h. O CACHE DOS ESCUDOS ──────────────────────────────────────────
+    # ── 5h. O ESCUDO SAI DO ID; O NOME É ÚLTIMO RECURSO ──────────────────
     # "Ou toda a vez que se filtra um jogador gera chamada na api?" Não gera: a
-    # ficha lê do banco, e o filtro nem vai ao servidor. Mas cada abertura
-    # varria DUAS tabelas de escudos para desenhar meia dúzia de emblemas — e
-    # a resposta é a mesma para qualquer jogador.
+    # ficha lê do banco, e o filtro nem vai ao servidor.
+    #
+    # Mas a busca do escudo era por NOME numa tabela com clube do mundo
+    # inteiro, e o Vini viu o Al-Nassr de Riade com o emblema do Al Nasr de
+    # Dubai. Agora o escudo sai do id que a própria consulta já devolvia, e o
+    # nome só é consultado quando o jogador não tem partida nenhuma — e mesmo
+    # aí, só na tabela da LIGA, onde não existe homônimo.
     _ec = next((_ast2.get_source_segment(FONTE, n)
                 for n in _ast2.walk(_ast2.parse(FONTE))
-                if isinstance(n, _ast2.FunctionDef) and n.name == "_escudos_em_cache"), "")
+                if isinstance(n, _ast2.FunctionDef)
+                and n.name == "_escudo_do_clube_pelo_nome"), "")
+    ok(_ec, "sumiu _escudo_do_clube_pelo_nome")
+    ok("escudos_por_clube" not in _ec,
+       "o último recurso voltou à tabela de escudos do mundo inteiro — é ela "
+       "que tem o Al Nasr de Dubai na mesma chave do Al-Nassr de Riade")
+
     # EXECUTADO, e não procurado: conferir que a variável do cache aparece no
     # texto prova que eu a escrevi, não que ela guarda. Aqui eu conto quantas
     # vezes o banco é varrido em três aberturas de ficha seguidas.
     _vezes = {"n": 0}
-    def _conta():
+    def _conta(_t):
         _vezes["n"] += 1
         return {"Al Nassr": "escudo.png"}
-    _gp, _gl = database.escudos_por_clube, database.escudos_da_liga
-    database.escudos_por_clube = _conta
-    database.escudos_da_liga = lambda t: {}
+    _gl = database.escudos_da_liga
+    database.escudos_da_liga = _conta
     main._ESCUDOS_CACHE.clear()
     try:
         for _ in range(3):
-            main._escudos_em_cache(2026)
+            _r = main._escudo_do_clube_pelo_nome("Al Nassr", 2026)
+        conferir("o escudo do clube saiu certo", _r, "escudo.png")
         conferir("três aberturas de ficha, uma varredura só", _vezes["n"], 1)
         # Temporada diferente é outra pergunta, e tem de ir ao banco.
-        main._escudos_em_cache(2025)
+        main._escudo_do_clube_pelo_nome("Al Nassr", 2025)
         conferir("temporada diferente não reaproveita o cache errado",
                  _vezes["n"], 2)
+        # Clube que a liga não conhece: vazio, e não um escudo qualquer.
+        conferir("clube desconhecido não ganha escudo emprestado",
+                 main._escudo_do_clube_pelo_nome("Chelsea", 2026), "")
+        conferir("clube vazio não ganha escudo",
+                 main._escudo_do_clube_pelo_nome("", 2026), "")
     finally:
-        database.escudos_por_clube, database.escudos_da_liga = _gp, _gl
+        database.escudos_da_liga = _gl
         main._ESCUDOS_CACHE.clear()
-    ok("< 600" in _ec,
+    ok(">= 600" in _ec,
        "o cache dos escudos perdeu o prazo — ele tem de durar mais que uma "
        "sessão de cliques e menos que a vida de um escudo")
-    ok(_ec.find("escudos_por_clube()") < _ec.find("escudos_da_liga("),
-       "a ordem dos escudos inverteu. O da liga tem de sobrescrever o geral: "
-       "a tabela mundial devolve o Al Nasr de Dubai para quem pede o de Riade")
-    ok("return (guardado or (0, {}))[1]" in _ec,
-       "com o banco fora do ar, o cache deixou de servir o que já tinha")
     ok('_af_get' not in next((_ast2.get_source_segment(FONTE, n)
                               for n in _ast2.walk(_ast2.parse(FONTE))
                               if isinstance(n, (_ast2.FunctionDef, _ast2.AsyncFunctionDef))
