@@ -313,12 +313,43 @@ _DE_ONDE = {
 }
 
 
+def _endereco_de_foto(valor: str) -> str:
+    """O endereço COMPLETO da foto, venha ela de qual fonte vier.
+
+    POR QUE ISTO PRECISOU EXISTIR (14/09/26)
+        O Vini escolheu a foto da SPL nas configurações e a guia de Elencos
+        continuou mostrando a do Transfermarkt. Eu já tinha ligado a guia ao
+        glossário e conferido que ela obedecia — e obedecia mesmo: a foto da
+        SPL estava sendo escolhida e entregue.
+
+        Só que a SPL guarda CAMINHO ("players/123.png"), não endereço. O
+        navegador procurava esse caminho no servidor do app, não achava, e
+        caía na foto reserva do Transfermarkt — que eu mesmo pus ali para o
+        card não ficar com um buraco. A rede de segurança escondeu o defeito
+        e produziu exatamente o sintoma de "não obedeceu".
+
+        Outras telas já faziam esta conversão cada uma por conta. Agora ela
+        mora aqui, que é a porta única: quem pede foto ao glossário recebe
+        algo que o navegador consegue abrir, e ninguém mais precisa saber que
+        a liga entrega caminho e o Transfermarkt entrega URL.
+    """
+    v = (valor or "").strip()
+    if not v or v.startswith(("http://", "https://", "data:", "/")):
+        return v
+    try:
+        import liga_spl
+        return liga_spl.MEDIA + v
+    except Exception:
+        return v
+
+
 def _do_campo(j: dict, campo: str, fonte: str):
     """O valor deste campo nesta fonte, ou "" se ela não guarda esse dado."""
     coluna = (_DE_ONDE.get(campo) or {}).get(fonte)
     if not coluna:
         return ""
-    return j.get(coluna) or ""
+    valor = j.get(coluna) or ""
+    return _endereco_de_foto(valor) if campo == "foto" else valor
 
 
 def ficha(j: dict) -> dict:

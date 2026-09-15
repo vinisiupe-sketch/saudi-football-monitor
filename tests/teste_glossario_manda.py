@@ -104,7 +104,8 @@ FICHAS = [
      "nome_ar": "روجر فرنانديز", "clube": "Al Ahli",
      "posicao": "Meia", "nacionalidade": "Portugal", "foto": "",
      "af_foto": "af/roger.png", "af_nacionalidade": "Portugal",
-     "tm_foto": "tm/roger.png", "tm_posicao": "Left Winger",
+     "tm_foto": "https://img.a.transfermarkt.technology/roger.jpg",
+     "tm_posicao": "Left Winger",
      "tm_nacionalidade": "Portugal"},
     # Dois homônimos exatos, em clubes diferentes. Existe nesta liga.
     {"id": 3, "spl_id": "s3", "af_id": 103, "tm_id": "203",
@@ -225,16 +226,29 @@ def testar():
     # ── 6. A FONTE DE CADA CAMPO É ESCOLHA DO VINI ───────────────────────
     # Vale para as 601 fichas de uma vez, na guia de Ajustes.
     ham = glossario.carregar()["por_id"][1]
+    roger_url = glossario.carregar()["por_id"][2]
     _ajuste_fixo({"glossario_fonte_foto": "transfermarkt",
                   "glossario_fonte_posicao": "transfermarkt",
                   "glossario_fonte_nacionalidade": "spl"})
     f = glossario.ficha(ham)
-    conferir("foto da fonte escolhida", f["foto"], "tm/ham.png")
+    # A do TM ja e endereco completo na vida real; aqui ela nao tem
+    # esquema, entao passa pela mesma conversao. O que importa e que a
+    # funcao nao inventa dois prefixos nem estraga uma URL pronta.
+    conferir("foto da fonte escolhida", f["foto"],
+             "https://media-sdp.spl.com.sa/tm/ham.png")
     conferir("posição detalhada do TM", f["posicao"], "Centre-Forward")
     conferir("nacionalidade da SPL", f["nacionalidade"], "Marrocos")
 
     _ajuste_fixo({"glossario_fonte_foto": "spl"})
-    conferir("foto da SPL", glossario.ficha(ham)["foto"], "spl/ham.png")
+    conferir("foto da SPL", glossario.ficha(ham)["foto"],
+             "https://media-sdp.spl.com.sa/spl/ham.png")
+    # URL QUE JA ESTA PRONTA PASSA INTEIRA. A do Transfermarkt ja vem completa;
+    # grudar o servidor da SPL na frente dela produziria um endereco duplo que
+    # nao abre — e o card cairia na reserva de novo, com o mesmo sintoma.
+    _ajuste_fixo({"glossario_fonte_foto": "transfermarkt"})
+    conferir("URL completa nao ganha prefixo",
+             glossario.ficha(roger_url)["foto"],
+             "https://img.a.transfermarkt.technology/roger.jpg")
 
     # FONTE ESTRITA QUE NÃO TEM O DADO DEIXA VAZIO, e isso é de propósito:
     # preencher com outra tabela seria mentira calada, que é justamente o que
@@ -251,9 +265,11 @@ def testar():
     # "melhor disponível" percorre SPL → API-Football → Transfermarkt.
     _ajuste_fixo({})
     conferir("melhor disponível pega a primeira que tem",
-             glossario.ficha(roger)["foto"], "af/roger.png")
+             glossario.ficha(roger)["foto"],
+             "https://media-sdp.spl.com.sa/af/roger.png")
     conferir("melhor disponível prefere a SPL quando ela tem",
-             glossario.ficha(ham)["foto"], "spl/ham.png")
+             glossario.ficha(ham)["foto"],
+             "https://media-sdp.spl.com.sa/spl/ham.png")
 
     # ── 7. SEM GLOSSÁRIO, NINGUÉM INVENTA UM ─────────────────────────────
     # Banco fora do ar não pode virar respostas erradas com ar de autoridade.
@@ -427,8 +443,24 @@ def testar():
         r = _asyncio.run(main.api_elencos_jogadores(1))
         por_nome = {j["nome"]: j for j in r["jogadores"]}
 
+        # A FOTO TEM QUE SAIR COMO ENDEREÇO, e não como caminho.
+        #
+        # A SPL guarda "players/123.png" de propósito (se eles trocarem de
+        # servidor de imagem, é uma constante para mexer e não uma coluna para
+        # reescrever). Só que o navegador não abre isso: procura no servidor do
+        # app, não acha, e cai na foto reserva do Transfermarkt.
+        #
+        # Foi exatamente o que o Vini viu — ele escolheu a SPL e continuou
+        # vendo o TM. A guia OBEDECIA; a rede de segurança que eu pus para o
+        # card não ficar com um buraco escondeu o defeito e produziu o
+        # sintoma de desobediência.
         conferir("Elencos passou a obedecer a fonte da foto",
-                 por_nome["Hamdallah"]["foto"], "spl/ham.png")
+                 por_nome["Hamdallah"]["foto"],
+                 "https://media-sdp.spl.com.sa/spl/ham.png")
+        ok(por_nome["Hamdallah"]["foto"].startswith("http"),
+           "a foto da SPL saiu como caminho e não como endereço. O navegador "
+           "não abre, cai calado na reserva do Transfermarkt, e parece que a "
+           "configuração foi ignorada")
         conferir("Elencos passou a obedecer a fonte da posição",
                  por_nome["Hamdallah"]["posicao"], "Atacante")
         conferir("Elencos passou a obedecer a fonte da nacionalidade",
@@ -466,7 +498,7 @@ def testar():
         r2 = _asyncio.run(main.api_elencos_jogadores(1))
         conferir("trocar a fonte troca a foto na hora",
                  {j["nome"]: j for j in r2["jogadores"]}["Hamdallah"]["foto"],
-                 "tm/ham.png")
+                 "https://media-sdp.spl.com.sa/tm/ham.png")
     finally:
         tm.elenco, tm.desempenho = guardado
         _ajuste_fixo({})
