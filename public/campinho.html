@@ -320,14 +320,32 @@ async function carregarTimes(){
       '<button class="ctrl" style="margin-top:8px" onclick="carregarTimes()">Tentar de novo</button></div>';
     return;
   }
+  // O NOME DO CLUBE VAI JUNTO, e não é enfeite: quando o Transfermarkt está
+  // fora do ar o clube pode não ter o id dele, e aí é o NOME que busca o
+  // elenco — no banco ou no glossário. Sem isso, o clube apareceria na barra
+  // e não abriria nada.
   document.getElementById('escudos').innerHTML = d.times.map(function(t){
-    return '<div class="escudo" data-id="' + t.id + '" title="' + t.nome + '" onclick="selecionarTime(' + t.id + ',this)">' +
-           '<img src="' + t.escudo + '" alt="' + t.nome + '"></div>';
+    return '<div class="escudo" data-id="' + t.id + '" data-nome="' + t.nome + '"' +
+           ' title="' + t.nome + '" onclick="selecionarTime(' + t.id + ',this)">' +
+           (t.escudo ? '<img src="' + t.escudo + '" alt="' + t.nome + '">'
+                     : '<span>' + (t.sigla || t.nome.slice(0,3)) + '</span>') +
+           '</div>';
   }).join('');
+  // De onde veio a lista. Some quando é a fonte principal — aviso que aparece
+  // sempre deixa de ser aviso.
+  if (d.fonte && d.fonte !== 'spl') {
+    const av = document.getElementById('avisos');
+    if (av) {
+      av.textContent = '⚠️ lista de clubes vinda de ' + d.fonte +
+        ((d.avisos || []).length ? ' · ' + d.avisos.join(' · ') : '');
+      av.style.display = '';
+    }
+  }
 }
 
 async function selecionarTime(id, el){
   TIME_ATUAL = id;
+  TIME_NOME = (el && el.dataset.nome) || '';
   document.querySelectorAll('.escudo').forEach(function(e){
     e.classList.toggle('active', Number(e.dataset.id) === id);
   });
@@ -336,14 +354,13 @@ async function selecionarTime(id, el){
   try {
     // Elenco e escalação em paralelo: a segunda é o que desenha o campo.
     const [rj, re, rs] = await Promise.all([
-      fetch('/api/elencos/jogadores?team=' + id),
+      fetch('/api/elencos/jogadores?team=' + id + '&clube=' + encodeURIComponent(TIME_NOME || '')),
       fetch('/api/elencos/escalacao?team=' + id),
       fetch('/api/elencos/escalacao-salva?team=' + id)
     ]);
     const d = await rj.json();
     if (d.erro) throw new Error(d.erro);
     ELENCO = d.jogadores;
-    TIME_NOME = (el && el.dataset.nome) || TIME_NOME;
     VAGA = null;
     const av = document.getElementById('avisos');
     if (d.avisos && d.avisos.length) { av.textContent = '⚠️ ' + d.avisos.join(' · '); av.style.display = ''; }

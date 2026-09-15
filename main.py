@@ -14754,7 +14754,7 @@ async function selecionarTime(id, el){
   try {
     // Só o elenco. A escalação e o campo saíram para a guia Campinho, e com
     // eles duas das três chamadas que esta tela fazia ao abrir.
-    const r = await fetch('/api/elencos/jogadores?team=' + id);
+    const r = await fetch('/api/elencos/jogadores?team=' + id + '&clube=' + encodeURIComponent(TIME_NOME || ''));
     const d = await r.json();
     if (d.erro) throw new Error(d.erro);
     ELENCO = d.jogadores;
@@ -14839,10 +14839,27 @@ async function carregarTimes(){
       '<button class="ctrl" style="margin-top:8px" onclick="carregarTimes()">Tentar de novo</button></div>';
     return;
   }
+  // O NOME DO CLUBE VAI JUNTO, e não é enfeite: quando o Transfermarkt está
+  // fora do ar o clube pode não ter o id dele, e aí é o NOME que busca o
+  // elenco — no banco ou no glossário. Sem isso, o clube apareceria na barra
+  // e não abriria nada.
   document.getElementById('escudos').innerHTML = d.times.map(function(t){
-    return '<div class="escudo" data-id="' + t.id + '" title="' + t.nome + '" onclick="selecionarTime(' + t.id + ',this)">' +
-           '<img src="' + t.escudo + '" alt="' + t.nome + '"></div>';
+    return '<div class="escudo" data-id="' + t.id + '" data-nome="' + t.nome + '"' +
+           ' title="' + t.nome + '" onclick="selecionarTime(' + t.id + ',this)">' +
+           (t.escudo ? '<img src="' + t.escudo + '" alt="' + t.nome + '">'
+                     : '<span>' + (t.sigla || t.nome.slice(0,3)) + '</span>') +
+           '</div>';
   }).join('');
+  // De onde veio a lista. Some quando é a fonte principal — aviso que aparece
+  // sempre deixa de ser aviso.
+  if (d.fonte && d.fonte !== 'spl') {
+    const av = document.getElementById('avisos');
+    if (av) {
+      av.textContent = '⚠️ lista de clubes vinda de ' + d.fonte +
+        ((d.avisos || []).length ? ' · ' + d.avisos.join(' · ') : '');
+      av.style.display = '';
+    }
+  }
 }
 
 function grupoDe(p){
@@ -16169,15 +16186,214 @@ async def api_posts_publicar(post_id: int):
     return {"ok": True, "post_id": r.get("id"), "custo": r.get("custo")}
 
 
+def _clubes_do_congelado() -> dict:
+    """{nome padronizado: (clube_id do TM, nome como o TM escreve)}.
+
+    O elenco congelado é a ponte entre o nome do clube e o identificador do
+    Transfermarkt. Ele está no NOSSO banco, então responde sem rede e sem
+    depender de ninguém estar no ar.
+    """
+    import glossary
+    from database import elenco_congelado
+    mapa = {}
+    try:
+        for j in elenco_congelado():
+            nome = (j.get("clube") or "").strip()
+            cid = j.get("clube_id")
+            if not nome or not cid:
+                continue
+            mapa.setdefault(
+                (glossary.padronizar_clube(nome) or nome).lower(),
+                (int(cid), nome))
+    except Exception as e:
+        print(f"⚠️ clubes do congelado: {type(e).__name__}: {e}")
+    return mapa
+
+
+def _clubes_da_liga_spl() -> list[dict]:
+    """Os clubes da temporada, pelo calendário oficial da liga.
+
+    Nome, sigla e escudo saem da SPL. O `id` continua sendo o do Transfermarkt,
+    porque é ele que a busca de elenco usa — e ele vem do elenco congelado, que
+    está no nosso banco. Clube sem esse cruzamento ainda aparece: a lista de
+    elenco aceita o NOME como chave, então ele continua clicável.
+    """
+    import glossary
+    import httpx
+    import liga_spl
+    saida, por_nome = [], _clubes_do_congelado()
+    with httpx.Client() as cli:
+        hoje = _dia_de_brasilia()
+        sid = liga_spl.temporada(hoje, cli)
+        if not sid:
+            return []
+        vistos = {}
+        for j in liga_spl.jogos_da_temporada(sid, cli):
+            for lado in ("home", "away"):
+                t = j.get(lado) or {}
+                nome = t.get("shortName") or t.get("officialName") or ""
+                if not nome or nome in vistos:
+                    continue
+                logo = (t.get("imagery") or {}).get("teamLogo") or ""
+                vistos[nome] = {
+                    "nome": nome,
+                    "sigla": t.get("acronymName") or "",
+                    "escudo": (liga_spl.MEDIA + logo) if logo else "",
+                }
+        for nome, d in vistos.items():
+            chave = (glossary.padronizar_clube(nome) or nome).lower()
+            tm = por_nome.get(chave)
+            d["id"] = tm[0] if tm else 0
+            d["nome_tm"] = tm[1] if tm else ""
+            saida.append(d)
+    return sorted(saida, key=lambda c: c["nome"].lower())
+
+
+def _elenco_de_reserva(team: int, clube: str) -> tuple[list[dict], str, list[str]]:
+    """O elenco sem o Transfermarkt ao vivo. Devolve (lista, fonte, avisos).
+
+    Monta as linhas no MESMO formato que o TM entrega, para quem chama não
+    precisar saber de onde veio. A diferença aparece só nos campos que a
+    reserva não tem — e esses saem vazios, nunca preenchidos por semelhança.
+    """
+    import glossary
+    from database import elenco_congelado
+    avisos = []
+
+    if team:
+        try:
+            guardado = elenco_congelado(team)
+        except Exception:
+            guardado = []
+        if guardado:
+            avisos.append("elenco do banco (congelado), não do Transfermarkt "
+                          "ao vivo — sem os números desta temporada")
+            return ([{
+                "id": j.get("jogador_id"), "nome": j.get("nome") or "",
+                "numero": j.get("numero"), "posicao": j.get("posicao") or "",
+                "grupo": _grupo_da_posicao(j.get("posicao") or ""),
+                "idade": j.get("idade"), "nascimento": None,
+                "altura": j.get("altura"), "pe": j.get("pe"),
+                "valor": j.get("valor"), "contrato": None,
+                "foto_tm": j.get("foto") or "",
+                "nacionalidades": [n for n in (j.get("nacionalidades") or "").split(",") if n.strip()],
+            } for j in guardado], "congelado", avisos)
+
+    # Última reserva: o glossário. Ele não tem número de camisa nem altura,
+    # mas sabe QUEM joga em cada clube — e é isso que o campinho precisa.
+    alvo = (glossary.padronizar_clube(clube) or clube or "").lower()
+    if not alvo:
+        return [], "", avisos + ["sem o nome do clube eu não sei quem procurar "
+                                 "no glossário"]
+    import glossario as _g
+    gente = [j for j in (_g.carregar().get("por_id") or {}).values()
+             if (glossary.padronizar_clube(j.get("clube") or "")
+                 or j.get("clube") or "").lower() == alvo]
+    if not gente:
+        return [], "", avisos + [f"o glossário não tem ninguém no {clube}"]
+    avisos.append("elenco vindo do glossário — ele tem quem joga no clube, "
+                  "mas não altura, pé nem números da temporada")
+    linhas = []
+    for j in gente:
+        f = _g.ficha(j)
+        linhas.append({
+            "id": f.get("tm_id") or f.get("spl_id"),
+            "nome": f.get("nome_principal") or "",
+            "numero": int(f["camisa"]) if str(f.get("camisa") or "").isdigit() else None,
+            "posicao": f.get("posicao") or "",
+            "grupo": _grupo_da_posicao(f.get("posicao") or ""),
+            "idade": _idade_em_anos(f.get("nascimento")),
+            "nascimento": str(f.get("nascimento") or "")[:10] or None,
+            "altura": None, "pe": None, "valor": None, "contrato": None,
+            "foto_tm": f.get("foto") or "",
+            "nacionalidades": [f["nacionalidade"]] if f.get("nacionalidade") else [],
+        })
+    return linhas, "glossario", avisos
+
+
+def _grupo_da_posicao(pos: str) -> str:
+    """G/D/M/A a partir do texto da posição, em português ou em inglês.
+
+    Duas línguas porque as reservas escrevem diferente: o elenco congelado
+    guardou o que o Transfermarkt brasileiro dizia, e o glossário guarda o
+    rótulo da SPL, que é em inglês. Quem não reconhecer fica sem setor — e
+    sem setor o jogador ainda aparece na lista, só não entra nos filtros.
+    """
+    p = (pos or "").lower()
+    if any(x in p for x in ("goleiro", "goalkeeper")):
+        return "G"
+    if any(x in p for x in ("zagueiro", "lateral", "defensor", "defender",
+                            "back", "defence", "defesa")):
+        return "D"
+    if any(x in p for x in ("volante", "meia", "meio", "midfield", "midfielder")):
+        return "M"
+    if any(x in p for x in ("atacante", "ponta", "centroavante", "forward",
+                            "winger", "striker", "attack")):
+        return "A"
+    return ""
+
+
 @app.get("/api/elencos/times")
 async def api_elencos_times():
-    """Clubes da Saudi Pro League, deduzidos do calendário do Transfermarkt."""
+    """Os clubes da liga. A SPL PRIMEIRO, o Transfermarkt como reserva.
+
+    POR QUE A ORDEM MUDOU (14/09/26)
+        A lista vinha do calendário do Transfermarkt, raspado ao vivo. O TM
+        responde 403 quando acha que está sendo consultado demais, e aí a guia
+        inteira ficava sem clube nenhum — sem escudo, sem elenco, sem campinho.
+        Um erro em vermelho no lugar de uma tela que funciona.
+
+        O Vini cortou: "não podemos depender do Transfermarkt; tudo que ele
+        não conseguir pegar tem que ter um backup de outra fonte, e neste caso
+        use de prioridade a API da SPL".
+
+        Ele está certo, e há uma razão a mais: a SPL é a fonte OFICIAL da
+        competição. Quem está na liga esta temporada é ela quem diz — o
+        Transfermarkt é uma boa cópia disso, não o original.
+
+    TRÊS FONTES, NESTA ORDEM, e cada uma resolve a falha da anterior:
+      1. A API da SPL — oficial, sem raspagem, com escudo próprio.
+      2. O elenco congelado, que está no nosso banco e responde sem rede.
+      3. O Transfermarkt, que é onde a gente começou.
+
+    A tela DIZ de onde veio. Uma lista que aparece por um caminho diferente,
+    sem avisar, esconde que a fonte principal está fora do ar — e aí o defeito
+    só se descobre quando alguma coisa que só ela tem faz falta.
+    """
+    avisos = []
+    try:
+        times = await asyncio.to_thread(_clubes_da_liga_spl)
+        if times:
+            return {"season": elenco_tm.TM_SAISON, "times": times,
+                    "fonte": "spl", "avisos": avisos}
+        avisos.append("o calendário da SPL não devolveu clubes")
+    except Exception as e:
+        avisos.append(f"SPL indisponível ({type(e).__name__}: {e})")
+
+    try:
+        do_banco = _clubes_do_congelado()
+        if do_banco:
+            times = sorted(
+                ({"id": cid, "nome": nome, "sigla": "",
+                  "escudo": f"https://tmssl.akamaized.net//images/wappen/head/{cid}.png"}
+                 for cid, nome in do_banco.values()),
+                key=lambda c: c["nome"].lower())
+            avisos.append("lista vinda do elenco guardado no banco")
+            return {"season": elenco_tm.TM_SAISON, "times": times,
+                    "fonte": "congelado", "avisos": avisos}
+    except Exception as e:
+        avisos.append(f"elenco guardado indisponível ({type(e).__name__})")
+
     try:
         times, aviso = await elenco_tm.clubes()
+        if aviso:
+            avisos.append(aviso)
+        return {"season": elenco_tm.TM_SAISON, "times": times,
+                "fonte": "transfermarkt", "avisos": avisos}
     except Exception as e:
-        return {"erro": f"{type(e).__name__}: {e}"}
-    return {"season": elenco_tm.TM_SAISON, "times": times,
-            "avisos": [aviso] if aviso else []}
+        avisos.append(f"{type(e).__name__}: {e}")
+        return {"erro": "nenhuma das três fontes de clubes respondeu",
+                "avisos": avisos}
 
 
 def _elenco_pais(nacs: list[str]) -> dict:
@@ -16295,17 +16511,44 @@ def _idade_em_anos(nascimento) -> int | None:
 
 
 @app.get("/api/elencos/jogadores")
-async def api_elencos_jogadores(team: int):
-    """Elenco completo do clube, cadastro e números, tudo do Transfermarkt."""
+async def api_elencos_jogadores(team: int = 0, clube: str = ""):
+    """Elenco do clube. Transfermarkt ao vivo, com DUAS reservas.
+
+    O TM responde 403 quando acha que está sendo consultado demais, e antes
+    disso derrubava a guia inteira. "Tudo que o Transfermarkt não conseguir
+    pegar tem que ter um backup de outra fonte" — e agora tem:
+
+      1. O TM ao vivo: é o mais completo (pé, altura, valor, números da
+         temporada). Continua sendo a primeira escolha.
+      2. O ELENCO CONGELADO, no nosso banco. Foi gravado justamente para o dia
+         em que a fonte saísse do ar, e responde sem rede.
+      3. O GLOSSÁRIO, que sabe quem joga em cada clube dos 601 auditados pelo
+         Vini. Traz menos campos, mas traz as pessoas certas — e é melhor
+         montar uma escalação com nome e foto do que com uma tela vazia.
+
+    A tela DIZ qual foi usada. Reserva que entra calada esconde que a
+    principal está fora do ar, e o defeito só aparece quando faz falta algo
+    que só ela tinha.
+    """
+    avisos_fonte, fonte = [], "transfermarkt"
+    plantel, numeros, av1, av2 = [], {}, None, None
     # Sequencial de propósito: o TM bloqueia quem dispara em paralelo, e o
     # portão interno do módulo serializa mesmo se pedirmos junto.
-    try:
-        plantel, av1 = await elenco_tm.elenco(team)
-        numeros, av2 = await elenco_tm.desempenho(team)
-    except Exception as e:
-        return {"erro": f"{type(e).__name__}: {e}"}
+    if team:
+        try:
+            plantel, av1 = await elenco_tm.elenco(team)
+            numeros, av2 = await elenco_tm.desempenho(team)
+        except Exception as e:
+            avisos_fonte.append(f"Transfermarkt fora do ar ({type(e).__name__})")
+            plantel = []
+
     if not plantel:
-        return {"erro": "o Transfermarkt não devolveu elenco para este clube"}
+        plantel, fonte, extra = await asyncio.to_thread(
+            _elenco_de_reserva, team, clube)
+        avisos_fonte += extra
+        if not plantel:
+            return {"erro": "não consegui o elenco deste clube em nenhuma das "
+                            "três fontes", "avisos": avisos_fonte}
 
     sem_bandeira, sem_posicao = set(), set()
     jogadores = []
@@ -16393,7 +16636,7 @@ async def api_elencos_jogadores(team: int):
     ordem = {"G": 0, "D": 1, "M": 2, "A": 3}
     jogadores.sort(key=lambda j: (ordem.get(j["grupo"], 9), -(j["minutos"] or 0),
                                   j["numero"] if j["numero"] is not None else 999))
-    avisos = [a for a in (av1, av2) if a]
+    avisos = avisos_fonte + [a for a in (av1, av2) if a]
     if sem_bandeira:
         avisos.append("nacionalidades sem bandeira mapeada: " + ", ".join(sorted(sem_bandeira)))
     if sem_posicao:
@@ -16406,7 +16649,7 @@ async def api_elencos_jogadores(team: int):
                       "glossário — os demais aparecem com o dado do "
                       "Transfermarkt, porque não há vínculo para consultar")
     return {"season": elenco_tm.TM_SAISON, "team": team, "total": len(jogadores),
-            "no_glossario": do_glossario,
+            "no_glossario": do_glossario, "fonte": fonte,
             "jogadores": jogadores, "avisos": avisos}
 
 
