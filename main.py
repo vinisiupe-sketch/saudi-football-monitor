@@ -187,6 +187,53 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
 
 
+@app.exception_handler(Exception)
+async def _erro_vira_frase(request: Request, exc: Exception):
+    """Qualquer erro não previsto vira uma FRASE na tela, e não um 500 mudo.
+
+    POR QUE ISTO EXISTE (16/09/26)
+        O Vini abriu a guia de Elencos e viu: "Erro: Unexpected token 'I',
+        'Internal S'... is not valid JSON". Essa mensagem é o navegador
+        tentando ler como JSON a resposta padrão do servidor para um erro
+        inesperado — o texto "Internal Server Error".
+
+        Ou seja: alguma coisa estourou no servidor e a tela não tinha como
+        saber o quê. Eu passei quarenta minutos procurando às cegas, e a
+        procura teria sido de um minuto se a resposta dissesse o nome do erro.
+
+        Esse é o defeito de verdade, e é mais antigo que o erro em si: TODA
+        rota deste app pode estourar, e até hoje todas estouravam em silêncio.
+
+    O QUE ELE VAI VER
+        O tipo do erro, a mensagem e o ARQUIVO E A LINHA onde aconteceu —
+        porque "KeyError: 'numero'" sem endereço ainda deixa procurando.
+
+    A tela já sabe mostrar isto: as guias leem `d.erro` e escrevem na caixa. O
+    formato da resposta é o mesmo que as rotas já usam quando dão errado por
+    conta própria.
+
+    PÁGINA NÃO É ROTA DE DADOS: quem pediu HTML recebe HTML, senão o navegador
+    baixaria um arquivo JSON no lugar de mostrar uma tela.
+    """
+    import traceback
+    tb = traceback.extract_tb(exc.__traceback__)
+    onde = ""
+    if tb:
+        f = tb[-1]
+        onde = f"{f.filename.split('/')[-1]}:{f.lineno} em {f.name}()"
+    recado = f"{type(exc).__name__}: {exc}"
+    # O rastro inteiro vai para o log do Railway, que é onde cabe.
+    print(f"💥 {request.url.path} — {recado}")
+    traceback.print_exception(type(exc), exc, exc.__traceback__)
+    if request.url.path.startswith("/api/"):
+        return JSONResponse({"erro": recado, "onde": onde}, status_code=500)
+    return HTMLResponse(
+        "<h1>Deu erro aqui dentro</h1>"
+        f"<p><b>{recado}</b></p><p>{onde}</p>"
+        "<p>Isto é um defeito do app, não uma coisa que você fez. "
+        "Manda esta tela para o Claude.</p>", status_code=500)
+
+
 @app.get("/manifest.webmanifest")
 async def manifest():
     """Diz ao celular o nome, o ícone e como abrir. É o que separa um atalho
@@ -17779,8 +17826,15 @@ async def api_elencos_jogadores(team: int = 0, clube: str = ""):
             plantel = []
 
     if not plantel:
-        plantel, fonte, extra = await asyncio.to_thread(
-            _elenco_de_reserva, team, clube)
+        # COM REDE: esta era a única chamada da rota sem proteção, e ela vai ao
+        # banco e ao glossário. Reserva que estoura derrubava a guia inteira —
+        # exatamente o que a reserva existe para evitar.
+        try:
+            plantel, fonte, extra = await asyncio.to_thread(
+                _elenco_de_reserva, team, clube)
+        except Exception as e:
+            plantel, fonte, extra = [], "", [f"a reserva também falhou "
+                                             f"({type(e).__name__}: {e})"]
         avisos_fonte += extra
         if not plantel:
             return {"erro": "não consegui o elenco deste clube em nenhuma das "
