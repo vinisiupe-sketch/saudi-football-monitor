@@ -10833,7 +10833,10 @@ async def api_ajustes_ler():
         d["valor"] = ajuste(a["chave"])
         d["no_padrao"] = d["valor"] == a["padrao"]
         saida.append(d)
-    return {"ajustes": saida, "grupos": ajustes.grupos()}
+    # As SEÇÕES vão junto: a página se monta a partir delas, e o mapa de
+    # grupo → seção mora no ajustes.py, não aqui.
+    return {"ajustes": saida, "grupos": ajustes.grupos(),
+            "secoes": ajustes.secoes()}
 
 
 @app.post("/api/ajustes")
@@ -13036,46 +13039,102 @@ ciclo();
 
 
 _CONFIG_CSS = """
+/* ── A GUIA DE CONFIGURAÇÕES, REFEITA ──────────────────────────────────────
+   "Também quero que organize a guia de configurações, tá uma zona. Gosto do
+   layout de configurações daqui do aplicativo do Claude."
+
+   Estava mesmo: vinte e quatro ajustes de oito grupos, mais jogadores,
+   convites e contas, empilhados numa coluna só. Quem ia lá mudar UMA coisa
+   rolava a página inteira e passava por sete grupos que não queria.
+
+   Do molde que ele deu eu copiei três ideias:
+     1. NAVEGAÇÃO À ESQUERDA, uma seção por vez à direita.
+     2. A LINHA EXPLICA: rótulo em cima, frase abaixo, controle à direita. A
+        ajuda deixa de ser parágrafo solto e vira parte da linha.
+     3. AR: cartão com borda suave, linhas separadas por fio fino.
+
+   NO CELULAR o menu da esquerda não cabe — vira uma fileira de abas que rola
+   na horizontal. Continua sendo um toque para trocar de seção. */
+
 body{background:var(--c-bg);color:var(--c-text);font-family:'Inter',system-ui,
   -apple-system,'Segoe UI',sans-serif;margin:0}
-.wrap{max-width:760px;margin:0 auto;padding:20px 16px 70px}
+.wrap{max-width:1080px;margin:0 auto;padding:20px 16px 70px}
 h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.02em;
   margin:0 0 4px}
-.sub{color:var(--c-muted-3);font-size:.8rem;line-height:1.6;margin:0 0 22px}
-.grupo{font-family:'Bebas Neue',sans-serif;font-size:1.15rem;letter-spacing:.04em;
-  color:var(--c-muted-4);margin:26px 0 10px;padding-bottom:6px;
-  border-bottom:1px solid var(--c-border-2)}
-.item{padding:14px 0;border-bottom:1px solid var(--c-border-2)}
-.item:last-child{border-bottom:none}
-.linha{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
-.rotulo{font-weight:700;font-size:.9rem;flex:1;min-width:180px}
-.campo{display:flex;gap:7px;align-items:center}
+.sub{color:var(--c-muted-3);font-size:.8rem;line-height:1.6;margin:0 0 22px;
+  max-width:70ch}
+
+.painel{display:grid;grid-template-columns:232px 1fr;gap:26px;align-items:start}
+
+.menu{position:sticky;top:12px;display:flex;flex-direction:column;gap:2px}
+.menu button{display:block;width:100%;text-align:left;background:none;
+  border:none;color:var(--c-muted-3);font-family:inherit;font-size:.86rem;
+  font-weight:600;padding:9px 12px;border-radius:9px;cursor:pointer;
+  line-height:1.3}
+.menu button:hover{background:var(--surface2);color:var(--c-text)}
+.menu button.ativa{background:var(--surface2);color:var(--c-text);font-weight:700}
+
+.secao{display:none}
+.secao.aberta{display:block}
+.secao > h2{font-family:'Bebas Neue',sans-serif;font-size:1.5rem;
+  letter-spacing:.03em;margin:0 0 2px}
+.secao > .resumo{color:var(--c-muted-3);font-size:.78rem;margin:0 0 16px}
+
+.cartao{background:var(--surface);border:1px solid var(--c-border-2);
+  border-radius:14px;overflow:hidden;margin-bottom:16px}
+.cartao > .titulo{font-size:.7rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--c-muted-4);padding:13px 18px 3px}
+
+.item{padding:15px 18px;border-top:1px solid var(--c-border-2);
+  display:flex;gap:18px;align-items:flex-start}
+.cartao > .item:first-child,.cartao > .titulo + .item,
+.cartao > div > .item:first-child{border-top:none}
+.item .texto{flex:1;min-width:0}
+.rotulo{font-weight:700;font-size:.9rem;line-height:1.35}
+.ajuda{margin:5px 0 0;font-size:.75rem;line-height:1.6;color:var(--c-muted-3)}
+.campo{display:flex;gap:7px;align-items:center;flex:none;padding-top:1px}
 .campo input,.campo select{width:96px;padding:8px 10px;border-radius:9px;
   background:var(--surface2);border:1.5px solid var(--c-border-2);
   color:var(--c-text);font-family:inherit;font-size:.95rem;font-weight:700;
   text-align:center}
-.campo select{width:132px}
+.campo select{width:150px;text-align:left}
 .campo .un{font-size:.75rem;color:var(--c-muted-3)}
-.ajuda{margin:8px 0 0;font-size:.75rem;line-height:1.65;color:var(--c-muted-3)}
+.linha{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .estado{font-size:.68rem;font-weight:800;text-transform:uppercase;
   letter-spacing:.06em;min-height:14px;margin-top:6px}
 .estado.ok{color:#B6FF00}
 .estado.ruim{color:#FD5D5D}
-.padrao{font-size:.68rem;color:var(--c-muted-3);background:none;border:none;
-  cursor:pointer;text-decoration:underline;padding:0;font-family:inherit}
+.padrao{font-size:.7rem;color:var(--c-muted-3);background:var(--surface2);
+  border:1px solid var(--c-border-2);border-radius:8px;cursor:pointer;
+  padding:6px 11px;font-family:inherit;margin:6px 6px 0 0}
+.padrao:hover{color:var(--c-text)}
 .mudado{font-size:.6rem;font-weight:800;text-transform:uppercase;
   letter-spacing:.05em;color:#FFBE5D;border:1px solid #FFBE5D;border-radius:99px;
-  padding:2px 7px;margin-left:6px}
+  padding:2px 7px;margin-left:6px;vertical-align:1px}
+.saude{white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,
+  monospace;font-size:.72rem;line-height:1.7;color:var(--c-muted-3);
+  padding:15px 18px;margin:0}
+
+@media (max-width:820px){
+  .painel{grid-template-columns:1fr;gap:14px}
+  .menu{position:static;flex-direction:row;overflow-x:auto;gap:6px;
+    padding-bottom:4px;scrollbar-width:none}
+  .menu::-webkit-scrollbar{display:none}
+  .menu button{width:auto;white-space:nowrap;border:1px solid var(--c-border-2)}
+  .item{flex-direction:column;gap:10px}
+  .campo{width:100%}
+  .campo input,.campo select{width:100%}
+}
+
 """
 
 _CONFIG_HTML = """<!DOCTYPE html>
 <html lang="pt">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Configuracoes - IARABAO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configura&ccedil;&otilde;es &middot; IARAB&Atilde;O</title>
 __THEME__
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&display=swap" rel="stylesheet">
 <style>
 __HEADER_CSS__
 __CONFIG_CSS__
@@ -13085,19 +13144,14 @@ __CONFIG_CSS__
 __HDR__
 <div class="wrap">
   <h1>Configura&ccedil;&otilde;es</h1>
-  <p class="sub">Os n&uacute;meros que d&aacute; para mexer sem tocar em c&oacute;digo.
-    Valem na hora: o app usa no clipe seguinte, e a m&aacute;quina que grava pega
-    na pr&oacute;xima consulta.</p>
-  <div id="lista">carregando...</div>
+  <p class="sub">O que d&aacute; para mexer sem tocar em c&oacute;digo. Vale na
+    hora: o app usa no clipe seguinte, e a m&aacute;quina que grava pega na
+    pr&oacute;xima consulta.</p>
 
-  <div class="grupo">Jogadores</div>
-  <div id="elenco">carregando...</div>
-
-  <div class="grupo">Convidar</div>
-  <div id="convites">carregando...</div>
-
-  <div class="grupo">Quem entra</div>
-  <div id="contas">carregando...</div>
+  <div class="painel">
+    <nav class="menu" id="menu"></nav>
+    <div id="secoes">carregando&hellip;</div>
+  </div>
 </div>
 <script>
 __CONFIG_JS__
@@ -13111,35 +13165,144 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ── A GUIA SE MONTA A PARTIR DAS SEÇÕES QUE O SERVIDOR MANDA ───────────────
+//
+// A lista de seções vem do `ajustes.py`, junto com os grupos de cada uma. Não
+// há cópia aqui: acrescentar um ajuste é mexer num arquivo só, e grupo que
+// ninguém mapeou cai em "Outros" em vez de sumir da tela.
+//
+// As seções que não saem de ajustes — Jogadores, Contas, Saúde — têm gaveta
+// própria, preenchida pelas funções que já existiam.
+let SECAO_ABERTA = '';
+
 async function carregar() {
-  const alvo = document.getElementById('lista');
+  const caixa = document.getElementById('secoes');
+  const menu = document.getElementById('menu');
   let d;
   try {
     const r = await fetch('/api/ajustes?_=' + Date.now());
     d = await r.json();
     if (!r.ok) throw new Error(d.erro || ('HTTP ' + r.status));
   } catch (e) {
-    alvo.innerHTML = '<p class="ajuda" style="color:#FD5D5D">Nao consegui ler os '
-      + 'ajustes: ' + esc(e.message || String(e)) + '</p>';
+    caixa.innerHTML = '<p class="ajuda" style="color:#FD5D5D">Nao consegui ler '
+      + 'as configuracoes: ' + esc(e.message || String(e)) + '</p>';
     return;
   }
-  alvo.innerHTML = '';
-  (d.grupos || []).forEach(function (g) {
-    const t = document.createElement('div');
-    t.className = 'grupo';
-    t.textContent = g;
-    alvo.appendChild(t);
-    (d.ajustes || []).filter(function (a) { return a.grupo === g; })
-      .forEach(function (a) { alvo.appendChild(cartao(a)); });
+
+  caixa.innerHTML = '';
+  menu.innerHTML = '';
+  (d.secoes || []).forEach(function (s) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = s.nome;
+    b.dataset.secao = s.chave;
+    b.onclick = function () { abrirSecao(s.chave); };
+    menu.appendChild(b);
+
+    const bloco = document.createElement('section');
+    bloco.className = 'secao';
+    bloco.id = 'sec-' + s.chave;
+    const h = document.createElement('h2');
+    h.textContent = s.nome;
+    bloco.appendChild(h);
+    if (s.resumo) {
+      const p = document.createElement('p');
+      p.className = 'resumo';
+      p.textContent = s.resumo;
+      bloco.appendChild(p);
+    }
+    (s.grupos || []).forEach(function (g) {
+      const c = document.createElement('div');
+      c.className = 'cartao';
+      // O TITULO DO GRUPO so aparece quando a secao tem mais de um. Numa
+      // secao de grupo unico ele repetiria o nome da secao logo acima.
+      if ((s.grupos || []).length > 1) {
+        const t = document.createElement('div');
+        t.className = 'titulo';
+        t.textContent = g;
+        c.appendChild(t);
+      }
+      (d.ajustes || []).filter(function (a) { return a.grupo === g; })
+        .forEach(function (a) { c.appendChild(cartao(a)); });
+      bloco.appendChild(c);
+    });
+    if (s.chave === 'jogadores') bloco.appendChild(gaveta('elenco'));
+    if (s.chave === 'contas') {
+      bloco.appendChild(gaveta('convites', 'Convidar'));
+      bloco.appendChild(gaveta('contas', 'Quem entra'));
+    }
+    if (s.chave === 'saude') bloco.appendChild(gaveta('saude'));
+    caixa.appendChild(bloco);
   });
+
+  // ABRE A ULTIMA QUE ELE ESTAVA VENDO. Mudar um ajuste e recarregar nao pode
+  // jogar de volta na primeira secao.
+  let guardada = '';
+  try { guardada = localStorage.getItem('config_secao') || ''; } catch (e) {}
+  const existe = (d.secoes || []).some(function (s) { return s.chave === guardada; });
+  abrirSecao(existe ? guardada : (((d.secoes || [])[0] || {}).chave || ''));
+}
+
+function gaveta(id, titulo) {
+  const c = document.createElement('div');
+  c.className = 'cartao';
+  if (titulo) {
+    const t = document.createElement('div');
+    t.className = 'titulo';
+    t.textContent = titulo;
+    c.appendChild(t);
+  }
+  const alvo = document.createElement('div');
+  alvo.id = id;
+  alvo.innerHTML = '<div class="item"><div class="texto">'
+    + '<p class="ajuda">carregando...</p></div></div>';
+  c.appendChild(alvo);
+  return c;
+}
+
+function abrirSecao(chave) {
+  if (!chave) return;
+  SECAO_ABERTA = chave;
+  try { localStorage.setItem('config_secao', chave); } catch (e) {}
+  document.querySelectorAll('.secao').forEach(function (s) {
+    s.classList.toggle('aberta', s.id === 'sec-' + chave);
+  });
+  document.querySelectorAll('#menu button').forEach(function (b) {
+    b.classList.toggle('ativa', b.dataset.secao === chave);
+  });
+  // CARREGA SO QUANDO ABRE. A saude do sistema conversa com quatro fontes
+  // externas; monta-la junto com a pagina faria toda visita as configuracoes
+  // — inclusive as que so queriam mudar um numero — bater no Transfermarkt.
+  if (chave === 'jogadores') carregarElenco();
+  if (chave === 'contas') { carregarConvites(); carregarContas(); }
+  if (chave === 'saude') carregarSaude();
+}
+
+async function carregarSaude() {
+  const alvo = document.getElementById('saude');
+  if (!alvo || alvo.dataset.pronto === 'sim') return;
+  alvo.innerHTML = '<p class="saude">conferindo cada fonte...</p>';
+  let texto;
+  try {
+    const r = await fetch('/api/diag/saude');
+    texto = await r.text();
+    alvo.dataset.pronto = 'sim';
+  } catch (e) {
+    texto = 'nao consegui conferir: ' + (e.message || e);
+  }
+  alvo.innerHTML = '<p class="saude"></p>';
+  alvo.querySelector('.saude').textContent = texto;
 }
 
 function cartao(a) {
+  // A LINHA DO MOLDE DELE: rotulo e explicacao a esquerda, controle a
+  // direita. Antes a ajuda vinha como paragrafo solto embaixo de tudo, e o
+  // olho tinha de voltar para cima para saber do que ela falava.
   const d = document.createElement('div');
   d.className = 'item';
 
-  const linha = document.createElement('div');
-  linha.className = 'linha';
+  const texto = document.createElement('div');
+  texto.className = 'texto';
   const rot = document.createElement('div');
   rot.className = 'rotulo';
   rot.textContent = a.rotulo;
@@ -13150,7 +13313,16 @@ function cartao(a) {
     m.title = 'o padrao e ' + a.padrao;
     rot.appendChild(m);
   }
-  linha.appendChild(rot);
+  texto.appendChild(rot);
+
+  const ajuda = document.createElement('p');
+  ajuda.className = 'ajuda';
+  ajuda.textContent = a.ajuda;
+  texto.appendChild(ajuda);
+
+  const estado = document.createElement('div');
+  estado.className = 'estado';
+  texto.appendChild(estado);
 
   const campo = document.createElement('div');
   campo.className = 'campo';
@@ -13180,23 +13352,21 @@ function cartao(a) {
     un.textContent = a.unidade;
     campo.appendChild(un);
   }
-  linha.appendChild(campo);
-  d.appendChild(linha);
 
-  const ajuda = document.createElement('p');
-  ajuda.className = 'ajuda';
-  ajuda.textContent = a.ajuda;
-  d.appendChild(ajuda);
+  // O BOTAO DE VOLTAR AO PADRAO so aparece quando ha o que desfazer. Numa
+  // tela de vinte e quatro linhas, vinte e quatro botoes que nao fazem nada
+  // sao vinte e quatro coisas para o olho descartar.
+  if (!a.no_padrao) {
+    const voltar = document.createElement('button');
+    voltar.type = 'button';
+    voltar.className = 'padrao';
+    voltar.textContent = 'voltar ao padrao (' + a.padrao + ')';
+    voltar.onclick = function () { salvar(a, entrada, estado, true); };
+    texto.appendChild(voltar);
+  }
 
-  const estado = document.createElement('div');
-  estado.className = 'estado';
-  d.appendChild(estado);
-
-  const voltar = document.createElement('button');
-  voltar.className = 'padrao';
-  voltar.textContent = 'voltar ao padrao (' + a.padrao + ')';
-  voltar.onclick = function () { salvar(a, entrada, estado, true); };
-  d.appendChild(voltar);
+  d.appendChild(texto);
+  d.appendChild(campo);
 
   // Salva ao sair do campo, e nao a cada tecla: digitar "1" no caminho de
   // "12" gravaria um valor que voce nunca quis.
@@ -13229,10 +13399,10 @@ async function salvar(a, entrada, estado, padrao) {
   }
 }
 
+// UMA CHAMADA SO NO INICIO. As gavetas de Jogadores, Contas e Saude
+// carregam quando a secao e aberta — antes, abrir as configuracoes
+// para mexer num numero disparava quatro consultas que ninguem pediu.
 carregar();
-carregarContas();
-carregarConvites();
-carregarElenco();
 
 async function carregarContas() {
   const alvo = document.getElementById('contas');

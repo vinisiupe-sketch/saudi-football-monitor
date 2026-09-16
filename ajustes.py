@@ -329,6 +329,75 @@ AJUSTES = [
 POR_CHAVE = {a["chave"]: a for a in AJUSTES}
 
 
+# ── AS SEÇÕES DA GUIA DE CONFIGURAÇÕES ──────────────────────────────────────
+#
+# O Vini disse que a guia estava "uma zona", e estava: vinte e quatro ajustes
+# de oito grupos, mais jogadores, convites e contas, tudo empilhado numa
+# coluna só. Quem chegava lá para mudar UMA coisa rolava a página inteira.
+#
+# Agora há seções, e a navegação fica à esquerda — no molde da tela de
+# configurações do aplicativo do Claude, que foi a referência que ele deu.
+#
+# O MAPA MORA AQUI, e não na página, pelo mesmo motivo que os grupos moram
+# aqui: uma segunda lista noutro arquivo é uma lista que apodrece. Quem
+# acrescenta um ajuste mexe num lugar só.
+#
+# E GRUPO SEM SEÇÃO NÃO SOME. Se alguém criar um grupo novo e esquecer de
+# mapeá-lo, ele cai numa seção "Outros" em vez de desaparecer da tela. Sumir
+# calado é o pior comportamento possível: o ajuste existe, o app obedece a
+# ele, e ninguém consegue mais mexer.
+SECOES = [
+    {"chave": "fontes", "nome": "Fontes dos dados",
+     "resumo": "De qual base vem cada campo do jogador.",
+     "grupos": ["Glossário de jogadores"]},
+    {"chave": "suspensoes", "nome": "Pendurados e suspensos",
+     "resumo": "Quantos amarelos suspendem e quanto o app lê por vez.",
+     "grupos": ["Pendurados e suspensos"]},
+    {"chave": "clipes", "nome": "Clipes",
+     "resumo": "A janela do lance, o que fica guardado e o corte automático.",
+     "grupos": ["Clipe — o instante do lance",
+                "Clipe — o que fica guardado",
+                "Clipe automático (pelo alerta de gol)",
+                "Clipe automático (lê o placar do vídeo)"]},
+    {"chave": "gravador", "nome": "Gravador",
+     "resumo": "A máquina que grava a transmissão.",
+     "grupos": ["Gravador"]},
+    {"chave": "arbitragem", "nome": "Arbitragem",
+     "resumo": "Nomes e traduções de árbitros.",
+     "grupos": ["Arbitragem"]},
+]
+
+# As seções que NÃO saem de ajustes: elas têm tela própria, e não uma lista de
+# números. Ficam no fim, na ordem em que aparecem aqui.
+SECOES_PROPRIAS = [
+    {"chave": "jogadores", "nome": "Jogadores",
+     "resumo": "A base de nomes, ids e nascimentos — e as coletas."},
+    {"chave": "contas", "nome": "Contas e convites",
+     "resumo": "Quem entra no app e como convidar."},
+    {"chave": "saude", "nome": "Saúde do sistema",
+     "resumo": "Quem está de pé e quem está caído, fonte por fonte."},
+]
+
+
+def secoes() -> list[dict]:
+    """As seções da guia, com os grupos de cada uma.
+
+    Devolve TODO grupo existente: o que não estiver mapeado em SECOES vai
+    para "Outros", no fim. É o que impede um ajuste de existir sem ter onde
+    ser mexido.
+    """
+    saida = [dict(s, grupos=[g for g in s["grupos"] if g in grupos()])
+             for s in SECOES]
+    mapeados = {g for s in SECOES for g in s["grupos"]}
+    orfaos = [g for g in grupos() if g not in mapeados]
+    if orfaos:
+        saida.append({"chave": "outros", "nome": "Outros",
+                      "resumo": "Ajustes que ainda não foram organizados em "
+                                "nenhuma seção.",
+                      "grupos": orfaos})
+    return saida + [dict(s, grupos=[]) for s in SECOES_PROPRIAS]
+
+
 def grupos() -> list[str]:
     """Os grupos na ordem em que aparecem na lista, sem repetir."""
     vistos = []
