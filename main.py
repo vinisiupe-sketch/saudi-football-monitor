@@ -11338,6 +11338,149 @@ async def api_clipe_descartar():
     return {"ok": True, "apagados": r["apagados"], "ids": r["ids"]}
 
 
+@app.get("/api/diag/saude", response_class=PlainTextResponse)
+async def api_diag_saude():
+    """UMA PÁGINA QUE DIZ QUEM ESTÁ DE PÉ E QUEM ESTÁ CAÍDO.
+
+    POR QUE ELA EXISTE (16/09/26)
+        O Vini viu a guia de Elencos quebrar e perguntou: "pode ser porque
+        minha assinatura com a api football expirou?". A resposta era não — a
+        guia de Elencos nem fala com a API-Football —, mas ele não tinha como
+        saber isso, e eu só soube depois de rastrear as chamadas da rota.
+
+        A pergunta vai voltar toda vez que algo quebrar, e a resposta nunca
+        vai ser óbvia para quem não lê o código. Então aqui está o lugar onde
+        se pergunta.
+
+    O QUE ELA CONFERE, uma linha cada, em português:
+        o banco, o glossário, a API da SPL, a API-Football (com a data em que
+        a assinatura vence), o Transfermarkt e os materiais da arte.
+
+    CADA TESTE É PEQUENO DE PROPÓSITO. Esta página é para ser aberta quando
+    algo já está errado; ela não pode ser mais um jeito de sobrecarregar o que
+    talvez já esteja de joelhos, nem gastar cota de API para responder.
+
+    NADA AQUI LEVANTA. Uma página de diagnóstico que quebra ao diagnosticar é
+    uma piada de mau gosto, e já aconteceu comigo em outro projeto.
+    """
+    import asyncio
+
+    linhas = ["COMO ESTÁ CADA PEÇA — " +
+              datetime.now(BRT).strftime("%d/%m/%Y %H:%M") + " (Brasília)",
+              "=" * 62, ""]
+
+    def conta(titulo, texto, bem=True):
+        linhas.append(("✅ " if bem else "❌ ") + titulo)
+        linhas.append("   " + texto)
+        linhas.append("")
+
+    # ── o banco ──────────────────────────────────────────────────────────────
+    def _ping_banco():
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("SELECT 1")
+            c.fetchone()
+        return True
+    try:
+        await asyncio.to_thread(_ping_banco)
+        conta("Banco de dados", "respondendo.")
+    except Exception as e:
+        conta("Banco de dados",
+              f"FORA DO AR — {type(e).__name__}: {e}. É ele que guarda lesões, "
+              f"pendurados, elencos congelados e o glossário; sem ele quase "
+              f"toda guia fica vazia ou quebra.", bem=False)
+
+    # ── o glossário ──────────────────────────────────────────────────────────
+    try:
+        import glossario
+        quantos = await asyncio.to_thread(glossario.quantos)
+        conta("Glossário", f"{quantos} jogadores carregados." if quantos else
+              "VAZIO — sem ele o app volta a casar nome por semelhança.",
+              bem=bool(quantos))
+    except Exception as e:
+        conta("Glossário", f"quebrou ao carregar — {type(e).__name__}: {e}",
+              bem=False)
+
+    # ── a API da liga ────────────────────────────────────────────────────────
+    try:
+        clubes = await asyncio.to_thread(_clubes_da_liga_spl)
+        conta("API da Saudi Pro League",
+              f"{len(clubes)} clubes." if clubes else
+              "não devolveu clube nenhum. É dela que vêm foto e escudo oficiais.",
+              bem=bool(clubes))
+    except Exception as e:
+        conta("API da Saudi Pro League", f"{type(e).__name__}: {e}", bem=False)
+
+    # ── a API-Football, com a data da assinatura ─────────────────────────────
+    #
+    # A pergunta dele em pessoa. O endereço /status devolve o plano, a data em
+    # que vence e quantas chamadas já foram gastas hoje — sem custar cota.
+    dados, err = await _af_get("status", {}, ttl=60)
+    if err:
+        conta("API-Football", f"{err}", bem=False)
+    else:
+        r = (dados or {}).get("response") or {}
+        assinatura = r.get("subscription") or {}
+        pedidos = r.get("requests") or {}
+        ativa = assinatura.get("active")
+        vence = assinatura.get("end") or "?"
+        conta("API-Football",
+              f"assinatura {'ATIVA' if ativa else 'INATIVA'}, plano "
+              f"{assinatura.get('plan') or '?'}, vence em {vence}. "
+              f"Hoje: {pedidos.get('current', '?')} de "
+              f"{pedidos.get('limit_day', '?')} chamadas. "
+              f"Ela entrega os números jogo a jogo, os cartões e o calendário "
+              f"— a guia de Elencos NÃO depende dela.",
+              bem=bool(ativa))
+
+    # ── o Transfermarkt ──────────────────────────────────────────────────────
+    #
+    # Ele bloqueia por excesso de consulta, e é a primeira fonte da guia de
+    # Elencos. Uma requisição só, na página inicial: saber se ele atende é
+    # diferente de puxar um elenco inteiro.
+    try:
+        async with httpx.AsyncClient(follow_redirects=True) as client:
+            r = await client.get("https://www.transfermarkt.com.br/",
+                                 timeout=10,
+                                 headers={"User-Agent": TM_HEADERS_UA})
+        conta("Transfermarkt",
+              "atendendo." if r.status_code == 200 else
+              f"respondeu HTTP {r.status_code} — quando é 403 ele está "
+              f"bloqueando, e a guia de Elencos cai no elenco congelado do "
+              f"banco e depois no glossário.",
+              bem=r.status_code == 200)
+    except Exception as e:
+        conta("Transfermarkt", f"{type(e).__name__}: {e}", bem=False)
+
+    # ── os materiais da arte ─────────────────────────────────────────────────
+    try:
+        import ficha_arte
+        from PIL import features
+        faltam = [c for c in (ficha_arte.FUNDO, ficha_arte.SOBREPOSTO,
+                              os.path.join(ficha_arte.FONTES,
+                                           ficha_arte.FONTE_NOME))
+                  if not os.path.exists(c)]
+        webp = features.check("webp")
+        if not faltam and webp:
+            recado = "fundo, degradê e fonte no lugar; o Pillow lê webp."
+        else:
+            partes = []
+            if faltam:
+                partes.append("faltando " +
+                              ", ".join(os.path.basename(f) for f in faltam))
+            if not webp:
+                partes.append("o Pillow não lê webp, e é nesse formato que a "
+                              "SPL entrega a foto — a arte sairia sem rosto")
+            recado = "; ".join(partes)
+        conta("Arte do jogador", recado, bem=not faltam and webp)
+    except Exception as e:
+        conta("Arte do jogador", f"{type(e).__name__}: {e}", bem=False)
+
+    linhas.append("Se tudo estiver ✅ e a tela continuar quebrando, o problema")
+    linhas.append("é do código e não das fontes — me mande o print da tela.")
+    return "\n".join(linhas)
+
+
 @app.get("/api/diag/banco", response_class=PlainTextResponse)
 async def api_diag_banco():
     """Diz o que há com o banco — inclusive quando a resposta é "está fora".
