@@ -14798,6 +14798,48 @@ td.num{text-align:right;font-variant-numeric:tabular-nums}
 .estado{padding:30px;text-align:center;color:var(--text2);font-size:.85rem}
 .aviso{font-size:.72rem;color:#FFBE5D;margin:8px 0 0}
 
+/* ── A CAIXA DE AJUSTE DA ARTE ─────────────────────────────────────────────
+   A prévia é a peça grande de propósito: o que ele vai publicar é a imagem,
+   não os campos. No celular as duas colunas viram uma, com a prévia em cima —
+   ele mexe no número olhando o resultado. */
+#arte-caixa{display:none;position:fixed;inset:0;z-index:9999;
+  background:rgba(0,0,0,.62);align-items:center;justify-content:center;padding:16px}
+.arte-janela{background:var(--surface);border:1px solid var(--border);
+  border-radius:16px;padding:18px;max-width:860px;width:100%;
+  max-height:94vh;overflow:auto}
+.arte-janela h3{margin:0 0 2px;font-size:1rem}
+.arte-nota{margin:2px 0 0;font-size:.72rem;color:var(--muted)}
+.arte-corpo{display:grid;grid-template-columns:260px 1fr;gap:18px;margin-top:14px}
+.arte-previa{background:var(--surface2);border:1px solid var(--border);
+  border-radius:10px;overflow:hidden;min-height:180px;display:flex;
+  align-items:center;justify-content:center}
+.arte-previa img{width:100%;display:block;transition:opacity .2s}
+.arte-previa img.carregando{opacity:.35}
+.arte-controles{display:flex;flex-direction:column;gap:12px;min-width:0}
+.arte-numeros{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.arte-campo{display:flex;flex-direction:column;gap:4px;font-size:.72rem;
+  color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.arte-campo input{background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;color:var(--c-text);font-size:1rem;
+  font-weight:700;width:100%}
+.arte-foto{display:flex;flex-direction:column;gap:8px;
+  border-top:1px solid var(--border);padding-top:12px}
+.arte-rotulo{font-size:.72rem;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.04em}
+.arte-foto input[type=url]{background:var(--surface2);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;color:var(--c-text);font-size:.82rem;width:100%}
+.arte-arquivo{display:inline-block;cursor:pointer;background:var(--surface2);
+  border:1px solid var(--border);border-radius:8px;padding:8px 12px;
+  font-size:.82rem;text-align:center}
+.arte-arquivo input{display:none}
+.arte-rodape{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+.arte-ok{background:var(--c-text);color:var(--c-bg);font-weight:700}
+.arte-ok:disabled{opacity:.45;cursor:default}
+@media (max-width:760px){
+  .arte-corpo{grid-template-columns:1fr}
+  .arte-previa{max-width:320px;margin:0 auto}
+}
+
 /* ── A FICHA DO JOGADOR ────────────────────────────────────────────────────
    Ela ocupa o lugar onde estava o campinho, que virou guia própria. A largura
    é a mesma: a coluna da esquerda continua sendo a do "olhar de perto", só
@@ -14989,6 +15031,11 @@ __HDR__
   </div>
 
 </div>
+
+<!-- A CAIXA DE AJUSTE DA ARTE. Nasce vazia e fechada; o conteúdo é montado no
+     momento em que ele clica, porque depende do jogador e do filtro. Clicar no
+     fundo escuro fecha — é o gesto que todo mundo tenta primeiro. -->
+<div id="arte-caixa" onclick="if(event.target===this)fecharCaixaDaArte()"></div>
 
 <script>
 
@@ -15374,7 +15421,7 @@ function cabecalhoFicha(j, d){
     '<p class="ficha-linha">' + pais + '</p>' +
     '<p class="ficha-linha ficha-cadastro">' + cadastro + '</p>' +
     '<p class="ficha-linha">' +
-      '<button class="ctrl" id="btnArte" onclick="baixarArte(this)">' +
+      '<button class="ctrl" id="btnArte" onclick="abrirCaixaDaArte()">' +
       '<i class="ico">' + ICO.baixar + '</i>Baixar imagem</button></p>' +
     '</div></div>';
 }
@@ -15393,51 +15440,197 @@ function cabecalhoFicha(j, d){
 // O arquivo desce como Blob e não como link direto porque a rota é POST e
 // porque, com <a download>, o navegador do celular abriria a imagem numa aba
 // em vez de salvar.
-async function baixarArte(botao){
+// ── A CAIXA DE AJUSTE, ANTES DE BAIXAR ─────────────────────────────────────
+//
+// Pedido dele (16/09/26): "quero que antes de baixar, apareça uma opção na
+// tela pra alterações nos números se for necessário e na foto. Com opção de
+// adicionar aos que não tem ou substituir alguma. E só depois dessa caixa
+// flutuante, a gente poder baixar".
+//
+// POR QUE ELA PRECISA EXISTIR
+//     Os números saem das partidas que o app já leu, e a leitura pode estar
+//     um jogo atrás. A arte, não: ela vai ao ar hoje. Sem um lugar para
+//     corrigir, a saída dele seria não publicar ou publicar errado.
+//
+//     A foto é o mesmo problema com outra cara: jogador recém-contratado
+//     costuma não ter foto na SPL ainda, e reforço de meio de temporada
+//     aparece com a foto do clube antigo.
+//
+// OS CAMPOS COMEÇAM PREENCHIDOS com o que o servidor calculou, e campo vazio
+// quer dizer "deixa como está" — não zero. É a mesma distinção que o app
+// persegue em todas as telas, e aqui ela tem consequência: um campo que
+// zerasse sozinho publicaria "0 gols" para quem tem gols não lidos.
+let ARTE_BLOB = null;          // a última prévia montada, que é o que baixa
+let ARTE_ESPERA = null;        // o cronômetro que segura a prévia enquanto digita
+
+function abrirCaixaDaArte(){
   if (!FICHA_DADOS) return;
   const d = FICHA_DADOS.dados || {};
   const g = d.jogador || {};
-  const antes = botao.innerHTML;
-  botao.disabled = true;
-  botao.textContent = 'montando a imagem…';
-  let url = '';
+  const t = somarPartidas(partidasVisiveis(d));
+  const campo = function(id, rotulo, valor){
+    return '<label class="arte-campo"><span>' + rotulo + '</span>' +
+      '<input id="' + id + '" type="number" inputmode="numeric" ' +
+      'value="' + (valor === null || valor === undefined ? '' : valor) + '" ' +
+      'placeholder="—" oninput="agendarPreviaDaArte()"></label>';
+  };
+  const recorte = COMP_ESCOLHIDA || 'todas as competições';
+  document.getElementById('arte-caixa').innerHTML =
+    '<div class="arte-janela" onclick="event.stopPropagation()">' +
+      '<h3>Ajustar antes de baixar</h3>' +
+      '<p class="arte-nota">' + esc(g.nome_curto || g.nome || '') +
+        ' · ' + esc(recorte) + '</p>' +
+      '<div class="arte-corpo">' +
+        '<div class="arte-previa"><img id="arte-img" alt=""></div>' +
+        '<div class="arte-controles">' +
+          '<div class="arte-numeros">' +
+            campo('arte-jogos', 'Jogos', t.jogos) +
+            campo('arte-gols', 'Gols', t.gols) +
+            campo('arte-assist', 'Assistências', t.assistencias) +
+          '</div>' +
+          '<p class="arte-nota">Em branco = deixa como o app calculou.</p>' +
+          '<div class="arte-foto">' +
+            '<span class="arte-rotulo">Foto</span>' +
+            '<label class="arte-arquivo">Enviar do computador' +
+              '<input type="file" accept="image/*" ' +
+              'onchange="fotoDoComputador(this)"></label>' +
+            '<input id="arte-foto-url" type="url" placeholder="ou cole o endereço de uma imagem" ' +
+            'oninput="agendarPreviaDaArte()">' +
+            '<button type="button" class="ctrl" onclick="fotoDaLiga()">Voltar à foto da SPL</button>' +
+          '</div>' +
+          '<p class="arte-nota" id="arte-aviso"></p>' +
+        '</div>' +
+      '</div>' +
+      '<div class="arte-rodape">' +
+        '<button type="button" class="ctrl" onclick="fecharCaixaDaArte()">Cancelar</button>' +
+        '<button type="button" class="ctrl arte-ok" id="arte-baixar" ' +
+        'onclick="baixarArte(this)">Baixar imagem</button>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('arte-caixa').style.display = 'flex';
+  ARTE_FOTO_DADOS = '';
+  montarPreviaDaArte();
+}
+
+function fecharCaixaDaArte(){
+  const caixa = document.getElementById('arte-caixa');
+  caixa.style.display = 'none';
+  caixa.innerHTML = '';
+  if (ARTE_ESPERA) { clearTimeout(ARTE_ESPERA); ARTE_ESPERA = null; }
+  ARTE_BLOB = null;
+  ARTE_FOTO_DADOS = '';
+}
+
+let ARTE_FOTO_DADOS = '';
+
+function fotoDoComputador(entrada){
+  const arquivo = entrada.files && entrada.files[0];
+  if (!arquivo) return;
+  // OITO MEGABYTES, e o aviso é o ponto. Uma foto de celular passa disso com
+  // facilidade, e ela sobe dentro do JSON: sem limite, o pedido morre no meio
+  // e a janela fica parada sem dizer por quê.
+  if (arquivo.size > 8 * 1024 * 1024) {
+    document.getElementById('arte-aviso').textContent =
+      'essa imagem tem ' + Math.round(arquivo.size / 1048576) +
+      ' MB; o limite é 8. Reduza antes de enviar.';
+    entrada.value = '';
+    return;
+  }
+  const leitor = new FileReader();
+  leitor.onload = function(){
+    ARTE_FOTO_DADOS = String(leitor.result || '');
+    document.getElementById('arte-foto-url').value = '';
+    montarPreviaDaArte();
+  };
+  leitor.readAsDataURL(arquivo);
+}
+
+function fotoDaLiga(){
+  ARTE_FOTO_DADOS = '';
+  const campo = document.getElementById('arte-foto-url');
+  if (campo) campo.value = '';
+  const entrada = document.querySelector('.arte-arquivo input');
+  if (entrada) entrada.value = '';
+  montarPreviaDaArte();
+}
+
+function agendarPreviaDaArte(){
+  // ESPERA ELE PARAR DE DIGITAR. Sem isso, "124" pede três prévias — uma para
+  // o 1, uma para o 12 e uma para o 124 — e as três chegam fora de ordem.
+  if (ARTE_ESPERA) clearTimeout(ARTE_ESPERA);
+  ARTE_ESPERA = setTimeout(montarPreviaDaArte, 700);
+}
+
+function corpoDaArte(previa){
+  const d = FICHA_DADOS.dados || {};
+  const g = d.jogador || {};
+  const valor = function(id){
+    const e = document.getElementById(id);
+    return e ? e.value : '';
+  };
+  const urlFoto = valor('arte-foto-url');
+  return {spl_id: g.spl_id || '', af_id: g.af_id || 0, tm_id: g.tm_id || '',
+          season: d.temporada || 0, competicao: COMP_ESCOLHIDA || '',
+          jogos: valor('arte-jogos'), gols: valor('arte-gols'),
+          assistencias: valor('arte-assist'),
+          foto_url: ARTE_FOTO_DADOS ? '' : urlFoto,
+          foto_dados: ARTE_FOTO_DADOS, previa: previa ? 1 : 0};
+}
+
+async function montarPreviaDaArte(){
+  const img = document.getElementById('arte-img');
+  const aviso = document.getElementById('arte-aviso');
+  const botao = document.getElementById('arte-baixar');
+  if (!img) return;
+  img.classList.add('carregando');
+  if (botao) botao.disabled = true;
   try {
     const r = await fetch('/api/jogador/arte', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({spl_id: g.spl_id || '', af_id: g.af_id || 0,
-                            tm_id: g.tm_id || '', season: d.temporada || 0,
-                            competicao: COMP_ESCOLHIDA || ''})});
+      body: JSON.stringify(corpoDaArte(true))});
     if (!r.ok) {
       let msg = 'erro ' + r.status;
       try { msg = (await r.json()).erro || msg; } catch(e) {}
       throw new Error(msg);
     }
-    const nome = (r.headers.get('Content-Disposition') || '')
-      .split('filename=')[1];
-    const blob = await r.blob();
-    url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = (nome || '"jogador.png"').replace(/"/g, '');
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    // O AVISO DO QUE FALTOU, se faltou. Sem ele, uma arte sem escudo sairia
-    // parecendo escolha de design — e ele só descobriria depois de publicar.
-    const pecas = (r.headers.get('X-Pecas') || '').split(',')
+    if (img.src) URL.revokeObjectURL(img.src);
+    ARTE_BLOB = {blob: await r.blob(),
+                 nome: (r.headers.get('Content-Disposition') || '')
+                         .split('filename=')[1]};
+    img.src = URL.createObjectURL(ARTE_BLOB.blob);
+    // O AVISO DO QUE FALTOU. Sem ele, uma arte sem escudo parece escolha de
+    // design — e ele só descobriria depois de publicar.
+    const faltou = (r.headers.get('X-Pecas') || '').split(',')
       .filter(function(p){ return p.indexOf('sem-') === 0; })
       .map(function(p){ return p.slice(4); });
-    botao.innerHTML = pecas.length ? ('baixou, mas sem ' + pecas.join(' e '))
-                                   : 'baixou!';
+    if (aviso) aviso.textContent = faltou.length
+      ? ('a arte saiu sem ' + faltou.join(' e ')) : '';
   } catch(e) {
-    botao.innerHTML = 'não deu: ' + (e.message || e);
+    ARTE_BLOB = null;
+    if (aviso) aviso.textContent = 'não deu para montar: ' + (e.message || e);
   }
-  botao.disabled = false;
-  setTimeout(function(){
-    botao.innerHTML = antes;
-    if (url) URL.revokeObjectURL(url);
-  }, 4000);
+  img.classList.remove('carregando');
+  if (botao) botao.disabled = !ARTE_BLOB;
 }
+
+async function baixarArte(botao){
+  // BAIXA O QUE ESTÁ NA TELA, e não uma arte nova. O que ele viu na prévia é
+  // o arquivo — se eu pedisse outra montagem aqui, a foto podia ter mudado no
+  // meio do caminho e ele baixaria algo que nunca viu.
+  if (!ARTE_BLOB) { await montarPreviaDaArte(); }
+  if (!ARTE_BLOB) return;
+  const url = URL.createObjectURL(ARTE_BLOB.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (ARTE_BLOB.nome || '"jogador.png"').replace(/"/g, '');
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(function(){ URL.revokeObjectURL(url); }, 5000);
+  if (botao) botao.textContent = 'baixou!';
+  setTimeout(fecharCaixaDaArte, 900);
+}
+
 
 function dataBr(iso){
   // Sem expressão regular de propósito: esta página mora dentro de uma string
@@ -17297,6 +17490,93 @@ async def _ficha_do_jogador(tm_id: str = "", af_id: int = 0, spl_id: str = "",
     }
 
 
+_PECAS_DA_ARTE: dict = {}
+
+
+async def _peca_em_cache(client, url: str | None) -> bytes | None:
+    """A imagem, guardada por dez minutos.
+
+    POR QUE ISTO APARECEU AGORA
+        A caixa de ajuste redesenha a arte a cada mudança — mudou o número de
+        gols, nova prévia. Sem cache, cada prévia refaz TRÊS downloads (foto,
+        escudo, bandeira) para receber exatamente os mesmos bytes, e a janela
+        fica lenta justo enquanto ele está mexendo.
+
+        Dez minutos é bem mais que uma sessão de ajustes e bem menos que a
+        vida de uma foto de elenco.
+
+    Guardo até o `None`: se a SPL não respondeu agora, não vai responder nas
+    próximas cinco prévias, e insistir só faz a janela travar em cada uma.
+    """
+    if not url:
+        return None
+    agora = time.time()
+    guardado = _PECAS_DA_ARTE.get(url)
+    if guardado and (agora - guardado[0]) < 600:
+        return guardado[1]
+    dados = await _baixar_foto(client, url)
+    _PECAS_DA_ARTE[url] = (agora, dados)
+    # Uma limpeza preguiçosa, para a memória não crescer para sempre num
+    # servidor que fica meses de pé.
+    if len(_PECAS_DA_ARTE) > 200:
+        for chave in [k for k, v in _PECAS_DA_ARTE.items()
+                      if agora - v[0] > 600][:100]:
+            _PECAS_DA_ARTE.pop(chave, None)
+    return dados
+
+
+def _endereco_de_imagem_seguro(url: str) -> str:
+    """O endereço que ele colou, se for seguro pedir. Senão, string vazia.
+
+    A caixa de ajuste deixa colar o endereço de uma foto, e quem busca é o
+    SERVIDOR — o navegador não pode, por causa do CORS. Isso quer dizer que um
+    endereço colado vira uma requisição feita de DENTRO do Railway, que
+    enxerga coisas que a internet não enxerga.
+
+    Aqui o Vini é o único que entra, então não é um buraco de segurança de
+    verdade; é higiene. Mas endereço colado é endereço que pode ter vindo de
+    qualquer lugar — de um site, de uma mensagem —, e um `http://169.254...`
+    disfarçado de foto não deveria nem ser tentado.
+    """
+    from urllib.parse import urlparse
+    try:
+        p = urlparse((url or "").strip())
+    except Exception:
+        return ""
+    if p.scheme not in ("http", "https") or not p.hostname:
+        return ""
+    maquina = p.hostname.lower()
+    if maquina in ("localhost", "0.0.0.0", "::1") or maquina.endswith(".local"):
+        return ""
+    if maquina.startswith(("127.", "10.", "192.168.", "169.254.")):
+        return ""
+    if maquina.startswith("172."):
+        try:
+            if 16 <= int(maquina.split(".")[1]) <= 31:
+                return ""
+        except (IndexError, ValueError):
+            return ""
+    return url.strip()
+
+
+def _imagem_colada(valor: str) -> bytes | None:
+    """Os bytes de uma imagem que veio do computador dele, em data URL.
+
+    O navegador lê o arquivo, transforma em texto e manda no mesmo JSON. É
+    feio e é o caminho mais curto: sem isso eu precisaria de uma rota de
+    upload, de um lugar para guardar o arquivo e de alguém para apagá-lo
+    depois — três coisas novas para uma imagem que vive quinze segundos.
+    """
+    import base64
+    v = (valor or "").strip()
+    if not v.startswith("data:image/"):
+        return None
+    try:
+        return base64.b64decode(v.split(",", 1)[1])
+    except Exception:
+        return None
+
+
 @app.post("/api/jogador/arte")
 async def api_jogador_arte(request: Request):
     """O PNG 1080x1350 da ficha, no molde da arte que o Vini publica.
@@ -17341,6 +17621,25 @@ async def api_jogador_arte(request: Request):
                 if not escolhida or p.get("competicao") == escolhida]
     totais = _somar_partidas(partidas)
 
+    # OS AJUSTES À MÃO, POR CIMA — e só por cima.
+    #
+    # Ele pediu uma caixa para corrigir os números antes de baixar: "uma opção
+    # na tela pra alterações nos números se for necessário". Faz sentido — a
+    # leitura das partidas pode estar atrasada, e uma arte não espera.
+    #
+    # O que NÃO muda é quem calcula o padrão: continua sendo o servidor, com a
+    # mesma função da tela. O que vem da janela é só o que ele digitou, campo
+    # a campo. Um campo em branco não é zero e não é correção: é "deixa como
+    # está" — e é por isso que o teste vazio tem de ser antes da conversão.
+    for campo in ("jogos", "gols", "assistencias"):
+        bruto = corpo.get(campo)
+        if bruto is None or str(bruto).strip() == "":
+            continue
+        try:
+            totais[campo] = int(str(bruto).strip())
+        except ValueError:
+            pass
+
     j = d["jogador"]
 
     # A FOTO DA SPL, buscada no glossário pela porta de sempre. Se ela não
@@ -17359,17 +17658,33 @@ async def api_jogador_arte(request: Request):
     except Exception:
         pass
 
+    # A FOTO QUE ELE PÔS NO LUGAR, se pôs.
+    #
+    # Duas portas, porque os dois casos são diferentes: às vezes a SPL não tem
+    # foto do jogador (e ele quer ADICIONAR uma), às vezes tem e é velha (e ele
+    # quer SUBSTITUIR). O código não precisa distinguir: o que chega manda.
+    do_computador = _imagem_colada(corpo.get("foto_dados") or "")
+    colado = _endereco_de_imagem_seguro(corpo.get("foto_url") or "")
+    if colado:
+        foto = colado
+
     async with httpx.AsyncClient(follow_redirects=True) as client:
         # w320 para uma bandeira de 120px: reduzir de uma imagem maior sai
         # limpo, subir de uma menor sai borrado.
         baixados = await asyncio.gather(
-            _baixar_foto(client, foto),
-            _baixar(client, j.get("escudo_clube") or None),
-            _baixar(client, f"https://flagcdn.com/w320/{iso}.png" if iso else None))
+            _peca_em_cache(client, None if do_computador else foto),
+            _peca_em_cache(client, j.get("escudo_clube") or None),
+            _peca_em_cache(client,
+                           f"https://flagcdn.com/w320/{iso}.png" if iso else None))
+    baixados = [do_computador or baixados[0], baixados[1], baixados[2]]
 
     # O NOME CURTO quando existe: é como ele é chamado, e é o que cabe em duas
     # linhas. "Cristiano Ronaldo dos Santos Aveiro" não é um nome de arte.
-    nome = j.get("nome_curto") or j.get("nome") or ""
+    #
+    # Mas o curto às vezes vem com inicial ("S. Milinković-Savić"), e aí a
+    # primeira linha da arte era um "S" sozinho — foi o que o Vini viu. Quem
+    # decide entre os dois é o `melhor_nome`.
+    nome = ficha_arte.melhor_nome(j.get("nome_curto") or "", j.get("nome") or "")
 
     try:
         png = await asyncio.to_thread(ficha_arte.montar, {
@@ -17383,10 +17698,15 @@ async def api_jogador_arte(request: Request):
         return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, status_code=500)
 
     arquivo = _nome_de_arquivo(nome) or "jogador"
+    # PRÉVIA NÃO BAIXA. É a mesma imagem, e o que muda é uma palavra no
+    # cabeçalho: `inline` o navegador mostra, `attachment` ele salva. Sem essa
+    # distinção, cada prévia da caixa de ajuste iria parar na pasta de
+    # downloads dele.
+    entrega = "inline" if corpo.get("previa") else "attachment"
     # O que chegou vai no cabeçalho: se a SPL sair do ar, a tela avisa em vez
     # de o Vini descobrir olhando a arte já publicada.
     return Response(png, media_type="image/png", headers={
-        "Content-Disposition": f'attachment; filename="{arquivo}.png"',
+        "Content-Disposition": f'{entrega}; filename="{arquivo}.png"',
         "X-Pecas": ("foto" if baixados[0] else "sem-foto") + "," +
                    ("escudo" if baixados[1] else "sem-escudo") + "," +
                    ("bandeira" if baixados[2] else "sem-bandeira")})

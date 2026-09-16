@@ -67,7 +67,7 @@ DO_EXEMPLO = {
     "foto": (96, 32, 1290),            # x, y, lado
     "escudo": (34, 402, 129),
     "bandeira": (39, 556, 120),
-    "nome_x": 31, "nome_topo": 40, "nome_largura_max": 520,
+    "nome_x": 31, "nome_topo": 40, "nome_largura_max": 1020,
     "num_centros": (194.4, 540.0, 885.6),
     "num_altura": 188,
     "num_largura_124": 230,            # a tinta do "124" na arte dele
@@ -195,26 +195,18 @@ ok(_brilho(arte, (0, 100, 60, 200)) > _brilho(arte, (0, 1250, 60, 1330)) + 40,
 a = _arte(foto=_quadrado(MAGENTA), escudo=_quadrado(CIANO),
           bandeira=_quadrado(LARANJA))
 
-# A FOTO é multiplicada pelo degradê; no topo ela ainda sai com a cor quase
-# inteira, então dá para achá-la por cor naquela faixa.
-xs = _colunas_com_tinta(_mascara_cor(a, MAGENTA, tol=60), 100, 101)
-ok(len(xs) > 0, "a foto sumiu da arte")
-if xs:
-    ok(abs(xs[0] - DO_EXEMPLO["foto"][0]) <= 2,
-       f"a foto começa em x={xs[0]}, e no exemplo começa em "
-       f"{DO_EXEMPLO['foto'][0]}")
-    ok(xs[-1] >= 1079,
-       "a foto parou antes da borda direita — no exemplo ela sangra para fora")
-
-# A CAIXA INTEIRA DA FOTO, medida pela DIFERENÇA contra a arte sem foto.
+# A CAIXA DA FOTO, medida pela DIFERENÇA contra a arte sem foto.
 #
-# Procurar a cor não serve para o rodapé: lá o degradê já é quase preto, e
-# magenta multiplicado por preto é preto. Foi assim que uma foto de 1080px em
-# vez de 1290px passou batido — o topo e a esquerda continuavam no lugar, e o
-# pé da foto, que era o que tinha encolhido, ninguém olhava.
+# Pela diferença, e não procurando a cor da peça — por dois motivos, os dois
+# aprendidos errando. No rodapé o degradê já é quase preto, e magenta
+# multiplicado por preto é preto: foi assim que uma foto de 1080px em vez de
+# 1290px passou batido, porque só o topo era conferido. E no topo o NOME passa
+# por cima da foto, então varrer uma linha atrás de magenta encontra a letra
+# antes da foto — o teste acusou "a foto começa em x=114" quando o nome ficou
+# maior, e a foto não tinha saído do lugar.
 #
-# Só a foto nesta comparação: com escudo e bandeira juntos, a mancha da
-# esquerda seria deles.
+# Na diferença as duas artes têm o mesmo nome e o mesmo fundo: o que sobra é
+# só a foto.
 sem = _arte()
 caixa_foto = _mascara_mudou(_arte(foto=_quadrado(MAGENTA)), sem).getbbox()
 ok(caixa_foto is not None, "a foto não mudou nada na arte")
@@ -227,6 +219,8 @@ if caixa_foto:
        f"o tamanho da foto mudou")
     ok(abs(fx0 - x0) <= 3,
        f"a esquerda da foto ficou em x={fx0}, e no exemplo é {x0}")
+    ok(fx1 >= 1080,
+       "a foto parou antes da borda direita — no exemplo ela sangra para fora")
 
 # O ESCUDO e a BANDEIRA são desenhados DEPOIS do degradê, então saem com a cor
 # inteira. É a prova de que estão por cima, e não por baixo.
@@ -331,30 +325,135 @@ ok(ficha_arte.quebrar_nome("Cristiano Ronaldo dos Santos Aveiro")
    "402px do topo, e as duas primeiras palavras não são como ele é chamado")
 ok(ficha_arte.quebrar_nome("") == [], "nome vazio não pode virar linha vazia")
 
-# O NOME COMPRIDO ENCOLHE, e é isto que o teste vigia: não a constante, mas o
-# efeito. Sem o encolhimento ele entraria por cima da foto.
-limite = DO_EXEMPLO["nome_largura_max"] + DO_EXEMPLO["nome_x"]
-for etiqueta, quem in (("curto", "Ali Lajami"), ("comprido", "Abdulrahman Ghareeb")):
-    caixa = _mascara_branca(_arte(nome=quem)).crop((0, 0, 1080, 400)).getbbox()
-    ok(caixa is not None, f"o nome {etiqueta} não foi desenhado")
-    if caixa:
-        ok(caixa[2] <= limite,
-           f"o nome {etiqueta} vazou para x={caixa[2]}, e o limite é {limite} "
-           f"— daí para a direita começa a foto")
-        ok(abs(caixa[0] - DO_EXEMPLO["nome_x"]) <= 12,
-           f"o nome {etiqueta} deixou de começar na margem da esquerda "
-           f"(saiu em x={caixa[0]})")
-
-# A ALTURA DA PRIMEIRA LINHA, medida num nome SEM ACENTO.
+# ── O NOME SAI IGUAL PARA TODO MUNDO ────────────────────────────────────────
 #
-# Com "JOÃO" não dá: o til sobe acima da maiúscula, e a tinta começa uns 30px
-# mais alto. No exemplo dele acontece a mesma coisa — a caixa da primeira
-# linha começa em y=10 por causa do til, e o "J" é que começa em 40. Medir com
-# acento seria medir o acento.
-alto = _mascara_branca(_arte(nome="Ali Lajami")).crop((0, 0, 1080, 400)).getbbox()
+# Ele viu as primeiras artes e pediu três coisas (16/09/26):
+#   "mantenha o mesmo tamanho de fonte usada no João Félix"
+#   "mantenha também a proximidade entre o nome na primeira linha com o nome
+#    na segunda linha, como rola no João Félix, pra todos"
+#   "o nome pode passar por trás da imagem do jogador, estilisticamente fica
+#    bom. Não há problemas nisto."
+#
+# Antes o nome ENCOLHIA para caber antes da foto. "GABRIEL MARTINELLI" saía
+# bem menor que "JOÃO FÉLIX" e, como a entrelinha continuava fixa, as duas
+# linhas pareciam afastadas. Os dois sintomas tinham a mesma causa.
+def _linhas_do_nome(quem):
+    """(altura da maiúscula da 1ª linha, distância entre as duas bases)."""
+    m = _mascara_branca(_arte(nome=quem))
+    a = m.crop((0, 0, 1080, 200)).getbbox()
+    b = m.crop((0, 200, 1080, 400)).getbbox()
+    if not a or not b:
+        return None
+    return (a[3] - a[1], (200 + b[3]) - a[3])
+
+# NOMES SEM "J", de propósito: nesta fonte o J desce abaixo da linha de base,
+# e a medida da entrelinha sairia 24px maior só por causa dele. Foi o primeiro
+# resultado deste teste, e não era defeito da arte.
+CURTO = _linhas_do_nome("Ali Nasser")
+LONGO = _linhas_do_nome("Abdulrahman Ghareeb")
+ok(CURTO and LONGO, "um dos nomes de teste não foi desenhado")
+if CURTO and LONGO:
+    ok(abs(CURTO[0] - LONGO[0]) <= 3,
+       f"o nome comprido saiu com letra de {LONGO[0]}px e o curto com "
+       f"{CURTO[0]}px. Todo mundo tem de sair no tamanho do João Félix, "
+       f"mesmo que o nome passe por trás da foto")
+    ok(abs(CURTO[0] - 148) <= 5,
+       f"a maiúscula do nome saiu com {CURTO[0]}px; na arte dele tem 148")
+    ok(abs(CURTO[1] - LONGO[1]) <= 3,
+       f"a distância entre as duas linhas mudou com o nome ({CURTO[1]} contra "
+       f"{LONGO[1]}px) — ela tem de ser a mesma para todos")
+    ok(abs(CURTO[1] - 171) <= 4,
+       f"as duas linhas do nome ficaram a {CURTO[1]}px uma da outra; na arte "
+       f"dele são 171")
+
+# NENHUM NOME PODE SAIR CORTADO NA BORDA. Passar por trás da foto é estilo;
+# sumir no talho verde da direita é defeito. É o único motivo que sobrou para
+# o nome encolher.
+#
+# O último da lista é inventado e comprido de propósito: os nomes reais da
+# liga cabem, e um teste em que o limite nunca é atingido não prova que o
+# limite existe. Plantei "limite = 3000" e ele passou — só com uma palavra que
+# de fato estoura é que a rede pega.
+for gigante in ("Sergej Milinković-Savić", "Abdulrahman Al Aboud",
+                "Konstantinos Mavropanos", "Abdulrahmanalobaidalmalki"):
+    caixa = _mascara_branca(_arte(nome=gigante)).crop((0, 0, 1080, 400)).getbbox()
+    ok(caixa is not None, f"o nome '{gigante}' não foi desenhado")
+    if caixa:
+        ok(caixa[2] <= 1075,
+           f"'{gigante}' encostou na borda direita (x={caixa[2]}) — a última "
+           f"letra sai cortada")
+        ok(abs(caixa[0] - DO_EXEMPLO["nome_x"]) <= 12,
+           f"'{gigante}' deixou de começar na margem da esquerda")
+
+# O ESPAÇO ENTRE AS LETRAS É O VAZIO DE DENTRO DO "O".
+#
+# Palavra dele: "a distância pode ter o mesmo tamanho que tem no corte (vazio)
+# interior das letras, como na letra O". Então o teste mede as DUAS coisas na
+# arte montada e compara uma com a outra — não com um número que eu escrevi.
+def _folga_entre_letras():
+    tela = Image.new("RGBA", (900, 400), (0, 0, 0, 255))
+    ficha_arte.texto(tela, ficha_arte.FONTE_NOME, "OO", 148, 40, 300, "ls",
+                     cor=(255, 255, 255),
+                     entreletra=ficha_arte.NOME_ENTRELETRA)
+    col = _colunas_com_tinta(_mascara_branca(tela.convert("RGB")), 0, 400)
+    blocos = _blocos(col, junta=3)
+    return (blocos[1][0] - blocos[0][1] - 1) if len(blocos) == 2 else None
+
+def _vazio_do_o():
+    tela = Image.new("RGBA", (400, 400), (0, 0, 0, 255))
+    ficha_arte.texto(tela, ficha_arte.FONTE_NOME, "O", 148, 40, 300, "ls",
+                     cor=(255, 255, 255))
+    m = _mascara_branca(tela.convert("RGB"))
+    caixa = m.getbbox()
+    meio = (caixa[1] + caixa[3]) // 2
+    col = _colunas_com_tinta(m, meio, meio + 1)
+    blocos = _blocos(col, junta=1, minimo=0)
+    return (blocos[1][0] - blocos[0][1] - 1) if len(blocos) == 2 else None
+
+FOLGA, VAZIO = _folga_entre_letras(), _vazio_do_o()
+ok(FOLGA is not None and VAZIO is not None,
+   "não consegui medir a folga entre letras ou o vazio do O")
+if FOLGA is not None and VAZIO is not None:
+    ok(abs(FOLGA - VAZIO) <= 4,
+       f"a folga entre as letras é {FOLGA}px e o vazio de dentro do O é "
+       f"{VAZIO}px. Ele pediu que fossem iguais")
+
+alto = _mascara_branca(_arte(nome="Ali Nasser")).crop((0, 0, 1080, 400)).getbbox()
 ok(alto is not None and abs(alto[1] - DO_EXEMPLO["nome_topo"]) <= 12,
    f"o nome começa em y={alto[1] if alto else '?'}, e no exemplo começa em "
    f"{DO_EXEMPLO['nome_topo']}")
+
+# ── A INICIAL SOLTA E O QUADRADINHO ─────────────────────────────────────────
+#
+# "Tem jogadores que não aparece o nome. Corta após a primeira letra." Era o
+# "S. Milinković-Savić": a primeira linha virava "S" mais um quadradinho,
+# porque a fonte não tem o PONTO — e o "?" que eu punha no lugar do que ela
+# não conhece também não existe nela, então virava quadradinho também.
+ok(ficha_arte.quebrar_nome("S. Milinković-Savić") == ["MILINKOVIĆ-SAVIĆ"],
+   "a inicial solta voltou a ocupar uma linha inteira do nome")
+ok(ficha_arte.quebrar_nome("S") == ["S"],
+   "quem se chama só 'S' ficou sem nome nenhum — descartar a inicial só vale "
+   "quando sobra alguma coisa")
+ok(ficha_arte.melhor_nome("S. Milinković-Savić", "Sergej Milinković-Savić")
+   == "Sergej Milinković-Savić",
+   "com o nome curto abreviado, o principal é que tem de ir para a arte")
+ok(ficha_arte.melhor_nome("João Félix", "João Félix Sequeira") == "João Félix",
+   "o nome curto deixou de ganhar no caso normal")
+
+# E O QUADRADINHO NÃO PODE APARECER NUNCA. O que a fonte não tem, some.
+ok(ficha_arte._decompor("S.", ficha_arte.FONTE_NOME) == [("S", [])],
+   "o ponto voltou a virar alguma coisa desenhada — na fonte dele isso é o "
+   "quadradinho do .notdef")
+ok(ficha_arte._decompor("?", ficha_arte.FONTE_NOME) == [],
+   "a interrogação voltou a ser desenhada, e a fonte não tem nem ela")
+# E na arte montada: "A. Lajami" tem de sair com o sobrenome inteiro, e não
+# com uma linha de uma letra só.
+_abreviado = _mascara_branca(_arte(nome="A. Lajami"))
+_linha1 = _abreviado.crop((0, 0, 1080, 200)).getbbox()
+ok(_linha1 is not None and (_linha1[2] - _linha1[0]) > 200,
+   "com o nome abreviado, a primeira linha da arte saiu com "
+   f"{(_linha1[2]-_linha1[0]) if _linha1 else 0}px de largura — é a inicial "
+   "sozinha de novo")
 
 # ── OS ACENTOS QUE A FONTE NÃO TEM, DESENHADOS ──────────────────────────────
 #
@@ -458,18 +557,143 @@ ok('foto_da_fonte(bruto, "spl")' in rota,
    "a foto da arte deixou de vir da SPL. A configuração de Ajustes é para a "
    "tela; a arte precisa do enquadramento igual para todos")
 
-# O BOTÃO manda a competição escolhida, e NÃO manda os números.
-js = FONTE[FONTE.index("async function baixarArte(botao){"):]
-js = js[:js.index("\n}\n")]
-ok("competicao: COMP_ESCOLHIDA" in js,
-   "o botão parou de mandar qual competição está filtrada")
-for numero in ("gols:", "assistencias:", "jogos:"):
-    ok(numero not in js,
-       f"o botão passou a mandar '{numero}' para o servidor. Os números têm "
-       f"de ser recalculados lá, com a mesma função da tela")
-ok("X-Pecas" in js and "X-Pecas" in rota,
+# ── A CAIXA DE AJUSTE ───────────────────────────────────────────────────────
+#
+# Ela entrou em 16/09/26: "quero que antes de baixar, apareça uma opção na tela
+# pra alterações nos números se for necessário e na foto (...) e só depois
+# dessa caixa flutuante, a gente poder baixar".
+ok("onclick=\"abrirCaixaDaArte()\"" in FONTE,
+   "o botão voltou a baixar direto, sem passar pela caixa de ajuste")
+
+corpo = FONTE[FONTE.index("function corpoDaArte(previa){"):]
+corpo = corpo[:corpo.index("\n}\n")]
+ok("competicao: COMP_ESCOLHIDA" in corpo,
+   "a caixa parou de mandar qual competição está filtrada")
+for campo in ("jogos:", "gols:", "assistencias:"):
+    ok(campo in corpo,
+       f"a caixa parou de mandar '{campo}' — sem isso a correção à mão que ele "
+       f"pediu não chega ao servidor")
+
+# O SERVIDOR CONTINUA SENDO QUEM CALCULA O PADRÃO. A caixa corrige por cima;
+# ela não substitui a conta. Se um dia o servidor passar a aceitar os números
+# da tela como verdade, o filtro de competição deixa de valer e a arte pode
+# sair com um número que a ficha não mostra.
+ok("_somar_partidas(partidas)" in rota,
+   "a arte passou a confiar nos números da tela em vez de calcular os dela")
+
+# CAMPO VAZIO É "DEIXA COMO ESTÁ", E NÃO ZERO. Executado, não lido: recorto o
+# laço que aplica os ajustes e rodo com os casos que importam.
+_i2 = rota.index('    for campo in ("jogos", "gols", "assistencias"):')
+_j2 = rota.index('    j = d["jogador"]')
+_laco = rota[_i2:_j2]
+for entrada, esperado, porque in (
+        ({}, {"jogos": 7, "gols": 4, "assistencias": None}, "nada digitado"),
+        ({"gols": ""}, {"jogos": 7, "gols": 4, "assistencias": None},
+         "campo apagado não é zero"),
+        ({"gols": "0"}, {"jogos": 7, "gols": 0, "assistencias": None},
+         "zero digitado é zero"),
+        ({"assistencias": "2"}, {"jogos": 7, "gols": 4, "assistencias": 2},
+         "preencher o que estava vazio"),
+        ({"jogos": "abc"}, {"jogos": 7, "gols": 4, "assistencias": None},
+         "texto que não é número não pode derrubar nem zerar")):
+    amb = {"totais": {"jogos": 7, "gols": 4, "assistencias": None},
+           "corpo": entrada}
+    exec("\n".join(l[4:] if l.startswith("    ") else l
+                   for l in _laco.split("\n")), amb)
+    ok(amb["totais"] == esperado,
+       f"ajuste à mão errado ({porque}): com {entrada} saiu {amb['totais']}, "
+       f"esperava {esperado}")
+
+# A FOTO PODE VIR DE TRÊS LUGARES: a da SPL (padrão), um endereço colado ou um
+# arquivo do computador. As duas últimas são o "adicionar aos que não tem ou
+# substituir alguma" que ele pediu.
+ok("_imagem_colada(corpo.get" in rota,
+   "a caixa deixou de aceitar foto enviada do computador")
+ok("_endereco_de_imagem_seguro(corpo.get" in rota,
+   "a caixa deixou de aceitar endereço de foto colado")
+ok("do_computador or baixados[0]" in rota,
+   "a foto enviada do computador parou de ter prioridade sobre a da SPL — "
+   "quem substitui tem de ganhar de quem é padrão")
+
+_i3 = FONTE.index("def _endereco_de_imagem_seguro(url: str) -> str:")
+_amb3 = {}
+exec(FONTE[_i3:FONTE.index("\n\n\n", _i3)], _amb3)
+_seguro = _amb3["_endereco_de_imagem_seguro"]
+ok(_seguro("https://media-sdp.spl.com.sa/x.webp"),
+   "endereço normal da SPL foi recusado")
+for ruim in ("http://localhost:8000/x.png", "http://127.0.0.1/x.png",
+             "http://169.254.169.254/latest/meta-data",
+             "http://10.0.0.5/x.png", "http://192.168.1.1/x.png",
+             "http://172.16.0.1/x.png", "file:///etc/passwd", "", "x.png"):
+    ok(_seguro(ruim) == "",
+       f"'{ruim}' passou pela peneira. Quem busca o endereço colado é o "
+       f"servidor, de dentro do Railway — ele enxerga o que a internet não "
+       f"enxerga")
+ok(_seguro("http://172.32.0.1/x.png"),
+   "172.32 não é rede privada (só 172.16 a 172.31) e foi recusado à toa")
+
+_i4 = FONTE.index("def _imagem_colada(valor: str) -> bytes | None:")
+_amb4 = {}
+exec(FONTE[_i4:FONTE.index("\n\n\n", _i4)], _amb4)
+_colada = _amb4["_imagem_colada"]
+ok(_colada("data:image/png;base64,aGVsbG8=") == b"hello",
+   "a imagem enviada do computador não foi decodificada")
+for nao in ("", "hello", "data:text/html;base64,aGVsbG8=",
+            "data:image/png;base64,!!!nao-e-base64!!!"):
+    ok(_colada(nao) is None,
+       f"'{nao[:30]}' foi aceito como imagem enviada do computador")
+
+# A PRÉVIA NÃO PODE BAIXAR SOZINHA. Sem isso, cada tecla digitada na caixa
+# derrubaria um arquivo na pasta de downloads dele.
+ok('entrega = "inline" if corpo.get("previa") else "attachment"' in rota,
+   "a prévia voltou a ser entregue como download")
+previa = FONTE[FONTE.index("async function montarPreviaDaArte(){"):]
+previa = previa[:previa.index("\n}\n")]
+ok("previa: previa ? 1 : 0" in corpo,
+   "a caixa parou de avisar ao servidor que aquilo é prévia")
+ok("X-Pecas" in previa and "X-Pecas" in rota,
    "sumiu o aviso do que faltou na arte — sem ele, uma arte sem escudo parece "
    "escolha de design e ele só descobre depois de publicar")
+
+# E O QUE BAIXA É O QUE ELE VIU. Montar de novo na hora do download abriria a
+# porta para baixar uma imagem diferente da que estava na prévia.
+baixa = FONTE[FONTE.index("async function baixarArte(botao){"):]
+baixa = baixa[:baixa.index("\n}\n")]
+ok("ARTE_BLOB" in baixa and "fetch(" not in baixa,
+   "o download voltou a montar uma arte nova em vez de usar a da prévia")
+
+
+# O JAVASCRIPT DA CAIXA TEM DE SER JAVASCRIPT VÁLIDO.
+#
+# Ele mora dentro de uma string de Python, que mora dentro de um arquivo de
+# vinte mil linhas: uma chave a menos aqui derruba a página inteira, e o
+# py_compile não tem como perceber. Guardado pelo `node` quando ele existe —
+# ferramenta ausente não pode virar acusação contra o código, que é a regra
+# que o teste de estrutura já segue.
+import subprocess                                       # noqa: E402
+import tempfile                                         # noqa: E402
+try:
+    _tem_node = subprocess.run(["node", "--version"],
+                               capture_output=True).returncode == 0
+except (FileNotFoundError, OSError):
+    _tem_node = False
+if _tem_node:
+    _i5 = FONTE.index("// ── A CAIXA DE AJUSTE, ANTES DE BAIXAR ─")
+    _j5 = FONTE.index("\nfunction dataBr(iso){", _i5)
+    _js = os.path.join(tempfile.gettempdir(), "_conf_arte.js")
+    try:
+        with open(_js, "w", encoding="utf-8") as _f:
+            _f.write("let FICHA_DADOS=null, COMP_ESCOLHIDA='';\n"
+                     "function esc(x){return String(x);}\n"
+                     "function somarPartidas(p){return {};}\n"
+                     "function partidasVisiveis(d){return [];}\n"
+                     + FONTE[_i5:_j5])
+        _r = subprocess.run(["node", "--check", _js], capture_output=True,
+                            text=True)
+        ok(_r.returncode == 0,
+           f"a caixa de ajuste não é JavaScript válido: {_r.stderr[:200]}")
+    except (FileNotFoundError, OSError) as _e:
+        print(f"  (não consegui rodar o node: {type(_e).__name__})")
 
 # O nome do arquivo não pode levar acento por três sistemas.
 #

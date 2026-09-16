@@ -79,8 +79,31 @@ NOME_X = 31
 NOME_ALTURA = 148              # altura da MAIÚSCULA, medida no "J" e no "X"
 NOME_BASE = 188                # onde a primeira linha se apoia
 NOME_ENTRELINHA = 171
-NOME_LARGURA_MAX = 520         # até onde dá para escrever sem bater na foto
+# ATÉ ONDE O NOME PODE IR — e isto mudou depois que ele viu as primeiras artes.
+#
+# Antes o limite era 520px, a largura livre antes da foto, e o nome ENCOLHIA
+# para caber. Deu dois problemas que ele apontou: "GABRIEL MARTINELLI" saía
+# bem menor que "JOÃO FÉLIX", e como a entrelinha continuava a mesma, as duas
+# linhas pareciam muito separadas — o espaço entre elas não encolheu junto.
+#
+# Ele resolveu os dois de uma vez: "o nome pode passar por trás da imagem do
+# jogador, estilisticamente fica bom (...) mantenha o mesmo tamanho de fonte
+# usada no João Félix". Então o limite agora é a BORDA DA ARTE, e não a foto.
+# Só nome absurdamente comprido encolhe, e encolhe para não sair cortado no
+# talho da direita — que é feio de um jeito diferente.
+NOME_LARGURA_MAX = 1020
 NOME_LINHAS_MAX = 2
+
+# O ESPAÇO ENTRE LETRAS, em fração da altura da maiúscula.
+#
+# Pedido dele: "reduza um pouco mais a distância lateral entre as letras, a
+# distância pode ter o mesmo tamanho que tem no corte (vazio) interior das
+# letras, como na letra O". Medi as duas coisas nesta fonte, na altura de 148:
+# a folga natural entre duas letras é 20px e o vazio de dentro do O é 7px.
+# Daí -13px, que é -0,088 da altura da maiúscula.
+#
+# Vale só para o nome. Os números já foram acertados pelo aperto horizontal.
+NOME_ENTRELETRA = -0.088
 
 # ── os números ───────────────────────────────────────────────────────────────
 # Três colunas em 18%, 50% e 82% da largura. Os centros saíram da média entre
@@ -249,17 +272,33 @@ def _decompor(texto: str, arquivo: str) -> list:
             partes = unicodedata.normalize("NFD", ch)
             base = partes[0] if partes else ch
             marcas = [m for m in partes[1:] if m in MARCAS]
-            saida.append((base if _conhece(arquivo, base) else "?", marcas))
+            if _conhece(arquivo, base):
+                saida.append((base, marcas))
+            # SE NEM A BASE EXISTE, O CARACTERE SOME — e some de propósito.
+            #
+            # Antes eu punha um "?" no lugar. Parecia prudente e era pior: a
+            # fonte também não tem o ponto de interrogação, então saía o
+            # quadradinho do `.notdef` — a mesma coisa que eu estava tentando
+            # evitar, agora com duas camadas de disfarce. Foi o que o Vini viu
+            # em "S. MILINKOVIĆ-SAVIĆ": o ponto da inicial virou quadradinho,
+            # e a primeira linha do nome ficou "S▯".
+            #
+            # Sumir é a única saída honesta: o quadradinho não informa nada e
+            # estraga a arte inteira. Um sinal de pontuação a menos, ninguém vê.
     return saida
 
 
-def _largura(pecas: list, fonte) -> float:
+def _largura(pecas: list, fonte, entreletra: float = 0.0) -> float:
     """A largura do texto, somando letra por letra.
 
     Somar em vez de pedir a da linha inteira porque é letra por letra que eu
     DESENHO: se as duas contas discordassem, o texto sairia centrado num lugar
-    e desenhado em outro."""
-    return sum(fonte.getlength(letra) for letra, _ in pecas)
+    e desenhado em outro. O `entreletra` entra aqui pelo mesmo motivo — ele
+    muda a largura, e quem centraliza precisa saber."""
+    if not pecas:
+        return 0.0
+    avanco = sum(fonte.getlength(letra) for letra, _ in pecas)
+    return avanco + entreletra * (len(pecas) - 1)
 
 
 def _pintar_marca(tela, d, tipo, esq, dir_, topo, base_y, cap, fonte, cor):
@@ -377,13 +416,17 @@ def _glifo_solto(fonte, ch: str, cor):
 
 
 def texto(base, arquivo: str, conteudo: str, cap: float, x: float, base_y: float,
-          ancora: str = "ls", aperto: float = 1.0, cor=(255, 255, 255)) -> None:
+          ancora: str = "ls", aperto: float = 1.0, cor=(255, 255, 255),
+          entreletra: float = 0.0) -> None:
     """Escreve `conteudo` em `base`, com os acentos desenhados quando faltam.
 
     `cap` é a altura da MAIÚSCULA, não o corpo da fonte: é o que o Vini mediu
     na arte dele. `base_y` é a linha de base. `aperto` comprime na horizontal —
     a fonte do arquivo é mais larga que a do Canva, e sem ele os três números
     do rodapé quase se encostam.
+
+    `entreletra` é uma fração da altura da maiúscula e costuma ser NEGATIVA:
+    aperta as letras umas contra as outras. Pedido dele para o nome.
 
     `ancora`: "ls" encosta à esquerda, "ms" centra no x.
     """
@@ -394,7 +437,8 @@ def texto(base, arquivo: str, conteudo: str, cap: float, x: float, base_y: float
     corpo = _corpo_para_altura(arquivo, cap) * SUPER
     fonte = _fonte(arquivo, corpo)
     alto = cap * SUPER
-    larg = _largura(pecas, fonte)
+    passo = entreletra * alto            # já em pixels da tela superamostrada
+    larg = _largura(pecas, fonte, passo)
     margem = int(round(alto))
 
     tela = Image.new("RGBA", (int(round(larg)) + margem * 2, int(round(alto * 3))),
@@ -410,7 +454,7 @@ def texto(base, arquivo: str, conteudo: str, cap: float, x: float, base_y: float
         for m in marcas:
             _pintar_marca(tela, d, MARCAS[m], esq, dir_, linha - alto,
                           linha, alto, fonte, cor)
-        caneta += fonte.getlength(letra)
+        caneta += fonte.getlength(letra) + passo
 
     final_l = max(1, int(round(tela.width / SUPER * aperto)))
     final_a = max(1, int(round(tela.height / SUPER)))
@@ -423,12 +467,12 @@ def texto(base, arquivo: str, conteudo: str, cap: float, x: float, base_y: float
 
 
 def largura_do_texto(arquivo: str, conteudo: str, cap: float,
-                     aperto: float = 1.0) -> float:
+                     aperto: float = 1.0, entreletra: float = 0.0) -> float:
     """Quanto este texto vai ocupar. Mesma conta do `texto`, para o nome saber
     se precisa encolher antes de ser desenhado."""
     pecas = _decompor(conteudo, arquivo)
     fonte = _fonte(arquivo, _corpo_para_altura(arquivo, cap) * SUPER)
-    return _largura(pecas, fonte) / SUPER * aperto
+    return _largura(pecas, fonte, entreletra * cap * SUPER) / SUPER * aperto
 
 
 def _altura_de_maiuscula(arquivo: str, corpo: float) -> float:
@@ -505,6 +549,18 @@ def quebrar_nome(nome: str, largura_max: float = NOME_LARGURA_MAX) -> list[str]:
     encostada no topo, e é o topo que dá o alinhamento com a marca.
     """
     palavras = [p for p in (nome or "").upper().split() if p]
+
+    # INICIAL SOLTA SAI FORA. "S. Milinković-Savić" tem duas palavras, e a
+    # primeira é uma letra: a arte saía com uma linha inteira ocupada por um
+    # "S". Foi o que o Vini relatou como "corta após a primeira letra". Uma
+    # inicial não é como o jogador é chamado, e numa arte de nome grande ela
+    # só ocupa lugar.
+    #
+    # Só descarto se sobrar alguma coisa: um jogador que se chamasse só "S"
+    # continua saindo com o S.
+    inteiras = [p for p in palavras if len(p.strip(".-'")) > 1]
+    if inteiras:
+        palavras = inteiras
     if not palavras:
         return []
     if len(palavras) > NOME_LINHAS_MAX:
@@ -512,17 +568,41 @@ def quebrar_nome(nome: str, largura_max: float = NOME_LARGURA_MAX) -> list[str]:
     return palavras
 
 
-def _corpo_do_nome(linhas: list[str]) -> float:
-    """A ALTURA DE MAIÚSCULA que cabe. Encolhe se precisar, nunca corta.
+def melhor_nome(curto: str, principal: str) -> str:
+    """Entre o nome curto e o principal, qual vai para a arte.
 
-    Nome comprido — "ABDULRAHMAN" tem onze letras — estouraria a largura e
-    entraria por cima da foto. Encolher a fonte é a única saída que não perde
-    letra nenhuma, e mexe só em quem precisa: nome curto sai no tamanho do
-    exemplo.
+    O curto ganha por padrão — é como o jogador é chamado, e é o que cabe em
+    duas linhas grandes. Mas o glossário às vezes guarda o curto com inicial
+    ("S. Milinković-Savić"), e aí o principal ("Sergej Milinković-Savić") é o
+    melhor dos dois: tem as mesmas duas linhas, sem uma delas ser uma letra.
+
+    Se os dois tiverem inicial, o `quebrar_nome` joga a inicial fora e sobra o
+    sobrenome sozinho, que ainda é melhor que um "S" ocupando uma linha.
+    """
+    curto, principal = (curto or "").strip(), (principal or "").strip()
+    def tem_inicial(n):
+        return any(len(p.strip(".-'")) == 1 for p in n.split())
+    if curto and tem_inicial(curto) and principal and not tem_inicial(principal):
+        return principal
+    return curto or principal
+
+
+def _corpo_do_nome(linhas: list[str]) -> float:
+    """A ALTURA DE MAIÚSCULA. Quase sempre a do exemplo; encolhe só no extremo.
+
+    TODO MUNDO NO TAMANHO DO JOÃO FÉLIX, que é o que ele pediu depois de ver
+    "GABRIEL MARTINELLI" sair menor. Passar por trás da foto é escolha de
+    estilo dele, e não um problema a resolver.
+
+    O único limite que sobrou é a borda da arte. "MILINKOVIĆ-SAVIĆ" tem
+    dezesseis letras; se nem isso coubesse, a última sairia cortada no talho
+    verde da direita — e letra cortada não é estilo, é defeito. Nesse caso
+    encolhe o mínimo para caber inteira.
     """
     if not linhas:
         return NOME_ALTURA
-    maior = max(largura_do_texto(FONTE_NOME, l, NOME_ALTURA) for l in linhas)
+    maior = max(largura_do_texto(FONTE_NOME, l, NOME_ALTURA,
+                                 entreletra=NOME_ENTRELETRA) for l in linhas)
     if maior <= NOME_LARGURA_MAX:
         return NOME_ALTURA
     return NOME_ALTURA * NOME_LARGURA_MAX / maior
@@ -591,7 +671,8 @@ def montar(dados: dict) -> bytes:
         cap = _corpo_do_nome(linhas)
         for i, linha in enumerate(linhas):
             texto(arte, FONTE_NOME, linha, cap,
-                  NOME_X, NOME_BASE + i * NOME_ENTRELINHA, "ls", cor=BRANCO)
+                  NOME_X, NOME_BASE + i * NOME_ENTRELINHA, "ls", cor=BRANCO,
+                  entreletra=NOME_ENTRELETRA)
 
     # ── os três números e suas legendas ──────────────────────────────────────
     #
