@@ -423,6 +423,41 @@ ok(alto is not None and abs(alto[1] - DO_EXEMPLO["nome_topo"]) <= 12,
    f"o nome começa em y={alto[1] if alto else '?'}, e no exemplo começa em "
    f"{DO_EXEMPLO['nome_topo']}")
 
+# ── O NOME PASSA ATRÁS DA FOTO ──────────────────────────────────────────────
+#
+# Pedido dele (16/09/26), com exemplo anexo: "o nome é pra passar na camada
+# ATRÁS da foto do jogador". É o que faz nome comprido funcionar —
+# "MILINKOVIĆ-SAVIĆ" atravessa a arte, e por cima virava uma tarja sobre o
+# rosto; por trás, a letra some atrás do ombro e reaparece do outro lado.
+#
+# O teste é por EFEITO: monto com um retângulo OPACO no lugar da foto, que
+# começa em x=96. Se o nome estiver atrás, a tinta branca dele só pode
+# aparecer nos 65px antes disso. Se estiver na frente, aparece por cima do
+# retângulo inteiro — e é impossível confundir os dois casos.
+_nome_longo = "Abdulrahmanalobaidalmalki"
+_atras = _mascara_branca(_arte(nome=_nome_longo, foto=_quadrado(MAGENTA)))
+_sozinho = _mascara_branca(_arte(nome=_nome_longo))
+_caixa_atras = _atras.crop((0, 0, 1080, 400)).getbbox()
+_caixa_sozinho = _sozinho.crop((0, 0, 1080, 400)).getbbox()
+ok(_caixa_sozinho is not None and _caixa_sozinho[2] > 400,
+   "o nome comprido de teste não ficou comprido o bastante para a conferência")
+ok(_caixa_atras is None or _caixa_atras[2] <= DO_EXEMPLO["foto"][0] + 4,
+   f"o nome está sendo desenhado POR CIMA da foto: com um retângulo opaco "
+   f"cobrindo de x={DO_EXEMPLO['foto'][0]} em diante, ainda sobra letra até "
+   f"x={_caixa_atras[2] if _caixa_atras else 0}")
+
+# E o nome não pode ter sido escurecido pelo degradê no caminho. Ele agora é
+# desenhado ANTES do sobreposto, e isso só é seguro porque na faixa dele o
+# sobreposto é branco puro. Se um dia o nome descer, ele sai cinza.
+_linha = _sozinho.crop((0, 0, 1080, 400)).getbbox()
+ok(_linha is not None, "o nome sumiu")
+if _linha:
+    _pix = _arte(nome="Ali Nasser").crop((0, 0, 1080, 400))
+    _branco_puro = _mascara_branca(_pix, limiar=245).getbbox()
+    ok(_branco_puro is not None,
+       "o nome deixou de ser branco puro — o degradê passou a escurecê-lo, "
+       "sinal de que ele desceu para uma faixa onde o sobreposto já é cinza")
+
 # ── A INICIAL SOLTA E O QUADRADINHO ─────────────────────────────────────────
 #
 # "Tem jogadores que não aparece o nome. Corta após a primeira letra." Era o

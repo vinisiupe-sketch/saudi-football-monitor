@@ -32,11 +32,19 @@ AS DUAS CAMADAS DE FUNDO, E POR QUE MULTIPLICAR
     fosse multiplicado sairia verde-escuro sujo, e no exemplo ele é o verde
     puro da marca.
 
-A ORDEM DAS CAMADAS decorre disso:
-    fundo → foto → sobreposto → escudo, bandeira, nome, números.
-    A foto ANTES do sobreposto porque ela precisa mergulhar no escuro; o resto
-    DEPOIS porque no exemplo os números são branco puro numa faixa onde o
-    sobreposto já está quase preto. Se estivessem embaixo, sairiam cinza.
+A ORDEM DAS CAMADAS:
+    fundo → NOME → foto → sobreposto → escudo, bandeira, números.
+
+    O NOME vem antes da foto porque ele passa ATRÁS do jogador — pedido dele,
+    e é o que faz nome comprido funcionar: a letra some atrás do ombro e
+    reaparece do outro lado, em vez de virar uma tarja sobre o rosto.
+
+    A FOTO vem antes do sobreposto porque precisa mergulhar no escuro embaixo.
+
+    O RESTO vem depois porque no exemplo os números são branco puro numa faixa
+    onde o sobreposto já está quase preto; embaixo dele sairiam cinza. O nome
+    não tem esse problema: ele vive na faixa de cima, onde o sobreposto ainda
+    é branco e multiplicar por branco não muda nada.
 
 O QUE ESTE MÓDULO NÃO FAZ
     Não decide nada e não vai à rede. Nome, números, foto, escudo e bandeira
@@ -629,7 +637,30 @@ def montar(dados: dict) -> bytes:
         base = base.resize((LARGURA, ALTURA), Image.LANCZOS)
     base = base.convert("RGBA")
 
-    # ── a foto, por baixo do degradê ─────────────────────────────────────────
+    # ── o nome, ATRÁS DA FOTO ────────────────────────────────────────────────
+    #
+    # Esta é a única razão de o nome ser desenhado aqui, antes de tudo o mais.
+    # Pedido dele (16/09/26), com exemplo anexo: "o nome é pra passar na camada
+    # ATRÁS da foto do jogador".
+    #
+    # É o que resolve de vez o nome comprido. "MILINKOVIĆ-SAVIĆ" atravessa a
+    # arte inteira e passava POR CIMA do rosto do jogador — o que ele queria é
+    # o contrário: a letra some atrás do ombro e reaparece do outro lado, que é
+    # o efeito da arte dele. Sem isso, nome grande vira tarja sobre a cara do
+    # cara.
+    #
+    # E é seguro pôr aqui, antes do degradê: o nome vive entre y=12 e y=360, e
+    # nessa faixa o sobreposto ainda é branco puro — multiplicar por branco não
+    # muda nada. Se um dia o nome descer, esta conta deixa de valer.
+    linhas = quebrar_nome(dados.get("nome") or "")
+    if linhas:
+        cap = _corpo_do_nome(linhas)
+        for i, linha in enumerate(linhas):
+            texto(base, FONTE_NOME, linha, cap,
+                  NOME_X, NOME_BASE + i * NOME_ENTRELINHA, "ls", cor=BRANCO,
+                  entreletra=NOME_ENTRELETRA)
+
+    # ── a foto, por cima do nome e por baixo do degradê ──────────────────────
     foto = dados.get("foto")
     if foto:
         try:
@@ -664,15 +695,6 @@ def montar(dados: dict) -> bytes:
     bandeira = _redondo(dados.get("bandeira"), BANDEIRA_LADO)
     if bandeira:
         arte.alpha_composite(bandeira, (BANDEIRA_X, BANDEIRA_Y))
-
-    # ── o nome ───────────────────────────────────────────────────────────────
-    linhas = quebrar_nome(dados.get("nome") or "")
-    if linhas:
-        cap = _corpo_do_nome(linhas)
-        for i, linha in enumerate(linhas):
-            texto(arte, FONTE_NOME, linha, cap,
-                  NOME_X, NOME_BASE + i * NOME_ENTRELINHA, "ls", cor=BRANCO,
-                  entreletra=NOME_ENTRELETRA)
 
     # ── os três números e suas legendas ──────────────────────────────────────
     #
