@@ -13587,7 +13587,7 @@ function cartao(a) {
     const voltar = document.createElement('button');
     voltar.type = 'button';
     voltar.className = 'padrao';
-    voltar.textContent = 'voltar ao padrao (' + a.padrao + ')';
+    voltar.textContent = 'voltar ao padrão (' + a.padrao + ')';
     voltar.onclick = function () { salvar(a, entrada, estado, true); };
     texto.appendChild(voltar);
   }
@@ -18414,9 +18414,13 @@ def _nome_para_arte(j: dict) -> str:
     "Bono" enquanto a imagem embaixo dele dissesse outra coisa — que é, de
     novo, a mesma pessoa com dois nomes na mesma tela.
     """
-    # Import aqui dentro porque a rota da arte também importa assim: o
-    # `ficha_arte` puxa o Pillow, e ele não precisa subir junto com o app.
-    # Depois da primeira vez isto é uma consulta ao sys.modules.
+    # OS DOIS IMPORTS SÃO AQUI DENTRO, e o `database` por um motivo que já me
+    # custou uma entrega: `_db` NÃO existe no escopo do módulo. Ele é um apelido
+    # local, feito dentro de cada função que precisa dele. Eu escrevi
+    # `_db.valor_de_ajuste(...)` sem o import, o NameError caiu no `except`
+    # abaixo, a escolha virou o padrão — e a arte continuou saindo "BONO" com a
+    # configuração marcada como "o mesmo das telas". Silêncio perfeito.
+    import database as _db
     import ficha_arte
 
     principal = (j.get("nome") or "").strip()
@@ -18425,7 +18429,8 @@ def _nome_para_arte(j: dict) -> str:
         escolha = _db.valor_de_ajuste("arte_nome")
     except Exception:
         # Banco fora do ar não pode derrubar a arte: cai no padrão, que é o
-        # comportamento que ele já conhece.
+        # comportamento que ele já conhece. É a rede de segurança certa para a
+        # falha errada — ela também engoliu o meu NameError acima.
         escolha = ""
     if escolha == "o mesmo das telas":
         # O curto entra só se o principal não existir. Não é para desfazer a

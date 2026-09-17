@@ -43,6 +43,41 @@ ARQUIVOS = ["main.py", "database.py", "processor.py", "collector.py",
             "arbitragem.py", "previa.py", "mercado.py", "elos.py"]
 
 
+# ── OS APELIDOS TAMBÉM CONTAM (16/09/26) ────────────────────────────────────
+#
+# Este arquivo nasceu de um gol que não virou clipe, e mesmo assim deixou
+# passar o irmão gêmeo do mesmo defeito.
+#
+# O main.py usa `import database as _db` DENTRO de três funções. Eu escrevi
+# `_db.valor_de_ajuste(...)` numa quarta e esqueci o import. Ninguém viu: o
+# `py_compile` passa, e esta varredura só vigiava nomes que são NOME DE
+# ARQUIVO — `_db` não é arquivo nenhum, então não estava na lista.
+#
+# O NameError caiu num `except Exception` que eu tinha posto ali para o caso
+# de o banco estar fora do ar, a configuração virou o padrão, e a arte saiu com
+# o nome errado enquanto a tela de Configurações mostrava a escolha certa,
+# marcada como "MUDADO". O Vini descobriu olhando a imagem.
+#
+# Então agora todo apelido dado a um módulo do projeto, em qualquer um destes
+# arquivos, entra na lista dos nomes vigiados.
+def _apelidos() -> set:
+    achados = set()
+    for arquivo in ARQUIVOS:
+        caminho = os.path.join(RAIZ, arquivo)
+        if not os.path.exists(caminho):
+            continue
+        for no in ast.walk(ast.parse(open(caminho, encoding="utf-8").read())):
+            if isinstance(no, ast.Import):
+                for a in no.names:
+                    if a.asname and a.name.split(".")[0] in MODULOS:
+                        achados.add(a.asname)
+    return achados
+
+
+APELIDOS = _apelidos()
+MODULOS |= APELIDOS
+
+
 def _proprios(no):
     """Os nós de dentro deste, SEM entrar em funções aninhadas.
 
@@ -138,6 +173,16 @@ def testar():
     if not ok:
         falhas.append(f"olhei só {olhados} funções — a varredura está "
                       "pegando pouca coisa e passaria verde à toa")
+
+    # E A LISTA DE APELIDOS PRECISA TER ACHADO ALGUMA COISA. Se um dia o
+    # `_apelidos()` parar de funcionar, esta varredura volta a ser a de antes
+    # sem dizer nada — e a de antes deixou passar o defeito que ele viu na
+    # tela.
+    if not APELIDOS:
+        falhas.append("não achei nenhum apelido de módulo ('import x as y') "
+                      "no projeto. Ou eles sumiram, ou a busca por eles "
+                      "quebrou — e foi um apelido não vigiado que deixou a "
+                      "escolha do Vini sem efeito na arte")
 
     for f in falhas:
         print("  ✗", f)

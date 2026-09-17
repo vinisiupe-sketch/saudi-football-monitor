@@ -102,17 +102,43 @@ CORPO = FONTE[_i:FONTE.index("\ndef _nome_de_arquivo", _i)]
 
 ESCOLHA = [None]
 
+# O BANCO DE MENTIRA VAI NO MÓDULO DE VERDADE, e não num `_db` que eu entrego
+# pronto no ambiente do exec.
+#
+# ISTO AQUI JÁ ME PEGOU, e pegou caro. Na primeira versão deste arquivo eu
+# escrevi `ambiente = {"_db": _BancoDeMentira}`. Só que `_db` NÃO existe no
+# escopo do main.py: é um apelido local, `import database as _db`, feito dentro
+# de cada função que precisa. Eu esqueci o import no `_nome_para_arte`, o
+# NameError caiu no `except` de lá, a escolha virou o padrão — e a arte saiu
+# "BONO" com a configuração dele marcada em "o mesmo das telas". O teste passou
+# porque eu estava fornecendo justamente a peça que faltava.
+#
+# É a segunda vez na mesma semana que eu injeto o valor que deveria estar
+# conferindo. Agora o ambiente do exec vai VAZIO: a função que se vire para
+# achar o que precisa, como ela vai ter de fazer no servidor.
+import database                                           # noqa: E402
 
-class _BancoDeMentira:
-    @staticmethod
-    def valor_de_ajuste(chave):
-        assert chave == "arte_nome", f"leu o ajuste errado: {chave!r}"
-        return ESCOLHA[0]
+_real_valor_de_ajuste = database.valor_de_ajuste
 
 
-ambiente = {"_db": _BancoDeMentira}
+def _valor_de_mentira(chave):
+    assert chave == "arte_nome", f"leu o ajuste errado: {chave!r}"
+    return ESCOLHA[0]
+
+
+database.valor_de_ajuste = _valor_de_mentira
+
+ambiente: dict = {}
 exec(CORPO, ambiente)
 nome_da_arte = ambiente["_nome_para_arte"]
+
+# E A PROVA DE QUE O AMBIENTE ESTAVA MESMO VAZIO: se alguém reintroduzir a
+# muleta, este teste volta a ser decorativo.
+ok("_db" not in ambiente or ambiente.get("_db") is None
+   or getattr(ambiente.get("_db"), "__name__", "") == "database",
+   "o ambiente do exec ganhou um `_db` que não veio do import do próprio "
+   "main.py. Foi assim que um NameError passou despercebido e a escolha dele "
+   "não valeu nada")
 
 BONO = {"nome": "Yassine Bounou", "nome_curto": "Bono"}
 
@@ -173,16 +199,13 @@ for escolha in (A["opcoes"] if A else []):
        f"nome nenhum na arte")
 
 # ── BANCO CAÍDO NÃO DERRUBA A ARTE ───────────────────────────────────────
-class _BancoQuebrado:
-    @staticmethod
-    def valor_de_ajuste(chave):
-        raise RuntimeError("banco fora do ar")
+def _explode(chave):
+    raise RuntimeError("banco fora do ar")
 
 
-amb2 = {"_db": _BancoQuebrado}
-exec(CORPO, amb2)
+database.valor_de_ajuste = _explode
 try:
-    _r = amb2["_nome_para_arte"](BONO)
+    _r = nome_da_arte(BONO)
     ok(_r == "Bono",
        f"com o banco fora do ar a arte saiu {_r!r}; devia cair no "
        f"comportamento antigo, que é o apelido")
@@ -192,6 +215,7 @@ except Exception as e:
                   f"não pode impedir a imagem de existir")
 
 # ── E NÃO PODE QUEBRAR COM DICIONÁRIO VAZIO ──────────────────────────────
+database.valor_de_ajuste = _valor_de_mentira
 ESCOLHA[0] = A["padrao"] if A else None
 try:
     ok(nome_da_arte({}) == "",
