@@ -262,6 +262,21 @@ AJUSTES = [
     # se a tabela escolhida não tem o campo, o campo fica vazio, e vazio é
     # honesto — dado de outra tabela aparecendo no lugar seria mentira calada.
     {
+        "chave": "glossario_fonte_nome",
+        "grupo": "Glossário de jogadores",
+        "rotulo": "De onde vem o nome",
+        "tipo": "escolha",
+        "opcoes": ["melhor disponível", "spl", "api_football", "transfermarkt"],
+        "padrao": "melhor disponível",
+        "ajuda": "Cada base escreve o nome do seu jeito, e nenhuma está "
+                 "errada: o mesmo jogador é 'Kader Meïté' no Transfermarkt e "
+                 "'Mohammed Meïté' na SPL. O que importa é PADRONIZAR — "
+                 "escolher uma e ver a mesma grafia em toda tela, na arte que "
+                 "você baixa e na escalação. Se a fonte escolhida não tiver o "
+                 "nome de alguém, aquele jogador cai no nome do glossário: "
+                 "card sem foto funciona, card sem nome não.",
+    },
+    {
         "chave": "glossario_fonte_foto",
         "grupo": "Glossário de jogadores",
         "rotulo": "De onde vem a foto",

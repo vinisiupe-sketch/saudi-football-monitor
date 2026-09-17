@@ -124,14 +124,21 @@ ok('"nome": p["nome"]' not in rota,
    "a lista voltou a mostrar o nome do Transfermarkt direto. Foi assim que a "
    "mesma pessoa apareceu como 'Kader Meïté' na lista e 'Mohammed Meïté' na "
    "ficha, na mesma tela")
-ok('nome = f.get("nome_principal") or nome' in rota,
-   "o nome da lista parou de vir do glossário")
+# E É O NOME RESOLVIDO PELA FONTE QUE ELE ESCOLHEU, não o `nome_principal`
+# cru. Eu tinha fixado o `nome_principal` e ele me corrigiu: as grafias das
+# três bases são todas válidas, e escolher qual usar é decisão dele.
+ok('nome = f.get("nome") or nome' in rota,
+   "o nome da lista parou de vir do glossário, ou voltou a ignorar a fonte "
+   "que ele escolheu em Ajustes")
+ok('f.get("nome_principal")' not in rota,
+   "a lista voltou a fixar o `nome_principal`. Ele é a âncora do glossário, "
+   "não a grafia que o Vini escolheu para ver na tela")
 ok('"nome": nome,' in rota,
    "a lista não está publicando o nome resolvido")
 
-# E a ORDEM importa: o nome do glossário tem de ser calculado ANTES de entrar
-# no dicionário de saída, senão a atribuição não chega a lugar nenhum.
-ok(rota.index('nome = f.get("nome_principal")') < rota.index('"nome": nome,'),
+# E a ORDEM importa: o nome tem de ser resolvido ANTES de entrar no dicionário
+# de saída, senão a atribuição não chega a lugar nenhum.
+ok(rota.index('nome = f.get("nome")') < rota.index('"nome": nome,'),
    "o nome é resolvido DEPOIS de ser publicado; a atribuição não teria efeito")
 
 # O padrão continua sendo o do TM para quem o glossário não conhece — é o
@@ -150,6 +157,91 @@ ok('"nacionalidade": _pais_em_portugues(' in ficha,
    "a ficha do jogador voltou a mandar a nacionalidade como veio da fonte. "
    "Era este lado que dizia 'France' ao lado de uma lista que dizia 'Costa "
    "do Marfim'")
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2b. O NOME É UMA ESCOLHA DELE, COMO A FOTO — e a escolha é EXECUTADA
+# ─────────────────────────────────────────────────────────────────────────
+import glossario                                        # noqa: E402
+import ajustes                                          # noqa: E402
+
+ok("glossario_fonte_nome" in ajustes.POR_CHAVE,
+   "sumiu o seletor de fonte do nome. Cada base escreve de um jeito e nenhuma "
+   "está errada: 'Kader Meïté' no Transfermarkt, 'Mohammed Meïté' na SPL. "
+   "Escolher qual padronizar é decisão dele")
+ok("nome" in glossario._DE_ONDE,
+   "o nome saiu do mapa de fontes do glossário")
+for fonte in ("spl", "api_football", "transfermarkt"):
+    ok(glossario._DE_ONDE["nome"].get(fonte),
+       f"o nome não tem coluna para a fonte '{fonte}'")
+
+# EXECUTADO: troco a fonte e confiro qual grafia sai.
+_original = glossario._fonte_escolhida
+LINHA = {"nome_principal": "Mohammed Meïté", "af_nome": "M. Meite",
+         "tm_nome": "Kader Meïté", "foto": "", "posicao": "",
+         "nacionalidade": ""}
+try:
+    for escolha, esperado in (("spl", "Mohammed Meïté"),
+                              ("transfermarkt", "Kader Meïté"),
+                              ("api_football", "M. Meite")):
+        glossario._fonte_escolhida = lambda c, e=escolha: e
+        ok(glossario.ficha(LINHA).get("nome") == esperado,
+           f"com a fonte do nome em '{escolha}' saiu "
+           f"{glossario.ficha(LINHA).get('nome')!r} e devia sair {esperado!r}")
+
+    # A EXCEÇÃO QUE SÓ O NOME TEM: fonte escolhida sem o dado cai na âncora do
+    # glossário. Nos outros campos vazio é resposta — mas card sem foto ainda
+    # funciona, e card sem NOME vira uma linha em branco que não dá para
+    # clicar nem procurar.
+    glossario._fonte_escolhida = lambda c: "transfermarkt"
+    sem_tm = dict(LINHA, tm_nome="")
+    ok(glossario.ficha(sem_tm).get("nome") == "Mohammed Meïté",
+       "um jogador sem nome na fonte escolhida ficou SEM NOME na tela. Ele "
+       "some da lista sem sumir do elenco — o pior tipo de desaparecimento")
+
+    # E o vazio dos outros campos continua sendo resposta, não lacuna.
+    ok(glossario.ficha(dict(LINHA, tm_foto=""))["foto"] == "",
+       "a exceção do nome vazou para a foto; ali vazio tem de continuar "
+       "querendo dizer 'a fonte que você escolheu não tem isto'")
+finally:
+    glossario._fonte_escolhida = _original
+
+
+# TODO MUNDO QUE MOSTRA NOME USA O RESOLVIDO. Plantei o `nome_principal` de
+# volta em cada consumidor, um por um, e os que eu não estava vigiando
+# passaram batidos — o defeito não some por estar consertado num lugar.
+BANCO = open(os.path.join(RAIZ, "database.py"), encoding="utf-8").read()
+for trecho, quem in (
+        (FONTE[FONTE.index("def _ficha_como_elenco("):
+               FONTE.index("\ndef _e_nome_de_clube_da_liga")],
+         "a ficha-como-elenco (Lesões, Mercado, campinho)"),
+        (ficha, "a ficha do jogador"),
+        (FONTE[FONTE.index("def _elenco_de_reserva("):
+               FONTE.index("\ndef ", FONTE.index("def _elenco_de_reserva(") + 10)],
+         "o elenco de reserva pelo glossário")):
+    ok('"nome": f.get("nome_principal")' not in trecho,
+       f"{quem} voltou a fixar o `nome_principal`. A escolha de fonte do nome "
+       f"passa a valer numa tela e não na outra — que é exatamente a "
+       f"incoerência que ele apontou")
+
+# E AS COLUNAS PRECISAM CHEGAR. Oferecer uma fonte que sempre devolve vazio é
+# uma armadilha com cara de opção — o próprio ajustes.py já diz isso sobre a
+# posição da API-Football.
+_i4 = BANCO.index("def glossario_completo(")
+_sql = BANCO[_i4:BANCO.index("\ndef ", _i4 + 10)]
+# A COLUNA DE ORIGEM PRECISA APARECER, e não só o apelido. Plantei
+# `'' AS af_nome` — o apelido continua lá e o dado nunca chega — e o teste
+# passou. Um alias sozinho não prova que alguma coisa é lida.
+for origem, apelido, fonte in (("a.nome", "af_nome", "api_football"),
+                               ("e.nome", "tm_nome", "transfermarkt")):
+    plano = " ".join(_sql.split())
+    ok(f"{origem} AS {apelido}" in plano,
+       f"a consulta do glossário não lê mais {origem} para o {apelido}. A "
+       f"opção '{fonte}' continuaria na tela e devolveria vazio sempre — "
+       f"armadilha com cara de opção")
+ok("jogador_id, nome, foto" in _sql,
+   "o elenco congelado parou de entregar o nome; a opção 'transfermarkt' "
+   "ficaria sem dado")
 
 
 # ─────────────────────────────────────────────────────────────────────────

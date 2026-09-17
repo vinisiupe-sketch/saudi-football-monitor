@@ -5820,7 +5820,9 @@ def _ficha_como_elenco(g: dict) -> dict:
     import glossario
     f = glossario.ficha(g)
     return {"spl_id": f.get("spl_id") or "", "af_id": f.get("af_id"),
-            "tm_id": f.get("tm_id") or "", "nome": f.get("nome_principal") or "",
+            # O NOME RESOLVIDO, e não o `nome_principal` cru: a fonte do
+            # nome virou escolha dele em Ajustes, como a da foto.
+            "tm_id": f.get("tm_id") or "", "nome": f.get("nome") or "",
             "nome_curto": f.get("nome_curto") or "",
             "nome_ar": f.get("nome_ar") or "", "clube": f.get("clube") or "",
             "posicao": f.get("posicao") or "", "camisa": f.get("camisa") or "",
@@ -17785,7 +17787,7 @@ def _elenco_de_reserva(team: int, clube: str) -> tuple[list[dict], str, list[str
         f = _g.ficha(j)
         linhas.append({
             "id": f.get("tm_id") or f.get("spl_id"),
-            "nome": f.get("nome_principal") or "",
+            "nome": f.get("nome") or "",
             "numero": int(f["camisa"]) if str(f.get("camisa") or "").isdigit() else None,
             "posicao": f.get("posicao") or "",
             "grupo": _grupo_da_posicao(f.get("posicao") or ""),
@@ -18133,7 +18135,7 @@ async def _ficha_do_jogador(tm_id: str = "", af_id: int = 0, spl_id: str = "",
         "jogador": {
             "id": f.get("id"), "spl_id": f.get("spl_id"),
             "af_id": f.get("af_id"), "tm_id": f.get("tm_id"),
-            "nome": f.get("nome_principal") or "",
+            "nome": f.get("nome") or "",
             "nome_curto": f.get("nome_curto") or "",
             "nome_ar": f.get("nome_ar") or "",
             "clube": f.get("clube") or "",
@@ -18493,20 +18495,23 @@ async def api_elencos_jogadores(team: int = 0, clube: str = ""):
                 f = glossario.ficha(g)
                 foto = f.get("foto") or foto_tm
 
-                # ── O NOME VEM DO GLOSSÁRIO, SEMPRE ───────────────────────
+                # ── O NOME VEM DO GLOSSÁRIO, NA FONTE QUE ELE ESCOLHEU ────
                 #
                 # Este campo estava passando direto: a lista mostrava
                 # `p["nome"]`, que é o do Transfermarkt, enquanto a ficha ao
                 # lado mostrava o do glossário. O Vini viu os dois na MESMA
-                # tela — "Kader Meïté" na lista e "Mohammed Meïté" na ficha —
-                # e perguntou por que a página bebe de duas fontes.
+                # tela — "Kader Meïté" na lista e "Mohammed Meïté" na ficha.
                 #
-                # E O NOME NÃO É CONFIGURÁVEL como a foto e a posição. Não há
-                # de qual fonte escolher: o glossário é a base oficial, feita e
-                # auditada por ele. Se o nome estiver errado, o conserto é lá,
-                # num lugar só — que é a coisa toda que o glossário existe
-                # para permitir.
-                nome = f.get("nome_principal") or nome
+                # Eu consertei chamando o nome da lista de "errado". Ele me
+                # corrigiu, e estava certo: "Mohammed Meité não é nome errado,
+                # tá tão certo quanto Kader Meité (...) Deveria dar pra
+                # escolher sim, já que no glossário tem diferentes fontes".
+                #
+                # Não é erro contra acerto; são grafias. O problema era a falta
+                # de PADRÃO, e padrão é decisão editorial — dele. Agora o nome
+                # tem seletor de fonte em Ajustes, como a foto, e a mesma
+                # grafia vale na lista, na ficha, no campinho e na arte.
+                nome = f.get("nome") or nome
 
                 # SÓ TROCO O QUE ELE ESCOLHEU TROCAR.
                 #

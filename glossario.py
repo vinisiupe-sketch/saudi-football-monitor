@@ -304,6 +304,21 @@ def _fonte_escolhida(campo: str) -> str:
 # não traz posição, e o Transfermarkt escreve nacionalidade no plural (um
 # jogador pode ter duas). Onde não há dado, o valor é None e a busca segue.
 _DE_ONDE = {
+    # O NOME TAMBÉM É ESCOLHA DELE, e isto entrou em 16/09/26.
+    #
+    # Eu tinha decidido que o glossário mandava no nome e pronto, e chamei de
+    # "errado" o nome que a lista mostrava. Ele corrigiu:
+    #
+    #     "Mohammed Meité não é nome errado, tá tão certo quanto Kader Meité,
+    #      mas é só como ele aparece em outras fichas. Deveria dar pra escolher
+    #      sim, já que no glossário tem diferentes fontes. Eu gosto da
+    #      padronização do transfermkt."
+    #
+    # Ele tem razão e eu não tinha. Não é erro contra acerto: são grafias, e
+    # cada base tem a sua. O que faltava era PADRONIZAR — escolher uma e usá-la
+    # em todo lugar. Isso é decisão editorial, e decisão editorial é dele.
+    "nome":          {"spl": "nome_principal", "api_football": "af_nome",
+                      "transfermarkt": "tm_nome"},
     "foto":          {"spl": "foto", "api_football": "af_foto",
                       "transfermarkt": "tm_foto"},
     "posicao":       {"spl": "posicao", "api_football": None,
@@ -383,7 +398,7 @@ def ficha(j: dict) -> dict:
     if not j:
         return {}
     saida = dict(j)
-    for campo in ("foto", "posicao", "nacionalidade"):
+    for campo in ("nome", "foto", "posicao", "nacionalidade"):
         escolha = _fonte_escolhida(campo)
         if escolha == "melhor disponível":
             valor = ""
@@ -393,6 +408,21 @@ def ficha(j: dict) -> dict:
                     break
         else:
             valor = _do_campo(j, campo, escolha) or ""
+
+        # O NOME É A ÚNICA EXCEÇÃO À REGRA DE "VAZIO É HONESTO".
+        #
+        # Nos outros campos, vazio é resposta: quer dizer "a fonte que você
+        # escolheu não tem isto", e preencher com outra seria desfazer a
+        # escolha dele em silêncio. Um card sem foto ainda funciona.
+        #
+        # Um card SEM NOME não funciona. Ele deixa de ser um card e vira uma
+        # linha em branco que não dá para clicar nem procurar. Então aqui o
+        # vazio cai no `nome_principal`, que é a âncora do glossário e nunca
+        # é nulo — a escolha dele continua valendo em todo mundo que tem o
+        # nome naquela fonte, e ninguém desaparece da tela por causa dela.
+        if campo == "nome" and not valor:
+            valor = j.get("nome_principal") or ""
+
         saida[campo] = valor
         saida[f"{campo}_fonte"] = escolha
     return saida

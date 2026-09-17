@@ -698,8 +698,10 @@ def glossario_completo() -> tuple[list[dict], list[dict]]:
         c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         c.execute("""
             SELECT g.*,
+                   a.nome           AS af_nome,
                    a.foto           AS af_foto,
                    a.nacionalidade  AS af_nacionalidade,
+                   e.nome           AS tm_nome,
                    e.foto           AS tm_foto,
                    e.posicao        AS tm_posicao,
                    e.nacionalidades AS tm_nacionalidade
@@ -711,7 +713,7 @@ def glossario_completo() -> tuple[list[dict], list[dict]]:
               -- dependeria de qual linha o Postgres devolvesse primeiro.
               LEFT JOIN (
                   SELECT DISTINCT ON (jogador_id)
-                         jogador_id, foto, posicao, nacionalidades
+                         jogador_id, nome, foto, posicao, nacionalidades
                     FROM elenco_congelado
                    ORDER BY jogador_id, congelado_em DESC
               ) e ON CAST(e.jogador_id AS TEXT) = g.tm_id
