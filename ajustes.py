@@ -328,6 +328,31 @@ AJUSTES = [
                  "para ficar desligado.",
     },
 
+    # ── A ARTE QUE ELE BAIXA ──────────────────────────────────────────────
+    #
+    # Aqui morava uma decisão minha que ele nunca viu: a arte preferia o
+    # `nome_curto` do glossário, então o mesmo jogador era "Yassine Bounou" na
+    # ficha e "BONO" na imagem. Ele viu a diferença e perguntou por quê.
+    #
+    # As duas saídas são defensáveis — ninguém narra "Yassine Bounou pegou",
+    # narra "o Bono pegou" — e é por isso que isto é ajuste e não regra. O que
+    # não podia continuar era eu escolher calado.
+    {
+        "chave": "arte_nome",
+        "grupo": "Arte do jogador",
+        "rotulo": "Qual nome vai na arte",
+        "tipo": "escolha",
+        "opcoes": ["como é chamado", "o mesmo das telas"],
+        "padrao": "como é chamado",
+        "ajuda": "'Como é chamado' usa o nome curto do glossário — BONO, "
+                 "TALISCA, MALCOM — que é como o jogador aparece no placar da "
+                 "transmissão. 'O mesmo das telas' usa o nome que você "
+                 "escolheu em Fontes dos dados, e aí a imagem diz exatamente o "
+                 "que a ficha diz. Quem não tem nome curto no glossário sai "
+                 "igual nos dois casos; e uma inicial solta ('S. "
+                 "Milinković-Savić') nunca vira uma linha inteira com um 'S'.",
+    },
+
     {
         "chave": "arbitragem_cabecalho",
         "grupo": "Arbitragem",
@@ -377,6 +402,9 @@ SECOES = [
     {"chave": "gravador", "nome": "Gravador",
      "resumo": "A máquina que grava a transmissão.",
      "grupos": ["Gravador"]},
+    {"chave": "arte", "nome": "Arte do jogador",
+     "resumo": "A imagem que você baixa na guia de Elencos.",
+     "grupos": ["Arte do jogador"]},
     {"chave": "arbitragem", "nome": "Arbitragem",
      "resumo": "Nomes e traduções de árbitros.",
      "grupos": ["Arbitragem"]},

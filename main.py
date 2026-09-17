@@ -16116,7 +16116,10 @@ function abrirCaixaDaArte(){
   document.getElementById('arte-caixa').innerHTML =
     '<div class="arte-janela" onclick="event.stopPropagation()">' +
       '<h3>Ajustar antes de baixar</h3>' +
-      '<p class="arte-nota">' + esc(g.nome_curto || g.nome || '') +
+      // O SERVIDOR JÁ DISSE qual nome vai na imagem (Configurações → Arte do
+      // jogador). Antes esta linha aplicava a regra sozinha, e por isso ela
+      // podia anunciar um nome e a arte trazer outro.
+      '<p class="arte-nota">' + esc(g.nome_arte || g.nome || '') +
         ' · ' + esc(recorte) + '</p>' +
       '<div class="arte-corpo">' +
         '<div class="arte-previa"><img id="arte-img" alt=""></div>' +
@@ -18137,6 +18140,11 @@ async def _ficha_do_jogador(tm_id: str = "", af_id: int = 0, spl_id: str = "",
             "af_id": f.get("af_id"), "tm_id": f.get("tm_id"),
             "nome": f.get("nome") or "",
             "nome_curto": f.get("nome_curto") or "",
+            # O NOME QUE VAI SAIR NA IMAGEM, decidido aqui e não na tela.
+            # A caixa de ajuste anuncia de quem é a arte antes de montá-la; se
+            # ela aplicasse a regra por conta própria, o cabeçalho poderia
+            # dizer "Bono" com a imagem embaixo dizendo "Yassine Bounou".
+            "nome_arte": _nome_para_arte(f),
             "nome_ar": f.get("nome_ar") or "",
             "clube": f.get("clube") or "",
             "posicao": f.get("posicao") or "",
@@ -18350,13 +18358,11 @@ async def api_jogador_arte(request: Request):
                            f"https://flagcdn.com/w320/{iso}.png" if iso else None))
     baixados = [do_computador or baixados[0], baixados[1], baixados[2]]
 
-    # O NOME CURTO quando existe: é como ele é chamado, e é o que cabe em duas
-    # linhas. "Cristiano Ronaldo dos Santos Aveiro" não é um nome de arte.
-    #
-    # Mas o curto às vezes vem com inicial ("S. Milinković-Savić"), e aí a
-    # primeira linha da arte era um "S" sozinho — foi o que o Vini viu. Quem
-    # decide entre os dois é o `melhor_nome`.
-    nome = ficha_arte.melhor_nome(j.get("nome_curto") or "", j.get("nome") or "")
+    # QUAL NOME VAI NA IMAGEM é escolha dele, em Configurações → Arte do
+    # jogador. Aqui eu só leio a decisão: a regra inteira mora no
+    # `_nome_para_arte`, que é o mesmo que a caixa de ajuste mostra no
+    # cabeçalho. Duas cópias da regra seriam duas respostas na mesma tela.
+    nome = _nome_para_arte(j)
 
     try:
         png = await asyncio.to_thread(ficha_arte.montar, {
@@ -18382,6 +18388,58 @@ async def api_jogador_arte(request: Request):
         "X-Pecas": ("foto" if baixados[0] else "sem-foto") + "," +
                    ("escudo" if baixados[1] else "sem-escudo") + "," +
                    ("bandeira" if baixados[2] else "sem-bandeira")})
+
+
+def _nome_para_arte(j: dict) -> str:
+    """Qual dos nomes vai na imagem: o apelido ou o das telas. Ele escolhe.
+
+    A PERGUNTA QUE ORIGINOU ISTO (16/09/26)
+        "me explica pq a padronização do nome no card tá diferente da imagem
+         que geramos?"
+
+        A ficha dizia "Yassine Bounou #37" e a arte saía "BONO". Era decisão
+        minha, escrita no meio da rota e nunca mostrada a ele: a arte preferia
+        o `nome_curto` do glossário, que é o nome do placar da transmissão.
+
+        As duas estão certas — ninguém narra "Yassine Bounou pegou" — e por
+        isso virou ajuste. O defeito não era a escolha, era ela ser minha.
+
+    E NOTE QUE O `nome_curto` NÃO PASSA PELO SELETOR DE FONTE. Ele é coluna
+    própria do glossário, não tem versão da API-Football nem do Transfermarkt.
+    Quem escolhe "o mesmo das telas" está justamente pedindo para sair dessa
+    coluna e cair no nome que o seletor de Fontes dos dados resolveu.
+
+    ESTA FUNÇÃO É O ÚNICO LUGAR QUE DECIDE. A rota da arte e a caixa de
+    ajuste que mostra a prévia leem daqui, senão o cabeçalho da caixa diria
+    "Bono" enquanto a imagem embaixo dele dissesse outra coisa — que é, de
+    novo, a mesma pessoa com dois nomes na mesma tela.
+    """
+    # Import aqui dentro porque a rota da arte também importa assim: o
+    # `ficha_arte` puxa o Pillow, e ele não precisa subir junto com o app.
+    # Depois da primeira vez isto é uma consulta ao sys.modules.
+    import ficha_arte
+
+    principal = (j.get("nome") or "").strip()
+    curto = (j.get("nome_curto") or "").strip()
+    try:
+        escolha = _db.valor_de_ajuste("arte_nome")
+    except Exception:
+        # Banco fora do ar não pode derrubar a arte: cai no padrão, que é o
+        # comportamento que ele já conhece.
+        escolha = ""
+    if escolha == "o mesmo das telas":
+        # O curto entra só se o principal não existir. Não é para desfazer a
+        # escolha dele: é que card sem foto funciona e card sem nome não — a
+        # mesma exceção que o `glossario.ficha()` já abre para o nome.
+        #
+        # Uma inicial solta que venha aqui ("S. Milinković-Savić") não precisa
+        # de tratamento: quem a joga fora é o `quebrar_nome`, na hora de
+        # desenhar, e aí sobra o sobrenome inteiro.
+        return principal or curto
+    # O `melhor_nome` decide entre os dois porque o curto do glossário às vezes
+    # vem abreviado, e uma linha da arte com um "S" sozinho foi o primeiro
+    # defeito que ele relatou nesta imagem.
+    return ficha_arte.melhor_nome(curto, principal)
 
 
 def _nome_de_arquivo(nome: str) -> str:
