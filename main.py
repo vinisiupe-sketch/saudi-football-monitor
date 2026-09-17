@@ -36,7 +36,7 @@ from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse,
                                RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 import httpx
-from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, apagar_clipe, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, cruzar_api_football, congelar_elenco, elenco_congelado, resumo_do_congelamento, salvar_jogadores, listar_jogadores, contar_jogadores, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
+from database import init_db, get_recent_articles, get_low_score_articles, get_collection_logs, set_flag, get_all_flags, get_trashed_articles, get_flagged_articles, cleanup_old_trash, get_conn, get_state, set_state, get_token_status, set_token_status, get_injuries, get_window_transfers, get_window_transfers_last_scraped, upsert_window_transfers, enfileirar_post, listar_posts, obter_post, atualizar_texto_post, marcar_post, reservar_post_para_publicar, contar_publicados_hoje, salvar_clube_extra, obter_escudo_extra, expirar_posts_vencidos, tem_escudo_extra, status_das_chaves, registrar_gol, gols_vistos, criar_pedido_clipe, clipes_a_cortar, mudar_estado_clipe, entregar_clipe, ajustar_clipe, texto_do_clipe, clipe_publicado, erro_no_clipe, clipes_recentes, apagar_clipe, video_do_clipe, um_clipe, redefinir_janela, registrar_escalacao, escalacoes_vistas, listar_lives, remover_live, titulo_da_live, lives_disponiveis, salvar_disponiveis, adicionar_live_do_canal, CANAL, MAX_LIVES, tamanho_do_banco_mb, LIMITE_BANCO_MB, guardar_clipe, descartar_clipes, marcar_corte, criar_usuario, usuario_por_email, marcar_acesso, trocar_senha, listar_usuarios, tem_algum_usuario, cruzar_api_football, congelar_elenco, elenco_congelado, resumo_do_congelamento, salvar_jogadores, listar_jogadores, contar_jogadores, contar_glossario, cruzar_transfermarkt, padronizar_clubes_gravados, registrar_convite, convite_valido, queimar_convite, listar_convites, papel_do_usuario, mudar_papel, salvar_previa, previas_do_dia, dias_com_previa, previa_com_escalacao, salvar_arbitragem, arbitragem_do_dia, dias_com_arbitragem, nomes_de_arbitros, traducoes_de_arbitros, definir_nome_de_arbitro, marcar_transmissao, transmissao_do_jogo, transmissoes, jogos_com_transmissao
 import psycopg2.extras
 from scheduler import run_pipeline, create_scheduler
 import fim_sportmonks as sm
@@ -5828,6 +5828,36 @@ def _ficha_como_elenco(g: dict) -> dict:
             "foto": f.get("foto") or "", "do_glossario": True}
 
 
+# Os campos cuja fonte o Vini escolhe na guia de Ajustes. Eles são especiais
+# aqui: quando o glossário devolve vazio, é porque a fonte escolhida não tem o
+# dado — e vazio é a resposta. Preencher com a tabela antiga seria desfazer a
+# escolha dele em silêncio, que é exatamente o defeito que estamos consertando.
+_CAMPOS_COM_FONTE = ("foto", "posicao", "nacionalidade")
+
+
+def _glossario_com_reserva(g: dict, antigo: dict) -> dict:
+    """A ficha do glossário por cima do registro antigo.
+
+    O GLOSSÁRIO MANDA em tudo que ele sabe. A tabela antiga sobrou para
+    preencher o que ele não tem — altura, por exemplo, que ainda não mora
+    lá — e para não quebrar tela nenhuma que leia uma coluna que só existe
+    do lado velho.
+
+    A EXCEÇÃO SÃO OS TRÊS CAMPOS CONFIGURÁVEIS. Neles, vazio do glossário é
+    resposta, não lacuna: quer dizer que a fonte que ele escolheu não tem o
+    dado. Preencher com a base antiga faria a configuração parecer ignorada —
+    e foi assim, com outra causa, que ele já perdeu uma tarde perguntando por
+    que a foto da SPL não aparecia.
+    """
+    ficha = _ficha_como_elenco(g)
+    saida = dict(antigo or {})
+    for chave, valor in ficha.items():
+        if chave in _CAMPOS_COM_FONTE or valor not in (None, "", []):
+            saida[chave] = valor
+    saida["do_glossario"] = True
+    return saida
+
+
 def _e_nome_de_clube_da_liga(clube: str, ctx: dict) -> bool:
     """Este clube é da Saudi Pro League?
 
@@ -5898,11 +5928,21 @@ def _identificar_jogador(nome: str, clube: str, ctx: dict) -> dict:
     if glossario.esta_carregado():
         achado = glossario.identidade(nome, clube)
         if achado:
-            # Devolvo o registro do elenco quando existe, porque as telas
-            # esperam os campos dele (spl_id, foto, nome_curto). O glossário
-            # decidiu QUEM é; o elenco continua sendo onde o dado mora.
+            # E O GLOSSÁRIO RESPONDE TAMBÉM PELOS CAMPOS, não só por quem é.
+            #
+            # Aqui estava escrito `por_id.get(spl) or _ficha_como_elenco(...)`:
+            # o glossário dizia QUEM era e eu ia buscar os DADOS na tabela
+            # antiga, caindo no glossário só quando não achava lá. O Vini
+            # perguntou "você continua não usando?" e a resposta honesta era
+            # metade sim, metade não.
+            #
+            # O estrago era concreto: a configuração de fonte por campo mora
+            # em `glossario.ficha()`, e pelo caminho da tabela antiga ela não
+            # passava. Para todo jogador que existe nas duas bases — quase
+            # todos —, escolher a foto da SPL em Ajustes não mudava nada. É o
+            # mesmo sintoma que ele já tinha relatado uma vez, com outra causa.
             spl = str(achado.get("spl_id") or "")
-            return por_id.get(spl) or _ficha_como_elenco(achado)
+            return _glossario_com_reserva(achado, por_id.get(spl) or {})
         if _db.valor_de_ajuste("glossario_manda") != "desligado" \
                 and _e_nome_de_clube_da_liga(clube, ctx):
             return {}
@@ -13648,7 +13688,10 @@ async function carregarElenco() {
   linha.className = 'linha';
   const rot = document.createElement('div');
   rot.className = 'rotulo';
-  rot.textContent = (n.total || 0) + ' jogador(es) em ' + (n.clubes || 0) + ' clube(s)';
+  // DIZ DE QUAL BASE E O NUMERO. Sem isso ele nao tem como saber, e ja
+  // nao teve: leu 183 e 434 achando que era o glossario dele.
+  rot.textContent = 'Glossario: ' + (n.total || 0) + ' jogador(es) em '
+    + (n.clubes || 0) + ' clube(s)';
   linha.appendChild(rot);
 
   const curto = document.createElement('button');
@@ -13684,10 +13727,42 @@ async function carregarElenco() {
     + (n.com_foto || 0) + ' com foto, '
     + (n.com_transfermarkt || 0) + ' com id do Transfermarkt, '
     + (n.com_api_football || 0) + ' com id da API-Football, '
-    + (n.com_nascimento || 0) + ' com data de nascimento. '
+    + (n.com_nascimento || 0) + ' com data de nascimento, '
+    + (n.revisados || 0) + ' revisados por voce. '
     + 'O nome nas duas escritas vem da propria liga, com o mesmo id — '
-    + 'e a ponte que vai casar a noticia arabe com o jogador.';
+    + 'e a ponte que casa a noticia arabe com o jogador.';
   item.appendChild(a);
+
+  // ── A BASE ANTIGA, SEPARADA E COM O NOME CERTO ─────────────────────────
+  //
+  // Ela existia antes do glossario e hoje so serve de indice para quem NAO e
+  // da liga — o jogador do Liverpool que aparece na guia de Mercado. Ate hoje
+  // a tela mostrava SO ela, sob o titulo "a base de nomes, ids e
+  // nascimentos", e foi dai que saiu o "183 com id do Transfermarkt" que o
+  // Vini estranhou. Mostrar as duas, dizendo qual e qual, e o conserto.
+  const v = d.antiga || {};
+  if (v.total) {
+    const outro = document.createElement('div');
+    outro.className = 'item';
+    const t = document.createElement('div');
+    t.className = 'texto';
+    const r = document.createElement('div');
+    r.className = 'rotulo';
+    r.textContent = 'Base antiga (varredura da liga): ' + v.total + ' jogador(es)';
+    t.appendChild(r);
+    const p = document.createElement('p');
+    p.className = 'ajuda';
+    p.textContent = 'Existia antes do glossario. Hoje ela so serve de indice '
+      + 'para quem NAO esta no glossario — jogador de fora da liga, que '
+      + 'aparece na guia de Mercado. Os numeros dela (' 
+      + (v.com_transfermarkt || 0) + ' com id do Transfermarkt, '
+      + (v.com_api_football || 0) + ' com id da API-Football) sao dela, e nao '
+      + 'do seu glossario. Quem manda nas telas e o glossario.';
+    t.appendChild(p);
+    outro.appendChild(t);
+    alvo.appendChild(outro);
+  }
+
   alvo.appendChild(item);
 }
 
@@ -22446,7 +22521,19 @@ async def api_jogadores(clube: str = "", limite: int = 600):
         limite = max(0, min(int(limite), 2000))
     except (TypeError, ValueError):
         limite = 600
-    return {"resumo": contar_jogadores(),
+    # OS DOIS RESUMOS, e separados de propósito.
+    #
+    # `glossario` é a base que o Vini audita — 601 pessoas, com os 595 cruzados
+    # que ele mapeou à mão. `antiga` é a varredura que existia antes dele, e
+    # que hoje só serve de índice para quem NÃO é da liga.
+    #
+    # Até hoje a tela mostrava só a segunda, embaixo de um título que dizia "a
+    # base de nomes, ids e nascimentos". Ele viu "183 com id do Transfermarkt"
+    # e perguntou se eu continuava não usando o glossário dele. A contagem
+    # olhava para a tabela errada, e contagem que olha para a tabela errada é
+    # pior que contagem nenhuma: ela parece resposta.
+    return {"resumo": contar_glossario(),
+            "antiga": contar_jogadores(),
             "jogadores": listar_jogadores(clube, limite) if limite else []}
 
 

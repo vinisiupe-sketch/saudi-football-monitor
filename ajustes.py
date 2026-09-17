@@ -371,7 +371,7 @@ SECOES = [
 # números. Ficam no fim, na ordem em que aparecem aqui.
 SECOES_PROPRIAS = [
     {"chave": "jogadores", "nome": "Jogadores",
-     "resumo": "A base de nomes, ids e nascimentos — e as coletas."},
+     "resumo": "O glossário que você audita — e as coletas que o alimentam."},
     {"chave": "contas", "nome": "Contas e convites",
      "resumo": "Quem entra no app e como convidar."},
     {"chave": "saude", "nome": "Saúde do sistema",

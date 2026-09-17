@@ -2074,6 +2074,47 @@ def contar_jogadores() -> dict:
         return {"erro": str(e)}
 
 
+def contar_glossario() -> dict:
+    """Os números do GLOSSÁRIO — a base que o Vini audita.
+
+    POR QUE ESTA FUNÇÃO PRECISOU EXISTIR (16/09/26)
+        A guia de Configurações mostrava "183 com id do Transfermarkt, 434 com
+        id da API-Football" e ele estranhou na hora: "eu mapeei 595 no TM e 595
+        no Api-Football. Tá pareado no glossário. Você continua não usando?".
+
+        Ele estava certo. Aquela contagem lia `FROM jogador` — a tabela da
+        varredura antiga, de antes do glossário existir. Os 595 dele estavam e
+        estão em `glossario_lab_jogador`, intactos; a tela é que olhava para o
+        lugar errado, embaixo de um título que dizia "a base de nomes, ids e
+        nascimentos".
+
+        Contagem que olha para a tabela errada é pior que contagem nenhuma:
+        ela parece resposta.
+
+    `revisados` é dele: quantas fichas ele já conferiu à mão. Não sai de fonte
+    nenhuma, e é o número que mede o trabalho que só ele pode fazer.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            c.execute("""SELECT COUNT(*),
+                                COUNT(*) FILTER (WHERE COALESCE(nome_ar,'') <> ''),
+                                COUNT(*) FILTER (WHERE COALESCE(foto,'') <> ''),
+                                COUNT(*) FILTER (WHERE COALESCE(tm_id,'') <> ''),
+                                COUNT(*) FILTER (WHERE af_id IS NOT NULL),
+                                COUNT(*) FILTER (WHERE nascimento IS NOT NULL),
+                                COUNT(*) FILTER (WHERE revisado),
+                                COUNT(DISTINCT clube)
+                           FROM glossario_lab_jogador""")
+            t, ar, foto, tm, af, nasc, rev, clubes = c.fetchone()
+            return {"total": t, "com_arabe": ar, "com_foto": foto,
+                    "com_transfermarkt": tm, "com_api_football": af,
+                    "com_nascimento": nasc, "revisados": rev,
+                    "clubes": clubes}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
 def listar_jogadores(clube: str = "", limite: int = 600) -> list[dict]:
     try:
         with get_conn() as conn:

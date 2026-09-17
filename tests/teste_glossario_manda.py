@@ -333,8 +333,18 @@ def testar():
     _ajuste_fixo({})
     main = _importar_main()
 
-    # O elenco congelado diz uma coisa; o glossário diz outra. O glossário
-    # ganha — e o elenco continua sendo de onde os campos saem.
+    # O elenco congelado diz uma coisa; o glossário diz outra. O GLOSSÁRIO
+    # GANHA — inclusive nos campos, e este teste mudou de lado em 16/09/26.
+    #
+    # Ele dizia "o elenco continua sendo de onde os campos saem", e vigiava
+    # fielmente um defeito: o glossário decidia quem era e a tabela antiga
+    # entregava a foto. Como a configuração de fonte por campo mora em
+    # `glossario.ficha()`, ela não passava por ali — e escolher "foto da SPL"
+    # em Ajustes não mudava nada para quem existisse nas duas bases.
+    #
+    # O Vini perguntou "você continua não usando?" olhando uma contagem, e
+    # era isto que estava por baixo. Agora o glossário responde campo a
+    # campo, e o registro antigo só preenche o que ele não tem.
     elenco = [
         {"spl_id": "s1", "nome": "Hamdallah A.", "clube": "Al Ittihad",
          "foto": "elenco/ham.png", "af_id": 101},
@@ -349,8 +359,10 @@ def testar():
     conferir("o glossário responde por uma grafia que o elenco não tem",
              achado.get("spl_id"), "s2")
     achado = main._identificar_jogador("Hamdallah", "Al Ittihad", ctx)
-    conferir("quando o glossário resolve, os campos vêm do elenco",
-             achado.get("foto"), "elenco/ham.png")
+    conferir("quando o glossário resolve, a FOTO vem dele e não do elenco",
+             achado.get("foto"), "https://media-sdp.spl.com.sa/spl/ham.png")
+    conferir("e o registro do elenco continua marcado como vindo do glossário",
+             achado.get("do_glossario"), True)
 
     # A PARADA. Nome desconhecido, clube DA LIGA: a resposta é {} e a
     # heurística não roda. Planto um índice que casaria por semelhança para
