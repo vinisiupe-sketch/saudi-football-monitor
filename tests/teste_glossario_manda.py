@@ -463,7 +463,17 @@ def testar():
                       "glossario_fonte_posicao": "spl",
                       "glossario_fonte_nacionalidade": "spl"})
         r = _asyncio.run(main.api_elencos_jogadores(1))
-        por_nome = {j["nome"]: j for j in r["jogadores"]}
+        # ÍNDICE PELO ID, E NÃO PELO NOME — e isto mudou em 16/09/26.
+        #
+        # O nome da lista passou a vir do GLOSSÁRIO: o Vini viu a mesma pessoa
+        # como "Kader Meïté" na lista e "Mohammed Meïté" na ficha, na mesma
+        # tela, porque este campo era o único que ainda escapava do glossário.
+        #
+        # Indexar o teste pelo nome era depender justamente da coisa que o
+        # app deixou de garantir. O id do Transfermarkt é o mesmo dos dois
+        # lados, e é por ele que o app casa — então é por ele que eu procuro.
+        por_nome = {j["id"]: j for j in r["jogadores"]}
+        HAM, ROGER, FORA = "201", "202", "999"
 
         # A FOTO TEM QUE SAIR COMO ENDEREÇO, e não como caminho.
         #
@@ -477,38 +487,38 @@ def testar():
         # card não ficar com um buraco escondeu o defeito e produziu o
         # sintoma de desobediência.
         conferir("Elencos passou a obedecer a fonte da foto",
-                 por_nome["Hamdallah"]["foto"],
+                 por_nome[HAM]["foto"],
                  "https://media-sdp.spl.com.sa/spl/ham.png")
-        ok(por_nome["Hamdallah"]["foto"].startswith("http"),
+        ok(por_nome[HAM]["foto"].startswith("http"),
            "a foto da SPL saiu como caminho e não como endereço. O navegador "
            "não abre, cai calado na reserva do Transfermarkt, e parece que a "
            "configuração foi ignorada")
         conferir("Elencos obedece a fonte da posição quando ESCOLHIDA",
-                 por_nome["Hamdallah"]["posicao"], "Atacante")
+                 por_nome[HAM]["posicao"], "Atacante")
         conferir("Elencos obedece a fonte da nacionalidade quando ESCOLHIDA",
-                 por_nome["Hamdallah"]["nacionalidade"], "Marrocos")
+                 por_nome[HAM]["nacionalidade"], "Marrocos")
         # A reserva continua sendo a do TM: se a escolhida não abrir, o card
         # mostra alguém em vez de um buraco.
         # A URL vai codificada (tm%2Fham.png), então decodifico antes de
         # comparar — senão eu estaria testando a codificação, não a reserva.
         from urllib.parse import unquote
-        ok("tm/ham.png" in unquote(por_nome["Hamdallah"]["foto_reserva"] or ""),
+        ok("tm/ham.png" in unquote(por_nome[HAM]["foto_reserva"] or ""),
            "sumiu a foto reserva do Transfermarkt — se a escolhida não abrir, "
            "o card fica com um buraco")
         # `grupo` NÃO pode mudar de fonte: é ele que ordena o elenco por setor,
         # e trocá-lo por um texto de outra tabela embaralharia a lista sem
         # nada na tela explicando por quê.
         conferir("o setor continua vindo do TM",
-                 por_nome["Hamdallah"]["grupo"], "A")
+                 por_nome[HAM]["grupo"], "A")
         # Roger: ponta no TM (setor A), "Meia" na SPL. O setor NÃO pode
         # seguir a posição exibida — é ele que ordena o elenco por linha.
         conferir("a posição exibida é a da fonte escolhida",
-                 por_nome["Roger"]["posicao"], "Meia")
+                 por_nome[ROGER]["posicao"], "Meia")
         conferir("mas o setor do Roger continua sendo o do TM",
-                 por_nome["Roger"]["grupo"], "A")
+                 por_nome[ROGER]["grupo"], "A")
         # Quem o glossário não conhece segue com o dado do TM, como sempre.
         conferir("quem está fora do glossário mantém a foto do TM",
-                 por_nome["Fora do Glossário"]["foto"], "tm/fora.png")
+                 por_nome[FORA]["foto"], "tm/fora.png")
         conferir("e a contagem diz quantos foram reconhecidos",
                  r["no_glossario"], 2)
         ok(any("glossário" in a for a in r["avisos"]),
@@ -528,13 +538,26 @@ def testar():
         # o ajuste fui eu; a tela é dele.
         _ajuste_fixo({})
         r0 = _asyncio.run(main.api_elencos_jogadores(1))
-        p0 = {j["nome"]: j for j in r0["jogadores"]}
+        p0 = {j["id"]: j for j in r0["jogadores"]}
         conferir("no padrão, a posição DETALHADA do TM fica",
-                 p0["Hamdallah"]["posicao"], "Centre-Forward")
-        conferir("no padrão, a nacionalidade do TM fica",
-                 p0["Hamdallah"]["nacionalidade"], "Morocco")
+                 p0[HAM]["posicao"], "Centre-Forward")
+        # A NACIONALIDADE CONTINUA SENDO A DO TM — mas agora TRADUZIDA.
+        #
+        # Este teste esperava "Morocco", em inglês, e passou a esperar
+        # "Marrocos". A fonte não mudou: quem manda no padrão continua sendo
+        # o Transfermarkt, pela ORDEM dele (esportiva antes da de nascimento,
+        # que é o que faz o Bounou sair como Marrocos e não como Canadá).
+        #
+        # O que mudou é que o país passa por uma tradução única antes de ir
+        # para a tela. O Vini viu "France" na ficha ao lado de "Costa do
+        # Marfim" na lista — dois idiomas, mesma tela. E havia um defeito
+        # calado embaixo: o filtro "Só estrangeiros" compara com "arábia
+        # saudita" em português, então um "Saudi Arabia" era contado como
+        # estrangeiro sem erro nenhum aparecer.
+        conferir("no padrão, a nacionalidade do TM fica — em português",
+                 p0[HAM]["nacionalidade"], "Marrocos")
         conferir("e a foto continua obedecendo, que foi o que ele pediu",
-                 p0["Hamdallah"]["foto"],
+                 p0[HAM]["foto"],
                  "https://media-sdp.spl.com.sa/spl/ham.png")
 
         # ── TROCAR A FONTE NÃO PODE DERRUBAR A BANDEIRA ─────────────────
@@ -555,7 +578,7 @@ def testar():
         _ajuste_fixo({"glossario_fonte_foto": "transfermarkt"})
         r2 = _asyncio.run(main.api_elencos_jogadores(1))
         conferir("trocar a fonte troca a foto na hora",
-                 {j["nome"]: j for j in r2["jogadores"]}["Hamdallah"]["foto"],
+                 {j["id"]: j for j in r2["jogadores"]}[HAM]["foto"],
                  "https://media-sdp.spl.com.sa/tm/ham.png")
     finally:
         tm.elenco, tm.desempenho = guardado

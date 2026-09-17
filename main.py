@@ -15996,7 +15996,10 @@ function cabecalhoFicha(j, d){
   const g = (d && d.jogador) || {};
   const nome = g.nome || j.nome || '—';
   const foto = g.foto || j.foto || '';
-  const iso = isoBandeira(g.bandeira || j.pais_bandeira);
+  // A BANDEIRA SEGUE A NACIONALIDADE, e não o contrário. Se o país vem da
+  // lista, a bandeira tem de vir de lá também — senão sai a bandeira de um
+  // país com o nome de outro, que é pior que não ter bandeira.
+  const iso = isoBandeira(j.pais_bandeira || g.bandeira);
   const nasc = g.nascimento || j.nascimento;
   const idade = g.idade || j.idade;
   const camisa = (j.numero !== null && j.numero !== undefined) ? j.numero
@@ -16012,10 +16015,23 @@ function cabecalhoFicha(j, d){
   //
   // A BANDEIRA É IMAGEM, não emoji: no Windows o emoji de bandeira sai como
   // um par de letras, e é no Windows que ele abre isto.
+  // A NACIONALIDADE VEM DA LISTA, como a posição já vinha.
+  //
+  // Aqui estava `g.nacionalidade || j.nacionalidade` — a ficha ganhava — e a
+  // posição logo abaixo faz o contrário. A incoerência era visível: o
+  // cabeçalho era desenhado primeiro com os dados da LISTA e depois
+  // redesenhado com os da ficha, então o Vini via o valor TROCAR na frente
+  // dele. Ele chamou isso de "piscar"; não era carregamento, eram as duas
+  // fontes discordando em sequência.
+  //
+  // A lista ganha porque ela tem o que a ficha não tem: a ORDEM das
+  // nacionalidades do Transfermarkt, que distingue a esportiva da de
+  // nascimento — é o que faz o Bounou sair como Marrocos e não como Canadá.
+  const nacionalidade = j.nacionalidade || g.nacionalidade;
   const pais = (iso
     ? '<span class="atrib"><img class="band-ficha" alt="" src="https://flagcdn.com/w40/'
-      + iso + '.png">' + _nada(g.nacionalidade || j.nacionalidade) + '</span>'
-    : atributo('', g.nacionalidade || j.nacionalidade));
+      + iso + '.png">' + _nada(nacionalidade) + '</span>'
+    : atributo('', nacionalidade));
   const cadastro =
     atributo(ICO.bolo, (nasc ? dataBr(nasc) : '') + (idade ? ' (' + idade + ')' : '')) +
     atributo(ICO.alvo, j.posicao || g.posicao) +
@@ -17867,16 +17883,48 @@ async def api_elencos_times():
                 "avisos": avisos}
 
 
+def _pais_em_portugues(nome: str | None) -> str:
+    """O nome do país em português, venha ele como vier.
+
+    POR QUE ISTO PRECISOU EXISTIR (16/09/26)
+        O Vini olhou a guia de Elencos e viu a MESMA pessoa com a
+        nacionalidade escrita de dois jeitos: "Costa do Marfim" na lista e
+        "France" na ficha ao lado. Dois idiomas na mesma tela.
+
+        A lista lê o Transfermarkt em português (o app raspa o .com.br). A
+        ficha lê o glossário, e lá a nacionalidade veio de uma fonte que
+        escreve em inglês. Nenhum dos dois estava errado no seu canto — e
+        juntos ficavam absurdos.
+
+    E TEM UM DEFEITO CALADO EMBAIXO DISSO. O filtro "Só estrangeiros" decide
+    comparando com a string "arábia saudita", em português. Um jogador cuja
+    nacionalidade chegasse como "Saudi Arabia" seria contado como
+    ESTRANGEIRO — sem erro, sem aviso, com uma contagem plausível na tela.
+    Traduzir num lugar só conserta a aparência e o defeito de uma vez.
+
+    O que não estiver na tabela passa direto: nome de país que eu não conheço
+    é melhor exibido como veio do que trocado por um palpite.
+    """
+    p = (nome or "").strip()
+    if not p:
+        return ""
+    return JANELA_PAIS_EN_PT.get(p, p)
+
+
 def _elenco_pais(nacs: list[str]) -> dict:
     """Primeira nacionalidade é a que vale; as demais ficam como informação extra.
 
     O TM lista a nacionalidade esportiva primeiro — Bounou sai como Marrocos, não
     Canadá, onde nasceu. É justamente o que faltava na API-Football, que devolvia
     o país de nascimento e obrigou a corrigir Faris Abdi e Quiñones à mão."""
-    principal = (nacs[0] if nacs else None)
+    # TRADUZ ANTES DE QUALQUER COISA — inclusive antes de decidir quem é
+    # estrangeiro. A comparação abaixo é com uma palavra em português; com a
+    # fonte em inglês ela erraria calada.
+    traduzidas = [_pais_em_portugues(n) for n in (nacs or []) if (n or "").strip()]
+    principal = (traduzidas[0] if traduzidas else None)
     return {
         "nacionalidade": principal,
-        "nacionalidades": nacs or [],
+        "nacionalidades": traduzidas,
         "pais_bandeira": _janela_bandeira(principal) if principal else None,
         "estrangeiro": (principal.strip().lower() != "arábia saudita") if principal else None,
     }
@@ -18091,7 +18139,9 @@ async def _ficha_do_jogador(tm_id: str = "", af_id: int = 0, spl_id: str = "",
             "clube": f.get("clube") or "",
             "posicao": f.get("posicao") or "",
             "camisa": f.get("camisa") or "",
-            "nacionalidade": f.get("nacionalidade") or "",
+            # MESMA TRADUÇÃO DA LISTA. Sem ela a ficha dizia "France" ao
+            # lado de uma lista que dizia "Costa do Marfim".
+            "nacionalidade": _pais_em_portugues(f.get("nacionalidade")),
             "bandeira": _janela_bandeira(f.get("nacionalidade")),
             "nascimento": str(f.get("nascimento") or "")[:10],
             "idade": _idade_em_anos(f.get("nascimento")),
@@ -18434,6 +18484,7 @@ async def api_elencos_jogadores(team: int = 0, clube: str = ""):
         # Quem o glossário não conhece segue com o dado do TM, como sempre.
         foto_tm = p.get("foto_tm")
         foto, posicao, nacs = foto_tm, p.get("posicao"), p.get("nacionalidades") or []
+        nome = p["nome"]
         try:
             import glossario
             g = glossario.por_tm_id(p["id"])
@@ -18441,6 +18492,21 @@ async def api_elencos_jogadores(team: int = 0, clube: str = ""):
                 do_glossario += 1
                 f = glossario.ficha(g)
                 foto = f.get("foto") or foto_tm
+
+                # ── O NOME VEM DO GLOSSÁRIO, SEMPRE ───────────────────────
+                #
+                # Este campo estava passando direto: a lista mostrava
+                # `p["nome"]`, que é o do Transfermarkt, enquanto a ficha ao
+                # lado mostrava o do glossário. O Vini viu os dois na MESMA
+                # tela — "Kader Meïté" na lista e "Mohammed Meïté" na ficha —
+                # e perguntou por que a página bebe de duas fontes.
+                #
+                # E O NOME NÃO É CONFIGURÁVEL como a foto e a posição. Não há
+                # de qual fonte escolher: o glossário é a base oficial, feita e
+                # auditada por ele. Se o nome estiver errado, o conserto é lá,
+                # num lugar só — que é a coisa toda que o glossário existe
+                # para permitir.
+                nome = f.get("nome_principal") or nome
 
                 # SÓ TROCO O QUE ELE ESCOLHEU TROCAR.
                 #
@@ -18474,7 +18540,7 @@ async def api_elencos_jogadores(team: int = 0, clube: str = ""):
         if p.get("posicao") and not p.get("grupo"):
             sem_posicao.add(p["posicao"])
         jogadores.append({
-            "id": p["id"], "nome": p["nome"],
+            "id": p["id"], "nome": nome,
             # A reserva continua sendo a foto do TM pelo proxy, mesmo quando a
             # principal vem de outra fonte: se a escolhida não abrir, o card
             # mostra alguém em vez de um buraco.
