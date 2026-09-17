@@ -403,6 +403,7 @@ def init_db():
         # Transfermarkt. Nome vira confirmação; a data é o critério.
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS nascimento DATE")
         c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS altura INTEGER")
+        c.execute("ALTER TABLE jogador ADD COLUMN IF NOT EXISTS peso INTEGER")
         # Quando a página de elenco falou desta pessoa pela última vez.
         #
         # Sem isto a colheita não tem fim: nem todo jogador tem altura ou foto
@@ -506,6 +507,26 @@ def init_db():
                   "af_bloqueado BOOLEAN NOT NULL DEFAULT FALSE")
         c.execute("ALTER TABLE glossario_lab_jogador ADD COLUMN IF NOT EXISTS "
                   "tm_bloqueado BOOLEAN NOT NULL DEFAULT FALSE")
+        # ── A FICHA PERMANENTE ────────────────────────────────────────────
+        #
+        # Altura, peso, pé e país de nascimento. São os campos que NÃO mudam
+        # na vida de um jogador — e por isso pertencem à base que o Vini
+        # audita, e não a um cache com prazo de validade.
+        #
+        # O PÉ É O MOTIVO DE TUDO ISTO. Ele existe numa fonte só, o
+        # Transfermarkt, que bloqueia por excesso de consulta e que já
+        # derrubou a guia de Elencos. Sendo imutável e de fonte única, basta
+        # colher uma vez: depois disso o TM pode cair para sempre que o dado
+        # não se perde mais.
+        #
+        # Peso estava de graça na API da SPL e o app simplesmente não usava.
+        for col, tipo in (("altura", "INTEGER"), ("peso", "INTEGER"),
+                          ("pe", "TEXT"), ("pais_nascimento", "TEXT")):
+            c.execute(f"ALTER TABLE glossario_lab_jogador "
+                      f"ADD COLUMN IF NOT EXISTS {col} {tipo}")
+        c.execute("ALTER TABLE af_jogador ADD COLUMN IF NOT EXISTS peso INTEGER")
+        c.execute("ALTER TABLE af_jogador ADD COLUMN IF NOT EXISTS "
+                  "pais_nascimento TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS image_url TEXT")
         c.execute("ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT")
         c.execute("ALTER TABLE article_flags ADD COLUMN IF NOT EXISTS comment TEXT")
@@ -1432,6 +1453,7 @@ def salvar_perfis(gente: dict) -> dict:
             for pid, p in gente.items():
                 nasc = (p.get("nascimento") or "")[:10] or None
                 alt = _inteiro(p.get("altura"))
+                pes = _inteiro(p.get("peso"))
                 if not nasc:
                     sem_data += 1
                 c.execute("SELECT 1 FROM jogador WHERE spl_id = %s", [pid])
@@ -1445,6 +1467,7 @@ def salvar_perfis(gente: dict) -> dict:
                     c.execute("""UPDATE jogador
                                     SET nascimento = COALESCE(%s, nascimento),
                                         altura     = COALESCE(%s, altura),
+                                        peso       = COALESCE(%s, peso),
                                         clube      = COALESCE(NULLIF(jogador.clube, ''),
                                                               NULLIF(%s, '')),
                                         nome_ar    = COALESCE(NULLIF(jogador.nome_ar, ''),
@@ -1462,7 +1485,7 @@ def salvar_perfis(gente: dict) -> dict:
                                         perfil_em  = NOW(),
                                         atualizado_em = NOW()
                                   WHERE spl_id = %s""",
-                              [nasc, alt, _clube(p.get("clube")), ar, ch,
+                              [nasc, alt, pes, _clube(p.get("clube")), ar, ch,
                                glossary.chave_colada(ch),
                                p.get("foto") or "",
                                p.get("nacionalidade") or "",
@@ -1477,14 +1500,14 @@ def salvar_perfis(gente: dict) -> dict:
                 c.execute("""
                     INSERT INTO jogador (spl_id, nome, nome_ar, chave_lat,
                         chave_ar, chave_ar_colada, clube, posicao, camisa,
-                        nacionalidade, nascimento, altura, foto,
+                        nacionalidade, nascimento, altura, peso, foto,
                         perfil_em, atualizado_em)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW(),NOW())
                     ON CONFLICT (spl_id) DO NOTHING
                 """, [pid, nome, nome_ar, glossary.chave_latina(nome), chave_ar,
                       glossary.chave_colada(chave_ar), _clube(p.get("clube")),
                       p.get("posicao") or "", str(p.get("camisa") or ""),
-                      p.get("nacionalidade") or "", nasc, alt,
+                      p.get("nacionalidade") or "", nasc, alt, pes,
                       p.get("foto") or ""])
                 novos += 1
     except Exception as e:
@@ -1503,7 +1526,13 @@ def salvar_perfis(gente: dict) -> dict:
 #
 # Enquanto "o que eu preencho" e "quem eu procuro" forem duas listas escritas
 # à mão em lugares diferentes, elas vão se separar de novo. Aqui é uma só.
+# O PESO ENTROU AQUI JUNTO COM A COLHEITA — e é o teste de perfis que exige
+# isso, com razão. Quando um campo novo passa a ser colhido e a busca de "quem
+# falta" não o conhece, o número trava: quem já tem nascimento e altura deixa
+# de ser candidato, e nunca ganha o peso. Foi exatamente o que aconteceu com o
+# CLUBE quando ele entrou, e está escrito na função logo abaixo.
 CAMPOS_DA_COLHEITA = (("nascimento", "data"), ("altura", "data"),
+                      ("peso", "data"),
                       ("clube", "texto"), ("nome_ar", "texto"),
                       ("foto", "texto"), ("nacionalidade", "texto"),
                       ("posicao", "texto"))
@@ -1631,14 +1660,17 @@ def salvar_af_jogadores(linhas: list[dict], temporada: int) -> dict:
                     continue
                 c.execute("""
                     INSERT INTO af_jogador (af_id, nome, primeiro, ultimo,
-                        nascimento, altura, nacionalidade, clube, foto,
-                        temporada, atualizado_em)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
+                        nascimento, altura, peso, pais_nascimento,
+                        nacionalidade, clube, foto, temporada, atualizado_em)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())
                     ON CONFLICT (af_id) DO UPDATE SET
                         nome          = COALESCE(NULLIF(EXCLUDED.nome, ''), af_jogador.nome),
                         primeiro      = COALESCE(NULLIF(EXCLUDED.primeiro, ''), af_jogador.primeiro),
                         ultimo        = COALESCE(NULLIF(EXCLUDED.ultimo, ''), af_jogador.ultimo),
                         nascimento    = COALESCE(EXCLUDED.nascimento, af_jogador.nascimento),
+                        peso          = COALESCE(EXCLUDED.peso, af_jogador.peso),
+                        pais_nascimento = COALESCE(NULLIF(EXCLUDED.pais_nascimento, ''),
+                                                   af_jogador.pais_nascimento),
                         altura        = COALESCE(EXCLUDED.altura, af_jogador.altura),
                         nacionalidade = COALESCE(NULLIF(EXCLUDED.nacionalidade, ''), af_jogador.nacionalidade),
                         clube         = COALESCE(NULLIF(EXCLUDED.clube, ''), af_jogador.clube),
@@ -1647,7 +1679,9 @@ def salvar_af_jogadores(linhas: list[dict], temporada: int) -> dict:
                         atualizado_em = NOW()
                 """, [p["af_id"], p.get("nome") or "", p.get("primeiro") or "",
                       p.get("ultimo") or "", (p.get("nascimento") or "")[:10] or None,
-                      _inteiro(p.get("altura")), p.get("nacionalidade") or "",
+                      _inteiro(p.get("altura")), _inteiro(p.get("peso")),
+                      p.get("pais_nascimento") or "",
+                      p.get("nacionalidade") or "",
                       _clube(p.get("clube")), p.get("foto") or "", temporada])
                 gravados += 1
     except Exception as e:
@@ -2070,6 +2104,211 @@ def contar_jogadores() -> dict:
                     "com_transfermarkt": tm, "com_api_football": af,
                     "com_nascimento": nasc, "com_altura": alt,
                     "clubes": clubes}
+    except Exception as e:
+        return {"erro": str(e)}
+
+
+def _cria_coleta(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS coleta (
+            chave      TEXT PRIMARY KEY,
+            ultima_em  TIMESTAMPTZ,
+            resultado  TEXT,
+            erro       TEXT
+        )
+    """)
+
+
+def marcar_coleta(chave: str, resultado: str = "", erro: str = "") -> None:
+    """Anota que esta coleta rodou agora, e como foi.
+
+    POR QUE A DATA PRECISA EXISTIR (16/09/26)
+        O Vini pediu: "nas configurações pode ficar armazenado o visto_em, e
+        ter um botão pra rodar manualmente se necessário".
+
+        É a regra que a gente combinou conversando sobre cache: um dado
+        guardado sem data é indistinguível de uma resposta errada. Se a tela
+        diz "18 clubes" sem dizer de quando, ela vai continuar dizendo isso no
+        dia em que a fonte cair — com a mesma confiança.
+
+    Guardo o ERRO junto, e não só o sucesso: "rodou e falhou" é diferente de
+    "nunca rodou", e as duas coisas pedem ações diferentes dele.
+
+    Nunca levanta. Uma anotação que derruba a coleta que ela anota seria uma
+    piada de mau gosto.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_coleta(c)
+            c.execute("""
+                INSERT INTO coleta (chave, ultima_em, resultado, erro)
+                VALUES (%s, NOW(), %s, %s)
+                ON CONFLICT (chave) DO UPDATE SET
+                    ultima_em = NOW(),
+                    resultado = EXCLUDED.resultado,
+                    erro      = EXCLUDED.erro
+            """, [chave, (resultado or "")[:400], (erro or "")[:400]])
+    except Exception as e:
+        print(f"⚠️ marcar_coleta({chave}): {type(e).__name__}: {e}")
+
+
+def coletas_feitas() -> dict:
+    """{chave: {ultima_em, resultado, erro}}. Vazio se o banco estiver fora."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_coleta(c)
+            c.execute("SELECT chave, ultima_em, resultado, erro FROM coleta")
+            return {r[0]: {"ultima_em": r[1].isoformat() if r[1] else None,
+                           "resultado": r[2] or "", "erro": r[3] or ""}
+                    for r in c.fetchall()}
+    except Exception:
+        return {}
+
+
+# Os campos da ficha permanente. Ficam numa constante porque três lugares
+# precisam da MESMA lista: a gravação, a contagem e a tela.
+CAMPOS_PERMANENTES = ("altura", "peso", "pe", "pais_nascimento")
+
+
+def preencher_ficha_permanente(linhas: list[dict]) -> dict:
+    """Preenche altura, peso, pé e país de nascimento — SÓ ONDE ESTÁ VAZIO.
+
+    A REGRA É NÃO SOBRESCREVER, e ela é a coisa mais importante desta função.
+
+    O glossário é a base que o Vini audita à mão. Se uma coleta noturna
+    pudesse passar por cima do que ele corrigiu, o trabalho dele teria prazo
+    de validade de um dia — e pior, ele não teria como saber. Já aconteceu de
+    eu mudar a tela dele sem pedir; não vai acontecer com o dado.
+
+    Então a coleta só preenche buraco. Para refazer um campo, ele apaga o
+    valor na tela do glossário e roda a coleta de novo: apagar é um gesto
+    dele, e é o que autoriza a máquina a escrever ali.
+
+    `linhas`: [{"spl_id": ..., "altura": 181, "pe": "right", ...}]. Campo
+    ausente ou vazio não mexe em nada — "não sei" nunca vira escrita.
+    """
+    if not linhas:
+        return {"linhas": 0, "campos": 0}
+    tocados, campos = 0, 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for linha in linhas:
+                spl = str(linha.get("spl_id") or "").strip()
+                if not spl:
+                    continue
+                pares = {k: linha.get(k) for k in CAMPOS_PERMANENTES
+                         if linha.get(k) not in (None, "", 0)}
+                if not pares:
+                    continue
+                # COALESCE no lado da TABELA: o valor novo só entra onde o
+                # antigo é nulo. Numa consulta só, sem ler antes para decidir
+                # — ler-e-decidir abriria uma janela entre a leitura e a
+                # escrita, e a coleta da madrugada roda ao lado da tela dele.
+                sets = ", ".join(f"{k} = COALESCE({k}, %s)" for k in pares)
+                onde = " OR ".join(f"{k} IS NULL" for k in pares)
+                c.execute(f"UPDATE glossario_lab_jogador SET {sets} "
+                          f"WHERE spl_id = %s AND ({onde})",
+                          list(pares.values()) + [spl])
+                if c.rowcount:
+                    tocados += 1
+                    campos += len(pares)
+    except Exception as e:
+        return {"erro": f"{type(e).__name__}: {e}", "linhas": tocados,
+                "campos": campos}
+    return {"linhas": tocados, "campos": campos}
+
+
+def consolidar_ficha_permanente() -> dict:
+    """Leva para o glossário o que as três fontes já depositaram no banco.
+
+    NÃO VAI À REDE, e é isso que a torna diferente das outras coletas.
+
+    Cada fonte já tem a sua mesa no banco: o site da liga deixa nascimento,
+    altura e peso em `jogador`; o Transfermarkt deixa PÉ e altura em
+    `elenco_congelado`; a API-Football deixa altura, peso e país de nascimento
+    em `af_jogador`. O que faltava era alguém juntar isso na base que o Vini
+    audita.
+
+    Sendo só banco, ela não pode ser bloqueada por 403 nem gastar cota, e roda
+    em segundos. As coletas que vão à rede continuam sendo as outras — esta é
+    a que transforma o que elas trouxeram em ficha.
+
+    A ORDEM É DELIBERADA, e vale a pena dizer por quê:
+      1. O site da LIGA primeiro. É a autoridade sobre quem joga nela.
+      2. A API-FOOTBALL depois, que é a única com país de nascimento.
+      3. O TRANSFERMARKT por último — mas ele é o único com PÉ, e é por causa
+         desse campo que esta função inteira existe.
+
+    E NADA SOBRESCREVE: todo UPDATE usa COALESCE do lado da TABELA, então o
+    valor novo só entra onde ainda não há nada. O que o Vini corrigiu à mão
+    fica. Para refazer um campo ele apaga o valor no glossário — apagar é
+    gesto dele, e é o que autoriza a máquina a escrever ali.
+    """
+    passos = (
+        # (nome, SQL). `%s` nenhum: são todos joins entre tabelas nossas.
+        ("liga", """
+            UPDATE glossario_lab_jogador g
+               SET altura = COALESCE(g.altura, j.altura),
+                   peso   = COALESCE(g.peso, j.peso)
+              FROM jogador j
+             WHERE j.spl_id = g.spl_id
+               AND (g.altura IS NULL OR g.peso IS NULL)
+               AND (j.altura IS NOT NULL OR j.peso IS NOT NULL)
+        """),
+        ("api_football", """
+            UPDATE glossario_lab_jogador g
+               SET altura = COALESCE(g.altura, a.altura),
+                   peso   = COALESCE(g.peso, a.peso),
+                   pais_nascimento = COALESCE(g.pais_nascimento,
+                                              NULLIF(a.pais_nascimento, ''))
+              FROM af_jogador a
+             WHERE a.af_id = g.af_id
+               AND (g.altura IS NULL OR g.peso IS NULL
+                    OR g.pais_nascimento IS NULL)
+        """),
+        # O DISTINCT ON existe porque o elenco congelado tem uma linha por
+        # CLUBE: quem trocou de time no meio do ano aparece duas vezes, e sem
+        # isso o UPDATE escolheria uma ao acaso.
+        ("transfermarkt", """
+            UPDATE glossario_lab_jogador g
+               SET pe     = COALESCE(g.pe, NULLIF(e.pe, '')),
+                   altura = COALESCE(g.altura, e.altura)
+              FROM (SELECT DISTINCT ON (jogador_id)
+                           jogador_id, pe, altura
+                      FROM elenco_congelado
+                     ORDER BY jogador_id, congelado_em DESC) e
+             WHERE g.tm_id IS NOT NULL AND g.tm_id <> ''
+               AND e.jogador_id::text = g.tm_id
+               AND (g.pe IS NULL OR g.altura IS NULL)
+        """),
+    )
+    saida = {}
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            for nome, sql in passos:
+                c.execute(sql)
+                saida[nome] = c.rowcount
+    except Exception as e:
+        return {"erro": f"{type(e).__name__}: {e}", **saida}
+    saida["faltam"] = faltam_na_ficha_permanente()
+    return saida
+
+
+def faltam_na_ficha_permanente() -> dict:
+    """Quantos ainda não têm cada campo. É o que diz se a coleta terminou."""
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            colunas = ", ".join(f"COUNT(*) FILTER (WHERE {k} IS NULL)"
+                                for k in CAMPOS_PERMANENTES)
+            c.execute(f"SELECT COUNT(*), {colunas} FROM glossario_lab_jogador")
+            linha = c.fetchone()
+            return {"total": linha[0],
+                    **{k: linha[i + 1] for i, k in enumerate(CAMPOS_PERMANENTES)}}
     except Exception as e:
         return {"erro": str(e)}
 

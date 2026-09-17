@@ -113,6 +113,11 @@ def desdobrar(html: str, arabe: bool = False) -> dict[str, dict]:
             for chave, campo in (("slug", "playerSlug"),
                                  ("foto", "playerImage_home_middle"),
                                  ("altura", "height"),
+                                 # O PESO ESTAVA DE GRAÇA E EU NÃO PEGAVA.
+                                 # A mesma fatia de HTML que traz a altura traz
+                                 # `weight`, e o app nunca usou. Agora que a
+                                 # ficha permanente existe, ele tem onde morar.
+                                 ("peso", "weight"),
                                  ("nac_iso", "nationalityIsoCode"),
                                  ("nacionalidade", "nationality"),
                                  ("posicao", "roleLabel"),

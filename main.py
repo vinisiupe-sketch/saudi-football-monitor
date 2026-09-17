@@ -7991,7 +7991,16 @@ async def api_competicoes_atualizar(season: int = 0):
     Acionável colando o endereço no navegador, como as outras — o Vini já se
     perdeu uma vez quando eu mandei "rode POST <url>".
     """
-    return await _calendario_de_todas_as_competicoes(season)
+    r = await _calendario_de_todas_as_competicoes(season)
+    # A DATA FICA GRAVADA. Sem ela, a tela mostra um número sem dizer de
+    # quando — e dado guardado sem data é indistinguível de resposta errada.
+    from database import marcar_coleta
+    await asyncio.to_thread(
+        marcar_coleta, "competicoes",
+        f"{r.get('partidas', 0)} jogo(s) em "
+        f"{len(r.get('competicoes') or [])} competição(ões)",
+        "; ".join((r.get("erros") or [])[:2]))
+    return r
 
 
 async def _ler_escalacoes(season: int = 0, teto: int = 20) -> dict:
@@ -8274,6 +8283,12 @@ async def api_escalacoes_reler(season: int = 0):
         if not d.get("faltam") or not d.get("partidas"):
             break
     total["faltam"] = 0
+    from database import marcar_coleta
+    await asyncio.to_thread(
+        marcar_coleta, "escalacoes",
+        f"{total['partidas']} partida(s) lida(s) em "
+        f"{len(total.get('competicoes') or [])} competição(ões)",
+        "; ".join((total.get("erros") or [])[:2]))
     return total
 
 
@@ -13155,6 +13170,25 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:2rem;letter-spacing:.02em;
   monospace;font-size:.72rem;line-height:1.7;color:var(--c-muted-3);
   padding:15px 18px;margin:0}
 
+/* ── AS COLETAS ────────────────────────────────────────────────────────────
+   Uma linha por coleta: o que ela busca, de onde, quando rodou pela última
+   vez, e o botão. O selo de estado é a peça que importa — "nunca rodou" e
+   "rodou e falhou" são coisas diferentes, e a cor diz qual é qual de relance.
+
+   A regra que a gente combinou: dado guardado sem data é indistinguível de
+   uma resposta errada. Então a data aparece sempre, inclusive quando é "nunca". */
+.selo{font-size:.58rem;font-weight:800;text-transform:uppercase;
+  letter-spacing:.06em;border-radius:99px;padding:3px 8px;margin-left:8px;
+  border:1px solid currentColor;vertical-align:1px;white-space:nowrap}
+.selo.ok{color:#8FCB6B}
+.selo.uma_vez{color:var(--c-muted-3)}
+.selo.nunca{color:#FFBE5D}
+.selo.atrasada{color:#FFBE5D}
+.selo.erro{color:#FD5D5D}
+.quando{font-size:.72rem;color:var(--c-muted-3);margin:6px 0 0}
+.quando b{color:var(--c-text);font-weight:700}
+.quando .ruim{color:#FD5D5D}
+
 @media (max-width:820px){
   .painel{grid-template-columns:1fr;gap:14px}
   .menu{position:static;flex-direction:row;overflow-x:auto;gap:6px;
@@ -13266,7 +13300,10 @@ async function carregar() {
         .forEach(function (a) { c.appendChild(cartao(a)); });
       bloco.appendChild(c);
     });
-    if (s.chave === 'jogadores') bloco.appendChild(gaveta('elenco'));
+    if (s.chave === 'jogadores') {
+      bloco.appendChild(gaveta('elenco'));
+      bloco.appendChild(gaveta('coletas', 'Coletas'));
+    }
     if (s.chave === 'contas') {
       bloco.appendChild(gaveta('convites', 'Convidar'));
       bloco.appendChild(gaveta('contas', 'Quem entra'));
@@ -13313,9 +13350,157 @@ function abrirSecao(chave) {
   // CARREGA SO QUANDO ABRE. A saude do sistema conversa com quatro fontes
   // externas; monta-la junto com a pagina faria toda visita as configuracoes
   // — inclusive as que so queriam mudar um numero — bater no Transfermarkt.
-  if (chave === 'jogadores') carregarElenco();
+  if (chave === 'jogadores') { carregarElenco(); carregarColetas(); }
   if (chave === 'contas') { carregarConvites(); carregarContas(); }
   if (chave === 'saude') carregarSaude();
+}
+
+// ── AS COLETAS ─────────────────────────────────────────────────────────────
+//
+// Pedido dele: "nas configuracoes pode ficar armazenado o visto_em, e ter um
+// botao pra rodar manualmente se necessario nos que forem rotineiros".
+//
+// A lista vem do `coletas.py`, com a data e o veredito calculados no
+// servidor — "atrasada" e comparacao de datas, e conta de data no navegador e
+// onde o fuso entra sem ser convidado.
+//
+// E E AQUI QUE AS COMPETICOES GANHAM BOTAO PROPRIO. Ate hoje o unico jeito de
+// busca-las na mao era o "Completar agora" da ficha do jogador — que so
+// aparece quando ha partida pela metade. Ou seja: o botao sumia exatamente
+// quando estava tudo completo, que e quando ele foi procurar. Foi por isso
+// que as outras competicoes nunca chegaram.
+const ESTADO_DIZ = {
+  ok: 'em dia', uma_vez: 'ja feita', nunca: 'nunca rodou',
+  atrasada: 'atrasada', erro: 'deu erro'
+};
+
+async function carregarColetas() {
+  const alvo = document.getElementById('coletas');
+  if (!alvo) return;
+  let d;
+  try {
+    const r = await fetch('/api/coletas?_=' + Date.now());
+    d = await r.json();
+    if (d.erro) throw new Error(d.erro);
+  } catch (e) {
+    alvo.innerHTML = '<div class="item"><div class="texto"><p class="ajuda" '
+      + 'style="color:#FD5D5D">' + esc(e.message || e) + '</p></div></div>';
+    return;
+  }
+  alvo.innerHTML = '';
+  (d.coletas || []).forEach(function (c) {
+    alvo.appendChild(linhaDeColeta(c, d.ficha_permanente || {}));
+  });
+}
+
+function linhaDeColeta(c, faltam) {
+  const item = document.createElement('div');
+  item.className = 'item';
+
+  const texto = document.createElement('div');
+  texto.className = 'texto';
+
+  const rot = document.createElement('div');
+  rot.className = 'rotulo';
+  rot.textContent = c.nome;
+  const selo = document.createElement('span');
+  selo.className = 'selo ' + c.estado;
+  selo.textContent = ESTADO_DIZ[c.estado] || c.estado;
+  rot.appendChild(selo);
+  texto.appendChild(rot);
+
+  const ajuda = document.createElement('p');
+  ajuda.className = 'ajuda';
+  ajuda.textContent = c.ajuda + ' Fonte: ' + c.fonte + '. Sugerido: '
+    + c.cadencia + '.';
+  texto.appendChild(ajuda);
+
+  // A DATA, SEMPRE — inclusive quando e "nunca". E o combinado: dado
+  // guardado sem data e indistinguivel de uma resposta errada.
+  const quando = document.createElement('p');
+  quando.className = 'quando';
+  quando.id = 'coleta-' + c.chave;
+  if (!c.ultima_em) {
+    quando.textContent = 'Nunca rodou.';
+  } else {
+    quando.innerHTML = 'Última vez: <b>' + esc(dataHoraBr(c.ultima_em)) + '</b>'
+      + (c.dias_atras !== null && c.dias_atras !== undefined
+         ? ' (' + haQuanto(c.dias_atras) + ')' : '')
+      + (c.resultado ? ' — ' + esc(c.resultado) : '');
+    if (c.erro) {
+      quando.innerHTML += '<br><span class="ruim">último erro: '
+        + esc(c.erro) + '</span>';
+    }
+  }
+  texto.appendChild(quando);
+
+  // Quanto ainda falta da ficha permanente. So nela, porque so ela tem um
+  // fim: as outras se repetem para sempre.
+  if (c.chave === 'ficha_permanente' && faltam.total) {
+    const f = document.createElement('p');
+    f.className = 'ajuda';
+    f.textContent = 'De ' + faltam.total + ' fichas, faltam: '
+      + (faltam.pe || 0) + ' sem pé, ' + (faltam.altura || 0) + ' sem altura, '
+      + (faltam.peso || 0) + ' sem peso, '
+      + (faltam.pais_nascimento || 0) + ' sem país de nascimento.';
+    texto.appendChild(f);
+  }
+
+  item.appendChild(texto);
+
+  const campo = document.createElement('div');
+  campo.className = 'campo';
+  const botao = document.createElement('button');
+  botao.type = 'button';
+  botao.className = 'padrao';
+  botao.style.margin = '0';
+  botao.textContent = 'Rodar agora';
+  botao.onclick = function () { rodarColeta(c, botao); };
+  campo.appendChild(botao);
+  item.appendChild(campo);
+  return item;
+}
+
+function dataHoraBr(iso) {
+  // Sem expressao regular: esta pagina mora dentro de uma string do Python, e
+  // uma barra invertida aqui vira aviso de escape invalido la.
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso || '');
+  const dois = function (n) { return (n < 10 ? '0' : '') + n; };
+  return dois(d.getDate()) + '/' + dois(d.getMonth() + 1) + '/'
+    + d.getFullYear() + ' ' + dois(d.getHours()) + ':' + dois(d.getMinutes());
+}
+
+function haQuanto(dias) {
+  if (dias < 1 / 24) return 'agora há pouco';
+  if (dias < 1) return 'há ' + Math.round(dias * 24) + 'h';
+  if (dias < 2) return 'ontem';
+  return 'há ' + Math.round(dias) + ' dias';
+}
+
+async function rodarColeta(c, botao) {
+  const antes = botao.textContent;
+  botao.disabled = true;
+  botao.textContent = 'rodando…';
+  const nota = document.getElementById('coleta-' + c.chave);
+  if (nota) nota.textContent = 'rodando… algumas levam minutos.';
+  try {
+    const r = await fetch(c.rota, {method: c.metodo || 'GET'});
+    let d = {};
+    try { d = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error(d.erro || ('erro ' + r.status));
+    botao.textContent = 'pronto';
+    // RECARREGA A LISTA em vez de adivinhar o que mudou: a data e o resultado
+    // sao gravados pelo servidor, e e ele quem sabe o que saiu.
+    await carregarColetas();
+  } catch (e) {
+    botao.textContent = antes;
+    botao.disabled = false;
+    if (nota) {
+      nota.innerHTML = '<span class="ruim">não deu: ' + esc(e.message || e)
+        + '</span>';
+    }
+  }
 }
 
 async function carregarSaude() {
@@ -22450,6 +22635,11 @@ async def colher_af_jogadores(temporada: int = 0) -> dict:
                 "ultimo": p.get("lastname") or "",
                 "nascimento": (p.get("birth") or {}).get("date") or "",
                 "altura": (p.get("height") or "").replace("cm", "").strip(),
+                # PESO E PAÍS DE NASCIMENTO vinham na mesma resposta e eu
+                # descartava — o mesmo erro dos números jogo a jogo. Os dois
+                # são ficha permanente: não mudam, e agora têm onde morar.
+                "peso": (p.get("weight") or "").replace("kg", "").strip(),
+                "pais_nascimento": (p.get("birth") or {}).get("country") or "",
                 "nacionalidade": p.get("nationality") or "",
                 "clube": (estat.get("team") or {}).get("name") or "",
                 "foto": p.get("photo") or "",
@@ -22476,6 +22666,12 @@ async def api_jogadores_perfis(request: Request):
     af = await colher_af_jogadores()
     # Só faz sentido cruzar depois que os DOIS lados têm data.
     cruz = await _a.to_thread(cruzar_por_nascimento)
+    from database import marcar_coleta
+    await asyncio.to_thread(
+        marcar_coleta, "cadastro_das_fontes",
+        f"{liga.get('completados', 0)} completados e {liga.get('novos', 0)} "
+        f"novos pela liga; {af.get('gravados', 0)} pela API-Football",
+        liga.get("erro") or af.get("erro") or "")
     return {"liga": liga, "api_football": af, "cruzamento": cruz,
             **contar_jogadores()}
 
@@ -22582,11 +22778,49 @@ async def congelar_elencos_do_tm() -> dict:
             "falhas": falhas, **resumo_do_congelamento()}
 
 
+@app.get("/api/coletas")
+async def api_coletas():
+    """As coletas com a data da última vez que cada uma rodou."""
+    import coletas
+    from database import coletas_feitas, faltam_na_ficha_permanente
+    feitas = await asyncio.to_thread(coletas_feitas)
+    return {"coletas": coletas.com_datas(feitas),
+            "ficha_permanente": await asyncio.to_thread(
+                faltam_na_ficha_permanente)}
+
+
+@app.post("/api/coletas/ficha-permanente")
+async def api_coleta_ficha_permanente():
+    """Leva para o glossário a altura, o peso, o pé e o país que já estão no
+    banco — e nunca por cima do que o Vini corrigiu.
+
+    NÃO VAI À REDE. As três fontes já deixaram o que trouxeram nas mesas
+    delas; esta rota é a que junta. Por isso ela não pode ser bloqueada por
+    403, não gasta cota e roda em segundos — e por isso vale rodá-la depois
+    de qualquer uma das outras.
+    """
+    from database import consolidar_ficha_permanente, marcar_coleta
+    r = await asyncio.to_thread(consolidar_ficha_permanente)
+    faltam = r.get("faltam") or {}
+    resumo = (f"{r.get('liga', 0)} pela liga, {r.get('api_football', 0)} pela "
+              f"API-Football, {r.get('transfermarkt', 0)} pelo Transfermarkt; "
+              f"faltam {faltam.get('pe', '?')} sem pé")
+    await asyncio.to_thread(marcar_coleta, "ficha_permanente",
+                            resumo, r.get("erro") or "")
+    return r
+
+
 @app.post("/api/elencos/congelar")
 async def api_elencos_congelar():
     """Refaz o retrato à mão, se precisar antes de o TM sair."""
     set_state("elencos_congelados", "")
-    return await congelar_elencos_do_tm()
+    r = await congelar_elencos_do_tm()
+    from database import marcar_coleta
+    await asyncio.to_thread(
+        marcar_coleta, "elencos_congelados",
+        f"{r.get('jogadores', r.get('total', 0))} jogador(es)",
+        r.get("erro") or "; ".join((r.get("falhas") or [])[:2]))
+    return r
 
 
 @app.get("/api/diag/congelado", response_class=PlainTextResponse)
