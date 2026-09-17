@@ -155,6 +155,17 @@ for c in coletas.COLETAS:
        f"a coleta '{c['chave']}' está sem fonte, cadência ou explicação — sem "
        f"isso a tela vira um painel de botões que ninguém sabe se deve apertar")
 
+# E A ROTINA DE MADRUGADA GRAVA TAMBÉM. Ela chama as funções DIRETO, sem
+# passar pela rota — e era a rota que anotava. A tela diria "atrasada" todo dia
+# às sete da manhã mesmo tendo rodado às três e quarenta, e ele aprenderia a
+# ignorar o aviso. Uma data que só conta metade das vezes é pior que data
+# nenhuma.
+AGENDADOR = open(os.path.join(RAIZ, "scheduler.py"), encoding="utf-8").read()
+for chave in ("competicoes", "escalacoes"):
+    ok(f'marcar_coleta, "{chave}"' in AGENDADOR,
+       f"a rotina de madrugada roda '{chave}' e não grava a data. A tela vai "
+       f"dizer que está atrasada mesmo depois de ela ter rodado")
+
 marcar = funcao(BANCO, "marcar_coleta")
 ok("erro" in marcar and "resultado" in marcar,
    "a anotação da coleta parou de guardar o erro. 'Rodou e falhou' é "

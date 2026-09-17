@@ -342,6 +342,21 @@ async def run_retornos():
             print(f"🏆 Calendário: {cal.get('partidas')} jogo(s) de "
                   f"{len(cal['competicoes'])} competição(ões) — "
                   + ", ".join(cal["competicoes"][:6]))
+        # A DATA FICA GRAVADA AQUI TAMBÉM, e não só quando ele aperta o botão.
+        #
+        # Isto quase passou: a rotina de madrugada chama a função DIRETO, sem
+        # passar pela rota, e é a rota que anotava. A tela de Coletas diria
+        # "atrasada" todo dia às sete da manhã, mesmo tendo rodado às três e
+        # quarenta — e ele confiaria na tela, que é para isso que ela existe.
+        #
+        # Uma data que só conta metade das vezes é pior que data nenhuma:
+        # ela ensina a pessoa a ignorar o aviso.
+        from database import marcar_coleta
+        await asyncio.to_thread(
+            marcar_coleta, "competicoes",
+            f"{cal.get('partidas', 0)} jogo(s) em "
+            f"{len(cal.get('competicoes') or [])} competição(ões), de madrugada",
+            "; ".join((cal.get("erros") or [])[:2]))
 
         incompletas = await asyncio.to_thread(partidas_com_atuacao_incompleta)
         if incompletas:
@@ -355,6 +370,11 @@ async def run_retornos():
             lidas["partidas"] += d.get("partidas") or 0
             if not d.get("faltam") or not d.get("partidas"):
                 break
+
+        await asyncio.to_thread(
+            marcar_coleta, "escalacoes",
+            f"{lidas['partidas']} escalação(ões) lida(s) de madrugada",
+            "; ".join((d.get("erros") or [])[:2]) if lidas["partidas"] == 0 else "")
 
         r = await _marcar_retornos()
         restam = await asyncio.to_thread(partidas_com_atuacao_incompleta)
