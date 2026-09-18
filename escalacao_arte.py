@@ -86,24 +86,42 @@ BANDEIRA_ALT = 1.47 * CQ       # ~16, a bandeirinha dentro da placa
 #     (ax·l·(1 − 1/Z), ay·l·(1 − 1/Z)). Com Z=1 dá a janela inteira, que é o
 #     comportamento de antes — sem degrau, sem caso especial.
 #
-# POR QUE A ÂNCORA É 15% E NÃO O CENTRO
+# POR QUE A ÂNCORA NÃO É O CENTRO
 #     Porque rosto fica em cima. Ampliar pelo centro de um retrato de meio corpo
 #     dá zoom no peito.
-FOTO_ZOOM = 1.45               # o padrão; o Vini ajusta em Configurações
+#
+# E POR QUE ELA VIROU AJUSTE (18/09/26)
+#     "Ficou quase bom, mas quero que o zoom possa ser maior, e que haja um
+#      ajuste da foto mais pra baixo, sem cortar o topo da cabeça."
+#
+#     Os dois pedidos são o mesmo problema: quanto mais se amplia com a âncora
+#     fixa, mais cedo o alto da cabeça encosta na borda. Quem resolve é BAIXAR
+#     a âncora — e âncora menor é foto mais baixa no disco, porque a janela
+#     sobe na foto e sobra o cabelo em cima em vez do queixo embaixo.
+#
+#     Em 0% a janela encosta no topo da foto e não sai de lá: seja qual for o
+#     zoom, o alto da cabeça nunca é cortado. É o limite de baixo da faixa, e
+#     não por acaso.
+FOTO_ZOOM = 1.70               # o padrão; o Vini ajusta em Configurações
 FOTO_ANCORA_X = 0.50
-FOTO_ANCORA_Y = 0.15
+FOTO_ANCORA_Y = 0.10
 
 
-def janela_do_zoom(lado: float, zoom: float) -> tuple:
+def janela_do_zoom(lado: float, zoom: float, ancora_y=None) -> tuple:
     """(esquerda, topo, lado) da parte da foto que aparece no disco.
 
     A mesma conta que o `transform: scale()` do navegador faz. Devolver a
     janela em vez de já recortar deixa ela testável contra a CSS.
     """
     z = max(1.0, float(zoom or 1.0))
+    ay = FOTO_ANCORA_Y if ancora_y is None else float(ancora_y)
+    # A FAIXA É FECHADA AQUI, e não só na tela de Configurações. Acima de 0,5 a
+    # janela desceria do centro para baixo e o zoom miraria o peito; abaixo de
+    # 0 ela sairia da foto e entraria fundo transparente por cima da cabeça.
+    ay = max(0.0, min(0.5, ay))
     l = float(lado)
     return (FOTO_ANCORA_X * l * (1 - 1 / z),
-            FOTO_ANCORA_Y * l * (1 - 1 / z),
+            ay * l * (1 - 1 / z),
             l / z)
 
 
@@ -133,7 +151,7 @@ SUPER = 4          # fator de superamostragem do círculo
 
 
 def _circulo(dados: bytes | None, diam: float,
-             zoom: float = 1.0) -> "Image.Image":
+             zoom: float = 1.0, ancora_y=None) -> "Image.Image":
     """Foto recortada em círculo, com o anel #303030 por fora.
 
     DESENHADO GRANDE E REDUZIDO DEPOIS (08/09/26)
@@ -176,7 +194,7 @@ def _circulo(dados: bytes | None, diam: float,
             # lugar dele: o quadrado é o que a tela mostra com `object-fit:
             # cover`, e o zoom é o `transform: scale()` aplicado por cima. Nessa
             # ordem, e só nessa, o PNG sai igual à prévia.
-            dx, dy, lz = janela_do_zoom(l, zoom)
+            dx, dy, lz = janela_do_zoom(l, zoom, ancora_y)
             if lz < l:
                 foto = foto.crop((int(round(dx)), int(round(dy)),
                                   int(round(dx + lz)), int(round(dy + lz))))
@@ -233,10 +251,11 @@ def montar(dados: dict) -> bytes:
     # O MESMO ZOOM DA TELA. Quem manda o número é a rota, que leu o ajuste do
     # Vini; sem ele a arte cai em 1.0, que é o enquadramento de antes.
     zoom = float(dados.get("zoom") or 1.0)
+    ancora = dados.get("ancora")
 
     for j, cx, cy, esc in postos:
         diam = FOTO_DIAM * esc
-        base.alpha_composite(_circulo(j.get("foto"), diam, zoom),
+        base.alpha_composite(_circulo(j.get("foto"), diam, zoom, ancora),
                              (int(cx - diam / 2), int(cy - diam / 2)))
 
     for j, cx, cy, esc in postos:

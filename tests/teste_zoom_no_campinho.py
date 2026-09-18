@@ -59,20 +59,26 @@ def ok(cond, msg):
 # pontas da mesma decisão escritas em dois arquivos e em duas linguagens; sem
 # esta conferência, mexer numa e esquecer a outra é questão de tempo, e o
 # sintoma seria uma arte publicada com o enquadramento diferente da prévia.
-_css = re.search(r"transform-origin:\s*(\d+)%\s+(\d+)%", PAGINA)
+_css = re.search(r"transform-origin:\s*(\d+)%\s+var\(--ancora-foto,\s*(\d+)%\)",
+                 PAGINA)
 ok(_css is not None,
-   "sumiu o `transform-origin` do CSS do disco. Sem ele o `scale` amplia pelo "
-   "centro, que num retrato de meio corpo é o peito")
+   "sumiu o `transform-origin` do CSS do disco, ou ele voltou a ter a âncora "
+   "escrita à mão. Ela é ajuste do Vini agora, e quem manda o número é a mesma "
+   "função que manda para o PNG — chumbar aqui reabre a divergência")
 if _css:
     ok(int(_css.group(1)) == round(escalacao_arte.FOTO_ANCORA_X * 100),
        f"a âncora horizontal do CSS ({_css.group(1)}%) não bate com a do "
        f"Python ({escalacao_arte.FOTO_ANCORA_X:.2f})")
+    # O NÚMERO DO `var(..., X)` É SÓ A REDE DE SEGURANÇA, para o caso de o
+    # servidor não escrever nada. Mesmo ele tem de ser o padrão do Python: se
+    # divergir, a página sem o marcador trocado enquadra de um jeito e o PNG de
+    # outro — o pior caso, porque é o caso em que ninguém está olhando.
     ok(int(_css.group(2)) == round(escalacao_arte.FOTO_ANCORA_Y * 100),
-       f"a âncora vertical do CSS ({_css.group(2)}%) não bate com a do Python "
-       f"({escalacao_arte.FOTO_ANCORA_Y:.2f}). A tela e o PNG passam a "
-       f"enquadrar em alturas diferentes, e a prévia vira mentira")
+       f"o padrão de emergência do CSS ({_css.group(2)}%) não bate com o do "
+       f"Python ({escalacao_arte.FOTO_ANCORA_Y:.2f})")
 
-ok("transform:scale(var(--zoom-foto,1))" in PAGINA.replace(" ", ""),
+ok("transform:scale(var(--zoom-foto,1))" in PAGINA.replace(" ", "")
+   .replace("\n", ""),
    "o disco parou de aplicar o zoom, ou parou de ter um padrão seguro no "
    "`var(...,1)` para o caso de o servidor não escrever o número")
 
@@ -94,14 +100,45 @@ def _janela_como_o_navegador(lado, zoom, ancora):
     return volta(0.0), volta(lado) - volta(0.0)
 
 for z in (1.0, 1.2, 1.45, 1.7, 2.0, 3.0):
-    dx, dy, lz = escalacao_arte.janela_do_zoom(200.0, z)
-    ex, tam_x = _janela_como_o_navegador(200.0, z, escalacao_arte.FOTO_ANCORA_X)
-    ey, tam_y = _janela_como_o_navegador(200.0, z, escalacao_arte.FOTO_ANCORA_Y)
-    ok(abs(dx - ex) < 0.01 and abs(dy - ey) < 0.01 and abs(lz - tam_x) < 0.01,
-       f"em {int(z*100)}% o recorte do PNG é ({dx:.1f},{dy:.1f},{lz:.1f}) e o "
-       f"do navegador seria ({ex:.1f},{ey:.1f},{tam_x:.1f}). O Vini montaria a "
-       f"escalação vendo um enquadramento e publicaria outro")
-    ok(abs(tam_x - tam_y) < 0.01, "a janela saiu retangular; o disco é redondo")
+    for a in (0.0, 0.10, 0.25, 0.50):
+        dx, dy, lz = escalacao_arte.janela_do_zoom(200.0, z, a)
+        ex, tam_x = _janela_como_o_navegador(
+            200.0, z, escalacao_arte.FOTO_ANCORA_X)
+        ey, tam_y = _janela_como_o_navegador(200.0, z, a)
+        ok(abs(dx - ex) < 0.01 and abs(dy - ey) < 0.01
+           and abs(lz - tam_x) < 0.01,
+           f"em {int(z*100)}% com âncora {a} o recorte do PNG é "
+           f"({dx:.1f},{dy:.1f},{lz:.1f}) e o do navegador seria "
+           f"({ex:.1f},{ey:.1f},{tam_x:.1f}). O Vini montaria a escalação "
+           f"vendo um enquadramento e publicaria outro")
+        ok(abs(tam_x - tam_y) < 0.01,
+           "a janela saiu retangular; o disco é redondo")
+
+# ── DESCER A FOTO É SUBIR A JANELA, E EM 0 ELA NÃO SAI DO TOPO ───────────
+#
+# É o pedido dele por extenso: "que haja um ajuste da foto mais pra baixo, sem
+# cortar o topo da cabeça".
+_, dy_alto, _ = escalacao_arte.janela_do_zoom(200.0, 2.0, 0.40)
+_, dy_baixo, _ = escalacao_arte.janela_do_zoom(200.0, 2.0, 0.05)
+ok(dy_baixo < dy_alto,
+   "baixar a âncora deixou de subir a janela na foto — é assim que a foto "
+   "desce no disco, e era metade do pedido")
+
+for z in (1.2, 2.0, 3.0, 10.0):
+    _, dy0, _ = escalacao_arte.janela_do_zoom(200.0, z, 0.0)
+    ok(dy0 == 0.0,
+       f"com a âncora no fim da faixa e zoom {int(z*100)}% a janela começou em "
+       f"{dy0}, e não no topo da foto. Nesse ponto o alto da cabeça tem de "
+       f"estar garantido em QUALQUER zoom — é o que torna o ajuste útil")
+
+# E FORA DA FAIXA NÃO PODE PASSAR, nem por uma chamada de dentro do código:
+# acima de 0,5 o zoom mira o peito; abaixo de 0 entra fundo vazio por cima da
+# cabeça, e um buraco transparente no disco é pior que um corte.
+for fora, esperado in ((-0.5, 0.0), (0.9, 0.5), (2, 0.5)):
+    _, dy, _ = escalacao_arte.janela_do_zoom(200.0, 2.0, fora)
+    _, dy_ok, _ = escalacao_arte.janela_do_zoom(200.0, 2.0, esperado)
+    ok(abs(dy - dy_ok) < 1e-9,
+       f"âncora {fora} não foi presa na faixa; saiu {dy} em vez de {dy_ok}")
 
 # ── ZOOM 100% É O DE ANTES, EXATAMENTE ───────────────────────────────────
 dx, dy, lz = escalacao_arte.janela_do_zoom(200.0, 1.0)
@@ -155,16 +192,22 @@ try:
     # zoom nenhum — com todo o resto do teste passando, porque eu só chamava o
     # `_circulo` direto. O caminho que o Vini usa é o `montar`, e é ele que
     # precisa ser exercido.
-    def _arte(z):
-        return escalacao_arte.montar({
-            "zoom": z,
-            "jogadores": [{"nome": "TESTE", "x": 50, "y": 50,
-                           "foto": dados, "bandeira": None}]})
+    def _arte(z, ancora=None):
+        pedido = {"zoom": z,
+                  "jogadores": [{"nome": "TESTE", "x": 50, "y": 50,
+                                 "foto": dados, "bandeira": None}]}
+        if ancora is not None:
+            pedido["ancora"] = ancora
+        return escalacao_arte.montar(pedido)
 
     ok(_arte(1.7) != _arte(1.0),
        "o PNG do campinho saiu idêntico com e sem zoom. O `montar` está "
        "ignorando o número que a rota manda, e o Vini publicaria a escalação "
        "com um enquadramento diferente do que viu na tela")
+    ok(_arte(2.0, 0.0) != _arte(2.0, 0.5),
+       "o PNG saiu idêntico com a foto no topo e no meio. O `montar` está "
+       "ignorando a âncora — o ajuste de descer a foto valeria só na tela, e "
+       "a imagem publicada sairia com a cabeça cortada")
     ok(_arte(1.0) == escalacao_arte.montar({
         "jogadores": [{"nome": "TESTE", "x": 50, "y": 50,
                        "foto": dados, "bandeira": None}]}),
@@ -210,28 +253,46 @@ ok("el.innerHTML = disco + rot" in _render,
 # 4. UM LUGAR SÓ LÊ O AJUSTE, E OS DOIS CONSUMIDORES USAM ELE
 # ─────────────────────────────────────────────────────────────────────────
 A = ajustes.POR_CHAVE.get("campinho_zoom_foto")
+D = ajustes.POR_CHAVE.get("campinho_descer_foto")
 ok(A is not None, "sumiu o ajuste do zoom do campinho")
+ok(D is not None,
+   "sumiu o ajuste de descer a foto. Sem ele, ampliar mais corta o alto da "
+   "cabeça e não há o que fazer a não ser desistir do zoom")
 if A:
     ok(A["min"] <= 100 <= A["max"] and A["padrao"] >= 100,
        "a faixa do ajuste não inclui 100%, que é como se volta ao "
        "enquadramento antigo sem mexer no código")
+    ok(A["max"] >= 300,
+       f"o teto do zoom voltou para {A['max']}%. Ele pediu que pudesse ser "
+       f"maior, e agora dá — porque descer a foto segura a cabeça")
     ok(A["grupo"] in [g for s in ajustes.secoes() for g in s["grupos"]],
        f"o grupo '{A['grupo']}' não aparece em nenhuma seção de Configurações")
+if D:
+    ok(D["min"] == 0 and D["max"] == 100,
+       f"a faixa de descer a foto virou {D['min']}–{D['max']}. Ela precisa "
+       f"chegar aos 100, que é o ponto em que o topo da cabeça fica garantido")
+    ok(D["grupo"] == (A or {}).get("grupo"),
+       "os dois ajustes ficaram em grupos diferentes. Eles são um par: quem "
+       "aumenta o zoom vai precisar do outro na linha de baixo")
 
-ok("def _zoom_do_campinho()" in FONTE, "sumiu a leitura única do ajuste")
-ok(FONTE.count("_zoom_do_campinho()") == 3,
-   f"o `_zoom_do_campinho` é chamado {FONTE.count('_zoom_do_campinho()')} "
-   f"vezes; esperava três (a definição, a página e a arte). Se um dos dois "
-   f"consumidores parou de usá-lo, a tela e o PNG divergem")
-ok('.replace("__ZOOM_FOTO__", f"{_zoom_do_campinho():.3f}")' in FONTE,
-   "a página do campinho parou de receber o zoom do servidor")
-ok('"zoom": _zoom_do_campinho()' in FONTE,
-   "a rota da arte parou de mandar o zoom; o PNG sairia sempre sem ele")
-ok("__ZOOM_FOTO__" in PAGINA,
-   "o marcador __ZOOM_FOTO__ sumiu da página; o servidor escreveria no vazio")
+ok("def _enquadramento_do_campinho()" in FONTE,
+   "sumiu a leitura única dos ajustes")
+ok(FONTE.count("_enquadramento_do_campinho()") == 3,
+   f"o `_enquadramento_do_campinho` é chamado "
+   f"{FONTE.count('_enquadramento_do_campinho()')} vezes; esperava três (a "
+   f"definição, a página e a arte). Se um dos dois consumidores parou de "
+   f"usá-lo, a tela e o PNG divergem")
+for marcador in ("__ZOOM_FOTO__", "__ANCORA_FOTO__"):
+    ok(f'.replace("{marcador}"' in FONTE,
+       f"a página do campinho parou de receber o {marcador} do servidor")
+    ok(marcador in PAGINA,
+       f"o marcador {marcador} sumiu da página; o servidor escreveria no vazio")
+ok('"zoom": _zoom, "ancora": _ancora' in FONTE,
+   "a rota da arte parou de mandar o enquadramento; o PNG sairia sempre com o "
+   "de fábrica, diferente do que está na tela")
 
 # E A LEITURA, EXECUTADA. Banco fora do ar não pode derrubar o campinho.
-_i = FONTE.index("def _zoom_do_campinho()")
+_i = FONTE.index("def _enquadramento_do_campinho()")
 _corpo = FONTE[_i:FONTE.index("\n@app.get", _i)]
 import database                                           # noqa: E402
 _guardado = database.valor_de_ajuste
@@ -239,23 +300,45 @@ _guardado = database.valor_de_ajuste
 try:
     _amb: dict = {}
     exec(_corpo, _amb)
-    ler = _amb["_zoom_do_campinho"]
+    ler = _amb["_enquadramento_do_campinho"]
 
-    database.valor_de_ajuste = lambda c: 145
-    ok(abs(ler() - 1.45) < 1e-9,
-       f"145 no ajuste virou {ler()} no CSS; esperava 1.45 (o CSS quer fator, "
-       f"a tela mostra por cento)")
-    database.valor_de_ajuste = lambda c: 100
-    ok(ler() == 1.0, "100% não devolveu 1.0")
-    database.valor_de_ajuste = lambda c: 40
-    ok(ler() == 1.0, "um valor abaixo de 100 virou redução da foto")
+    def _ajustes(zoom, descer):
+        database.valor_de_ajuste = lambda c: (
+            zoom if c == "campinho_zoom_foto" else descer)
+
+    _ajustes(170, 80)
+    z, a = ler()
+    ok(abs(z - 1.70) < 1e-9,
+       f"170 no ajuste virou {z}; esperava 1.70 (o CSS quer fator, a tela "
+       f"mostra por cento)")
+    ok(abs(a - 0.10) < 1e-9,
+       f"'descer 80%' virou âncora {a}; esperava 0.10. A conversão é o que "
+       f"deixa a tela falar 'descer a foto' e o desenho falar 'onde mirar'")
+
+    _ajustes(100, 0)
+    z, a = ler()
+    ok(z == 1.0 and abs(a - 0.50) < 1e-9,
+       f"o começo das duas faixas deu ({z}, {a}); esperava (1.0, 0.50), que é "
+       f"o enquadramento de antes do zoom existir")
+
+    _ajustes(300, 100)
+    z, a = ler()
+    ok(abs(z - 3.0) < 1e-9 and a == 0.0,
+       f"o fim das duas faixas deu ({z}, {a}); esperava (3.0, 0.0), que é o "
+       f"zoom máximo com o topo da cabeça garantido")
+
+    _ajustes(40, 250)
+    z, a = ler()
+    ok(z == 1.0 and 0.0 <= a <= 0.5,
+       f"valores fora da faixa passaram: ({z}, {a})")
 
     def _explode(c):
         raise RuntimeError("banco fora do ar")
     database.valor_de_ajuste = _explode
-    ok(ler() == 1.0,
-       "com o banco fora do ar a leitura do zoom levantou ou devolveu outra "
-       "coisa. Sem ajuste o campinho tem de continuar de pé, sem zoom")
+    z, a = ler()
+    ok(z == 1.0 and 0.0 <= a <= 0.5,
+       f"com o banco fora do ar a leitura levantou ou devolveu {(z, a)}. Sem "
+       f"ajuste o campinho tem de continuar de pé, sem zoom")
 finally:
     database.valor_de_ajuste = _guardado
 

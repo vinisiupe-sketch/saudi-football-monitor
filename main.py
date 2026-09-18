@@ -16763,23 +16763,47 @@ carregarTimes();
 _ELENCOS_FORMACOES = formacoes.QUADROS
 
 
-def _zoom_do_campinho() -> float:
-    """O zoom da foto dentro do disco, em fator (1,45 e não 145).
+def _enquadramento_do_campinho() -> tuple:
+    """(zoom, âncora) da foto dentro do disco — em fator, não em por cento.
 
     UM LUGAR SÓ, porque são dois consumidores: o CSS da página e o PNG que a
-    rota da arte monta. Se cada um lesse o ajuste à sua maneira, a prévia na
+    rota da arte monta. Se cada um lesse os ajustes à sua maneira, a prévia na
     tela e o arquivo baixado divergiriam — e essa é a falha que este projeto
     passou a semana consertando em três telas diferentes.
 
-    Banco fora do ar devolve 1.0, que é o enquadramento de sempre: sem zoom o
-    campinho continua inteiro, e é melhor ficar sem o zoom do que sem a foto.
+    OS DOIS ANDAM JUNTOS, e é por isso que saem da mesma função em vez de duas.
+    O pedido dele foi "zoom maior, e um ajuste da foto mais pra baixo, sem
+    cortar o topo da cabeça": ampliar sem descer é exatamente o que corta a
+    cabeça. Um sem o outro não é meia solução, é o defeito.
+
+    A ÂNCORA É O INVERSO DO QUE A TELA MOSTRA. Lá ele mexe em "descer a foto",
+    que é o que ele quer fazer; aqui vira a altura do ponto em que o zoom mira,
+    e descer a foto é mirar MAIS ALTO na imagem. A conversão é uma subtração, e
+    ela mora aqui para a tela poder falar a língua dele.
+
+    Banco fora do ar devolve (1.0, padrão): sem zoom o campinho continua
+    inteiro, e é melhor ficar sem o zoom do que sem a foto.
     """
     import database as _db
     try:
-        return max(1.0, int(_db.valor_de_ajuste("campinho_zoom_foto") or 100)
+        zoom = max(1.0, int(_db.valor_de_ajuste("campinho_zoom_foto") or 100)
                    / 100.0)
+        descer = int(_db.valor_de_ajuste("campinho_descer_foto") or 0)
+        descer = max(0, min(100, descer))
+        # 0% descido → mira o meio (0,50). 100% descido → mira o topo (0,00),
+        # e aí a janela encosta na borda de cima da foto e não sai de lá.
+        return zoom, (100 - descer) / 100.0 * 0.50
     except Exception:
-        return 1.0
+        return 1.0, escalacao_arte_ancora_padrao()
+
+
+def escalacao_arte_ancora_padrao() -> float:
+    """A âncora de fábrica, sem passar pelo banco. Só o caminho de erro usa."""
+    try:
+        import escalacao_arte
+        return escalacao_arte.FOTO_ANCORA_Y
+    except Exception:
+        return 0.10
 
 
 @app.get("/campinho", response_class=HTMLResponse)
@@ -16806,9 +16830,11 @@ async def campinho_page():
     caminho = os.path.join(os.path.dirname(__file__), "public", "campinho.html")
     with open(caminho, encoding="utf-8") as f:
         pagina = f.read()
+    _zoom, _ancora = _enquadramento_do_campinho()
     return HTMLResponse(
         pagina
-        .replace("__ZOOM_FOTO__", f"{_zoom_do_campinho():.3f}")
+        .replace("__ZOOM_FOTO__", f"{_zoom:.3f}")
+        .replace("__ANCORA_FOTO__", f"{_ancora * 100:.1f}%")
         .replace("__HEADER_CSS__", _HEADER_CSS)
         .replace("__THEME__", _HEAD_COMUM)
         .replace("__HDR__", _header("/campinho"))
@@ -19059,9 +19085,11 @@ async def api_elencos_arte(request: Request):
                for i, j in enumerate(jogadores)]
 
     try:
-        # O MESMO ZOOM DA TELA, lido do MESMO lugar. Ver `_zoom_do_campinho`.
+        # O MESMO ENQUADRAMENTO DA TELA, lido do MESMO lugar. Ver
+        # `_enquadramento_do_campinho`.
+        _zoom, _ancora = _enquadramento_do_campinho()
         png = escalacao_arte.montar({"jogadores": prontos,
-                                     "zoom": _zoom_do_campinho()})
+                                     "zoom": _zoom, "ancora": _ancora})
     except Exception as e:
         return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, status_code=500)
 
