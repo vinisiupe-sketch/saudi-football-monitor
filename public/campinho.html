@@ -104,7 +104,13 @@ h1{font-size:1.5rem;margin:0 0 4px}
   display:flex;align-items:center;justify-content:center;
   font-size:max(8px,2.0cqw*var(--e,1));color:#303030;font-weight:800}
 /* Anel #303030 em volta da foto, e só ele: sem borda branca e sem sombra. */
-.slot.ocupado .disco{border:max(2px,0.33cqw*var(--e,1)) solid #303030;background:#eef2f5}
+/* O VERDE ATRÁS DA FOTO, e não o cinza claro de antes (18/09/26).
+   As fotos da SPL são recortes com fundo transparente, e o que aparece por
+   trás é este fundo. Em cinza, o recorte ganhava uma aba clara em volta do
+   ombro; em verde ele encosta na grama. A mesma cor está no
+   `escalacao_arte.FOTO_VAZIA`, e há teste conferindo que as duas são iguais —
+   ninguém compara hexadecimal de cabeça. */
+.slot.ocupado .disco{border:max(2px,0.33cqw*var(--e,1)) solid #303030;background:#01f468}
 /* O ZOOM NO ROSTO, e SÓ AQUI DENTRO (18/09/26)
    A foto da liga é de meio corpo: num disco pequeno o rosto fica do tamanho de
    uma ervilha e metade do círculo é ombro. Este `scale` aproxima, e a âncora

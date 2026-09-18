@@ -45,7 +45,25 @@ FONTES = os.path.join(PASTA, "public", "fonts")
 
 GRAFITE = (48, 48, 48)                    # #303030, o cinza da identidade
 BRANCO = (255, 255, 255)
-FOTO_VAZIA = (238, 242, 245)
+# O QUE FICA ATRÁS DA FOTO DENTRO DO DISCO (18/09/26)
+#
+#     "Quando clicamos em baixar, ela vem diferente do que tem no campinho,
+#      onde o fundo da foto fica branco. Se é um problema com a transparência,
+#      o fundo poderia ser esse verde padrão que estamos usando no campinho."
+#
+# Era problema de transparência, sim, e de um tipo específico: o `convert("RGB")`
+# do Pillow não COMPÕE o canal alfa sobre nada — ele simplesmente descarta o
+# alfa e fica com o RGB que estava embaixo, que num recorte da SPL é preto. Na
+# tela nada disso aparece, porque o navegador compõe a foto sobre o fundo do
+# disco antes de mostrar. Daí o mesmo arquivo render ar diferente nos dois
+# lugares, e o PNG sair com um quarto de círculo preto em cima da cabeça.
+#
+# O verde é escolha dele, e é o mesmo da grama: assim o recorte não fica com
+# uma aba clara em volta do ombro, ele encosta no campo. O valor está escrito
+# aqui e no CSS do campinho, e há teste conferindo que os dois são o mesmo —
+# duas cores que deviam ser iguais e não são é a divergência mais fácil de não
+# enxergar, porque ninguém compara hexadecimal de cabeça.
+FOTO_VAZIA = (1, 244, 104)     # #01f468, o verde do campo
 
 # ── a projeção ──────────────────────────────────────────────────────────────
 # Vem do formacoes.py, que é quem precisa dela para decidir se uma linha de
@@ -183,7 +201,18 @@ def _circulo(dados: bytes | None, diam: float,
 
     if dados:
         try:
-            foto = Image.open(io.BytesIO(dados)).convert("RGB")
+            # COMPOR O ALFA, e não descartá-lo.
+            #
+            # `convert("RGB")` direto joga o canal alfa fora e fica com o RGB
+            # que estava embaixo — preto, nos recortes da SPL. Era o quarto de
+            # círculo escuro que ele viu em cima da cabeça no arquivo baixado,
+            # e que na tela não aparece porque lá quem compõe é o navegador.
+            foto = Image.open(io.BytesIO(dados))
+            if foto.mode in ("RGBA", "LA", "P"):
+                foto = foto.convert("RGBA")
+                fundo = Image.new("RGBA", foto.size, FOTO_VAZIA + (255,))
+                foto = Image.alpha_composite(fundo, foto)
+            foto = foto.convert("RGB")
             # Recorte quadrado pelo centro do lado MENOR: a foto do TM é
             # retangular e um resize direto achataria o rosto.
             l = min(foto.size)

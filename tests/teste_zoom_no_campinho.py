@@ -218,6 +218,59 @@ except ImportError:
 
 
 # ─────────────────────────────────────────────────────────────────────────
+# 2b. O QUE FICA ATRÁS DA FOTO — A TRANSPARÊNCIA
+# ─────────────────────────────────────────────────────────────────────────
+# O QUE ELE VIU (18/09/26)
+#     "Quando clicamos em baixar, ela vem diferente do que tem no campinho.
+#      (...) Se é um problema com a transparência, o fundo poderia ser esse
+#      verde padrão que estamos usando no campinho."
+#
+#     Era: o `convert("RGB")` do Pillow DESCARTA o canal alfa em vez de
+#     compor, e fica com o RGB que estava embaixo — preto, num recorte da SPL.
+#     Na tela nunca apareceu porque lá quem compõe é o navegador.
+_css_fundo = re.search(r"\.slot\.ocupado \.disco\{[^}]*background:\s*#([0-9a-fA-F]{6})",
+                       PAGINA)
+ok(_css_fundo is not None, "sumiu o fundo do disco ocupado no CSS")
+if _css_fundo:
+    _hex = tuple(int(_css_fundo.group(1)[i:i + 2], 16) for i in (0, 2, 4))
+    ok(_hex == tuple(escalacao_arte.FOTO_VAZIA),
+       f"o fundo do disco na tela é {_css_fundo.group(1)} e no PNG é "
+       f"{escalacao_arte.FOTO_VAZIA}. São a mesma coisa vista em dois lugares; "
+       f"divergir aqui é o tipo de erro que ninguém enxerga, porque ninguém "
+       f"compara hexadecimal de cabeça")
+
+try:
+    import io as _io
+
+    from PIL import Image as _Img
+    # Uma foto TODA transparente: o disco inteiro tem de sair da cor do fundo.
+    # Com o defeito antigo ele saía preto, que é o RGB que sobra quando o alfa
+    # é descartado em vez de composto.
+    _vazia = _Img.new("RGBA", (100, 100), (0, 0, 0, 0))
+    _b = _io.BytesIO()
+    _vazia.save(_b, "PNG")
+    _disco = escalacao_arte._circulo(_b.getvalue(), 80).convert("RGB")
+    _meio = _disco.getpixel((40, 40))
+    ok(_meio == tuple(escalacao_arte.FOTO_VAZIA),
+       f"o miolo do disco com uma foto transparente saiu {_meio}, e não "
+       f"{tuple(escalacao_arte.FOTO_VAZIA)}. Se saiu preto, o alfa voltou a "
+       f"ser descartado em vez de composto — é o quarto de círculo escuro que "
+       f"ele viu em cima da cabeça no arquivo baixado")
+
+    # E O QUE É OPACO NÃO PODE SER TINGIDO: compor não é pintar por cima.
+    _cheia = _Img.new("RGBA", (100, 100), (200, 30, 40, 255))
+    _b2 = _io.BytesIO()
+    _cheia.save(_b2, "PNG")
+    _meio2 = escalacao_arte._circulo(_b2.getvalue(), 80).convert("RGB") \
+        .getpixel((40, 40))
+    ok(abs(_meio2[0] - 200) < 6 and abs(_meio2[1] - 30) < 6,
+       f"uma foto opaca saiu {_meio2} em vez da cor dela. A composição está "
+       f"misturando o fundo onde não devia")
+except ImportError:
+    pass
+
+
+# ─────────────────────────────────────────────────────────────────────────
 # 3. SÓ DENTRO DO CAMPO — ERA METADE DO PEDIDO
 # ─────────────────────────────────────────────────────────────────────────
 for seletor in (".jog img", ".cartao img"):
