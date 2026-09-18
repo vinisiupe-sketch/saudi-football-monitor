@@ -446,6 +446,89 @@ def chave_latina(nome: str) -> str:
     return " ".join(x for x in palavras if x)
 
 
+# ── OS NOMES COMPOSTOS: عبد + ال… ───────────────────────────────────────────
+#
+# O CASO CONCRETO (18/09/26)
+#     O Vini mandou um tweet do Asharq sobre o Hayder Abdulkareem, do Al Nassr,
+#     e a notícia saiu no app como "Haidar Abd al-Karim" — transliteração livre
+#     da IA — mesmo com o jogador mapeado no glossário há dias.
+#
+#     O glossário guarda a grafia da SPL: حيدر عبدالكريم, com عبدالكريم numa
+#     palavra só. O tweet escreve حيدر عبد الكريم, em duas. A varredura compara
+#     por igualdade de palavra, não achou, não pôs o jogador no prompt, e a IA
+#     fez o que a regra manda quando não sabe: transliterou letra por letra.
+#
+# POR QUE A `chave_colada` NÃO RESOLVIA, JÁ QUE ELA NASCEU PARA ISTO
+#     Porque o artigo entra no meio. A `chave_arabe` tira o ال do COMEÇO de
+#     cada palavra, e em "عبد الكريم" o الكريم começa com ال — vira كريم. Já em
+#     "عبدالكريم" o ال está no miolo e fica. Colar tudo depois disso dá
+#     عبدكريم de um lado e عبدالكريم do outro: as duas formas se afastam mais
+#     depois de normalizadas do que antes.
+#
+#     A conta que importa tem de ser feita ANTES da regra do artigo. É o que
+#     esta função faz.
+#
+# ISTO NÃO É ADIVINHAÇÃO, É ORTOGRAFIA
+#     عبد é "servo de" e só existe como primeira metade de um nome composto:
+#     عبد الله, عبد الرحمن, عبد العزيز, عبد الكريم. Onde alguém aperta o espaço
+#     é escolha de quem digita, não outra pessoa. Unir as duas metades é
+#     escrever o mesmo nome de um jeito só — não é "parecido o bastante".
+#
+#     Por isso a lista é EXPLÍCITA e curta. أبو ("pai de") tem o mesmo
+#     comportamento e está aqui pelo mesmo motivo. Nenhuma palavra entra nesta
+#     lista sem ser um elemento de nome composto — uma lista que cresce por
+#     conveniência vira semelhança de texto com outro nome.
+PREFIXOS_COMPOSTOS = ("عبد", "ابو")
+
+# E A SEGUNDA METADE TAMBÉM PODE MANDAR. "حمد الله" / "حمدالله" é o Hamdallah,
+# e o padrão é o mesmo: uma palavra + الله. Vale para حمد الله, نصر الله,
+# سيف الله. Aqui quem decide é a palavra da DIREITA, e por isso é uma lista
+# separada — juntar as duas numa só faria a regra depender de qual lado eu
+# olhasse primeiro.
+#
+# "شاء الله" numa frase corrida também será unido, e tudo bem: a união só tem
+# consequência se o resultado for igual a um nome do glossário.
+SEGUNDAS_COMPOSTAS = ("الله",)
+
+
+def chave_arabe_composta(nome: str) -> str:
+    """A chave árabe com os nomes compostos unidos numa palavra só.
+
+    'عبد الكريم' e 'عبدالكريم' saem daqui idênticos. Para tudo o mais ela é a
+    `chave_arabe` de sempre.
+
+    É um índice A MAIS, e nunca um substituto: a `chave_arabe` continua sendo
+    a chave de comparação do app inteiro, inclusive dos clubes, onde o artigo é
+    justamente o que separa النصر (o time) de نصر (a palavra "vitória").
+    """
+    t = (nome or "")
+    t = "".join(c for c in t if c not in _HARAKAT)
+    t = "".join(_MESMA_LETRA.get(c, c) for c in t)
+    t = "".join(c if ("ء" <= c <= "ي" or c.isdigit() or c.isspace())
+                else " " for c in t)
+
+    # A UNIÃO VEM PRIMEIRO, antes de qualquer coisa mexer no artigo.
+    brutas = t.split()
+    unidas, i = [], 0
+    while i < len(brutas):
+        proxima = brutas[i + 1] if i + 1 < len(brutas) else ""
+        if proxima and (brutas[i] in PREFIXOS_COMPOSTOS
+                        or proxima in SEGUNDAS_COMPOSTAS):
+            unidas.append(brutas[i] + proxima)
+            i += 2
+        else:
+            unidas.append(brutas[i])
+            i += 1
+
+    palavras = []
+    for p in unidas:
+        if p.startswith(_ARTIGO) and len(p) > 4:
+            p = p[2:]
+        if p:
+            palavras.append(p)
+    return " ".join(palavras)
+
+
 def chave_colada(chave: str) -> str:
     """A chave sem espaço nenhum.
 

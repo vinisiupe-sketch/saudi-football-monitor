@@ -70,6 +70,49 @@ def _chave(nome: str) -> str:
     return glossary.chave_latina(nome or "")
 
 
+def _chaves(nome: str) -> list:
+    """TODAS as formas pelas quais este nome pode ser encontrado.
+
+    A primeira é a de sempre. A segunda só existe em nome árabe composto, e só
+    aparece quando ela difere da primeira.
+
+    POR QUE DUAS CHAVES, E NÃO UMA MELHOR (18/09/26)
+        O Vini mandou uma notícia sobre o Hayder Abdulkareem, do Al Nassr, que
+        saiu no app como "Haidar Abd al-Karim" mesmo com o jogador mapeado. O
+        glossário tem a grafia da SPL (حيدر عبدالكريم, junto) e o tweet escreve
+        حيدر عبد الكريم, separado. A varredura compara palavra por palavra, não
+        achou, e a IA transliterou por conta própria.
+
+        A tentação era "melhorar" a `chave_arabe`. Não dá: ela é a chave de
+        comparação do app inteiro, inclusive dos CLUBES, onde o artigo é
+        justamente o que separa النصر (o time) de نصر (a palavra "vitória").
+        Mexer nela para consertar nome de pessoa quebraria o reconhecimento de
+        clube — e do jeito mais caro, achando clube em toda frase que fala em
+        vitória.
+
+        Então a chave nova entra COMO ÍNDICE A MAIS. A antiga continua
+        respondendo tudo que respondia; a nova só acrescenta portas para a
+        mesma pessoa.
+
+    O QUE ISSO CUSTA, DITO POR EXTENSO
+        Mais chaves é mais chance de duas pessoas caírem na mesma. Isso não faz
+        o app errar: `identidade()` devolve {} quando a chave cai em mais de um,
+        e `jogadores_no_texto` pula chave ambígua. O custo é virar "não sei"
+        onde antes era uma resposta — e é por isso que existe o
+        /api/diag/nomes-arabes, que conta exatamente quantos casos assim a
+        regra cria no glossário DELE antes de a gente confiar nela.
+    """
+    import glossary
+    principal = _chave(nome)
+    if not principal:
+        return []
+    if not _e_arabe(nome):
+        return [principal]
+    composta = glossary.chave_arabe_composta(nome or "")
+    return [principal, composta] if composta and composta != principal \
+        else [principal]
+
+
 def _montar(linhas_jogador, linhas_nome) -> dict:
     por_id, por_spl, por_af, por_tm = {}, {}, {}, {}
     for j in linhas_jogador:
@@ -88,28 +131,68 @@ def _montar(linhas_jogador, linhas_nome) -> dict:
     # tratar a chave como única faria o segundo sobrescrever o primeiro em
     # silêncio — o pior desfecho possível, porque o app ficaria confiante.
     por_chave: dict = {}
+    # A FAMÍLIA DE CADA GRAFIA: qual chave composta ela produz. Serve para o
+    # passo final, e o porquê está explicado lá embaixo.
+    pares: list = []
+
+    def _guardar(dono, nome_cru, gravada=""):
+        # A chave gravada pelo laboratório entra porque é ela que o banco usa
+        # para procurar. As outras saem do nome CRU: o banco guardou uma
+        # normalização só, e a composta nasceu depois dele.
+        formas = _chaves(nome_cru or "")
+        for chave in ([gravada.strip()] if gravada else []) + formas:
+            if not chave:
+                continue
+            por_chave.setdefault(chave, [])
+            if dono["id"] not in [x["id"] for x in por_chave[chave]]:
+                por_chave[chave].append(dono)
+            # A família é sempre a ÚLTIMA forma: `_chaves` devolve a composta
+            # em segundo quando ela existe, e a principal sozinha quando não.
+            pares.append((chave, formas[-1] if formas else chave, dono))
+
     for n in linhas_nome:
         dono = por_id.get(n["jogador_id"])
         if not dono:
             continue
         dono["grafias"].append(dict(n))
-        chave = (n.get("nome_normalizado") or "").strip() or _chave(n.get("nome"))
-        if not chave:
-            continue
-        por_chave.setdefault(chave, [])
-        if dono["id"] not in [x["id"] for x in por_chave[chave]]:
-            por_chave[chave].append(dono)
+        _guardar(dono, n.get("nome") or "",
+                 (n.get("nome_normalizado") or ""))
 
     # O nome principal e o árabe da própria ficha também valem como grafia:
     # eles vêm da SPL e são o que a tela mostra.
     for d in por_id.values():
         for campo in ("nome_principal", "nome_curto", "nome_ar"):
-            chave = _chave(d.get(campo) or "")
-            if not chave:
-                continue
-            por_chave.setdefault(chave, [])
-            if d["id"] not in [x["id"] for x in por_chave[chave]]:
-                por_chave[chave].append(d)
+            if d.get(campo):
+                _guardar(d, d[campo])
+
+    # ── O PASSO QUE FAZ A AMBIGUIDADE APARECER ─────────────────────────────
+    #
+    # Sem ele a regra nova cria um palpite escondido, e o teste pegou isso.
+    #
+    # Imagine duas pessoas: uma escrita حيدر عبدالكريم (junto) e outra حيدر عبد
+    # الكريم (separado). Elas têm o mesmo nome — o espaço não distingue pessoa
+    # nenhuma. Mas as chaves PRINCIPAIS delas são diferentes, então uma notícia
+    # escrita separado casaria só com a segunda, e o app citaria aquela com
+    # toda a confiança do mundo.
+    #
+    # Aqui eu espalho: quem compartilha a chave composta compartilha TODAS as
+    # chaves do grupo. Assim a dúvida fica visível nas duas pontas, e as duas
+    # respondem "não sei" — que é o que `identidade()` e `jogadores_no_texto`
+    # já fazem com chave de mais de um dono.
+    #
+    # Note que isto não inventa homônimo: se ninguém mais cai na mesma família,
+    # nada muda. Só faz o app enxergar a colisão que a união criou.
+    familias: dict = {}
+    for _, familia, dono in pares:
+        familias.setdefault(familia, {})[dono["id"]] = dono
+    for chave, familia, _ in pares:
+        parentes = familias.get(familia) or {}
+        if len(parentes) < 2:
+            continue
+        atuais = {x["id"] for x in por_chave.get(chave) or []}
+        for pid, pessoa in parentes.items():
+            if pid not in atuais:
+                por_chave.setdefault(chave, []).append(pessoa)
 
     return {"por_id": por_id, "por_spl": por_spl, "por_af": por_af,
             "por_tm": por_tm, "por_chave": por_chave}
@@ -172,10 +255,21 @@ def identidade(nome: str, clube: str = "") -> dict:
     procurar: se a chave cai em duas pessoas e nenhuma é do clube informado, a
     resposta continua sendo "não sei", e não "vou de uma das duas".
     """
-    chave = _chave(nome)
-    if not chave:
+    # AS DUAS FORMAS, e não só a principal.
+    #
+    # O índice guarda o nome do Hayder pela grafia da SPL (junto). Quem chega
+    # aqui com a grafia da imprensa (separado) normaliza para outra coisa, e a
+    # consulta não achava nada — o mesmo silêncio que fez a notícia sair com
+    # transliteração inventada. Perguntar pelas duas é o que liga as pontas.
+    por_chave = carregar().get("por_chave") or {}
+    achados, vistos = [], set()
+    for chave in _chaves(nome):
+        for pessoa in por_chave.get(chave) or []:
+            if pessoa["id"] not in vistos:
+                vistos.add(pessoa["id"])
+                achados.append(pessoa)
+    if not achados:
         return {}
-    achados = (carregar().get("por_chave") or {}).get(chave) or []
     if len(achados) == 1:
         return achados[0]
     if not achados or not clube:
@@ -225,10 +319,16 @@ def jogadores_no_texto(*textos) -> list[dict]:
         if not texto:
             continue
         import glossary
-        # Duas varreduras porque as chaves são de dois alfabetos e cada uma
-        # tem o seu normalizador. Comparar árabe com a chave latina não acha
-        # nada — e não acharia com erro, acharia com silêncio.
-        for normalizar in (glossary.chave_latina, glossary.chave_arabe):
+        # Três varreduras. Duas porque as chaves são de dois alfabetos e cada
+        # uma tem o seu normalizador — comparar árabe com a chave latina não
+        # acha nada, e não acharia com erro, acharia com silêncio.
+        #
+        # A TERCEIRA é a composta, e ela precisa rodar sobre o TEXTO, não só
+        # sobre as chaves. "عبد الكريم" no tweet só vira "عبدالكريم" se eu unir
+        # as duas metades dos DOIS lados; unir só no índice deixaria a chave
+        # nova procurando por uma palavra que o texto nunca escreve junto.
+        for normalizar in (glossary.chave_latina, glossary.chave_arabe,
+                           glossary.chave_arabe_composta):
             try:
                 alvo = " " + normalizar(texto) + " "
             except Exception:

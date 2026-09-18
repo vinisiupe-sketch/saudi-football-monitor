@@ -11398,6 +11398,162 @@ async def api_clipe_descartar():
     return {"ok": True, "apagados": r["apagados"], "ids": r["ids"]}
 
 
+@app.get("/api/diag/nomes-arabes", response_class=PlainTextResponse)
+async def api_diag_nomes_arabes():
+    """QUANTOS NOMES DO GLOSSÁRIO O ESPAÇO DO عبد ESCONDE DA IMPRENSA.
+
+    DE ONDE VEIO (18/09/26)
+        O Vini mandou um tweet do Asharq sobre o Hayder Abdulkareem, do Al
+        Nassr, e a notícia saiu no app como "Haidar Abd al-Karim" — a IA
+        transliterando por conta própria — com o jogador mapeado no glossário
+        há dias.
+
+        A causa: a SPL escreve حيدر عبدالكريم, numa palavra; o tweet escreve
+        حيدر عبد الكريم, em duas. A varredura compara palavra por palavra.
+
+    POR QUE MEDIR ANTES DE CONFIAR
+        Eu não sei, olhando o código, se isso são três jogadores ou oitenta —
+        quem tem os 619 é ele. E a regra nova tem um preço que também só o
+        glossário dele pode dizer: unir metades aproxima nomes, e nome
+        aproximado pode colidir com o de outra pessoa. Colisão não faz o app
+        errar (chave ambígua vira "não sei"), mas transforma resposta em
+        silêncio, e isso é uma piora que precisa caber no número.
+
+        Então esta página conta as duas coisas: quantos a regra ALCANÇA e
+        quantos ela AMBIGUIZA. Uma sem a outra é propaganda.
+
+    NADA AQUI ESCREVE NADA. É uma leitura do glossário e uma conta.
+    """
+    import asyncio
+
+    def _medir():
+        import glossary
+        import glossario as _g
+        dados = _g.carregar()
+        por_id = dados.get("por_id") or {}
+        if not por_id:
+            return None, None, None
+
+        # Toda grafia árabe de todo jogador: a da ficha e as do laboratório.
+        arabes = []
+        for d in por_id.values():
+            vistas = {d.get("nome_ar") or ""}
+            for gr in (d.get("grafias") or []):
+                if (gr.get("idioma") == "ar") or _g._e_arabe(gr.get("nome") or ""):
+                    vistas.add(gr.get("nome") or "")
+            for nome in vistas:
+                if nome and _g._e_arabe(nome):
+                    arabes.append((d, nome))
+
+        # O QUE CONTA COMO "ALCANÇADO" — e eu errei isto na primeira versão.
+        #
+        # Meu primeiro critério foi "a chave muda com a regra". Ele deixava de
+        # fora exatamente o Hayder, que é o caso de origem: a SPL escreve
+        # عبدالكريم JUNTO, então a chave dele não muda coisa nenhuma. Quem
+        # muda é o texto da notícia, que escreve separado — e o ganho está em
+        # os dois passarem a se encontrar.
+        #
+        # O critério certo é: este nome TEM um elemento composto? Se tem, ele
+        # pode aparecer das duas formas por aí, e até hoje só era reconhecido
+        # na forma em que a fonte do glossário o escreveu. A direção em que
+        # cada um está escrito é detalhe; o que importa é que agora as duas
+        # grafias caem no mesmo lugar.
+        def _tem_composto(chave: str) -> bool:
+            for p in (chave or "").split():
+                for pre in glossary.PREFIXOS_COMPOSTOS:
+                    if p.startswith(pre) and len(p) > len(pre):
+                        return True
+                for suf in glossary.SEGUNDAS_COMPOSTAS:
+                    if p.endswith(suf) and len(p) > len(suf):
+                        return True
+            return False
+
+        alcanca, exemplos, separados = [], [], 0
+        for d, nome in arabes:
+            velha = glossary.chave_arabe(nome)
+            nova = glossary.chave_arabe_composta(nome)
+            if not _tem_composto(nova):
+                continue
+            alcanca.append((d, nome, velha, nova))
+            if velha != nova:
+                separados += 1
+            if len(exemplos) < 25:
+                exemplos.append((d, nome, velha, nova))
+
+        # A AMBIGUIDADE QUE A REGRA CRIA: chaves novas que caem em mais de uma
+        # pessoa e que, na chave antiga, caíam em uma só.
+        antigo: dict = {}
+        novo: dict = {}
+        for d, nome in arabes:
+            antigo.setdefault(glossary.chave_arabe(nome), set()).add(d["id"])
+            novo.setdefault(glossary.chave_arabe_composta(nome), set()).add(d["id"])
+        piorou = [(k, v) for k, v in novo.items()
+                  if len(v) > 1 and len(antigo.get(k) or set()) <= 1]
+        return arabes, alcanca, (exemplos, piorou, separados)
+
+    linhas = ["NOMES ÁRABES COMPOSTOS NO GLOSSÁRIO — " +
+              datetime.now(BRT).strftime("%d/%m/%Y %H:%M") + " (Brasília)",
+              "=" * 62, ""]
+    try:
+        arabes, alcanca, resto = await asyncio.to_thread(_medir)
+    except Exception as e:
+        return PlainTextResponse(
+            "\n".join(linhas) +
+            f"\n❌ não consegui medir — {type(e).__name__}: {e}\n")
+
+    if arabes is None:
+        return PlainTextResponse(
+            "\n".join(linhas) +
+            "\n❌ o glossário não carregou. Sem ele não há o que contar.\n")
+
+    exemplos, piorou, separados = resto
+    pessoas = len({d["id"] for d, _ in arabes})
+    atingidos = len({d["id"] for d, _, _, _ in alcanca})
+
+    linhas.append(f"Grafias árabes no glossário: {len(arabes)}, "
+                  f"de {pessoas} jogadores.")
+    linhas.append("")
+    linhas.append(f"A REGRA ALCANÇA {len(alcanca)} grafias, de {atingidos} "
+                  f"jogadores.")
+    linhas.append("   São os nomes que têm elemento composto (عبد, ابو, الله) "
+                  "e que por isso")
+    linhas.append("   circulam por aí de duas formas — junto e separado. Até "
+                  "hoje cada um era")
+    linhas.append("   reconhecido só na forma em que a fonte do glossário o "
+                  "escreveu; com a")
+    linhas.append("   regra, as duas caem no mesmo lugar.")
+    linhas.append(f"   Destes, {separados} estão escritos SEPARADO no "
+                  f"glossário e {len(alcanca) - separados} junto.")
+    linhas.append("")
+
+    if piorou:
+        linhas.append(f"❌ E ELA AMBIGUIZA {len(piorou)} chave(s): duas pessoas "
+                      f"diferentes passam a")
+        linhas.append("   cair no mesmo nome. Nesses casos o app responde 'não "
+                      "sei' — não erra, mas")
+        linhas.append("   deixa de responder onde antes respondia:")
+        for k, v in piorou[:10]:
+            linhas.append(f"     {k}  →  ids {sorted(v)}")
+    else:
+        linhas.append("✅ E ELA NÃO AMBIGUIZA NENHUMA CHAVE: nenhuma das chaves "
+                      "novas cai em duas")
+        linhas.append("   pessoas diferentes. A regra só acrescenta portas, "
+                      "não fecha nenhuma.")
+    linhas.append("")
+
+    if exemplos:
+        linhas.append("EXEMPLOS (até 25):")
+        linhas.append("")
+        for d, nome, velha, nova in exemplos:
+            linhas.append(f"  #{d['id']} {d.get('nome_principal') or ''} "
+                          f"({d.get('clube') or 'sem clube'})")
+            linhas.append(f"      escrito assim : {nome}")
+            linhas.append(f"      chave de hoje : {velha}")
+            linhas.append(f"      chave nova    : {nova}")
+            linhas.append("")
+    return PlainTextResponse("\n".join(linhas) + "\n")
+
+
 @app.get("/api/diag/saude", response_class=PlainTextResponse)
 async def api_diag_saude():
     """UMA PÁGINA QUE DIZ QUEM ESTÁ DE PÉ E QUEM ESTÁ CAÍDO.

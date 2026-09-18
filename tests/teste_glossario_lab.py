@@ -38,7 +38,20 @@ def testar():
     assert 'fontes/vincular' in main
     assert 'fontes/{fonte}' in main
     assert 'transfermarkt/nome-origem' in main
-    assert "Base paralela · não está ligada ao app" in tela
+    # O AVISO DO TOPO TEM DE DIZER A VERDADE (18/09/26)
+    #
+    # Ele dizia "Base paralela · não está ligada ao app" e "alterações feitas
+    # aqui ainda não afetam notícias, mercado, lesões ou escalações". Era
+    # verdade até 14/09, quando o glossário passou a mandar em todas elas. O
+    # aviso ficou, e o Vini leu aquilo enquanto me perguntava por que uma
+    # notícia não obedecia ao glossário. A tela estava mentindo para ele.
+    #
+    # Guardo a frase NOVA pelo mesmo motivo que guardava a antiga: se alguém
+    # trocar o texto do topo, que seja de propósito.
+    assert "é ela que manda no app" in tela, \
+        "o aviso do topo voltou a dizer que o glossário é uma base paralela"
+    assert "Base paralela" not in tela, \
+        "voltou o aviso de 'base paralela'; ele é falso desde 14/09"
     assert "abrirBuscaFonte" in tela
     assert "Pesquisar e vincular nesta fonte" in tela
     assert "Cada vínculo é salvo automaticamente" in tela
