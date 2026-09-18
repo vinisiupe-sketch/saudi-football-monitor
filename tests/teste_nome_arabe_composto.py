@@ -324,6 +324,16 @@ ok(456 not in {d["id"] for d, _, _, _ in _alcanca},
    "o diagnóstico voltou a contar o Abdou Diallo (عبدو ديالو) como nome "
    "composto. Ele só parece: a regra nem encosta nele, e contá-lo apresenta "
    "um número maior do que o efeito, como se fosse o efeito")
+# E OS EXEMPLOS COMEÇAM PELOS QUE MUDAM. No relatório que ele leu, as 25
+# linhas saíram quase todas com "chave de hoje" igual a "chave nova" — o grupo
+# em que este lado não muda. O que interessa ver primeiro é onde a chave MUDA.
+ok(_ex and _ex[0][2] != _ex[0][3],
+   "a lista de exemplos volta a começar pelo grupo em que a chave não muda. "
+   "Quem lê quer ver primeiro os nomes que o glossário escreve de um jeito e "
+   "a imprensa de outro — são esses que estavam escapando")
+ok(len(_ex) <= _sep + 5,
+   f"a lista de exemplos tem {len(_ex)} linhas para {_sep} casos que mudam; "
+   f"ela voltou a despejar o grupo inteiro")
 ok(_sep == 1,
    f"o diagnóstico diz que {_sep} grafias estão escritas separado, quando é "
    f"uma (o Hamdallah). É a quebra que mostra de que lado está cada metade")

@@ -11477,7 +11477,7 @@ async def api_diag_nomes_arabes():
                         return True
             return False
 
-        alcanca, exemplos, separados = [], [], 0
+        alcanca, separados = [], []
         for d, nome in arabes:
             velha = glossary.chave_arabe(nome)
             nova = glossary.chave_arabe_composta(nome)
@@ -11485,9 +11485,15 @@ async def api_diag_nomes_arabes():
                 continue
             alcanca.append((d, nome, velha, nova))
             if velha != nova:
-                separados += 1
-            if len(exemplos) < 25:
-                exemplos.append((d, nome, velha, nova))
+                separados.append((d, nome, velha, nova))
+
+        # OS EXEMPLOS COMEÇAM PELOS QUE MUDAM. A primeira versão listava na
+        # ordem do banco, e as 25 linhas saíam quase todas com "chave de hoje"
+        # igual a "chave nova" — o grupo em que a regra não mexe em nada deste
+        # lado. Quem lê o relatório quer ver primeiro onde a chave MUDA: são
+        # esses os nomes que o glossário escreve de um jeito e a imprensa de
+        # outro, e é neles que o Vini pode querer passar o olho.
+        exemplos = separados + [x for x in alcanca if x not in separados][:5]
 
         # A AMBIGUIDADE QUE A REGRA CRIA: chaves novas que caem em mais de uma
         # pessoa e que, na chave antiga, caíam em uma só.
@@ -11498,7 +11504,7 @@ async def api_diag_nomes_arabes():
             novo.setdefault(glossary.chave_arabe_composta(nome), set()).add(d["id"])
         piorou = [(k, v) for k, v in novo.items()
                   if len(v) > 1 and len(antigo.get(k) or set()) <= 1]
-        return arabes, alcanca, (exemplos, piorou, separados)
+        return arabes, alcanca, (exemplos, piorou, len(separados))
 
     linhas = ["NOMES ÁRABES COMPOSTOS NO GLOSSÁRIO — " +
               datetime.now(BRT).strftime("%d/%m/%Y %H:%M") + " (Brasília)",
@@ -11551,7 +11557,11 @@ async def api_diag_nomes_arabes():
     linhas.append("")
 
     if exemplos:
-        linhas.append("EXEMPLOS (até 25):")
+        linhas.append(f"OS {separados} EM QUE A CHAVE MUDA — o glossário "
+                      f"escreve separado e a")
+        linhas.append("imprensa costuma escrever junto. São os que estavam "
+                      "escapando de fato.")
+        linhas.append("Depois deles, cinco do outro grupo, só para comparar.")
         linhas.append("")
         for d, nome, velha, nova in exemplos:
             linhas.append(f"  #{d['id']} {d.get('nome_principal') or ''} "
