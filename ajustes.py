@@ -353,6 +353,23 @@ AJUSTES = [
                  "Milinković-Savić') nunca vira uma linha inteira com um 'S'.",
     },
 
+    # ── O CAMPINHO ────────────────────────────────────────────────────────
+    {
+        "chave": "campinho_zoom_foto",
+        "grupo": "Campinho",
+        "rotulo": "Zoom no rosto dentro do campo",
+        "unidade": "%",
+        "tipo": "int", "min": 100, "max": 220, "padrao": 145,
+        "ajuda": "A foto da liga é de meio corpo, e num disco pequeno o rosto "
+                 "fica do tamanho de uma ervilha, com metade do círculo "
+                 "ocupada por ombro e camisa. Isto aproxima, mirando a parte "
+                 "de cima — que é onde está o rosto. Vale SÓ dentro do campo, "
+                 "e vale igual na imagem que você baixa: a prévia na tela e o "
+                 "PNG têm de mostrar a mesma coisa. Em 100% volta ao "
+                 "enquadramento antigo; acima de 180% já começa a cortar "
+                 "cabeça em quem foi fotografado mais de perto.",
+    },
+
     {
         "chave": "arbitragem_cabecalho",
         "grupo": "Arbitragem",
@@ -402,6 +419,9 @@ SECOES = [
     {"chave": "gravador", "nome": "Gravador",
      "resumo": "A máquina que grava a transmissão.",
      "grupos": ["Gravador"]},
+    {"chave": "campinho", "nome": "Campinho",
+     "resumo": "O campo onde você monta a escalação.",
+     "grupos": ["Campinho"]},
     {"chave": "arte", "nome": "Arte do jogador",
      "resumo": "A imagem que você baixa na guia de Elencos.",
      "grupos": ["Arte do jogador"]},

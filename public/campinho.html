@@ -11,6 +11,10 @@ __HEADER_CSS__
 :root{
   --bg:var(--c-bg);--surface:var(--c-bg-card);--surface2:var(--c-bg-soft);
   --border:var(--c-border);--text:var(--c-text);--text2:var(--c-muted-3);--accent:var(--c-acento);
+  /* O servidor escreve aqui o ajuste "Zoom no rosto dentro do campo". Se por
+     algum motivo ele não escrever, o `var(--zoom-foto,1)` lá embaixo cai em 1
+     e o campinho fica como sempre foi — nunca sem foto. */
+  --zoom-foto:__ZOOM_FOTO__;
 }
 *{box-sizing:border-box}
 /* O nome do jogador no campinho usa Work Sans SemiBold (SIL OFL, sem Reserved
@@ -100,7 +104,18 @@ h1{font-size:1.5rem;margin:0 0 4px}
   font-size:max(8px,2.0cqw*var(--e,1));color:#303030;font-weight:800}
 /* Anel #303030 em volta da foto, e só ele: sem borda branca e sem sombra. */
 .slot.ocupado .disco{border:max(2px,0.33cqw*var(--e,1)) solid #303030;background:#eef2f5}
-.slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover}
+/* O ZOOM NO ROSTO, e SÓ AQUI DENTRO (18/09/26)
+   A foto da liga é de meio corpo: num disco pequeno o rosto fica do tamanho de
+   uma ervilha e metade do círculo é ombro. Este `scale` aproxima, e a âncora em
+   15% mira a parte de cima — ampliar pelo centro dá zoom no peito.
+   O `overflow:hidden` do disco é o que segura a foto ampliada dentro do anel.
+   A lista de jogadores ao lado usa outro seletor (.jog img, .cartao img) e
+   continua com o enquadramento inteiro, que é o que o Vini pediu.
+   O número vem do servidor, que leu o ajuste; a mesma conta está no
+   `escalacao_arte.janela_do_zoom`, para o PNG sair igual à tela. */
+.slot .disco{overflow:hidden}
+.slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover;
+  transform:scale(var(--zoom-foto,1));transform-origin:50% 15%}
 /* A placa de nome encosta POR CIMA da base do círculo — 12px de sobreposição
    na arte do Vini, num 1080 de largura. Sem isso ela flutua solta e a leitura
    muda completamente. */

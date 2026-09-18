@@ -64,6 +64,48 @@ PLACA_SOBE = 1.1 * CQ          # o quanto a placa monta sobre a foto
 NOME_CORPO = 2.04 * CQ         # 22
 BANDEIRA_ALT = 1.47 * CQ       # ~16, a bandeirinha dentro da placa
 
+# ── O ZOOM NO ROSTO, DENTRO DO DISCO (18/09/26) ─────────────────────────────
+#
+# O PEDIDO
+#     "A gente consegue nesta guia, dar um zoom na foto do jogador quando for
+#      pro campinho, pra aparecer o rosto? (...) É algo que quero apenas pra
+#      dentro do campinho, quando se arrastar a foto pra lá."
+#
+#     A foto da liga é meio corpo. Num disco de 86px o rosto saía do tamanho de
+#     uma ervilha, com metade do círculo ocupada por ombro e camisa. Na lista de
+#     jogadores, ao lado do nome, isso não incomoda — o pedido é só do campo.
+#
+# A CONTA É A DO NAVEGADOR, E DE PROPÓSITO
+#     Na tela isto é uma linha de CSS: `transform: scale(Z)` com
+#     `transform-origin: 50% 15%`. Aqui eu poderia recortar do jeito que
+#     quisesse — e aí a prévia na tela e o PNG baixado divergiriam, que é o
+#     defeito que este projeto passou a semana inteira consertando.
+#
+#     Então eu reproduzo a conta do CSS, que sai assim: ampliar por Z em torno
+#     de um ponto (ax, ay) mostra uma janela de lado l/Z cujo canto fica em
+#     (ax·l·(1 − 1/Z), ay·l·(1 − 1/Z)). Com Z=1 dá a janela inteira, que é o
+#     comportamento de antes — sem degrau, sem caso especial.
+#
+# POR QUE A ÂNCORA É 15% E NÃO O CENTRO
+#     Porque rosto fica em cima. Ampliar pelo centro de um retrato de meio corpo
+#     dá zoom no peito.
+FOTO_ZOOM = 1.45               # o padrão; o Vini ajusta em Configurações
+FOTO_ANCORA_X = 0.50
+FOTO_ANCORA_Y = 0.15
+
+
+def janela_do_zoom(lado: float, zoom: float) -> tuple:
+    """(esquerda, topo, lado) da parte da foto que aparece no disco.
+
+    A mesma conta que o `transform: scale()` do navegador faz. Devolver a
+    janela em vez de já recortar deixa ela testável contra a CSS.
+    """
+    z = max(1.0, float(zoom or 1.0))
+    l = float(lado)
+    return (FOTO_ANCORA_X * l * (1 - 1 / z),
+            FOTO_ANCORA_Y * l * (1 - 1 / z),
+            l / z)
+
 
 def iso_da_bandeira(emoji: str | None) -> str | None:
     """🇧🇷 -> 'br'. O emoji de bandeira JÁ É o código do país.
@@ -90,7 +132,8 @@ def _fonte(arquivo: str, tamanho: int):
 SUPER = 4          # fator de superamostragem do círculo
 
 
-def _circulo(dados: bytes | None, diam: float) -> "Image.Image":
+def _circulo(dados: bytes | None, diam: float,
+             zoom: float = 1.0) -> "Image.Image":
     """Foto recortada em círculo, com o anel #303030 por fora.
 
     DESENHADO GRANDE E REDUZIDO DEPOIS (08/09/26)
@@ -128,7 +171,16 @@ def _circulo(dados: bytes | None, diam: float) -> "Image.Image":
             l = min(foto.size)
             e = (foto.width - l) // 2
             t = (foto.height - l) // 2
-            foto = foto.crop((e, t, e + l, t + l)).resize((g, g), Image.LANCZOS)
+            foto = foto.crop((e, t, e + l, t + l))
+            # O ZOOM NO ROSTO vem DEPOIS do quadrado centralizado, e não no
+            # lugar dele: o quadrado é o que a tela mostra com `object-fit:
+            # cover`, e o zoom é o `transform: scale()` aplicado por cima. Nessa
+            # ordem, e só nessa, o PNG sai igual à prévia.
+            dx, dy, lz = janela_do_zoom(l, zoom)
+            if lz < l:
+                foto = foto.crop((int(round(dx)), int(round(dy)),
+                                  int(round(dx + lz)), int(round(dy + lz))))
+            foto = foto.resize((g, g), Image.LANCZOS)
             # A máscara para onde o anel começa: assim nenhum pixel de foto
             # aparece por fora dele, nem no pior arredondamento.
             mascara = Image.new("L", (g, g), 0)
@@ -178,9 +230,13 @@ def montar(dados: dict) -> bytes:
         px, py, esc = projetar(float(j.get("x", 50)), float(j.get("y", 50)))
         postos.append((j, px * LARGURA / 100, py * ALTURA / 100, esc))
 
+    # O MESMO ZOOM DA TELA. Quem manda o número é a rota, que leu o ajuste do
+    # Vini; sem ele a arte cai em 1.0, que é o enquadramento de antes.
+    zoom = float(dados.get("zoom") or 1.0)
+
     for j, cx, cy, esc in postos:
         diam = FOTO_DIAM * esc
-        base.alpha_composite(_circulo(j.get("foto"), diam),
+        base.alpha_composite(_circulo(j.get("foto"), diam, zoom),
                              (int(cx - diam / 2), int(cy - diam / 2)))
 
     for j, cx, cy, esc in postos:

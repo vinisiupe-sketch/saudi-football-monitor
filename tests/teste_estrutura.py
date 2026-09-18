@@ -319,12 +319,47 @@ else:
     print("  (node ausente — não conferi o JS)")
 
 # ── 5. nenhum marcador sem troca ───────────────────────────────────────────
-fonte = open("main.py", encoding="utf-8").read()
+#
+# A REGRA CERTA É "ALGUÉM CHAMA `.replace` NISTO?" (18/09/26)
+#     Antes eu exigia que o marcador aparecesse DUAS vezes no main.py. Era uma
+#     aproximação: funcionava para os que nascem e morrem dentro dele, e
+#     acusava injustamente qualquer marcador que morasse num arquivo de
+#     `public/` — que é onde vivem as duas páginas grandes, o campinho e o
+#     glossário. O `__ZOOM_FOTO__` caiu exatamente nessa.
+#
+#     Pior: a regra antiga lia SÓ o main.py, então um marcador esquecido dentro
+#     do campinho.html — o defeito de verdade, que apareceria como
+#     "__ZOOM_FOTO__" escrito na tela do Vini — passava sem ninguém ver.
+#
+#     Agora eu junto os marcadores dos dois lugares e exijo o que interessa:
+#     que o main.py troque cada um deles.
+import glob
 import re
+fonte = open("main.py", encoding="utf-8").read()
+paginas = {a: open(a, encoding="utf-8").read()
+           for a in glob.glob(os.path.join("public", "*.html"))}
+
 marcadores = set(re.findall(r"__[A-Z_]{3,}__", fonte))
-sem_troca = [m for m in marcadores
-             if fonte.count(m) < 2 or f'"{m}"' not in fonte]
-ok(not sem_troca, f"marcador que ninguém troca: {sem_troca}")
+for texto in paginas.values():
+    marcadores |= set(re.findall(r"__[A-Z_]{3,}__", texto))
+
+
+
+
+def _e_trocado(marcador: str) -> bool:
+    # O ESPAÇO ENTRE `.replace(` E O MARCADOR É LIVRE, e um dos `.replace` do
+    # main.py está quebrado em duas linhas (o `__ROTA__` da tela de entrar).
+    # Procurar o texto grudado acusava um marcador que é trocado — e teste que
+    # grita à toa é teste que a gente aprende a ignorar.
+    return re.search(r"\.replace\(\s*[\"']" + re.escape(marcador),
+                     fonte) is not None
+
+
+sem_troca = sorted(m for m in marcadores if not _e_trocado(m))
+ok(not sem_troca,
+   f"marcador que ninguém troca: {sem_troca}. Ele vai aparecer cru na tela, "
+   f"com as duas barras e tudo")
+print(f"  {len(marcadores)} marcadores, todos trocados pelo main.py")
 print(f"  {len(marcadores)} marcadores, todos com troca")
 
 # ── 6. rotas ───────────────────────────────────────────────────────────────

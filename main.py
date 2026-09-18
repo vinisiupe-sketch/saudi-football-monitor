@@ -16763,6 +16763,25 @@ carregarTimes();
 _ELENCOS_FORMACOES = formacoes.QUADROS
 
 
+def _zoom_do_campinho() -> float:
+    """O zoom da foto dentro do disco, em fator (1,45 e não 145).
+
+    UM LUGAR SÓ, porque são dois consumidores: o CSS da página e o PNG que a
+    rota da arte monta. Se cada um lesse o ajuste à sua maneira, a prévia na
+    tela e o arquivo baixado divergiriam — e essa é a falha que este projeto
+    passou a semana consertando em três telas diferentes.
+
+    Banco fora do ar devolve 1.0, que é o enquadramento de sempre: sem zoom o
+    campinho continua inteiro, e é melhor ficar sem o zoom do que sem a foto.
+    """
+    import database as _db
+    try:
+        return max(1.0, int(_db.valor_de_ajuste("campinho_zoom_foto") or 100)
+                   / 100.0)
+    except Exception:
+        return 1.0
+
+
 @app.get("/campinho", response_class=HTMLResponse)
 async def campinho_page():
     """O campinho, que era um pedaço da guia de Elencos e virou guia própria.
@@ -16789,6 +16808,7 @@ async def campinho_page():
         pagina = f.read()
     return HTMLResponse(
         pagina
+        .replace("__ZOOM_FOTO__", f"{_zoom_do_campinho():.3f}")
         .replace("__HEADER_CSS__", _HEADER_CSS)
         .replace("__THEME__", _HEAD_COMUM)
         .replace("__HDR__", _header("/campinho"))
@@ -19039,7 +19059,9 @@ async def api_elencos_arte(request: Request):
                for i, j in enumerate(jogadores)]
 
     try:
-        png = escalacao_arte.montar({"jogadores": prontos})
+        # O MESMO ZOOM DA TELA, lido do MESMO lugar. Ver `_zoom_do_campinho`.
+        png = escalacao_arte.montar({"jogadores": prontos,
+                                     "zoom": _zoom_do_campinho()})
     except Exception as e:
         return JSONResponse({"erro": f"{type(e).__name__}: {e}"}, status_code=500)
 
