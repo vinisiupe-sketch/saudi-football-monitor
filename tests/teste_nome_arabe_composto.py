@@ -87,6 +87,21 @@ ok(c("حمد الله") == c("حمدالله"),
 ok(c("عبدالرحمن غريب") == c("عبد الرحمن غريب"),
    "Abdulrahman continua com duas formas")
 
+# ── O ال SOZINHO, QUE O DIAGNÓSTICO NO GLOSSÁRIO DELE REVELOU ────────────
+#
+# O #558 Abdullah Al Salem, do Al Qadsiah, está escrito عبدالله آل سالم. O آل
+# é "casa de", vira ال depois de normalizado, e fica um token de duas letras
+# que a guarda do artigo não toca — com razão, porque sem ela "الله" viraria
+# "له". Só que aí عبدالله آل سالم e عبدالله السالم deixam de ser a mesma
+# pessoa, de novo por causa de onde alguém apertou espaço.
+ok(len({c("عبدالله آل سالم"), c("عبدالله السالم"), c("عبدالله سالم")}) == 1,
+   f"o #558 Abdullah Al Salem continua partido: "
+   f"{c('عبدالله آل سالم')!r}, {c('عبدالله السالم')!r} e "
+   f"{c('عبدالله سالم')!r} deviam ser a mesma chave")
+ok(c("الله") == glossary.chave_arabe("الله"),
+   "'الله' sozinho foi estragado. É a palavra que a guarda `len(p) > 4` "
+   "protege desde o começo: sem ela vira 'له', que não é nada")
+
 # ── E O QUE NÃO É NOME COMPOSTO NÃO PODE SER UNIDO ───────────────────────
 #
 # É o limite da regra, e o que a separa de semelhança de texto: ela une
@@ -107,6 +122,17 @@ ok(set(glossary.PREFIXOS_COMPOSTOS) == {"عبد", "ابو"},
    f"palavra a mais aproxima nomes que não são a mesma pessoa")
 ok(set(glossary.SEGUNDAS_COMPOSTAS) == {"الله"},
    f"a lista de segundas metades virou {glossary.SEGUNDAS_COMPOSTAS!r}")
+
+# ── E O QUE PARECE COMPOSTO E NÃO É ──────────────────────────────────────
+#
+# O #456 Abdou Diallo, do Abha: عبدو ديالو. O token começa com عبد e é mais
+# longo — mas "عبدو" é Abdou, o nome senegalês, e não عبد + alguma coisa.
+# A regra de união não encosta nele porque só age com عبد SOZINHO, e é assim
+# que tem de continuar.
+ok(c("عبدو ديالو") == glossary.chave_arabe("عبدو ديالو"),
+   "'عبدو' (Abdou Diallo) foi tratado como nome composto. Ele só PARECE: a "
+   "união vale para عبد separado, não para toda palavra que comece com essas "
+   "três letras")
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -156,6 +182,13 @@ FICHAS = [
      "nome_principal": "Salem Al-Dawsari", "nome_curto": "Al-Dawsari",
      "nome_ar": "سالم الدوسري", "clube": "Al Hilal",
      "posicao": "Ponta", "nacionalidade": "Arábia Saudita", "foto": "s.png"},
+    # E o que PARECE composto e não é: عبدو é Abdou, o nome senegalês. Ele
+    # está aqui porque o diagnóstico rodado no glossário de verdade o contou
+    # como composto, inflando o número que ia embasar a decisão.
+    {"id": 456, "spl_id": "s456", "af_id": 456, "tm_id": "456",
+     "nome_principal": "Abdou Diallo", "nome_curto": "Diallo",
+     "nome_ar": "عبدو ديالو", "clube": "Abha",
+     "posicao": "Zagueiro", "nacionalidade": "Senegal", "foto": "d.png"},
 ]
 GRAFIAS: list = []
 
@@ -287,6 +320,10 @@ ok(7 in {d["id"] for d, _, _, _ in _alcanca},
 ok(9 not in {d["id"] for d, _, _, _ in _alcanca},
    "o diagnóstico conta um jogador sem nome composto; ele infla o número e a "
    "decisão passa a ser tomada em cima de um total que não quer dizer nada")
+ok(456 not in {d["id"] for d, _, _, _ in _alcanca},
+   "o diagnóstico voltou a contar o Abdou Diallo (عبدو ديالو) como nome "
+   "composto. Ele só parece: a regra nem encosta nele, e contá-lo apresenta "
+   "um número maior do que o efeito, como se fosse o efeito")
 ok(_sep == 1,
    f"o diagnóstico diz que {_sep} grafias estão escritas separado, quando é "
    f"uma (o Hamdallah). É a quebra que mostra de que lado está cada metade")

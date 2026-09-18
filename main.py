@@ -11458,10 +11458,19 @@ async def api_diag_nomes_arabes():
         # na forma em que a fonte do glossário o escreveu. A direção em que
         # cada um está escrito é detalhe; o que importa é que agora as duas
         # grafias caem no mesmo lugar.
+        # E O RESTO TEM DE COMEÇAR COM O ARTIGO. Sem essa exigência eu contava
+        # o #456 Abdou Diallo (عبدو ديالو) como nome composto: o token começa
+        # com عبد e é mais longo. Só que "عبدو" é Abdou, o nome senegalês, e a
+        # regra de união nem encosta nele — ela só age quando عبد está sozinho.
+        #
+        # Era contagem inflada: um número maior do que o efeito, apresentado
+        # como se fosse o efeito. O nome composto de verdade é sempre عبد + ال
+        # alguma coisa: عبدالله, عبدالعزيز, عبدالرحمن.
         def _tem_composto(chave: str) -> bool:
             for p in (chave or "").split():
                 for pre in glossary.PREFIXOS_COMPOSTOS:
-                    if p.startswith(pre) and len(p) > len(pre):
+                    if p.startswith(pre + glossary.ARTIGO_SOLTO) \
+                            and len(p) > len(pre) + len(glossary.ARTIGO_SOLTO):
                         return True
                 for suf in glossary.SEGUNDAS_COMPOSTAS:
                     if p.endswith(suf) and len(p) > len(suf):

@@ -490,6 +490,25 @@ PREFIXOS_COMPOSTOS = ("عبد", "ابو")
 # consequência se o resultado for igual a um nome do glossário.
 SEGUNDAS_COMPOSTAS = ("الله",)
 
+# ── E O ال QUE FICOU SOZINHO (18/09/26, lendo o diagnóstico) ────────────────
+#
+# O /api/diag/nomes-arabes rodou no glossário de verdade e mostrou o
+# #558 Abdullah Al Salem, do Al Qadsiah, escrito عبدالله آل سالم.
+#
+# Aquele آل é "casa de" (como em آل سعود), e depois de normalizado vira ال —
+# igualzinho ao artigo. Como ele está SEPARADO, sobra um token "ال" de duas
+# letras, e a guarda do artigo (`len(p) > 4`) não o toca, com razão: sem ela,
+# "الله" viraria "له", que não é nada.
+#
+# Resultado: عبدالله آل سالم fica 'عبدالله ال سالم', enquanto a imprensa
+# escrevendo عبدالله السالم fica 'عبدالله سالم'. O mesmo jogador, de novo
+# separado por onde alguém apertou espaço.
+#
+# Um "ال" sozinho não é nome de ninguém — é artigo ou é آل, e os dois pertencem
+# à palavra seguinte. Grudá-lo nela devolve a palavra inteira, e aí a regra do
+# artigo faz o que sempre fez.
+ARTIGO_SOLTO = "ال"
+
 
 def chave_arabe_composta(nome: str) -> str:
     """A chave árabe com os nomes compostos unidos numa palavra só.
@@ -513,6 +532,7 @@ def chave_arabe_composta(nome: str) -> str:
     while i < len(brutas):
         proxima = brutas[i + 1] if i + 1 < len(brutas) else ""
         if proxima and (brutas[i] in PREFIXOS_COMPOSTOS
+                        or brutas[i] == ARTIGO_SOLTO
                         or proxima in SEGUNDAS_COMPOSTAS):
             unidas.append(brutas[i] + proxima)
             i += 2
