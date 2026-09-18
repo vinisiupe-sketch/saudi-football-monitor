@@ -184,6 +184,11 @@ async def lifespan(app: FastAPI):
         pass
 
 
+# QUANDO ESTE PROCESSO SUBIU. Avaliado uma vez, na importação — é isso que o
+# torna a hora do deploy, e não a hora de agora. A saúde do sistema mostra, e
+# é metade da resposta para "será que subiu?".
+_INICIADO_EM = time.time()
+
 app = FastAPI(title="Saudi Football Monitor", lifespan=lifespan)
 
 
@@ -11608,6 +11613,41 @@ async def api_diag_saude():
         linhas.append(("✅ " if bem else "❌ ") + titulo)
         linhas.append("   " + texto)
         linhas.append("")
+
+    # ── QUAL VERSÃO ESTÁ NO AR ───────────────────────────────────────────────
+    #
+    # POR QUE ESTA LINHA É A PRIMEIRA (18/09/26)
+    #     "Não subiu. A última atualização do railway é de 34 minutos atrás,
+    #      você fez o commit 27 minutos atrás."
+    #
+    #     Ele tinha razão, e nós dois passamos meia hora discutindo uma coisa
+    #     que ninguém conseguia ver. Eu olhava o Git e dizia "está enviado" —
+    #     estava. Ele olhava o app e dizia "não mudou" — não tinha mudado.
+    #     Enviado e no ar são duas perguntas, e o app só sabia responder uma.
+    #
+    #     Pior: eu vinha escrevendo "seis commits esperando push", "sete",
+    #     "oito", sem nunca ter conferido. Bastava um `git status -sb`. Eu
+    #     contei meus próprios commits e chamei aquilo de fila de envio.
+    #
+    # O RAILWAY ESCREVE ISTO SOZINHO nas variáveis de ambiente de cada build.
+    # Quando elas não existirem — rodando na máquina dele, por exemplo — a
+    # linha diz isso, em vez de inventar um número.
+    _sha = (os.environ.get("RAILWAY_GIT_COMMIT_SHA") or "")[:7]
+    _ramo = os.environ.get("RAILWAY_GIT_BRANCH") or ""
+    _msg = (os.environ.get("RAILWAY_GIT_COMMIT_MESSAGE") or "").split("\n")[0]
+    _desde = datetime.fromtimestamp(_INICIADO_EM, BRT).strftime("%d/%m %H:%M")
+    if _sha:
+        conta("Versão no ar",
+              f"commit {_sha}" + (f" do ramo {_ramo}" if _ramo else "") +
+              (f' — "{_msg[:60]}"' if _msg else "") +
+              f". Este processo subiu em {_desde}. Se este commit não for o "
+              f"último que você enviou, o envio chegou ao GitHub e o deploy é "
+              f"que não rodou — o lugar de olhar é a aba Deployments.")
+    else:
+        conta("Versão no ar",
+              f"sem carimbo de versão (as variáveis RAILWAY_GIT_* não existem "
+              f"neste ambiente, o que é normal rodando na sua máquina). Este "
+              f"processo subiu em {_desde}.", bem=False)
 
     # ── o banco ──────────────────────────────────────────────────────────────
     def _ping_banco():

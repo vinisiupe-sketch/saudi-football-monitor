@@ -147,9 +147,98 @@ ok('response_class=PlainTextResponse' in
    "no navegador, e JSON cru ali é ilegível")
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# A VERSÃO NO AR — "enviado" e "no ar" são perguntas diferentes
+# ─────────────────────────────────────────────────────────────────────────
+# O QUE ACONTECEU (18/09/26)
+#     "Não subiu. A última atualização do railway é de 34 minutos atrás, você
+#      fez o commit 27 minutos atrás."
+#
+#     Eu olhava o Git e dizia "está enviado" — estava, o reflog confirmava.
+#     Ele olhava o app e dizia "não mudou" — não tinha mudado. Passamos meia
+#     hora discutindo uma coisa que ninguém conseguia ver, porque o app não
+#     sabia dizer qual versão ele próprio era.
+#
+# Executo o bloco de verdade, nos dois ambientes. Conferir que as variáveis
+# estão CITADAS no código não prova que a linha sai preenchida.
+import time                                               # noqa: E402
+from datetime import datetime                             # noqa: E402
+from zoneinfo import ZoneInfo                             # noqa: E402
+
+ok("_INICIADO_EM = time.time()" in FONTE,
+   "sumiu a marca de quando o processo subiu. Sem ela a saúde mostra a hora "
+   "de agora, que não diz nada sobre quando o deploy rodou")
+_i_marca = FONTE.index("_INICIADO_EM = time.time()")
+ok(FONTE[:_i_marca].count("\ndef ") == 0 or "\napp = FastAPI" in FONTE[_i_marca:],
+   "o `_INICIADO_EM` saiu do nível do módulo. Dentro de uma função ele passa "
+   "a ser a hora da chamada, e a linha diria que o app subiu agora mesmo, "
+   "sempre")
+
+_i = FONTE.index("    # ── QUAL VERSÃO ESTÁ NO AR")
+_bloco = "\n".join(l[4:] if l.startswith("    ") else l
+                   for l in FONTE[_i:FONTE.index("    # ── o banco ", _i)]
+                   .split("\n"))
+
+_VARS = ("RAILWAY_GIT_COMMIT_SHA", "RAILWAY_GIT_BRANCH",
+         "RAILWAY_GIT_COMMIT_MESSAGE")
+
+
+def _rodar(ambiente):
+    guardado = {k: os.environ.get(k) for k in _VARS}
+    try:
+        for k in _VARS:
+            os.environ.pop(k, None)
+        os.environ.update(ambiente)
+        saida = []
+        exec(_bloco, {"os": os, "datetime": datetime,
+                      "BRT": ZoneInfo("America/Sao_Paulo"),
+                      "_INICIADO_EM": time.time() - 1800,
+                      "conta": lambda t, x, bem=True: saida.append((t, x, bem))})
+        return saida
+    finally:
+        for k, v in guardado.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
+_com = _rodar({"RAILWAY_GIT_COMMIT_SHA": "97bee1625a3b914d348dafe6a97e5151",
+               "RAILWAY_GIT_BRANCH": "main",
+               "RAILWAY_GIT_COMMIT_MESSAGE": "Assunto do commit\nCorpo dele"})
+ok(len(_com) == 1, f"o bloco da versão escreveu {len(_com)} linhas; esperava 1")
+if _com:
+    _titulo, _texto, _bem = _com[0]
+    ok("97bee16" in _texto,
+       f"o commit no ar não aparece na linha: {_texto!r}. É o número que "
+       f"responde 'subiu ou não subiu' sem ninguém precisar adivinhar")
+    ok("97bee1625a3b914d348dafe6a97e5151" not in _texto,
+       "o SHA saiu inteiro; sete caracteres é o que se compara de olho")
+    ok("Corpo dele" not in _texto,
+       "a mensagem do commit saiu inteira, com corpo e tudo. Numa página de "
+       "diagnóstico isso vira parede de texto")
+    ok("Assunto do commit" in _texto, "o assunto do commit sumiu da linha")
+    ok("Deployments" in _texto,
+       "a linha não diz onde olhar quando o commit no ar não for o último "
+       "enviado. Saber que está velho sem saber o que fazer é meio caminho")
+    ok(_bem is True, "com o carimbo presente a linha saiu marcada como erro")
+
+_sem = _rodar({})
+ok(len(_sem) == 1 and _sem[0][2] is False,
+   "sem as variáveis do Railway a linha não avisa que não há carimbo. Ela "
+   "não pode inventar um número nem fingir que está tudo certo")
+ok("RAILWAY_GIT" in _sem[0][1],
+   "a linha sem carimbo não diz por que não tem carimbo")
+
+# E ELA É A PRIMEIRA DA PÁGINA. É a primeira pergunta quando algo não mudou.
+ok(FONTE.index("# ── QUAL VERSÃO ESTÁ NO AR") <
+   FONTE.index("    # ── o banco ", FONTE.index('@app.get("/api/diag/saude"')),
+   "a versão no ar deixou de ser a primeira linha da página de saúde")
+
+
 if falhas:
     print("❌ " + str(len(falhas)) + " falha(s):")
     for f in falhas:
         print("   - " + f)
     sys.exit(1)
-print("✅ página de saúde cobre as fontes, e Elencos segue sem a API-Football")
+print("✅ página de saúde cobre as fontes, diz a versão no ar, e Elencos segue "
+      "sem a API-Football")
