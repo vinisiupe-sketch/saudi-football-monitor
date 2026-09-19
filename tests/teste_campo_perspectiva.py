@@ -371,12 +371,51 @@ def testar():
             ok(alturas["G"] > alturas["D"],
                f"{nome}: o goleiro ficou à frente da defesa")
 
+    # ── 4. o trio da 4-3-3 é invertido, e SÓ o dela ─────────────────────────
+    #
+    # O PEDIDO (18/09/26)
+    #     "Consegue inverter a posição dos dois atacantes do lado com o do
+    #      centroavante? Os atacantes da esquerda e direita recuam e o do
+    #      centro avança. Fica mais assertivo. Só nessa."
+    #
+    # As regras acima — placa não encavala, setor é faixa — continuam valendo e
+    # já cobrem o desenho. O que elas NÃO guardam é a intenção: elas ficariam
+    # verdes com o trio de volta ao arranjo antigo, que é uma escolha de estilo
+    # dele e não um defeito de geometria.
+    #
+    # E o "só nessa" é metade do pedido. A 3-4-3 e a 5-2-3 nascem de outra
+    # ideia e ficam como estavam; alguém que ache o trio invertido mais bonito
+    # e resolva uniformizar estaria desfazendo uma decisão, não arrumando uma
+    # inconsistência.
+    trio = [(x, y) for x, y, g in todas.get("4-3-3", []) if g == "A"]
+    ok(len(trio) == 3, f"a 4-3-3 ficou com {len(trio)} atacantes")
+    if len(trio) == 3:
+        centro = [y for x, y in trio if 40 <= x <= 60]
+        pontas = [y for x, y in trio if x < 40 or x > 60]
+        ok(len(centro) == 1 and len(pontas) == 2,
+           f"o trio da 4-3-3 não é ponta-centro-ponta: {trio}")
+        if len(centro) == 1 and len(pontas) == 2:
+            ok(centro[0] < min(pontas),
+               f"na 4-3-3 o centroavante está em y={centro[0]} e as pontas em "
+               f"{pontas} — ele tem de estar À FRENTE (y menor). Foi pedido "
+               f"dele, e as outras conferências deste arquivo ficam verdes "
+               f"com o arranjo antigo")
+
+    for nome_intacto in ("3-4-3", "5-2-3"):
+        outro = [(x, y) for x, y, g in todas.get(nome_intacto, []) if g == "A"]
+        if len(outro) == 3:
+            c = [y for x, y in outro if 40 <= x <= 60]
+            p = [y for x, y in outro if x < 40 or x > 60]
+            ok(len(c) == 1 and len(p) == 2 and c[0] > max(p),
+               f"a {nome_intacto} foi invertida junto com a 4-3-3. Ele pediu "
+               f"'só nessa'; uniformizar aqui é desfazer uma decisão dele")
+
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
           f"  ✓ campo em perspectiva: {len(pedidos)} casas na grama; "
           f"{len(todas)} formações sem placa encavalada e com os setores "
-          "separados")
+          "separados; trio da 4-3-3 invertido, e só o dela")
     return len(falhas)
 
 

@@ -258,9 +258,18 @@ def desenhar(formacao: str | None, quantidade: int = 11) -> list[tuple[float, fl
 #
 # O que não estiver aqui cai no desenhar(), que segue as mesmas regras.
 QUADROS: dict[str, list[tuple[float, float, str]]] = {
+    # O TRIO DA 4-3-3 É O ÚNICO INVERTIDO, e é pedido dele (18/09/26):
+    #
+    #     "Os atacantes da esquerda e direita recuam e o do centro avança.
+    #      Fica mais assertivo. Só nessa."
+    #
+    # As outras formações com três atacantes (3-4-3, 5-2-3) continuam como
+    # estavam. Não é descuido: numa 4-3-3 o desenho que ele reconhece é o
+    # centroavante na frente e as pontas abertas um passo atrás; nas outras o
+    # trio nasce de outra ideia. Ele pediu uma, e é uma.
     "4-3-3":    [(50,99,"G"),(4,88,"D"),(34.7,88,"D"),(65.3,88,"D"),
                  (96,88,"D"),(12,57.8,"M"),(50,57.8,"M"),(88,57.8,"M"),
-                 (12,4,"A"),(50,20.4,"A"),(88,4,"A")],
+                 (12,20.4,"A"),(50,4,"A"),(88,20.4,"A")],
     "4-2-3-1":  [(50,99,"G"),(4,88,"D"),(34.7,88,"D"),(65.3,88,"D"),
                  (96,88,"D"),(26,70.9,"M"),(74,70.9,"M"),(12,43.8,"M"),
                  (50,43.8,"M"),(88,43.8,"M"),(50,8,"A")],
