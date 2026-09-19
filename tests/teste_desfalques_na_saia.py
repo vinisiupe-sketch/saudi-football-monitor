@@ -337,6 +337,88 @@ ok("X-Fontes" in _rota and "X-Desfalques" in _rota,
    "Saia vazia com as guias no ar e saia vazia com elas fora saem IGUAIS na "
    "imagem — o cabeçalho é o que separa as duas")
 
+# ─────────────────────────────────────────────────────────────────────────
+# 4. A PRÉVIA DESENHA A MESMA SAIA — foi o "tá vindo em branco"
+# ─────────────────────────────────────────────────────────────────────────
+# O PNG saía certo; a TELA é que não desenhava nada no vão de baixo. Ele
+# montava a escalação olhando uma coisa e baixava outra — a regra que este
+# projeto persegue a semana inteira, quebrada por mim no dia seguinte.
+import re as _re2                                         # noqa: E402
+
+ok("renderSaia" in PAGINA and "carregarDesfalques" in PAGINA,
+   "a prévia do campinho parou de desenhar a saia. O PNG traz os desfalques e "
+   "a tela não — ele monta a escalação vendo uma coisa e baixa outra")
+# O ENDEREÇO EXATO, e não um pedaço dele. Plantei o defeito que renomeia a
+# rota para "/api/elencos/desfalques-x" e o teste passou: a busca por
+# substring achava o nome novo dentro do velho. Agora comparo o decorador
+# inteiro dos dois lados.
+ok('@app.get("/api/elencos/desfalques")' in FONTE,
+   "sumiu a rota que alimenta a saia da prévia (ou ela mudou de endereço). A "
+   "tela pediria a um lugar que não responde e a saia voltaria a ficar branca")
+ok("'/api/elencos/desfalques?clube='" in PAGINA,
+   "a tela parou de buscar os desfalques, ou mudou o endereço sem avisar a "
+   "rota")
+ok("carregarDesfalques()" in PAGINA.split("async function selecionarTime")[1]
+   [:900],
+   "a saia não é recarregada ao trocar de clube; ela mostraria os desfalques "
+   "do time anterior")
+
+
+def _cqw(px: float) -> float:
+    """px de uma arte 1080 de largura → a unidade que o CSS do campo usa."""
+    return px / A.LARGURA * 100
+
+
+def _no_css(regra: str, prop: str) -> float:
+    i = PAGINA.index(regra)
+    trecho = PAGINA[i:PAGINA.index("}", i)]
+    # O VALOR PODE VIR DENTRO DE UM `max(7px, 2.15cqw)` — o piso em px existe
+    # para o texto não sumir num campinho miniatura no celular. Procuro o
+    # primeiro cqw DENTRO do valor da propriedade, e não colado nos dois
+    # pontos, senão estas duas linhas passavam batido.
+    m = _re2.search(prop + r":[^;}]*?([\d.]+)cqw", trecho)
+    return float(m.group(1)) if m else -1.0
+
+
+# OS DOIS CONJUNTOS DE MEDIDAS TÊM DE BATER. O CSS não lê Python, então os
+# números estão escritos duas vezes — e é exatamente por isso que existe esta
+# conferência, a mesma que já guarda a âncora do zoom. Duas cópias das mesmas
+# medidas é como a prévia e o arquivo começam a divergir.
+for regra, prop, esperado, oque in (
+        (".saia{", "top", _cqw(A.SAIA_BARRA[0]), "o topo da barra escura"),
+        (".saia .barra{", "height", _cqw(A.SAIA_BARRA[1] - A.SAIA_BARRA[0]),
+         "a altura da barra"),
+        (".saia .linhas{", "top", _cqw(A.SAIA_TOPO - A.SAIA_BARRA[0]),
+         "onde a primeira linha começa"),
+        (".saia .linhas{", "grid-auto-rows", A.SAIA_LINHA_ALT / A.CQ,
+         "a altura de cada linha"),
+        (".saia .item .disco{", "width", A.SAIA_DISCO / A.CQ, "o disco"),
+        (".saia .item .nm{", "font-size", A.SAIA_NOME / A.CQ, "o corpo do nome"),
+        (".saia .item .mv{", "font-size", A.SAIA_MOTIVO / A.CQ,
+         "o corpo do motivo")):
+    achado = _no_css(regra, prop)
+    ok(abs(achado - esperado) < 0.06,
+       f"{oque}: o CSS diz {achado}cqw e o desenho do PNG diz "
+       f"{esperado:.2f}cqw. A prévia e o arquivo saem diferentes, e a "
+       f"diferença só aparece depois de publicado")
+
+_i = PAGINA.index("const SAIA_CABEM = ")
+ok(int(PAGINA[_i + 19:PAGINA.index(";", _i)]) == A.SAIA_CABEM,
+   f"o teto da prévia não é o do PNG ({A.SAIA_CABEM}). A tela mostraria um "
+   f"número de desfalques e o arquivo, outro")
+
+# E A ORDEM DAS COLUNAS. O servidor enche a primeira coluna inteira antes de
+# passar para a segunda (divmod por linha); o `grid` do CSS preenche por
+# LINHA. Sem reordenar no JS, a mesma lista sai em ordem diferente nos dois.
+_js_saia = PAGINA[PAGINA.index("function renderSaia()"):]
+_js_saia = _js_saia[:_js_saia.index("\nfunction ")]
+ok("col * 3 + lin" in _js_saia,
+   "a prévia parou de reordenar para preencher coluna a coluna. O PNG enche a "
+   "primeira coluna inteira antes de passar para a segunda; o grid do CSS "
+   "enche por linha — a mesma lista sairia em ordem diferente nos dois")
+ok("SUSPENSO · " in _js_saia,
+   "a prévia não marca o suspenso; no PNG ele vem marcado")
+
 ok("clube: TIME_NOME" in PAGINA,
    "a página parou de mandar o clube ao pedir a arte; sem ele o servidor não "
    "tem o que buscar")

@@ -127,6 +127,39 @@ h1{font-size:1.5rem;margin:0 0 4px}
 .slot .disco img.foto{width:100%;height:100%;border-radius:50%;object-fit:cover;
   transform:scale(var(--zoom-foto,1));
   transform-origin:50% var(--ancora-foto,10%)}
+/* ── A SAIA: OS DESFALQUES, NA TELA COMO NO ARQUIVO (18/09/26) ─────────────
+   "Tá vindo em branco." — e estava, aqui. O PNG saía certo; a prévia é que
+   não desenhava nada no vão de baixo, então ele montava a escalação olhando
+   uma coisa e baixava outra. É a regra que este projeto persegue a semana
+   inteira, e eu tinha acabado de quebrá-la.
+
+   As medidas são as MESMAS do escalacao_arte, convertidas de px de uma arte
+   1080x1350 para cqw (1cqw = 1% da largura do campo). A barra escura já
+   existe no template, de y=1027 a 1084: a saia se encaixa nela em vez de
+   desenhar outra por cima. Há teste comparando os dois conjuntos de números. */
+.saia{position:absolute;left:0;right:0;top:95.09cqw;bottom:0;
+  pointer-events:none;font-family:'Work Sans',-apple-system,sans-serif}
+.saia .barra{position:absolute;left:0;right:0;top:0;height:5.28cqw;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 3.0cqw;color:#fff;font-weight:700;
+  font-size:max(7px,2.4cqw);letter-spacing:.02em}
+.saia .linhas{position:absolute;left:3.0cqw;right:0;top:6.48cqw;
+  display:grid;grid-template-columns:47cqw 47cqw;
+  grid-auto-rows:7.2cqw;align-content:start}
+.saia .item{display:flex;align-items:center;gap:1.5cqw;color:#303030}
+.saia .item .disco{width:5.4cqw;height:5.4cqw;flex:none;border-radius:50%;
+  overflow:hidden;background:#01f468;
+  border:max(2px,0.33cqw) solid #303030}
+.saia .item .disco img{width:100%;height:100%;object-fit:cover;
+  border-radius:50%;
+  transform:scale(var(--zoom-foto,1));
+  transform-origin:50% var(--ancora-foto,10%)}
+.saia .item .txt{min-width:0}
+.saia .item .nm{font-weight:600;font-size:max(7px,2.15cqw);
+  text-transform:uppercase;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.saia .item .mv{font-size:max(6px,1.75cqw);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
 /* A placa de nome encosta POR CIMA da base do círculo — 12px de sobreposição
    na arte do Vini, num 1080 de largura. Sem isso ela flutua solta e a leitura
    muda completamente. */
@@ -381,6 +414,7 @@ async function selecionarTime(id, el){
     e.classList.toggle('active', Number(e.dataset.id) === id);
   });
   document.getElementById('lista').innerHTML = '<div class="estado">Carregando elenco…</div>';
+  carregarDesfalques();   // a saia da prévia, para ela mostrar o que o PNG traz
   document.getElementById('infoJogo').textContent = '';
   try {
     // Elenco e escalação em paralelo: a segunda é o que desenha o campo.
@@ -690,6 +724,76 @@ function projetar(x, y){
     // ataque ilegível. Aqui o intervalo é 0,88 a 1,00.
     e: 0.88 + 0.12*(larg - PROJ.wLonge)/(PROJ.wPerto - PROJ.wLonge)
   };
+}
+
+// ── a saia dos desfalques, na prévia ────────────────────────────────────────
+//
+// O MESMO TETO E A MESMA ORDEM DO SERVIDOR. Os números vivem no
+// `escalacao_arte` e estão repetidos aqui porque o CSS não lê Python — e há
+// teste comparando os dois, pelo mesmo motivo que o teste do zoom compara a
+// âncora: duas cópias das mesmas medidas é como a prévia e o arquivo começam
+// a divergir.
+const SAIA_CABEM = 6;
+let DESFALQUES = [];
+
+async function carregarDesfalques(){
+  DESFALQUES = [];
+  renderSaia();
+  if (!TIME_NOME) return;
+  try {
+    const r = await fetch('/api/elencos/desfalques?clube='
+                          + encodeURIComponent(TIME_NOME));
+    const d = await r.json();
+    DESFALQUES = d.desfalques || [];
+  } catch(e) {
+    DESFALQUES = [];
+  }
+  renderSaia();
+}
+
+function renderSaia(){
+  const campo = document.getElementById('campo');
+  const velha = campo.querySelector('.saia');
+  if (velha) velha.remove();
+  if (!DESFALQUES.length) return;   // sem ninguém fora, a saia fica como era
+
+  const mostrados = DESFALQUES.slice(0, SAIA_CABEM);
+  let titulo = 'DESFALQUES';
+  if (DESFALQUES.length > SAIA_CABEM) {
+    titulo += ' · ' + SAIA_CABEM + ' DE ' + DESFALQUES.length;
+  }
+  // AS COLUNAS SÃO PREENCHIDAS DE CIMA PARA BAIXO, como no PNG: o servidor usa
+  // divmod(i, 3), que enche a primeira coluna inteira antes de passar para a
+  // segunda. O `grid` do CSS preenche por LINHA — se eu deixasse assim, a
+  // mesma lista sairia em ordem diferente nos dois lugares.
+  const ordem = [];
+  for (let lin = 0; lin < 3; lin++) {
+    for (let col = 0; col < 2; col++) {
+      const i = col * 3 + lin;
+      if (i < mostrados.length) ordem.push(mostrados[i]);
+    }
+  }
+
+  const el = document.createElement('div');
+  el.className = 'saia';
+  el.innerHTML =
+    '<div class="barra"><span>' + esc(titulo) + '</span>'
+      + '<span>' + esc((TIME_NOME || '').toUpperCase()) + '</span></div>'
+    + '<div class="linhas">' + ordem.map(function(j){
+        const suspenso = j.tipo === 'suspensao';
+        const motivo = (suspenso && j.motivo ? 'SUSPENSO · ' : '')
+                       + (j.motivo || '');
+        const linha = [motivo, j.retorno].filter(function(x){ return x; })
+                        .join(' · ');
+        return '<div class="item">'
+          + '<div class="disco">'
+          + (j.foto_url ? '<img alt="" src="' + esc(j.foto_url) + '">' : '')
+          + '</div><div class="txt">'
+          + '<div class="nm">' + esc(j.nome || '') + '</div>'
+          + '<div class="mv">' + esc(linha) + '</div>'
+          + '</div></div>';
+      }).join('') + '</div>';
+  campo.appendChild(el);
 }
 
 function renderCampo(){

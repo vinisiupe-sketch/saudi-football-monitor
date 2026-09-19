@@ -19168,6 +19168,37 @@ async def api_elencos_arte(request: Request):
         "X-Fontes": ausentes["fontes"] or "nenhuma respondeu"})
 
 
+@app.get("/api/elencos/desfalques")
+async def api_elencos_desfalques(clube: str = ""):
+    """Quem está fora, para a PRÉVIA na tela desenhar a mesma saia do PNG.
+
+    POR QUE ESTA ROTA EXISTE (18/09/26)
+        "Tá vindo em branco."
+
+        E estava — na tela. O PNG saía certo (o próprio aviso dele dizia
+        "desfalques: 6"), mas a prévia do campinho nunca desenhou a saia:
+        ela mostra o template de fundo e os onze, e o vão de baixo ficava como
+        no arquivo original.
+
+        Isso é incoerência minha, e da pior espécie, porque é justamente a
+        regra que eu venho aplicando a semana inteira: o que está na tela tem
+        de ser o que sai no arquivo. Ele montou a escalação olhando uma coisa
+        e baixou outra.
+
+    A ROTA DEVOLVE O MESMO que a arte usa — a mesma função, sem segunda
+    consulta e sem segunda regra. A tela só desenha.
+    """
+    clube = (clube or "").strip()
+    if not clube:
+        return {"desfalques": [], "fontes": ""}
+    try:
+        return await _desfalques_do_clube(clube)
+    except Exception as e:
+        # Prévia não pode derrubar a guia: sem desfalque a saia fica vazia, e
+        # o campo continua servindo para escalar.
+        return {"desfalques": [], "fontes": "", "erro": f"{type(e).__name__}: {e}"}
+
+
 async def _fotos_dos_desfalques(lista: list) -> list:
     """Os bytes da foto de cada desfalque, na ordem da lista.
 
