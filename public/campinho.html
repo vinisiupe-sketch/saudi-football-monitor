@@ -251,7 +251,6 @@ __HDR__
       <div id="campo" class="campo"></div>
       <div class="arte">
         <button class="ctrl" id="btnArte" onclick="baixarArte()">⬇️ Baixar imagem</button>
-        <button class="ctrl" id="btnDesfalques" onclick="baixarDesfalques()">🚑 Desfalques</button>
         <span id="arteAviso" class="sub" style="margin:0"></span>
       </div>
       <p id="infoJogo" class="sub" style="margin:8px 0 0"></p>
@@ -758,6 +757,10 @@ async function baixarArte(){
     const r = await fetch('/api/elencos/arte', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
+        // O CLUBE vai junto porque a saia da arte leva os desfalques
+        // dele — quem publica a escalação publica quem está fora no
+        // mesmo post. Sem o clube, o servidor não tem o que buscar.
+        clube: TIME_NOME || '',
         jogadores: ocupados.map(function(s){
           const j = porId(s.id) || {};
           // O endereço DIRETO do Transfermarkt. Mandar o do nosso proxy faria
@@ -793,56 +796,14 @@ async function baixarArte(){
     setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
     // Dizer QUANTAS fotos entraram: se o Transfermarkt voltar a recusar, isso
     // aparece aqui na hora, e não depois na arte já postada.
-    aviso.textContent = fotos ? ('Baixou. Fotos: ' + fotos) : 'Baixou.';
-  } catch(e) {
-    aviso.textContent = 'Não deu: ' + e;
-  } finally {
-    btn.disabled = false;
-  }
-}
-
-// ── a arte dos desfalques ───────────────────────────────────────────────────
-//
-//     "Podemos tentar montar nessa base verde algo como no anexo? Pegando o
-//      que temos de informações de lesionados e suspensos?"
-//
-// AQUI A PÁGINA NÃO MANDA DADO NENHUM, só o clube — ao contrário da arte da
-// escalação, que manda os onze que estão na tela. O motivo é que não há nada
-// montado à mão: quem está fora é o que as fontes dizem HOJE, e o servidor
-// consulta direto em vez de mandar a lista para o navegador repassar de volta.
-async function baixarDesfalques(){
-  const btn = document.getElementById('btnDesfalques');
-  const aviso = document.getElementById('arteAviso');
-  // TIME_NOME, e não TIME_ATUAL.nome: o TIME_ATUAL é o ID do clube, um número.
-  // O download da escalação aqui do lado pergunta por `TIME_ATUAL.nome`, que é
-  // `undefined` desde sempre — por isso o arquivo dele sai "escalacao.png" e
-  // nunca "al-hilal.png". Consertado junto, logo abaixo.
-  const clube = TIME_NOME || '';
-  if (!clube) { aviso.textContent = 'Escolha um clube antes.'; return; }
-  btn.disabled = true; aviso.textContent = 'Buscando quem está fora…';
-  try {
-    const r = await fetch('/api/elencos/desfalques-arte', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({clube: clube})
-    });
-    if (!r.ok) {
-      let m = 'HTTP ' + r.status;
-      try { m = (await r.json()).erro || m; } catch(e) {}
-      // Sem ninguém fora não é erro de programa: é uma resposta, e a frase que
-      // vem do servidor distingue "elenco completo" de "não consegui olhar".
-      aviso.textContent = m; return;
-    }
-    const fotos = r.headers.get('X-Fotos') || '';
+    // A SAIA DA ARTE leva os desfalques, e o aviso diz se as guias
+    // responderam. Saia vazia com as guias no ar é 'elenco completo';
+    // saia vazia com elas fora é 'não consegui olhar', e as duas sairiam
+    // exatamente iguais na imagem.
+    const fora = r.headers.get('X-Desfalques') || '0';
     const fontes = r.headers.get('X-Fontes') || '';
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'desfalques-' + clube.toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
-    aviso.textContent = 'Baixou. Fotos: ' + fotos + ' · fontes: ' + fontes;
+    aviso.textContent = 'Baixou. Fotos: ' + (fotos || '—')
+      + ' · desfalques: ' + fora + ' (' + fontes + ')';
   } catch(e) {
     aviso.textContent = 'Não deu: ' + e;
   } finally {

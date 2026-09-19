@@ -257,6 +257,129 @@ def _bandeira(dados: bytes | None, alt: float):
     return b.resize((larg, int(round(alt))), Image.LANCZOS)
 
 
+# ── A SAIA: OS DESFALQUES DENTRO DA PRÓPRIA ARTE (18/09/26) ─────────────────
+#
+#     "Eu quero isso na 'saia' da imagem do campinho. Use a criatividade pra
+#      fazer caber."
+#
+# Medi o template: abaixo da linha de fundo há uma barra escura (o banco) de
+# y=1027 a 1084, e depois verde livre de 1085 até 1350 — 265px de altura por
+# 1080 de largura. É pouco para uma lista e é muito para desperdiçar.
+#
+# A CRIATIVIDADE FOI NÃO INVENTAR NADA: a barra escura já existe, já é
+# #303030 e já atravessa a imagem inteira. Ela vira o cabeçalho, com o texto
+# em branco — o mesmo par de cores das placas de nome. Não precisei desenhar
+# uma faixa nova nem empurrar o campo para cima.
+#
+# Embaixo, duas colunas de três. Seis é o que cabe legível num 1080; acima
+# disso o rodapé diz quantos ficaram de fora, porque uma lista cortada sem
+# aviso é uma lista incompleta com cara de completa.
+SAIA_BARRA = (1027, 1084)      # a barra escura do template, medida a régua
+SAIA_TOPO = 1097               # onde a primeira linha começa
+SAIA_LINHAS, SAIA_COLUNAS = 3, 2
+SAIA_CABEM = SAIA_LINHAS * SAIA_COLUNAS
+SAIA_LINHA_ALT = 7.2 * CQ      # 78
+SAIA_COL_LARG = 47.0 * CQ      # 508
+SAIA_X = 3.0 * CQ              # 32, a margem lateral da saia
+SAIA_DISCO = 5.4 * CQ          # 58
+SAIA_NOME = 2.15 * CQ          # 23
+SAIA_MOTIVO = 1.75 * CQ        # 19
+SAIA_TITULO = 2.4 * CQ         # 26
+SAIA_RODAPE = 1.6 * CQ         # 17
+
+
+def _cortar(d, texto: str, fonte, limite: float) -> str:
+    """O texto que cabe, com reticências quando não coube.
+
+    Numa célula de 508px com disco ao lado sobram ~420px, e "Lesão do
+    ligamento cruzado anterior" não cabe em nenhum tamanho legível. Cortar
+    avisando é melhor que vazar por cima da coluna vizinha — e as duas são
+    piores que caber.
+    """
+    texto = (texto or "").strip()
+    if not texto or d.textlength(texto, font=fonte) <= limite:
+        return texto
+    while texto and d.textlength(texto + "…", font=fonte) > limite:
+        texto = texto[:-1]
+    return (texto.rstrip() + "…") if texto else ""
+
+
+def _desenhar_saia(base, dados: dict) -> None:
+    """Escreve os desfalques na barra e no verde livre embaixo do campo."""
+    from PIL import ImageDraw
+
+    lista = [x for x in (dados.get("desfalques") or [])
+             if (x.get("nome") or "").strip()]
+    if not lista:
+        # SEM NINGUÉM FORA, A SAIA FICA COMO SEMPRE FOI. Escrever "nenhum
+        # desfalque" seria afirmar uma coisa que eu só sei quando as fontes
+        # responderam — e quem sabe disso é a rota, não o desenho.
+        return
+
+    d = ImageDraw.Draw(base)
+    f_titulo = _fonte("WorkSans-Bold-latin.ttf", SAIA_TITULO)
+    f_nome = _fonte("WorkSans-SemiBold-latin.ttf", SAIA_NOME)
+    f_motivo = _fonte("WorkSans-Regular-latin.ttf", SAIA_MOTIVO)
+    f_rodape = _fonte("WorkSans-Regular-latin.ttf", SAIA_RODAPE)
+
+    # ── o cabeçalho, dentro da barra que o template já tem ──────────────────
+    meio_barra = (SAIA_BARRA[0] + SAIA_BARRA[1]) / 2
+    # A CONTAGEM VAI NA BARRA, e não num rodapé embaixo da última linha.
+    # Tentei no rodapé primeiro e ele encostava no motivo do sexto jogador —
+    # e, pior, um aviso de "tem mais gente" escondido no canto de baixo é um
+    # aviso que ninguém lê. Aqui ele está na mesma linha do título.
+    titulo = "DESFALQUES"
+    if len(lista) > SAIA_CABEM:
+        titulo += f" · {SAIA_CABEM} DE {len(lista)}"
+    d.text((SAIA_X, meio_barra), titulo, font=f_titulo, fill=BRANCO,
+           anchor="lm")
+    clube = (dados.get("clube") or "").upper()
+    if clube:
+        d.text((LARGURA - SAIA_X, meio_barra), clube, font=f_titulo,
+               fill=BRANCO, anchor="rm")
+
+    mostrados = lista[:SAIA_CABEM]
+    for i, j in enumerate(mostrados):
+        col, lin = divmod(i, SAIA_LINHAS)
+        x = SAIA_X + col * SAIA_COL_LARG
+        topo = SAIA_TOPO + lin * SAIA_LINHA_ALT
+        meio = topo + SAIA_DISCO / 2
+
+        base.alpha_composite(
+            _circulo(j.get("foto"), SAIA_DISCO,
+                     float(dados.get("zoom") or 1.0), dados.get("ancora")),
+            (int(x), int(topo)))
+
+        texto_x = x + SAIA_DISCO + 1.5 * CQ
+        cabe = SAIA_COL_LARG - (texto_x - x) - 1.5 * CQ
+
+        nome = _cortar(d, (j.get("nome") or "").upper(), f_nome, cabe)
+        d.text((texto_x, meio - 0.3 * CQ), nome, font=f_nome, fill=GRAFITE,
+               anchor="ls")
+
+        # SUSPENSO E LESIONADO NA MESMA LISTA precisam se distinguir sem
+        # legenda: "volta quando sarar" e "volta no próximo jogo" são coisas
+        # diferentes, e quem lê o post não tem onde consultar o código de cor.
+        motivo = (j.get("motivo") or "").strip()
+        if (j.get("tipo") or "") == "suspensao" and motivo:
+            motivo = "SUSPENSO · " + motivo
+        retorno = (j.get("retorno") or "").strip()
+        linha = " · ".join(x2 for x2 in (motivo, retorno) if x2)
+        if linha:
+            d.text((texto_x, meio + 2.4 * CQ),
+                   _cortar(d, linha, f_motivo, cabe), font=f_motivo,
+                   fill=GRAFITE, anchor="ls")
+
+    # DE ONDE VEIO A LISTA NÃO ENTRA NA ARTE, e não é esquecimento.
+    #
+    # Tentei creditar "nossa guia de Lesões e nossa guia de Pendurados" num
+    # rodapé, e duas coisas aconteceram: ele encostou no motivo do último
+    # jogador, e — pior — é jargão nosso. Para quem abre o post, essa frase não
+    # diz nada. A procedência é informação PARA O VINI, e ela chega a ele na
+    # tela, no aviso do botão, onde serve para decidir se publica.
+    del f_rodape
+
+
 def montar(dados: dict) -> bytes:
     """dados: {"jogadores": [{nome, x, y, foto: bytes|None,
     bandeira: bytes|None}]}. Devolve os bytes do PNG."""
@@ -306,6 +429,11 @@ def montar(dados: dict) -> bytes:
         cima, baixo = f.getbbox("H")[1], f.getbbox("H")[3]
         d.text((x0 + pad + larg_band, topo + (alt - (baixo - cima)) / 2 - cima),
                nome, font=f, fill=BRANCO)
+
+    # A SAIA POR ÚLTIMO: ela escreve embaixo do campo, onde nenhum jogador
+    # cai, mas desenhar depois garante que uma placa de atacante recuado
+    # nunca passe por cima do cabeçalho dos desfalques.
+    _desenhar_saia(base, dados)
 
     saida = io.BytesIO()
     base.convert("RGB").save(saida, "PNG", optimize=True)
