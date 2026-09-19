@@ -19140,6 +19140,166 @@ async def api_elencos_arte(request: Request):
         "X-Fotos": f"{sum(1 for b in baixados[:n] if b)}/{n}"})
 
 
+async def _desfalques_do_clube(clube: str) -> dict:
+    """Quem está fora neste clube, juntando as duas fontes que sabem disso.
+
+    POR QUE DUAS, E NÃO A MELHOR DELAS
+        Elas sabem coisas diferentes, e nenhuma sabe as duas.
+
+        O Transfermarkt tem o TIPO da lesão e a DATA DE RETORNO — "lesão do
+        ligamento cruzado anterior, no meio de abril" —, que é o que o Vini
+        narra. Mas ele não publica suspensão.
+
+        A API-Football publica suspensão, e publica por PARTIDA: ela diz quem
+        está fora do próximo jogo. Só que a razão dela é uma linha curta e sem
+        prazo.
+
+        Juntando, a lesão vem com prazo e o suspenso aparece. Separadas, uma
+        arte sempre mente por omissão.
+
+    QUEM APARECE NAS DUAS ENTRA UMA VEZ SÓ, e com a versão do Transfermarkt:
+    "Lesão muscular / No fim de setembro" diz mais que "Injury". O casamento é
+    por nome normalizado, que aqui é aceitável porque o universo é um elenco de
+    trinta pessoas e não a liga inteira.
+
+    E CADA LINHA DIZ DE ONDE VEIO. Se uma fonte cair, o rodapé da arte mostra
+    só a outra — em vez de a lista encolher em silêncio e o Vini publicar um
+    elenco sem desfalque nenhum.
+    """
+    alvo = _chave_de_nome(clube or "")
+    achados, vistos, fontes = [], set(), []
+
+    # ── 1. Transfermarkt: tipo e prazo ───────────────────────────────────────
+    try:
+        r = await asyncio.to_thread(_lesoes_do_tm)
+        do_tm = [l for l in (r.get("lesoes") or [])
+                 if _chave_de_nome(l.get("clube_elenco")
+                                   or l.get("clube") or "") == alvo]
+        # QUEM DIZ SE ELE RESPONDEU É A LISTA DE ERROS, NÃO A DE LESÕES.
+        #
+        # Eu tinha escrito `if r.get("lesoes")`, e estava errado de um jeito
+        # que só a mutação mostrou: o `_lesoes_do_tm` NUNCA levanta — quando o
+        # Transfermarkt bloqueia, ele devolve `{"lesoes": [], "erros": [...]}`.
+        # Então o `except` aqui embaixo quase nunca dispara, e a minha guarda
+        # confundia as duas coisas que este projeto mais insiste em separar:
+        # "não há ninguém lesionado" e "não consegui olhar".
+        #
+        # Com a guarda antiga, uma rodada sem lesão nenhuma na liga faria a
+        # arte dizer "não consegui consultar" — alarme falso. E o contrário,
+        # que é pior, também podia acontecer.
+        if not (r.get("erros") or []):
+            fontes.append("Transfermarkt")
+        for l in do_tm:
+            nome = l.get("nome_elenco") or l.get("nome") or ""
+            if not nome:
+                continue
+            vistos.add(_chave_de_nome(nome))
+            achados.append({"nome": nome, "tipo": "lesao",
+                            "motivo": l.get("motivo") or l.get("lesao") or "",
+                            "retorno": l.get("retorno") or "",
+                            "foto_url": l.get("foto") or ""})
+    except Exception as e:
+        print(f"⚠️ desfalques: Transfermarkt fora — {type(e).__name__}: {e}",
+              flush=True)
+
+    # ── 2. API-Football: a suspensão, que só ela tem ─────────────────────────
+    try:
+        af = await api_ausencias_af()
+        # Mesma distinção do lado do Transfermarkt. Quando a API-Football
+        # falha, aquela rota devolve um JSONResponse com 502 — que NÃO é dict,
+        # e por isso não entra aqui. Respondendo, ela é creditada mesmo que a
+        # lista venha vazia: lista vazia é a resposta "ninguém está fora".
+        respondeu = isinstance(af, dict) and not af.get("erro")
+        lista = af.get("ausencias") if respondeu else None
+        if respondeu:
+            fontes.append("API-Football")
+        for a in (lista or []):
+            if _chave_de_nome(a.get("clube") or "") != alvo:
+                continue
+            nome = a.get("jogador") or ""
+            if not nome or _chave_de_nome(nome) in vistos:
+                continue
+            suspenso = "suspens" in (a.get("tipo") or "").lower()
+            vistos.add(_chave_de_nome(nome))
+            achados.append({
+                "nome": nome,
+                "tipo": "suspensao" if suspenso else "lesao",
+                "motivo": a.get("motivo") or a.get("tipo") or "",
+                # A API dá a PARTIDA de que ele está fora, e não a volta. Dizer
+                # "volta em" com a data do jogo seria inventar o contrário.
+                "retorno": (f"Fora do jogo de {a.get('jogo_em')}"
+                            if a.get("jogo_em") else ""),
+                "foto_url": a.get("foto") or ""})
+    except Exception as e:
+        print(f"⚠️ desfalques: API-Football fora — {type(e).__name__}: {e}",
+              flush=True)
+
+    # Suspensos primeiro: é a informação mais perecível — ela vale para o
+    # próximo jogo, e a lesão de seis meses continuará lá na semana que vem.
+    achados.sort(key=lambda x: (x["tipo"] != "suspensao", x["nome"].lower()))
+    return {"desfalques": achados, "fontes": " e ".join(fontes)}
+
+
+@app.post("/api/elencos/desfalques-arte")
+async def api_elencos_desfalques_arte(request: Request):
+    """O PNG 1080x1350 de quem está fora, no verde do campinho.
+
+    DIFERENTE DA ARTE DA ESCALAÇÃO, aqui o servidor é quem BUSCA os dados. Lá
+    a página manda o que já tem na tela, porque o que sai no arquivo tem de ser
+    exatamente a escalação que ele montou. Aqui não há nada montado à mão: a
+    lista é o que as fontes dizem hoje, e buscar no servidor evita uma ida e
+    volta só para o navegador repassar o que acabou de receber.
+    """
+    import asyncio as _a
+
+    import desfalques_arte
+
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+
+    clube = (corpo.get("clube") or "").strip()
+    if not clube:
+        return JSONResponse({"erro": "diga de qual clube"}, status_code=400)
+
+    achado = await _desfalques_do_clube(clube)
+    lista = achado["desfalques"]
+    if not lista:
+        # NENHUM DESFALQUE E FONTE CAÍDA SÃO COISAS DIFERENTES, e a tela
+        # precisa poder dizer qual é. Uma arte anunciando elenco completo
+        # quando o Transfermarkt bloqueou é pior que nenhuma arte.
+        return JSONResponse(
+            {"erro": ("Nenhum desfalque encontrado para " + clube +
+                      (". As fontes responderam — o elenco está completo."
+                       if achado["fontes"] else
+                       ". E NENHUMA FONTE RESPONDEU: isto não quer dizer que "
+                       "o elenco está completo, quer dizer que eu não "
+                       "consegui consultar.")),
+             "fontes": achado["fontes"]}, status_code=404)
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        fotos = await _a.gather(*[_baixar_foto(client, j.get("foto_url"))
+                                  for j in lista])
+    for j, b in zip(lista, fotos):
+        j["foto"] = b
+
+    zoom, ancora = _enquadramento_do_campinho()
+    try:
+        png = await _a.to_thread(desfalques_arte.montar, {
+            "clube": clube, "desfalques": lista, "fontes": achado["fontes"],
+            "zoom": zoom, "ancora": ancora})
+    except Exception as e:
+        return JSONResponse({"erro": f"{type(e).__name__}: {e}"},
+                            status_code=500)
+
+    return Response(png, media_type="image/png", headers={
+        "Content-Disposition":
+            f'attachment; filename="desfalques-{_nome_de_arquivo(clube)}.png"',
+        "X-Fotos": f"{sum(1 for b in fotos if b)}/{len(lista)}",
+        "X-Fontes": achado["fontes"] or "nenhuma"})
+
+
 @app.get("/api/numeros/debug-af")
 async def api_numeros_debug_af(path: str, q: str = ""):
     """Proxy cru pra API-Football. path='fixtures', q='league=307&season=2026'."""

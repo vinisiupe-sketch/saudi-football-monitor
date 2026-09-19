@@ -330,11 +330,26 @@ if D:
 
 ok("def _enquadramento_do_campinho()" in FONTE,
    "sumiu a leitura única dos ajustes")
-ok(FONTE.count("_enquadramento_do_campinho()") == 3,
-   f"o `_enquadramento_do_campinho` é chamado "
-   f"{FONTE.count('_enquadramento_do_campinho()')} vezes; esperava três (a "
-   f"definição, a página e a arte). Se um dos dois consumidores parou de "
+# QUANTOS CONSUMIDORES, e não um número exato.
+#
+# Eu tinha fixado "três": a definição, a página e a arte da escalação. Aí
+# nasceu a arte dos desfalques, que desenha o mesmo disco e leu daqui — o
+# certo — e o teste acusou um defeito que era, na verdade, um consumidor novo
+# fazendo a coisa certa. Número mágico envelhece; a regra é que TODO mundo que
+# desenha o disco pergunte aqui, e ninguém invente o próprio enquadramento.
+_usos = FONTE.count("_enquadramento_do_campinho()")
+ok(_usos >= 3,
+   f"o `_enquadramento_do_campinho` é chamado {_usos} vezes; esperava ao "
+   f"menos três (a definição, a página e a arte). Se um consumidor parou de "
    f"usá-lo, a tela e o PNG divergem")
+# E NINGUÉM PODE LER O AJUSTE POR FORA. É assim que a segunda cópia nasce.
+_fora = [l for l in FONTE.split("\n")
+         if "campinho_zoom_foto" in l or "campinho_descer_foto" in l]
+_fora = [l for l in _fora if "_db.valor_de_ajuste" in l]
+ok(len(_fora) <= 2,
+   f"alguém passou a ler os ajustes do campinho fora do "
+   f"`_enquadramento_do_campinho`: {_fora}. Duas leituras é como a prévia e o "
+   f"arquivo começam a discordar")
 for marcador in ("__ZOOM_FOTO__", "__ANCORA_FOTO__"):
     ok(f'.replace("{marcador}"' in FONTE,
        f"a página do campinho parou de receber o {marcador} do servidor")

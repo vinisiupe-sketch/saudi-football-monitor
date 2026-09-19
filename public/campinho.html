@@ -251,6 +251,7 @@ __HDR__
       <div id="campo" class="campo"></div>
       <div class="arte">
         <button class="ctrl" id="btnArte" onclick="baixarArte()">⬇️ Baixar imagem</button>
+        <button class="ctrl" id="btnDesfalques" onclick="baixarDesfalques()">🚑 Desfalques</button>
         <span id="arteAviso" class="sub" style="margin:0"></span>
       </div>
       <p id="infoJogo" class="sub" style="margin:8px 0 0"></p>
@@ -780,7 +781,12 @@ async function baixarArte(){
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = ((TIME_ATUAL && TIME_ATUAL.nome ? TIME_ATUAL.nome : 'escalacao')
+    // TIME_NOME. Estava escrito `TIME_ATUAL.nome`, e o TIME_ATUAL é o ID do
+    // clube — um número, que não tem `.nome`. O resultado era `undefined`, o
+    // `||` pegava o padrão, e TODA escalação baixava como "escalacao.png".
+    // Defeito de araque: não quebra nada, só faz a pasta de downloads virar
+    // escalacao(1).png, escalacao(2).png.
+    a.download = ((TIME_NOME || 'escalacao')
                     .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
                   || 'escalacao') + '.png';
     document.body.appendChild(a); a.click(); a.remove();
@@ -788,6 +794,55 @@ async function baixarArte(){
     // Dizer QUANTAS fotos entraram: se o Transfermarkt voltar a recusar, isso
     // aparece aqui na hora, e não depois na arte já postada.
     aviso.textContent = fotos ? ('Baixou. Fotos: ' + fotos) : 'Baixou.';
+  } catch(e) {
+    aviso.textContent = 'Não deu: ' + e;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ── a arte dos desfalques ───────────────────────────────────────────────────
+//
+//     "Podemos tentar montar nessa base verde algo como no anexo? Pegando o
+//      que temos de informações de lesionados e suspensos?"
+//
+// AQUI A PÁGINA NÃO MANDA DADO NENHUM, só o clube — ao contrário da arte da
+// escalação, que manda os onze que estão na tela. O motivo é que não há nada
+// montado à mão: quem está fora é o que as fontes dizem HOJE, e o servidor
+// consulta direto em vez de mandar a lista para o navegador repassar de volta.
+async function baixarDesfalques(){
+  const btn = document.getElementById('btnDesfalques');
+  const aviso = document.getElementById('arteAviso');
+  // TIME_NOME, e não TIME_ATUAL.nome: o TIME_ATUAL é o ID do clube, um número.
+  // O download da escalação aqui do lado pergunta por `TIME_ATUAL.nome`, que é
+  // `undefined` desde sempre — por isso o arquivo dele sai "escalacao.png" e
+  // nunca "al-hilal.png". Consertado junto, logo abaixo.
+  const clube = TIME_NOME || '';
+  if (!clube) { aviso.textContent = 'Escolha um clube antes.'; return; }
+  btn.disabled = true; aviso.textContent = 'Buscando quem está fora…';
+  try {
+    const r = await fetch('/api/elencos/desfalques-arte', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({clube: clube})
+    });
+    if (!r.ok) {
+      let m = 'HTTP ' + r.status;
+      try { m = (await r.json()).erro || m; } catch(e) {}
+      // Sem ninguém fora não é erro de programa: é uma resposta, e a frase que
+      // vem do servidor distingue "elenco completo" de "não consegui olhar".
+      aviso.textContent = m; return;
+    }
+    const fotos = r.headers.get('X-Fotos') || '';
+    const fontes = r.headers.get('X-Fontes') || '';
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'desfalques-' + clube.toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.png';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+    aviso.textContent = 'Baixou. Fotos: ' + fotos + ' · fontes: ' + fontes;
   } catch(e) {
     aviso.textContent = 'Não deu: ' + e;
   } finally {
