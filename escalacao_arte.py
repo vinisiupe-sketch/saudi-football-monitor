@@ -274,18 +274,30 @@ def _bandeira(dados: bytes | None, alt: float):
 # Embaixo, duas colunas de três. Seis é o que cabe legível num 1080; acima
 # disso o rodapé diz quantos ficaram de fora, porque uma lista cortada sem
 # aviso é uma lista incompleta com cara de completa.
+#
+# E DEPOIS ELE VIU A PRIMEIRA VERSÃO E CORTOU MAIS (18/09/26):
+#
+#     "Reduza o tamanho do texto e retire o sub-texto com a explicação.
+#      Coloque só um ícone de cruz pra representar lesão e outro pra suspensão."
+#
+# Ele tem razão e o ganho é duplo. A segunda linha ("Lesão muscular · No fim de
+# setembro") é informação de quem PESQUISA, não de quem passa o dedo no feed —
+# e ela comia metade da altura de cada item. Sem ela cabe uma coluna a mais e
+# uma linha a mais: de seis desfalques para nove, com o nome ainda legível.
+#
+# A cruz e o cartão dizem em um símbolo o que a frase dizia em seis palavras, e
+# nenhum dos dois precisa de legenda num post de futebol.
 SAIA_BARRA = (1027, 1084)      # a barra escura do template, medida a régua
-SAIA_TOPO = 1097               # onde a primeira linha começa
-SAIA_LINHAS, SAIA_COLUNAS = 3, 2
+SAIA_TOPO = 1100               # onde a primeira linha começa
+SAIA_LINHAS, SAIA_COLUNAS = 3, 3
 SAIA_CABEM = SAIA_LINHAS * SAIA_COLUNAS
-SAIA_LINHA_ALT = 7.2 * CQ      # 78
-SAIA_COL_LARG = 47.0 * CQ      # 508
+SAIA_LINHA_ALT = 7.4 * CQ      # 80
+SAIA_COL_LARG = 31.3 * CQ      # 338
 SAIA_X = 3.0 * CQ              # 32, a margem lateral da saia
-SAIA_DISCO = 5.4 * CQ          # 58
-SAIA_NOME = 2.15 * CQ          # 23
-SAIA_MOTIVO = 1.75 * CQ        # 19
+SAIA_DISCO = 5.0 * CQ          # 54
+SAIA_NOME = 1.85 * CQ          # 20
+SAIA_ICONE = 1.9 * CQ          # 20,5 — o lado da cruz e a altura do cartão
 SAIA_TITULO = 2.4 * CQ         # 26
-SAIA_RODAPE = 1.6 * CQ         # 17
 
 
 def _cortar(d, texto: str, fonte, limite: float) -> str:
@@ -304,6 +316,31 @@ def _cortar(d, texto: str, fonte, limite: float) -> str:
     return (texto.rstrip() + "…") if texto else ""
 
 
+def _icone(d, tipo: str, x: float, meio: float, lado: float) -> None:
+    """A cruz da lesão ou o cartão da suspensão, em grafite.
+
+    DESENHADOS, E NÃO ESCRITOS COM FONTE. Emoji de cruz e de cartão existem,
+    mas dependem de a fonte ter o glifo: foi assim que a arte da ficha saiu com
+    quadradinhos no lugar dos acentos, e eu não vou repetir isso aqui. Duas
+    primitivas do Pillow resolvem, e saem iguais em qualquer máquina.
+
+    A cruz é a médica, de braços iguais. O cartão é um retângulo em pé, na
+    proporção de um cartão de árbitro — em grafite, porque a arte inteira é
+    grafite sobre verde e um vermelho aqui seria a única cor fora da paleta.
+    """
+    if tipo == "suspensao":
+        larg = lado * 0.70
+        d.rectangle([x + (lado - larg) / 2, meio - lado / 2,
+                     x + (lado + larg) / 2, meio + lado / 2], fill=GRAFITE)
+        return
+    # A cruz: o braço tem um terço da largura, centrado nos dois eixos.
+    braco = lado / 3.0
+    d.rectangle([x + (lado - braco) / 2, meio - lado / 2,
+                 x + (lado + braco) / 2, meio + lado / 2], fill=GRAFITE)
+    d.rectangle([x, meio - braco / 2,
+                 x + lado, meio + braco / 2], fill=GRAFITE)
+
+
 def _desenhar_saia(base, dados: dict) -> None:
     """Escreve os desfalques na barra e no verde livre embaixo do campo."""
     from PIL import ImageDraw
@@ -319,8 +356,6 @@ def _desenhar_saia(base, dados: dict) -> None:
     d = ImageDraw.Draw(base)
     f_titulo = _fonte("WorkSans-Bold-latin.ttf", SAIA_TITULO)
     f_nome = _fonte("WorkSans-SemiBold-latin.ttf", SAIA_NOME)
-    f_motivo = _fonte("WorkSans-Regular-latin.ttf", SAIA_MOTIVO)
-    f_rodape = _fonte("WorkSans-Regular-latin.ttf", SAIA_RODAPE)
 
     # ── o cabeçalho, dentro da barra que o template já tem ──────────────────
     meio_barra = (SAIA_BARRA[0] + SAIA_BARRA[1]) / 2
@@ -350,25 +385,17 @@ def _desenhar_saia(base, dados: dict) -> None:
                      float(dados.get("zoom") or 1.0), dados.get("ancora")),
             (int(x), int(topo)))
 
-        texto_x = x + SAIA_DISCO + 1.5 * CQ
-        cabe = SAIA_COL_LARG - (texto_x - x) - 1.5 * CQ
+        # O ÍCONE, no lugar da frase. Ele vem ANTES do nome no cálculo porque
+        # come largura: um sobrenome comprido tem de ser cortado contando com
+        # ele, senão os dois se encavalam.
+        icone_x = x + SAIA_DISCO + 1.3 * CQ
+        _icone(d, j.get("tipo") or "", icone_x, meio, SAIA_ICONE)
+
+        texto_x = icone_x + SAIA_ICONE + 1.1 * CQ
+        cabe = SAIA_COL_LARG - (texto_x - x) - 1.2 * CQ
 
         nome = _cortar(d, (j.get("nome") or "").upper(), f_nome, cabe)
-        d.text((texto_x, meio - 0.3 * CQ), nome, font=f_nome, fill=GRAFITE,
-               anchor="ls")
-
-        # SUSPENSO E LESIONADO NA MESMA LISTA precisam se distinguir sem
-        # legenda: "volta quando sarar" e "volta no próximo jogo" são coisas
-        # diferentes, e quem lê o post não tem onde consultar o código de cor.
-        motivo = (j.get("motivo") or "").strip()
-        if (j.get("tipo") or "") == "suspensao" and motivo:
-            motivo = "SUSPENSO · " + motivo
-        retorno = (j.get("retorno") or "").strip()
-        linha = " · ".join(x2 for x2 in (motivo, retorno) if x2)
-        if linha:
-            d.text((texto_x, meio + 2.4 * CQ),
-                   _cortar(d, linha, f_motivo, cabe), font=f_motivo,
-                   fill=GRAFITE, anchor="ls")
+        d.text((texto_x, meio), nome, font=f_nome, fill=GRAFITE, anchor="lm")
 
     # DE ONDE VEIO A LISTA NÃO ENTRA NA ARTE, e não é esquecimento.
     #
@@ -377,7 +404,6 @@ def _desenhar_saia(base, dados: dict) -> None:
     # jogador, e — pior — é jargão nosso. Para quem abre o post, essa frase não
     # diz nada. A procedência é informação PARA O VINI, e ela chega a ele na
     # tela, no aviso do botão, onde serve para decidir se publica.
-    del f_rodape
 
 
 def montar(dados: dict) -> bytes:

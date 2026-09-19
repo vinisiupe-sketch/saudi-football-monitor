@@ -143,23 +143,32 @@ h1{font-size:1.5rem;margin:0 0 4px}
   display:flex;align-items:center;justify-content:space-between;
   padding:0 3.0cqw;color:#fff;font-weight:700;
   font-size:max(7px,2.4cqw);letter-spacing:.02em}
-.saia .linhas{position:absolute;left:3.0cqw;right:0;top:6.48cqw;
-  display:grid;grid-template-columns:47cqw 47cqw;
-  grid-auto-rows:7.2cqw;align-content:start}
-.saia .item{display:flex;align-items:center;gap:1.5cqw;color:#303030}
-.saia .item .disco{width:5.4cqw;height:5.4cqw;flex:none;border-radius:50%;
+.saia .linhas{position:absolute;left:3.0cqw;right:0;top:6.76cqw;
+  display:grid;grid-template-columns:31.3cqw 31.3cqw 31.3cqw;
+  grid-auto-rows:7.4cqw;align-content:start}
+.saia .item{display:flex;align-items:center;gap:1.3cqw;color:#303030;
+  min-width:0}
+.saia .item .disco{width:5.0cqw;height:5.0cqw;flex:none;border-radius:50%;
   overflow:hidden;background:#01f468;
   border:max(2px,0.33cqw) solid #303030}
 .saia .item .disco img{width:100%;height:100%;object-fit:cover;
   border-radius:50%;
   transform:scale(var(--zoom-foto,1));
   transform-origin:50% var(--ancora-foto,10%)}
-.saia .item .txt{min-width:0}
-.saia .item .nm{font-weight:600;font-size:max(7px,2.15cqw);
+/* O ÍCONE É DESENHADO, e não um emoji: emoji depende de a fonte do aparelho
+   ter o glifo, e foi assim que a arte da ficha saiu com quadradinhos no lugar
+   dos acentos. Duas formas em CSS saem iguais em qualquer navegador — e são
+   as MESMAS que o `escalacao_arte._icone` desenha no PNG. */
+.saia .item .ico{width:1.9cqw;height:1.9cqw;flex:none;position:relative}
+.saia .item .ico.cruz::before,
+.saia .item .ico.cruz::after{content:'';position:absolute;background:#303030}
+.saia .item .ico.cruz::before{left:33.3%;top:0;width:33.3%;height:100%}
+.saia .item .ico.cruz::after{top:33.3%;left:0;height:33.3%;width:100%}
+.saia .item .ico.cartao::before{content:'';position:absolute;background:#303030;
+  left:15%;top:0;width:70%;height:100%}
+.saia .item .nm{font-weight:600;font-size:max(7px,1.85cqw);
   text-transform:uppercase;white-space:nowrap;overflow:hidden;
-  text-overflow:ellipsis}
-.saia .item .mv{font-size:max(6px,1.75cqw);white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis}
+  text-overflow:ellipsis;min-width:0}
 /* A placa de nome encosta POR CIMA da base do círculo — 12px de sobreposição
    na arte do Vini, num 1080 de largura. Sem isso ela flutua solta e a leitura
    muda completamente. */
@@ -733,7 +742,7 @@ function projetar(x, y){
 // teste comparando os dois, pelo mesmo motivo que o teste do zoom compara a
 // âncora: duas cópias das mesmas medidas é como a prévia e o arquivo começam
 // a divergir.
-const SAIA_CABEM = 6;
+const SAIA_CABEM = 9;
 let DESFALQUES = [];
 
 async function carregarDesfalques(){
@@ -768,7 +777,7 @@ function renderSaia(){
   // mesma lista sairia em ordem diferente nos dois lugares.
   const ordem = [];
   for (let lin = 0; lin < 3; lin++) {
-    for (let col = 0; col < 2; col++) {
+    for (let col = 0; col < 3; col++) {
       const i = col * 3 + lin;
       if (i < mostrados.length) ordem.push(mostrados[i]);
     }
@@ -780,18 +789,14 @@ function renderSaia(){
     '<div class="barra"><span>' + esc(titulo) + '</span>'
       + '<span>' + esc((TIME_NOME || '').toUpperCase()) + '</span></div>'
     + '<div class="linhas">' + ordem.map(function(j){
-        const suspenso = j.tipo === 'suspensao';
-        const motivo = (suspenso && j.motivo ? 'SUSPENSO · ' : '')
-                       + (j.motivo || '');
-        const linha = [motivo, j.retorno].filter(function(x){ return x; })
-                        .join(' · ');
+        const ico = (j.tipo === 'suspensao') ? 'cartao' : 'cruz';
         return '<div class="item">'
           + '<div class="disco">'
           + (j.foto_url ? '<img alt="" src="' + esc(j.foto_url) + '">' : '')
-          + '</div><div class="txt">'
-          + '<div class="nm">' + esc(j.nome || '') + '</div>'
-          + '<div class="mv">' + esc(linha) + '</div>'
-          + '</div></div>';
+          + '</div>'
+          + '<span class="ico ' + ico + '"></span>'
+          + '<span class="nm">' + esc(j.nome || '') + '</span>'
+          + '</div>';
       }).join('') + '</div>';
   campo.appendChild(el);
 }

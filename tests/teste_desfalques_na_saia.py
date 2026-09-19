@@ -104,6 +104,20 @@ LESOES = [
     {"player_name": "Salem Al-Dawsari", "club": "Al Hilal",
      "injury_type": "Lesão", "body_part": "de tendão",
      "expected_return": "Voltou ao treinamento", "status": "em_recuperacao"},
+    # O WATKINS DUAS VEZES, como a guia dele realmente tem: a própria tela de
+    # Lesões mostra "2 REGISTROS UNIDOS" nesse jogador. Ele viu o duplicado na
+    # arte, e a causa era eu conferir o `vistos` só no laço dos pendurados.
+    {"player_name": "Ollie Watkins", "club": "Al Hilal",
+     "injury_type": "Lesão", "body_part": "nas costas", "expected_return": ""},
+    {"player_name": "Ollie Watkins", "club": "Al Hilal",
+     "injury_type": "Desconforto", "body_part": "", "expected_return": ""},
+    # OS DOIS QUE SAÍRAM SEM FOTO. O glossário não responde por eles (a
+    # notícia escreve a grafia de outro jeito), e quem acha é o resolvedor
+    # completo — exatamente o que faltava.
+    {"player_name": "Saïmon Bouabré", "club": "Al Hilal",
+     "injury_type": "Lesão", "body_part": "na coxa", "expected_return": ""},
+    {"player_name": "Ali Lajami", "club": "Al Hilal",
+     "injury_type": "Lesão", "body_part": "", "expected_return": ""},
     {"player_name": "De Outro Clube", "club": "Al Nassr",
      "injury_type": "Lesão", "body_part": "", "expected_return": ""},
 ]
@@ -121,10 +135,17 @@ PENDURADOS = {"suspensos": [
 import glossario as _glossario                            # noqa: E402
 
 _glossario.identidade = lambda nome, clube="": (
-    {"id": 1} if "dawsari" in nome.lower() or "sharahili" in nome.lower()
+    {"id": 2} if "lajami" in nome.lower()
+    else {"id": 1} if "dawsari" in nome.lower() or "sharahili" in nome.lower()
     else {})
-_glossario.ficha = lambda g: {"nome": "Salem Al-Dawsari",
-                              "foto": "https://spl/foto.png"}
+# O LAJAMI ESTÁ NO GLOSSÁRIO E SEM FOTO — e é um caso real: a fonte escolhida
+# em Ajustes pode não ter a foto daquele jogador ("vazio é honesto"). Achar a
+# pessoa não é o mesmo que achar o retrato, e parar na primeira porta deixa o
+# disco vazio com a informação disponível na segunda.
+_glossario.ficha = lambda g: ({"nome": "Ali Lajami", "foto": ""}
+                              if g.get("id") == 2 else
+                              {"nome": "Salem Al-Dawsari",
+                               "foto": "https://spl/foto.png"})
 
 
 async def _pend_falso():
@@ -133,14 +154,29 @@ async def _pend_falso():
 
 _amb["get_injuries"] = lambda incluir=False: LESOES
 _amb["api_pendurados"] = _pend_falso
+# O CONTEXTO DE ELENCO e o resolvedor completo. Eles existem porque o
+# glossário é consulta EXATA: quando a notícia escreve o nome de outro jeito
+# (foi o caso do Bouabré e do Lajami), quem acha é o `_identificar_jogador`,
+# a mesma função que a guia de Lesões usa para casar lesionado com elenco.
+_amb["_contexto_de_elenco"] = lambda: {"gente": []}
+_amb["_identificar_jogador"] = lambda nome, clube, ctx: (
+    {} if "watkins" in nome.lower()      # nem o elenco conhece: fica sem foto
+    else {"nome": nome,
+          "foto": "https://elenco/" + nome.replace(" ", "-") + ".png"}
+    if "lajami" in nome.lower() or "bouabre" in _amb["_chave_de_nome"](nome)
+    else {"nome": nome, "foto": "https://elenco/outro.png"})
 exec(_junta, _amb)
 _r = _asyncio.run(_amb["_desfalques_do_clube"]("Al Hilal"))
 _nomes = [x["nome"] for x in _r["desfalques"]]
 
-ok(len(_nomes) == 2,
-   f"a junção devolveu {len(_nomes)} linhas ({_nomes}) e esperava 2 — o "
-   f"Al-Dawsari está nas duas guias, com grafias diferentes, e tem de entrar "
-   f"uma vez só")
+ok(len(_nomes) == 5,
+   f"a junção devolveu {len(_nomes)} linhas ({_nomes}) e esperava 5 — o "
+   f"Al-Dawsari está nas duas guias com grafias diferentes e o Watkins está "
+   f"duas vezes DENTRO da guia de Lesões. Os dois casos têm de entrar uma vez")
+ok(sum(1 for n in _nomes if "Watkins" in n) == 1,
+   f"o Ollie Watkins saiu {sum(1 for n in _nomes if 'Watkins' in n)} vezes. A "
+   f"guia de Lesões tem dois registros dele, e somar sem conferir é confiar "
+   f"que a fonte já veio limpa")
 ok(all("Outro Clube" not in n for n in _nomes),
    "entrou desfalque de outro clube na saia")
 ok(any(x["tipo"] == "suspensao" for x in _r["desfalques"]),
@@ -149,9 +185,20 @@ _s = [x for x in _r["desfalques"] if x["tipo"] == "suspensao"][0]
 ok(_s["motivo"] == "4º amarelo",
    f"o motivo do suspenso saiu {_s['motivo']!r}. A guia CONTA os cartões, e "
    f"'4º amarelo' é a frase que ele narra — 'suspenso' joga essa conta fora")
-ok(all(x["foto_url"] for x in _r["desfalques"]),
-   f"algum desfalque saiu sem endereço de foto: {_r['desfalques']}. Foi assim "
-   f"que a primeira versão foi para a tela com todos os discos vazios")
+_sem_foto = [x["nome"] for x in _r["desfalques"] if not x["foto_url"]]
+ok(_sem_foto == ["Ollie Watkins"],
+   f"os desfalques sem foto são {_sem_foto}; neste cenário só o Watkins é "
+   f"desconhecido das duas portas. Foi com todos vazios que a primeira versão "
+   f"foi para a tela — e disco vazio não pode virar o normal")
+# E A FOTO DOS DOIS QUE O GLOSSÁRIO NÃO RESPONDE tem de vir do resolvedor
+# completo. Se vier vazia, é o caso do Bouabré e do Lajami de novo.
+_pelo_elenco = {x["nome"]: x["foto_url"] for x in _r["desfalques"]
+                if "elenco/" in (x["foto_url"] or "")}
+ok(len(_pelo_elenco) == 2,
+   f"esperava dois desfalques com foto vinda do resolvedor de elenco e vieram "
+   f"{len(_pelo_elenco)}: {_pelo_elenco}. O glossário é consulta EXATA e não "
+   f"responde por quem a notícia escreveu de outro jeito — sem a segunda "
+   f"tentativa, esses dois voltam a sair sem foto")
 ok("Lesões" in _r["fontes"] and "Pendurados" in _r["fontes"],
    f"as guias que responderam não foram registradas: {_r['fontes']!r}")
 
@@ -219,7 +266,13 @@ GENTE = [{"nome": n, "motivo": m, "retorno": r, "tipo": t, "foto": _foto()}
              ("Houssem Aouar", "Desconforto físico", "Incerto", "lesao"),
              ("Hamed Al-Ghamdi", "Ligamento cruzado", "Abril 2027", "lesao"),
              ("Saad Al-Mousa", "Tornozelo", "Voltou", "lesao"),
-             ("Mais Um", "Coxa", "Incerto", "lesao")]]
+             ("Mais Um", "Coxa", "Incerto", "lesao"),
+             ("Kalidou Koulibaly", "2º amarelo", "", "suspensao"),
+             ("Saïmon Bouabré", "Coxa", "", "lesao"),
+             ("Nasser Al-Dawsari", "Panturrilha", "", "lesao"),
+             ("Mohamed Kanno", "Joelho", "", "lesao"),
+             ("Ruben Neves", "Expulso", "", "suspensao"),
+             ("Yassine Bounou", "Mão", "", "lesao")]]
 ONZE = [{"nome": "AL-DAWSARI", "x": x, "y": y, "foto": None, "bandeira": None}
         for x, y, g in formacoes.QUADROS["4-3-3"]]
 
@@ -393,14 +446,32 @@ for regra, prop, esperado, oque in (
         (".saia .linhas{", "grid-auto-rows", A.SAIA_LINHA_ALT / A.CQ,
          "a altura de cada linha"),
         (".saia .item .disco{", "width", A.SAIA_DISCO / A.CQ, "o disco"),
-        (".saia .item .nm{", "font-size", A.SAIA_NOME / A.CQ, "o corpo do nome"),
-        (".saia .item .mv{", "font-size", A.SAIA_MOTIVO / A.CQ,
-         "o corpo do motivo")):
+        (".saia .item .ico{", "width", A.SAIA_ICONE / A.CQ, "o ícone"),
+        (".saia .item .nm{", "font-size", A.SAIA_NOME / A.CQ,
+         "o corpo do nome")):
     achado = _no_css(regra, prop)
     ok(abs(achado - esperado) < 0.06,
        f"{oque}: o CSS diz {achado}cqw e o desenho do PNG diz "
        f"{esperado:.2f}cqw. A prévia e o arquivo saem diferentes, e a "
        f"diferença só aparece depois de publicado")
+
+# AS COLUNAS: quantas, e de que largura. Sem esta conferência, a tela podia
+# cair para duas colunas com o PNG em três — plantei exatamente isso e o teste
+# passou, porque eu comparava alturas e corpos de fonte e nunca a grade.
+#
+# E A BUSCA É DENTRO DA REGRA `.saia .linhas`, não no arquivo todo: a primeira
+# `grid-template-columns` da página é a do `.painel`, que divide o campo da
+# tabela. Procurar solto pegava a grade errada e o teste estourava.
+_i_regra = PAGINA.index(".saia .linhas{")
+_i_col = PAGINA.index("grid-template-columns:", _i_regra)
+_colunas = PAGINA[_i_col + 22:PAGINA.index(";", _i_col)].split()
+ok(len(_colunas) == A.SAIA_COLUNAS,
+   f"a tela tem {len(_colunas)} colunas na saia e o PNG tem {A.SAIA_COLUNAS}. "
+   f"A mesma lista sai em arranjos diferentes nos dois")
+for _c in _colunas:
+    ok(abs(float(_c.replace("cqw", "")) - A.SAIA_COL_LARG / A.CQ) < 0.06,
+       f"a coluna da tela mede {_c} e a do PNG mede "
+       f"{A.SAIA_COL_LARG / A.CQ:.2f}cqw")
 
 _i = PAGINA.index("const SAIA_CABEM = ")
 ok(int(PAGINA[_i + 19:PAGINA.index(";", _i)]) == A.SAIA_CABEM,
@@ -416,8 +487,40 @@ ok("col * 3 + lin" in _js_saia,
    "a prévia parou de reordenar para preencher coluna a coluna. O PNG enche a "
    "primeira coluna inteira antes de passar para a segunda; o grid do CSS "
    "enche por linha — a mesma lista sairia em ordem diferente nos dois")
-ok("SUSPENSO · " in _js_saia,
-   "a prévia não marca o suspenso; no PNG ele vem marcado")
+# ── O ÍCONE NO LUGAR DA FRASE ───────────────────────────────────────────
+#
+#     "Reduza o tamanho do texto e retire o sub-texto com a explicação.
+#      Coloque só um ícone de cruz pra representar lesão e outro pra suspensão."
+ok("cartao" in _js_saia and "cruz" in _js_saia,
+   "a prévia parou de marcar lesão e suspensão com ícone. Sem distinção, um "
+   "suspenso vira mais um lesionado na leitura — e a diferença é entre "
+   "'volta quando sarar' e 'volta no próximo jogo'")
+ok("j.motivo" not in _js_saia and "j.retorno" not in _js_saia,
+   "voltou o sub-texto na prévia. Ele pediu para tirar: é informação de quem "
+   "pesquisa, não de quem passa o dedo no feed, e comia metade da altura de "
+   "cada item")
+ok(".saia .item .ico.cruz::before" in PAGINA
+   and ".saia .item .ico.cartao::before" in PAGINA,
+   "os ícones da prévia deixaram de ser desenhados em CSS. Emoji depende de a "
+   "fonte do aparelho ter o glifo — foi assim que a arte da ficha saiu com "
+   "quadradinhos no lugar dos acentos")
+
+# E OS DOIS ÍCONES PRECISAM SER DIFERENTES NO PNG. Desenhar os dois iguais
+# seria pior que não desenhar: a arte teria um símbolo com ar de informação
+# que não informa nada.
+from PIL import ImageDraw as _ID                          # noqa: E402
+
+_quadro = {}
+for _tipo in ("lesao", "suspensao"):
+    _im = Image.new("RGB", (40, 40), (255, 255, 255))
+    A._icone(_ID.Draw(_im), _tipo, 8, 20, 24)
+    _quadro[_tipo] = _im.tobytes()
+ok(_quadro["lesao"] != _quadro["suspensao"],
+   "a cruz e o cartão saem idênticos no PNG; o ícone deixa de distinguir "
+   "lesão de suspensão")
+ok(all(v != Image.new("RGB", (40, 40), (255, 255, 255)).tobytes()
+       for v in _quadro.values()),
+   "algum dos ícones não desenhou nada")
 
 ok("clube: TIME_NOME" in PAGINA,
    "a página parou de mandar o clube ao pedir a arte; sem ele o servidor não "

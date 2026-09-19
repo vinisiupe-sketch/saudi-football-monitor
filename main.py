@@ -19248,23 +19248,39 @@ async def _desfalques_do_clube(clube: str) -> dict:
     alvo = _chave_de_nome(clube or "")
     achados, vistos, fontes = [], set(), []
 
+    ctx = await asyncio.to_thread(_contexto_de_elenco)
+
     def _do_glossario(nome: str) -> dict:
         """A ficha dele: o nome na grafia que ele escolheu, e a foto.
 
         É AQUI QUE A FOTO APARECE. A primeira versão pegava o endereço que
         vinha junto da fonte — e as nossas tabelas não guardam foto nenhuma,
-        por isso a arte saiu com os discos vazios. Quem tem foto é o glossário,
-        e ele já resolve de qual base tirar conforme os Ajustes.
+        por isso a arte saiu com os discos vazios.
+
+        E A SEGUNDA VERSÃO AINDA ERRAVA EM DOIS, e ele viu: "Bouabré e Lajami
+        saíram sem fotos. Não está usando o glossário?". Estava — só que pela
+        porta estreita. O `glossario.identidade` é consulta EXATA de propósito:
+        ele não adivinha. A guia de Lesões é alimentada por notícia, e a
+        notícia escreve "Saïmon Bouabré" onde o glossário tem outra grafia.
+        Sem uma segunda tentativa, esses dois caem fora.
+
+        O `_identificar_jogador` é a regra completa que todas as telas usam —
+        glossário primeiro, e depois o índice do elenco daquele clube. É a
+        mesma função com que a guia de Lesões casa o lesionado com o elenco;
+        usar outra aqui seria a quarta cópia da mesma decisão.
         """
-        # O import é aqui dentro, como no resto do arquivo. E é o teste de
-        # nomes definidos que me lembrou disso — o mesmo que pegou o `_db`
-        # ontem, depois de eu ter mandado uma versão quebrada para o ar.
         import glossario
         try:
             g = glossario.identidade(nome, clube)
-            if not g:
-                return {}
-            return glossario.ficha(g) or {}
+            if g:
+                f = glossario.ficha(g) or {}
+                if f.get("foto"):
+                    return f
+        except Exception:
+            f = {}
+        try:
+            achado = _identificar_jogador(nome, clube, ctx)
+            return achado or {}
         except Exception:
             return {}
 
@@ -19278,7 +19294,12 @@ async def _desfalques_do_clube(clube: str) -> dict:
             if _chave_de_nome(i.get("club") or "") != alvo:
                 continue
             nome = i.get("player_name") or ""
-            if not nome:
+            # O DUPLICADO DENTRO DA PRÓPRIA GUIA, que ele viu: "Ollie Watkins
+            # apareceu duplicado". Eu conferia o `vistos` só no laço dos
+            # pendurados, e a guia de Lesões pode ter DOIS registros da mesma
+            # pessoa — a própria tela dela mostra "2 REGISTROS UNIDOS" no
+            # Watkins. Somar sem conferir é confiar que a fonte já veio limpa.
+            if not nome or _chave_de_nome(nome) in vistos:
                 continue
             f = _do_glossario(nome)
             vistos.add(_chave_de_nome(nome))
