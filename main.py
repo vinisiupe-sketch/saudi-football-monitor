@@ -4320,17 +4320,8 @@ async def _page_lesoes_impl(request: Request):
         _escudos_liga, _escudos_mundo = {}, {}
 
     def _escudo_do_clube(nome: str) -> str:
-        """Liga primeiro, mundo depois. Nesta ordem, sempre."""
-        if not nome:
-            return ""
-        try:
-            import glossary
-            padrao = glossary.padronizar_clube(nome) or ""
-        except Exception:
-            padrao = ""
-        return (_escudos_liga.get(nome) or (_escudos_liga.get(padrao) if padrao else "")
-                or _escudos_mundo.get(nome) or (_escudos_mundo.get(padrao) if padrao else "")
-                or "")
+        """O escudo daquele clube — pela porta única, e nunca pelo mundo."""
+        return _escudo_de_clube(nome, _escudos_liga, _escudos_mundo)
 
     # Elenco agrupado por clube, para a segunda tentativa de identificação.
     _chave_clube = _chave_de_clube
@@ -6108,9 +6099,19 @@ async def api_ausencias_af(season: int = 0, team: int = 0):
         partida = r.get("fixture") or {}
         tipo_bruto = (jogador.get("type") or "").strip()
         nome = jogador.get("name") or ""
+        # O GLOSSÁRIO PRIMEIRO, pelo id da própria API-Football — que é o
+        # `player.id` desta resposta e uma das três chaves que ele cruzou.
+        # Sem isto, esta tela mostrava a transliteração da API ao lado de
+        # outra tela mostrando a grafia que ele escolheu, para a mesma pessoa.
+        try:
+            import glossario
+            _g = glossario.quem(af_id=jogador.get("id"), nome=nome,
+                                clube=time_.get("name") or "")
+        except Exception:
+            _g = {}
         ausencias.append({
-            "jogador": nome,
-            "foto": jogador.get("photo") or "",
+            "jogador": _g.get("nome") or nome,
+            "foto": _g.get("foto") or jogador.get("photo") or "",
             "clube": time_.get("name") or "",
             "escudo": time_.get("logo") or "",
             "clube_id": time_.get("id"),
@@ -6775,7 +6776,32 @@ async def api_pendurados(season: int = 0, coletar: int = 0):
     # contagem de cartão e precisa continuar testável sem saber que existe
     # servidor de imagem. O endereço é o padrão da API-Football, o mesmo que
     # a guia de Elencos já usa.
+    # ── O GLOSSÁRIO RESPONDE PELO JOGADOR, aqui também (18/09/26) ───────────
+    #
+    # Esta guia tinha na mão o `jogador_id`, que é o id da API-Football — uma
+    # das três bases que ele cruzou à mão — e mesmo assim mostrava o nome que
+    # veio junto do cartão. Era um de-para pronto, ignorado.
+    #
+    # Agora o nome, a foto e o clube saem do glossário, pelas fontes que ele
+    # escolheu em Ajustes. Quem o glossário não conhece (jogador de fora da
+    # liga que pegou cartão num amistoso) continua com o que veio do cartão —
+    # é o caminho antigo, e para esse caso é o certo.
     for d in situacao:
+        try:
+            import glossario
+            f = glossario.quem(af_id=d.get("jogador_id"),
+                               nome=d.get("jogador") or "",
+                               clube=d.get("clube") or "")
+        except Exception:
+            f = {}
+        if f:
+            d["jogador"] = f.get("nome") or d.get("jogador") or ""
+            d["foto"] = f.get("foto") or ""
+            d["posicao"] = f.get("posicao") or ""
+            d["do_glossario"] = True
+        # O ESCUDO CONTINUA SAINDO DO ID, e não do nome: é o `clube_id` da
+        # própria API-Football dentro da URL. Foi assim desde o primeiro
+        # conserto, e é por isso que esta guia nunca mostrou o Al Nasr errado.
         d["escudo"] = (f"https://media.api-sports.io/football/teams/"
                        f"{d['clube_id']}.png" if d.get("clube_id") else "")
     clubes = sorted({d["clube"] for d in situacao if d["clube"]},
@@ -7160,6 +7186,27 @@ async def api_disciplina(limite: int = 200):
     """As decisões guardadas. NÃO vai à SAFF — quem busca é o botão."""
     from database import decisoes_disciplinares
     lista = decisoes_disciplinares(limite)
+    # O GLOSSÁRIO TAMBÉM AQUI. As decisões vêm do boletim da federação, que
+    # escreve o nome à maneira dela — e aqui não há id nenhum, só o nome e o
+    # clube. É o caso mais fraco dos que existem no app, e por isso a consulta
+    # é a EXATA: quem o glossário reconhece ganha a grafia e a foto dele; quem
+    # não, fica como o boletim escreveu, marcado como não identificado.
+    #
+    # Adivinhar seria pior que não responder: atribuir uma suspensão à pessoa
+    # errada é o tipo de erro que vira retratação no ar.
+    for d in lista:
+        try:
+            import glossario
+            f = glossario.quem(nome=d.get("nome") or "",
+                               clube=d.get("clube") or "")
+        except Exception:
+            f = {}
+        if f:
+            d["nome"] = f.get("nome") or d.get("nome") or ""
+            d["foto"] = f.get("foto") or ""
+            d["do_glossario"] = True
+        else:
+            d["do_glossario"] = False
     clubes = sorted({d.get("clube") or "" for d in lista if d.get("clube")})
     return {"decisoes": lista, "clubes": clubes, "total": len(lista)}
 
@@ -8478,6 +8525,32 @@ async def api_injuries_buscar_jogador(q: str = ""):
     termo = _chave_de_nome(q)
     if len(termo) < 2:
         return {"jogadores": []}
+
+    # ── O GLOSSÁRIO PRIMEIRO, sempre (18/09/26) ─────────────────────────────
+    #
+    # Esta caixa lia a tabela da varredura ANTIGA — a de antes de ele auditar
+    # as seiscentas fichas à mão. É o mesmo defeito do contador das
+    # Configurações, que mostrava 183 quando ele tinha mapeado 595: o glossário
+    # existe e a tela olhava para o lado.
+    #
+    # E o que sai daqui já é a FICHA, com foto: assim o que ele vê na lista de
+    # busca é o que vai aparecer no card depois de salvar.
+    try:
+        import glossario
+        do_glossario = await asyncio.to_thread(glossario.procurar, q, 12)
+    except Exception:
+        do_glossario = []
+    if do_glossario:
+        return {"jogadores": [{"nome": f.get("nome") or "",
+                               "clube": f.get("clube") or "",
+                               "posicao": f.get("posicao") or "",
+                               "foto": f.get("foto") or "",
+                               "spl_id": f.get("spl_id"),
+                               "do_glossario": True}
+                              for f in do_glossario]}
+
+    # A base antiga continua atendendo quem o glossário não conhece — jogador
+    # de fora da liga, que não está lá e nem deveria estar.
     from database import listar_jogadores
     gente = await asyncio.to_thread(listar_jogadores, "", 2000)
     saida = []
@@ -18199,6 +18272,73 @@ def _elenco_pais(nacs: list[str]) -> dict:
 _ESCUDOS_CACHE: dict = {}
 
 
+def _escudos_da_liga_em_cache(temporada: int) -> dict:
+    """A tabela de escudos da competição, guardada por dez minutos.
+
+    Nasce do CALENDÁRIO: cada clube entra pelo id, e o nome é só a chave de
+    consulta. São dezoito clubes e nenhum homônimo entre eles — ao contrário
+    da tabela que cobre o mundo.
+    """
+    agora = time.time()
+    guardado = _ESCUDOS_CACHE.get(temporada)
+    if not guardado or (agora - guardado[0]) >= 600:
+        try:
+            from database import escudos_da_liga
+            guardado = (agora, dict(escudos_da_liga(temporada)))
+            _ESCUDOS_CACHE[temporada] = guardado
+        except Exception as e:
+            print(f"⚠️ escudos: {type(e).__name__}: {e}")
+            guardado = guardado or (0, {})
+    return guardado[1]
+
+
+def _escudo_de_clube(nome: str, da_liga: dict, do_mundo: dict) -> str:
+    """O escudo de um clube. UMA porta, e a do mundo tem tranca.
+
+    O DEFEITO, PELA SEGUNDA VEZ (18/09/26)
+        "A pouco vi um jogador no lesões com escudo do Al Nassr de dubai, isso
+         a essa altura é uma vergonha."
+
+        Ele tem razão: eu já tinha consertado exatamente isto na ficha do
+        jogador, com o `escudo_de_af_id`, e deixei a mesma armadilha montada
+        na guia de Lesões. Lá a ordem era "liga primeiro, mundo depois" — o
+        que parece prudente e não é. Basta a grafia saudita não bater com a da
+        liga para o "depois" acontecer, e no mundo existem dois Al Nasr.
+
+    A REGRA AGORA
+        Se o GLOSSÁRIO diz que o clube é da liga, a tabela do mundo não é
+        consultada. Nem como último recurso. Ou o escudo sai do calendário da
+        própria competição — que é o id, não o nome —, ou não sai escudo, e o
+        card mostra o nome do clube.
+
+        Escudo errado é pior que escudo nenhum porque ele é convincente: não
+        há nada na tela que denuncie, e quem vê acredita.
+
+    Para clube que NÃO é da liga — o lesionado que joga no Liverpool — o mundo
+    continua valendo: ali não há homônimo dentro da nossa competição, e é a
+    única tabela que tem aquele emblema.
+    """
+    if not nome:
+        return ""
+    try:
+        import glossary
+        padrao = glossary.padronizar_clube(nome) or ""
+    except Exception:
+        padrao = ""
+    achado = (da_liga.get(nome)
+              or (da_liga.get(padrao) if padrao else "") or "")
+    if achado:
+        return achado
+    try:
+        import glossario
+        if glossario.e_da_liga(nome) or (padrao and glossario.e_da_liga(padrao)):
+            return ""
+    except Exception:
+        pass
+    return (do_mundo.get(nome)
+            or (do_mundo.get(padrao) if padrao else "") or "")
+
+
 def _escudo_do_clube_pelo_nome(clube: str, temporada: int) -> str:
     """O último recurso: achar o escudo pelo NOME do clube.
 
@@ -18222,17 +18362,7 @@ def _escudo_do_clube_pelo_nome(clube: str, temporada: int) -> str:
     """
     if not clube:
         return ""
-    agora = time.time()
-    guardado = _ESCUDOS_CACHE.get(temporada)
-    if not guardado or (agora - guardado[0]) >= 600:
-        try:
-            from database import escudos_da_liga
-            guardado = (agora, dict(escudos_da_liga(temporada)))
-            _ESCUDOS_CACHE[temporada] = guardado
-        except Exception as e:
-            print(f"⚠️ escudos: {type(e).__name__}: {e}")
-            guardado = guardado or (0, {})
-    escudos = guardado[1]
+    escudos = _escudos_da_liga_em_cache(temporada)
     achado = escudos.get(clube)
     if achado:
         return achado
@@ -23761,8 +23891,17 @@ async def api_mercado(dias: int = 45, limite: int = 60):
             pass
         c["foto_url"] = (foto if foto.startswith("http")
                          else (liga_spl.MEDIA + foto) if foto else "")
-        c["escudo_origem"] = escudos.get(c.get("clube_origem") or "", "")
-        c["escudo_destino"] = escudos.get(c.get("clube_destino") or "", "")
+        # PELA PORTA ÚNICA, com a tabela da liga na frente. Aqui estava o
+        # mesmo buraco da guia de Lesões: a tabela `escudos_por_clube` cobre o
+        # mundo com o NOME como chave, e nela há dois "Al Nasr". Numa guia de
+        # mercado isso é especialmente traiçoeiro, porque metade dos cards é
+        # sobre clube de fora — e é justamente por isso que o mundo continua
+        # valendo para quem o glossário NÃO reconhece como da liga.
+        _da_liga = _escudos_da_liga_em_cache(_af_temporada_corrente())
+        c["escudo_origem"] = _escudo_de_clube(
+            c.get("clube_origem") or "", _da_liga, escudos)
+        c["escudo_destino"] = _escudo_de_clube(
+            c.get("clube_destino") or "", _da_liga, escudos)
     return {"cards": cards, "resumo": contar_negociacoes()}
 
 

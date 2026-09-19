@@ -131,20 +131,43 @@ conferir("escudo_de_af_id" in rota, "a ficha deveria resolver escudo por id")
 
 
 # ─────────────────────────────────────────────────────────────────────────
-# 3. Na tela de lesões, a liga responde primeiro
+# 3. O ESCUDO, PELA PORTA ÚNICA — e o mundo tem tranca
 # ─────────────────────────────────────────────────────────────────────────
-i = FONTE.index("    def _escudo_do_clube(nome: str) -> str:")
-j = FONTE.index("\n\n", FONTE.index("return (_escudos_liga.get(nome)", i))
-LESAO = FONTE[i:j]
-amb3 = {"_escudos_liga": {"Al-Nassr": "riade.png"},
-        "_escudos_mundo": {"Al-Nassr": "dubai.png", "Chelsea": "chelsea.png"}}
-exec("\n".join(l[4:] if l.startswith("    ") else l
-               for l in LESAO.split("\n")), amb3)
-_e = amb3["_escudo_do_clube"]
+# ANTES ERA "LIGA PRIMEIRO, MUNDO DEPOIS", e parecia prudente. Não era: basta
+# a grafia saudita não bater com a da liga para o "depois" acontecer, e no
+# mundo existem dois Al Nasr. Foi assim que ele viu, meses depois do primeiro
+# conserto, um lesionado com o emblema de Dubai — e disse, com razão, que a
+# essa altura era vergonha.
+#
+# A regra agora é mais dura: se o GLOSSÁRIO diz que o clube é da liga, a
+# tabela do mundo não é consultada nem como último recurso.
+# (types já está importado no topo)
+_gl = types.ModuleType("glossario")
+_gl.e_da_liga = lambda c: "nassr" in (c or "").lower().replace("-", "")
+sys.modules["glossario"] = _gl
+
+i = FONTE.index("def _escudo_de_clube(nome: str, da_liga: dict, do_mundo: dict)")
+PORTA = FONTE[i:FONTE.index("\ndef ", i + 10)]
+amb3 = {}
+exec(PORTA, amb3)
+_porta = amb3["_escudo_de_clube"]
+LIGA = {"Al-Nassr": "riade.png"}
+MUNDO = {"Al-Nassr": "dubai.png", "Al Nasr": "dubai.png",
+         "Chelsea": "chelsea.png"}
+
+
+def _e(nome):
+    return _porta(nome, LIGA, MUNDO)
+
 
 conferir(_e("Al-Nassr") == "riade.png",
          "com o clube nas DUAS tabelas, tem de valer o da liga — este é o "
          "caso do Al Nassr de Riade contra o Al Nasr de Dubai")
+conferir(_e("Al Nasr") == "",
+         "a grafia que a liga não tem caiu na tabela do mundo e trouxe o "
+         "escudo de Dubai. Para clube que o GLOSSÁRIO reconhece como da liga, "
+         "o mundo não é recurso: sem escudo é melhor que escudo errado, "
+         "porque o errado é convincente")
 conferir(_e("Chelsea") == "chelsea.png",
          "clube de fora da liga só existe na tabela mundial; sem ela, "
          "lesionado no exterior ficaria sem escudo")
@@ -152,6 +175,13 @@ conferir(_e("") == "", "clube vazio não pode devolver escudo")
 conferir(_e("Clube Que Não Existe") == "",
          "clube desconhecido devolve vazio — o card mostra o nome, que é "
          "melhor do que um escudo errado")
+
+# E A PORTA É UMA SÓ: a guia de Lesões e a de Mercado chamam esta função em
+# vez de cada uma montar a sua ordem de tabelas.
+conferir(FONTE.count("_escudo_de_clube(") >= 3,
+         "alguma guia voltou a resolver escudo por conta própria; a ordem das "
+         "tabelas é uma decisão só e tem de morar num lugar só")
+
 
 # E o `update` que dava falsa sensação de prioridade não pode voltar.
 inicio = FONTE.index("import elos\n        import liga_spl")

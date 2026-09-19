@@ -220,11 +220,21 @@ def testar():
        "voltou o dicionário único com update — ele só prioriza a liga quando "
        "as duas tabelas grafam o nome igual, que é justamente o que não "
        "acontece entre Al-Nassr e Al Nasr")
-    i_liga = tela.find("_escudos_liga.get(nome)")
-    i_mundo = tela.find("_escudos_mundo.get(nome)")
-    ok(-1 < i_liga < i_mundo,
-       "a ordem inverteu: a tabela da LIGA tem de responder primeiro, e a "
-       "mundial só para quem a liga não conhece (lesionado no exterior)")
+    # E A ORDEM VIROU REGRA MAIS DURA (18/09/26). "Liga primeiro, mundo
+    # depois" parecia prudente e não era: basta a grafia saudita não bater com
+    # a da liga para o "depois" acontecer, e no mundo existem dois Al Nasr.
+    # Ele viu o emblema de Dubai num lesionado meses depois do primeiro
+    # conserto. Agora a decisão mora numa porta só, que consulta o GLOSSÁRIO:
+    # clube que ele reconhece como da liga não vai à tabela mundial nem como
+    # último recurso. O comportamento está testado no teste_escudo_pelo_id.
+    ok("_escudo_de_clube(" in tela,
+       "a guia de Lesões voltou a montar a própria ordem de tabelas de "
+       "escudo. Essa decisão é uma só e mora no `_escudo_de_clube` — foi "
+       "tê-la copiada em dois lugares que deixou o Al Nasr de Dubai voltar")
+    ok("_escudos_mundo.get(" not in tela,
+       "a guia de Lesões voltou a consultar a tabela do mundo direto, por "
+       "fora da porta que tranca esse caminho para clube da liga")
+
 
     # E a função da liga tem que sair mesmo do CALENDÁRIO da competição —
     # é de lá que vem a garantia de só haver os 18 clubes da Roshn. Checar só

@@ -297,6 +297,119 @@ def por_spl_id(spl_id) -> dict:
     return (carregar().get("por_spl") or {}).get(str(spl_id or "")) or {}
 
 
+def quem(af_id=None, spl_id=None, tm_id=None, nome: str = "",
+         clube: str = "") -> dict:
+    """A FICHA desta pessoa, por qualquer uma das três bases. {} quando não sei.
+
+    POR QUE ESTA PORTA EXISTE (18/09/26)
+        "O glossário não tem que responder sem nada. Ele é o grande unificador
+         de links/bases. Preciso que entenda isso. Ele é o local onde vai
+         conseguir fazer o de-para pra qualquer uma das 3 bases principais.
+         (...) Passei horas conectando os nomes e criando um ID próprio pra
+         unificar as três bases. Passe TUDO a limpo."
+
+        Ele está certo, e o problema era de forma: o glossário já sabia
+        responder por `af_id`, por `spl_id`, por `tm_id` e por nome — mas em
+        quatro funções diferentes. Cada tela escolhia uma, e a que escolhesse a
+        errada ficava sem resposta. A guia de Pendurados tem o id da
+        API-Football na mão e mesmo assim mostrava o nome que veio do cartão.
+
+        Aqui é UMA pergunta com quatro chaves. Quem tem qualquer uma delas
+        pergunta, e recebe a ficha já resolvida pelas fontes que ele escolheu
+        em Ajustes — nome, foto, clube, posição, nacionalidade.
+
+    A ORDEM É A DA CONFIANÇA: identificador antes de nome. Um id é um de-para
+    que ele fez à mão; um nome é uma string que duas bases escrevem diferente.
+    O nome entra por último e só quando nenhum id foi dado — e mesmo assim
+    pela consulta exata do `identidade`, que não adivinha.
+    """
+    achado = {}
+    if af_id:
+        achado = por_af_id(af_id)
+    if not achado and spl_id:
+        achado = por_spl_id(spl_id)
+    if not achado and tm_id:
+        achado = por_tm_id(tm_id)
+    if not achado and nome:
+        achado = identidade(nome, clube)
+    return ficha(achado) if achado else {}
+
+
+def procurar(termo: str, limite: int = 12) -> list[dict]:
+    """As fichas cujo nome contém este pedaço. Para caixa de busca.
+
+    POR QUE AQUI, E NÃO NA TABELA ANTIGA (18/09/26)
+        A busca de jogador do cadastro manual de lesão lia o `listar_jogadores`
+        — a tabela da varredura antiga, de antes do glossário existir. Ele
+        auditou seiscentas fichas à mão e a caixa de busca continuava
+        oferecendo a base velha.
+
+        É o mesmo defeito que ele já tinha pego no contador da guia de
+        Configurações ("183 com id do Transfermarkt"), com outra roupa: o
+        glossário existe e a tela olha para o lado.
+
+    A BUSCA É POR PEDAÇO DE NOME, e não pela chave exata do `identidade`:
+    quem digita numa caixa de busca está procurando, não afirmando. Mas o que
+    sai já é a FICHA — nome, foto e clube pelas fontes que ele escolheu —, de
+    modo que o que ele vê na lista é o que vai aparecer na tela depois.
+    """
+    alvo = _chave(termo or "")
+    if len(alvo) < 2:
+        return []
+    saida = []
+    for d in (carregar().get("por_id") or {}).values():
+        for campo in ("nome_principal", "nome_curto"):
+            if alvo in _chave(d.get(campo) or ""):
+                saida.append(ficha(d))
+                break
+        if len(saida) >= limite:
+            break
+    return saida
+
+
+def clubes_da_liga() -> set:
+    """Os clubes da liga, na forma de comparação. Sai do glossário dele.
+
+    POR QUE ESTA FUNÇÃO EXISTE (18/09/26)
+        Ele viu um lesionado com o escudo do Al Nasr, de Dubai, e disse o que
+        tinha de ser dito:
+
+            "O glossário não tem que responder sem nada. Ele é o grande
+             unificador de links/bases. (...) Passei horas conectando os nomes
+             e criando um ID próprio pra unificar as três bases."
+
+        O escudo errado vinha de uma tabela que cobre o MUNDO com o nome
+        normalizado como chave. Nela existem dois "Al Nasr", e o de Dubai
+        ganhava quando a grafia saudita não batia exatamente com a da liga.
+
+        A defesa não é uma tabela melhor: é saber QUEM é da liga. E isso o
+        glossário sabe sem consultar ninguém — ele tem o clube de cada uma das
+        seiscentas pessoas que ele auditou. Para esses clubes, a tabela do
+        mundo deixa de ser recurso: ou o escudo sai do calendário da própria
+        competição, ou não sai nenhum.
+
+    Escudo errado é pior que escudo nenhum, porque ele é convincente.
+    """
+    dados = carregar()
+    saida = set()
+    for d in (dados.get("por_id") or {}).values():
+        chave = _chave(d.get("clube") or "")
+        if chave:
+            saida.add(chave)
+    return saida
+
+
+def e_da_liga(clube: str) -> bool:
+    """Este clube é um dos que o glossário conhece? {} não é 'não'.
+
+    Quando o glossário não carregou, isto devolve False e quem chama cai no
+    caminho antigo — pior e conhecido. Responder True sem base seria afirmar
+    que o clube é da liga sem ter como saber.
+    """
+    chave = _chave(clube or "")
+    return bool(chave) and chave in clubes_da_liga()
+
+
 def jogadores_no_texto(*textos) -> list[dict]:
     """Quais jogadores do glossário são citados nestes textos.
 

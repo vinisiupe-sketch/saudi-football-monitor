@@ -613,11 +613,15 @@ def testar():
     # Dubai. Agora o escudo sai do id que a própria consulta já devolvia, e o
     # nome só é consultado quando o jogador não tem partida nenhuma — e mesmo
     # aí, só na tabela da LIGA, onde não existe homônimo.
+    # O CACHE MUDOU DE CASA (18/09/26): ele saiu de dentro do
+    # `_escudo_do_clube_pelo_nome` e virou o `_escudos_da_liga_em_cache`,
+    # porque agora são três consumidores da mesma tabela — a ficha, a guia de
+    # Lesões e a de Mercado. O prazo continua sendo o que se vigia aqui.
     _ec = next((_ast2.get_source_segment(FONTE, n)
                 for n in _ast2.walk(_ast2.parse(FONTE))
                 if isinstance(n, _ast2.FunctionDef)
-                and n.name == "_escudo_do_clube_pelo_nome"), "")
-    ok(_ec, "sumiu _escudo_do_clube_pelo_nome")
+                and n.name == "_escudos_da_liga_em_cache"), "")
+    ok(_ec, "sumiu o cache único da tabela de escudos da liga")
     ok("escudos_por_clube" not in _ec,
        "o último recurso voltou à tabela de escudos do mundo inteiro — é ela "
        "que tem o Al Nasr de Dubai na mesma chave do Al-Nassr de Riade")
