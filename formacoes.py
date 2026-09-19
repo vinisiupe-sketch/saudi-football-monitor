@@ -235,8 +235,24 @@ def desenhar(formacao: str | None, quantidade: int = 11) -> list[tuple[float, fl
         # fixo — ver _escalonamento().
         passo_y = _escalonamento(y) if _aperta(n, y) else 0.0
         setor = _setor(i, len(linhas))
+
+        # O TRIO DE ATAQUE VAI INVERTIDO, a mesma regra das formações
+        # desenhadas à mão logo abaixo: centroavante na frente, pontas um passo
+        # atrás.
+        #
+        # Precisa estar AQUI TAMBÉM porque o cálculo atende toda formação que
+        # não está na tabela — e são elas que chegam da API no meio de um
+        # domingo. Sem isto, um 5-1-2-3 de um jogo real sairia com o trio
+        # achatado ao lado de uma 4-3-3 com o centroavante na ponta da lança, e
+        # a diferença apareceria numa arte já publicada.
+        #
+        # O escalonamento alternado põe os ímpares para trás; no trio de
+        # ataque, quem tem de ficar para trás são os pares (as pontas).
+        inverte = (n == 3 and setor == "A" and i == len(linhas) - 1)
         for c, x in enumerate(xs):
             desloca = (passo_y / 2 if c % 2 else -passo_y / 2)
+            if inverte:
+                desloca = -desloca
             casas.append((round(x, 1), round(max(4.0, min(96.0, y + desloca)), 1),
                           setor))
     return casas
@@ -258,15 +274,19 @@ def desenhar(formacao: str | None, quantidade: int = 11) -> list[tuple[float, fl
 #
 # O que não estiver aqui cai no desenhar(), que segue as mesmas regras.
 QUADROS: dict[str, list[tuple[float, float, str]]] = {
-    # O TRIO DA 4-3-3 É O ÚNICO INVERTIDO, e é pedido dele (18/09/26):
+    # O TRIO DE ATAQUE VAI INVERTIDO: centroavante na frente, pontas um passo
+    # atrás. Pedido dele em 18/09/26, primeiro para a 4-3-3 —
     #
     #     "Os atacantes da esquerda e direita recuam e o do centro avança.
-    #      Fica mais assertivo. Só nessa."
+    #      Fica mais assertivo."
     #
-    # As outras formações com três atacantes (3-4-3, 5-2-3) continuam como
-    # estavam. Não é descuido: numa 4-3-3 o desenho que ele reconhece é o
-    # centroavante na frente e as pontas abertas um passo atrás; nas outras o
-    # trio nasce de outra ideia. Ele pediu uma, e é uma.
+    # — e no minuto seguinte estendido à 3-4-3 e à 5-2-3. É o desenho que
+    # qualquer quadro tático usa, e o anterior achatava os três numa linha que
+    # nenhum time joga.
+    #
+    # A 4-6-0 tem o mesmo trio e fica COMO ESTAVA, de propósito: ali o homem de
+    # centro recuado é a formação inteira. Um falso nove que avança na frente
+    # das pontas deixa de ser um 4-6-0 e vira um 4-3-3 com outro nome.
     "4-3-3":    [(50,99,"G"),(4,88,"D"),(34.7,88,"D"),(65.3,88,"D"),
                  (96,88,"D"),(12,57.8,"M"),(50,57.8,"M"),(88,57.8,"M"),
                  (12,20.4,"A"),(50,4,"A"),(88,20.4,"A")],
@@ -283,8 +303,8 @@ QUADROS: dict[str, list[tuple[float, float, str]]] = {
                  (26,67.6,"M"),(50,49.6,"M"),(74,67.6,"M"),(98,49.6,"M"),
                  (26,11.8,"A"),(74,11.8,"A")],
     "3-4-3":    [(50,99,"G"),(12,88,"D"),(50,88,"D"),(88,88,"D"),(4,53.8,"M"),
-                 (34.7,65.8,"M"),(65.3,53.8,"M"),(96,65.8,"M"),(12,4,"A"),
-                 (50,20.4,"A"),(88,4,"A")],
+                 (34.7,65.8,"M"),(65.3,53.8,"M"),(96,65.8,"M"),(12,20.4,"A"),
+                 (50,4,"A"),(88,20.4,"A")],
     "5-3-2":    [(50,99,"G"),(2,83.5,"D"),(26,91,"D"),(50,83.5,"D"),
                  (74,91,"D"),(98,83.5,"D"),(12,57.8,"M"),(50,57.8,"M"),
                  (88,57.8,"M"),(26,11.8,"A"),(74,11.8,"A")],
@@ -323,7 +343,7 @@ QUADROS: dict[str, list[tuple[float, float, str]]] = {
                  (50,38.4,"M"),(26,6,"A"),(74,6,"A")],
     "5-2-3":    [(50,99,"G"),(2,83.5,"D"),(26,91,"D"),(50,83.5,"D"),
                  (74,91,"D"),(98,83.5,"D"),(26,59.8,"M"),(74,59.8,"M"),
-                 (12,4,"A"),(50,20.4,"A"),(88,4,"A")],
+                 (12,20.4,"A"),(50,4,"A"),(88,20.4,"A")],
     "5-2-2-1":  [(50,99,"G"),(2,83.5,"D"),(26,91,"D"),(50,83.5,"D"),
                  (74,91,"D"),(98,83.5,"D"),(26,70.9,"M"),(74,70.9,"M"),
                  (26,46.2,"M"),(74,46.2,"M"),(50,8,"A")],

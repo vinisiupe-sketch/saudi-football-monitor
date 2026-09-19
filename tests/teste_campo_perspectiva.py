@@ -66,6 +66,9 @@ MARCOS = (("linha de fundo de longe", 0, 29.19),
 # para a esquerda — e o teste passaria a exigir que a formação ficasse torta.
 X_MIN_GRAMADO = 200
 
+# A formação em que o trio NÃO é invertido, e o porquê está no formacoes.py.
+EXCECAO_FALSO_NOVE = "4-6-0"
+
 falhas = []
 
 
@@ -387,35 +390,49 @@ def testar():
     # ideia e ficam como estavam; alguém que ache o trio invertido mais bonito
     # e resolva uniformizar estaria desfazendo uma decisão, não arrumando uma
     # inconsistência.
-    trio = [(x, y) for x, y, g in todas.get("4-3-3", []) if g == "A"]
-    ok(len(trio) == 3, f"a 4-3-3 ficou com {len(trio)} atacantes")
-    if len(trio) == 3:
+    # A REGRA VALE PARA TODO TRIO, e não para uma formação de cada vez. Ele
+    # pediu a 4-3-3, viu, e no minuto seguinte pediu a 3-4-3 e a 5-2-3. Escrita
+    # como regra, uma formação nova com três atacantes já nasce certa.
+    invertidas = 0
+    for nome_f, quadro in todas.items():
+        if nome_f == EXCECAO_FALSO_NOVE:
+            continue
+        trio = [(x, y) for x, y, g in quadro if g == "A"]
+        if len(trio) != 3:
+            continue
         centro = [y for x, y in trio if 40 <= x <= 60]
         pontas = [y for x, y in trio if x < 40 or x > 60]
-        ok(len(centro) == 1 and len(pontas) == 2,
-           f"o trio da 4-3-3 não é ponta-centro-ponta: {trio}")
-        if len(centro) == 1 and len(pontas) == 2:
-            ok(centro[0] < min(pontas),
-               f"na 4-3-3 o centroavante está em y={centro[0]} e as pontas em "
-               f"{pontas} — ele tem de estar À FRENTE (y menor). Foi pedido "
-               f"dele, e as outras conferências deste arquivo ficam verdes "
-               f"com o arranjo antigo")
+        if len(centro) != 1 or len(pontas) != 2:
+            continue     # trio que não é ponta-centro-ponta não é desta regra
+        invertidas += 1
+        ok(centro[0] < min(pontas),
+           f"{nome_f}: o centroavante está em y={centro[0]} e as pontas em "
+           f"{pontas} — ele tem de estar À FRENTE (y menor). As outras "
+           f"conferências deste arquivo ficam verdes com o arranjo antigo, "
+           f"porque elas guardam a geometria e esta guarda a intenção")
+    ok(invertidas >= 3,
+       f"só achei {invertidas} formações com trio ponta-centro-ponta; "
+       f"esperava ao menos três. Se o formato mudou, esta conferência parou "
+       f"de olhar para o que devia")
 
-    for nome_intacto in ("3-4-3", "5-2-3"):
-        outro = [(x, y) for x, y, g in todas.get(nome_intacto, []) if g == "A"]
-        if len(outro) == 3:
-            c = [y for x, y in outro if 40 <= x <= 60]
-            p = [y for x, y in outro if x < 40 or x > 60]
-            ok(len(c) == 1 and len(p) == 2 and c[0] > max(p),
-               f"a {nome_intacto} foi invertida junto com a 4-3-3. Ele pediu "
-               f"'só nessa'; uniformizar aqui é desfazer uma decisão dele")
+    # E A EXCEÇÃO CONTINUA SENDO EXCEÇÃO. No 4-6-0 o homem de centro recuado é
+    # a formação inteira; avançá-lo na frente das pontas transforma um falso
+    # nove num 4-3-3 com outro nome.
+    falso = [(x, y) for x, y, g in todas.get(EXCECAO_FALSO_NOVE, []) if g == "A"]
+    if len(falso) == 3:
+        c = [y for x, y in falso if 40 <= x <= 60]
+        p = [y for x, y in falso if x < 40 or x > 60]
+        ok(len(c) == 1 and len(p) == 2 and c[0] > max(p),
+           f"o {EXCECAO_FALSO_NOVE} foi invertido junto com os outros. Ali o "
+           f"centro recuado É a formação; invertê-lo apaga a diferença entre "
+           f"ele e a 4-3-3")
 
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
           f"  ✓ campo em perspectiva: {len(pedidos)} casas na grama; "
           f"{len(todas)} formações sem placa encavalada e com os setores "
-          "separados; trio da 4-3-3 invertido, e só o dela")
+          "separados; trio de ataque invertido em todas, menos no falso nove")
     return len(falhas)
 
 

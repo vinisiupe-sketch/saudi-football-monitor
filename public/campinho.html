@@ -503,7 +503,33 @@ function aplicarEscalacao(){
 
 function aplicarSalva(){
   if (!SALVA) return;
-  SLOTS = SALVA.slots.map(function(s){ return {x:s.x, y:s.y, g:s.g, id:s.id}; });
+  // O QUE FICA SALVO É QUEM JOGA, NÃO ONDE FICA O CÍRCULO (18/09/26)
+  //
+  //     "Quando eu clico no Al Hilal, carrega errado primeiro, e aí eu troco
+  //      pra qualquer uma e quando eu volto pra 4-3-3 tá certa."
+  //
+  // A escalação salva guardava o x e o y de cada casa — uma CÓPIA da tabela de
+  // formações, congelada no dia em que ele salvou. Quando o trio da 4-3-3 foi
+  // invertido, a tabela mudou e a cópia não: abrir o clube trazia o desenho
+  // velho, e trocar de formação e voltar recalculava pela tabela e acertava.
+  //
+  // É a mesma doença que este projeto já tratou no glossário e nos ajustes:
+  // segunda cópia apodrece. A formação é derivável do NOME dela, e o que só o
+  // Vini sabe é quem ocupa cada vaga. Então é isso que a tela lê de volta.
+  //
+  // COM UMA GUARDA: só recalculo quando o molde bate casa a casa no SETOR.
+  // Uma escalação salva a partir do jogo real traz as posições da
+  // API-Football, que não vêm desta tabela; se a sequência de setores não for
+  // a mesma, eu não tenho como saber que um zagueiro não iria parar na vaga
+  // de um atacante — e aí o salvo manda, como antes.
+  const molde = (SALVA.formacao && FORMACOES[SALVA.formacao]) || null;
+  const casaABate = molde && molde.length === SALVA.slots.length
+    && molde.every(function(c, i){ return c.g === SALVA.slots[i].g; });
+  SLOTS = SALVA.slots.map(function(s, i){
+    return casaABate
+      ? {x: molde[i].x, y: molde[i].y, g: molde[i].g, id: s.id}
+      : {x: s.x, y: s.y, g: s.g, id: s.id};
+  });
   if (SALVA.formacao) {
     FORM = SALVA.formacao;
     const sel = document.getElementById('formacao');
