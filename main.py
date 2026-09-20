@@ -4445,12 +4445,18 @@ async def _page_lesoes_impl(request: Request):
         club = inj.get("club") or "—"
         status = inj.get("status") or "lesionado"
 
-        # O NOME DO ELENCO ganha do nome que a IA transliterou da notícia.
-        # É o mesmo que aparece na escalação, no campinho e nos pendurados —
-        # e o elenco vem do Transfermarkt, que escreve nome próprio muito
-        # melhor do que qualquer transliteração feita a partir de um texto
-        # em árabe. O clube também: a notícia diz "Al Ahli" e o elenco diz
-        # "Al-Ahli Jeddah", e é o segundo que casa com o escudo.
+        # O NOME DA DIM_JOGADOR ganha do que a IA transliterou da notícia.
+        #
+        # Este comentário dizia "o nome do elenco, que vem do Transfermarkt".
+        # Não vem mais, e a diferença é o assunto inteiro: quem responde é o
+        # `_identificar_jogador`, que consulta o GLOSSÁRIO e devolve a grafia
+        # que ele escolheu em Ajustes. É o mesmo nome que aparece no elenco, no
+        # campinho, nos pendurados e no mercado — não porque as telas
+        # combinaram, mas porque todas perguntam à mesma dimensão.
+        #
+        # Quando o glossário não conhece a pessoa (lesionado de fora da liga),
+        # fica o nome da notícia. Aí não há id interno, e inventar um seria
+        # pior que mostrar a grafia da fonte.
         do_elenco = _do_elenco(bruto, club) or _do_elenco(
             inj.get("player_name_orig") or "", club)
         player = (do_elenco.get("nome") or "").strip() or bruto
@@ -11501,6 +11507,126 @@ async def api_clubes_semear(season: int = 0):
         f"{r.get('vistos', 0)} visto(s)",
         r.get("erro") or "")
     return r
+
+
+@app.get("/api/diag/padronizacao", response_class=PlainTextResponse)
+async def api_diag_padronizacao():
+    """O MESMO JOGADOR TEM O MESMO NOME EM TODAS AS GUIAS? Aqui está a resposta.
+
+    O QUE ELE PEDIU, depois de eu consertar o sintoma três vezes (20/09/26)
+        "O exemplo do escudo foi apenas uma forma de ilustrar o problema. O que
+         eu quero corrigir é a falta de padronização entre todas as guias. Se
+         um jogador aparece em lesões, pendurados, notícias, mercado, elenco ou
+         qualquer outra guia, o nome exibido precisa ser exatamente o mesmo em
+         todas elas. (...) Quero que o star schema seja realmente o centro da
+         aplicação."
+
+    POR QUE UMA PÁGINA DE MEDIÇÃO, E NÃO MAIS UM CONSERTO
+        Porque eu já consertei uma guia de cada vez três vezes, e a cada vez
+        ele encontrou a quarta. Um teste que lê o código prova que a guia
+        ENCOSTA no glossário; não prova que o nome que sai é o mesmo. Só o
+        dado responde isso.
+
+        Esta página pega o que cada guia guarda HOJE, resolve cada registro
+        para o `jogador_id_interno` e compara os nomes exibidos. Um id com dois
+        nomes é uma violação, e ela aparece aqui com a guia e o nome de cada
+        lado — em vez de aparecer para ele, num post publicado.
+
+    O QUE ELA NÃO FAZ: nada. É leitura e conta.
+    """
+    import glossario
+
+    def _juntar():
+        from database import cartoes_da_temporada, get_injuries, negociacoes
+        por_id: dict = {}
+        desconhecidos: dict = {}
+
+        def _anotar(guia, nome, **chaves):
+            nome = (nome or "").strip()
+            if not nome:
+                return
+            f = glossario.quem(nome=nome, **chaves)
+            alvo = f.get("spl_id") or f.get("id")
+            if not alvo:
+                desconhecidos.setdefault(guia, set()).add(nome)
+                return
+            d = por_id.setdefault(alvo, {"canonico": f.get("nome") or "",
+                                         "vistos": {}})
+            d["vistos"].setdefault(nome, set()).add(guia)
+
+        # ELENCO — a referência: é o que o glossário exibe.
+        for j in (glossario.carregar().get("por_id") or {}).values():
+            f = glossario.ficha(j)
+            if f.get("nome"):
+                _anotar("elenco", f["nome"], spl_id=j.get("spl_id"))
+
+        try:
+            for i in get_injuries(False) or []:
+                _anotar("lesões", i.get("player_name"),
+                        clube=i.get("club") or "")
+        except Exception as e:
+            desconhecidos.setdefault("lesões", set()).add(f"(erro: {e})")
+
+        try:
+            for c in cartoes_da_temporada(_af_temporada_corrente()) or []:
+                _anotar("pendurados", c.get("jogador"),
+                        af_id=c.get("jogador_id"), clube=c.get("clube") or "")
+        except Exception as e:
+            desconhecidos.setdefault("pendurados", set()).add(f"(erro: {e})")
+
+        try:
+            for n in negociacoes(200, 120) or []:
+                _anotar("mercado", n.get("jogador"), spl_id=n.get("spl_id"),
+                        af_id=n.get("af_id"))
+        except Exception as e:
+            desconhecidos.setdefault("mercado", set()).add(f"(erro: {e})")
+
+        return por_id, desconhecidos
+
+    linhas = ["O MESMO JOGADOR, O MESMO NOME? — " +
+              datetime.now(BRT).strftime("%d/%m/%Y %H:%M") + " (Brasília)",
+              "=" * 66, ""]
+    try:
+        por_id, desconhecidos = await asyncio.to_thread(_juntar)
+    except Exception as e:
+        return PlainTextResponse("\n".join(linhas) +
+                                 f"\n❌ não consegui medir — "
+                                 f"{type(e).__name__}: {e}\n")
+
+    divergentes = {k: v for k, v in por_id.items() if len(v["vistos"]) > 1}
+    linhas.append(f"{len(por_id)} jogadores identificados nas guias.")
+    linhas.append("")
+    if divergentes:
+        linhas.append(f"❌ {len(divergentes)} APARECEM COM MAIS DE UM NOME:")
+        linhas.append("")
+        for alvo, d in list(divergentes.items())[:40]:
+            linhas.append(f"  {d['canonico'] or alvo}  (DIM_JOGADOR)")
+            for nome, guias in sorted(d["vistos"].items()):
+                marca = "  ✅" if nome == d["canonico"] else "  ❌"
+                linhas.append(f"   {marca} \"{nome}\"  ← {', '.join(sorted(guias))}")
+            linhas.append("")
+    else:
+        linhas.append("✅ NENHUM jogador aparece com dois nomes diferentes.")
+        linhas.append("   Todas as guias medidas exibem o nome da "
+                      "DIM_JOGADOR.")
+        linhas.append("")
+
+    if desconhecidos:
+        total = sum(len(v) for v in desconhecidos.values())
+        linhas.append(f"⚠️ {total} nomes que o glossário NÃO identificou — "
+                      f"estes não passam")
+        linhas.append("   pela padronização porque não há id interno para "
+                      "eles. Pode ser")
+        linhas.append("   jogador de fora da liga (certo) ou grafia que falta "
+                      "no glossário")
+        linhas.append("   (a arrumar).")
+        linhas.append("")
+        for guia, nomes in sorted(desconhecidos.items()):
+            linhas.append(f"  {guia}: {len(nomes)}")
+            for n in sorted(nomes)[:12]:
+                linhas.append(f"      {n}")
+            linhas.append("")
+    return PlainTextResponse("\n".join(linhas) + "\n")
 
 
 @app.get("/api/diag/clubes", response_class=PlainTextResponse)
@@ -23997,12 +24123,28 @@ async def api_mercado(dias: int = 45, limite: int = 60):
         # a foto sai de lá, pela fonte que ele escolheu; quando não está
         # (metade das negociações é sobre gente que ainda nem chegou na liga),
         # fica a que o card já tinha.
+        # ── E O NOME TAMBÉM, pelo mesmo caminho (20/09/26) ──────────────────
+        #
+        #     "Se um jogador aparece em lesões, pendurados, notícias, mercado,
+        #      elenco ou qualquer outra guia, o nome exibido precisa ser
+        #      exatamente o mesmo em todas elas."
+        #
+        # Esta rota já perguntava ao glossário — e usava a resposta só para a
+        # FOTO. O nome continuava sendo o texto que a extração guardou no dia
+        # em que o card nasceu, que é a grafia da notícia. Dois campos da mesma
+        # pessoa, vindos de duas autoridades diferentes, no mesmo card.
+        #
+        # Consultar e aproveitar metade é o tipo de meio-conserto que me fez
+        # passar três dias apontando para o lugar errado.
         try:
             import glossario
-            g = (glossario.por_spl_id(c.get("spl_id"))
-                 or glossario.por_af_id(c.get("af_id")))
-            if g:
-                foto = glossario.ficha(g).get("foto") or foto
+            f = glossario.quem(spl_id=c.get("spl_id"), af_id=c.get("af_id"),
+                               nome=c.get("jogador") or "")
+            if f:
+                foto = f.get("foto") or foto
+                if f.get("nome"):
+                    c["jogador"] = f["nome"]
+                c["do_glossario"] = True
         except Exception:
             pass
         c["foto_url"] = (foto if foto.startswith("http")
