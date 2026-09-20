@@ -5947,6 +5947,23 @@ def _identificar_jogador(nome: str, clube: str, ctx: dict) -> dict:
             # mesmo sintoma que ele já tinha relatado uma vez, com outra causa.
             spl = str(achado.get("spl_id") or "")
             return _glossario_com_reserva(achado, por_id.get(spl) or {})
+        # ── O SOBRENOME SOLTO, DENTRO DO ELENCO DAQUELE CLUBE ───────────
+        #
+        # Ele viu "Nández" e "Bouabré" marcados SEM ID na guia de Lesões, com
+        # o glossário cheio — e perguntou se eu não estava conseguindo.
+        #
+        # A notícia escreve só o sobrenome. O `identidade` é consulta exata de
+        # propósito, e é isso que o faz autoridade; mas aqui não há palpite a
+        # dar: "Nández" é uma palavra do nome de EXATAMENTE UM jogador do Al
+        # Qadsiah. Igualdade de palavra, dentro de trinta pessoas, com
+        # unicidade exigida — não é semelhança de texto.
+        #
+        # Vem DEPOIS do `identidade` e ANTES da desistência, nesta ordem: a
+        # consulta exata continua mandando quando responde.
+        sobrenome = glossario.so_no_clube(nome, clube)
+        if sobrenome:
+            spl = str(sobrenome.get("spl_id") or "")
+            return _glossario_com_reserva(sobrenome, por_id.get(spl) or {})
         if _db.valor_de_ajuste("glossario_manda") != "desligado" \
                 and _e_nome_de_clube_da_liga(clube, ctx):
             return {}
@@ -11537,57 +11554,88 @@ async def api_diag_padronizacao():
     import glossario
 
     def _juntar():
+        """O que cada guia EXIBE, resolvido até o id interno.
+
+        A PRIMEIRA VERSÃO MEDIU A CAMADA ERRADA, e o número saiu assustador à
+        toa: ela lia o TEXTO GUARDADO em cada tabela — `negociacao.jogador`,
+        `injuries.player_name`, `cartao.jogador` — e comparava aquilo. Só que
+        as tabelas guardam a grafia da fonte que as alimentou, e isso está
+        CERTO: é o registro do que a fonte disse. Quem padroniza é a exibição.
+
+        Medir o texto guardado acusa divergência onde não há, e esconde a que
+        importa. Aqui eu aplico a MESMA resolução que cada guia aplica e
+        comparo o que sai na tela — que é a pergunta dele: "o nome exibido
+        precisa ser exatamente o mesmo em todas elas".
+        """
         from database import cartoes_da_temporada, get_injuries, negociacoes
+        ctx = _contexto_de_elenco()
         por_id: dict = {}
         desconhecidos: dict = {}
+        grafias: dict = {}
 
-        def _anotar(guia, nome, **chaves):
-            nome = (nome or "").strip()
-            if not nome:
+        def _anotar(guia, exibido, bruto, **chaves):
+            exibido = (exibido or "").strip()
+            bruto = (bruto or "").strip()
+            if not (exibido or bruto):
                 return
-            f = glossario.quem(nome=nome, **chaves)
+            f = glossario.quem(nome=bruto or exibido, **chaves)
             alvo = f.get("spl_id") or f.get("id")
             if not alvo:
-                desconhecidos.setdefault(guia, set()).add(nome)
+                desconhecidos.setdefault(guia, set()).add(bruto or exibido)
                 return
             d = por_id.setdefault(alvo, {"canonico": f.get("nome") or "",
                                          "vistos": {}})
-            d["vistos"].setdefault(nome, set()).add(guia)
+            d["vistos"].setdefault(exibido or bruto, set()).add(guia)
+            if bruto and bruto != f.get("nome"):
+                grafias.setdefault(alvo, set()).add(f"{bruto} ({guia})")
 
-        # ELENCO — a referência: é o que o glossário exibe.
-        for j in (glossario.carregar().get("por_id") or {}).values():
-            f = glossario.ficha(j)
+        # ELENCO — a referência: exibe a dimensão sem intermediário.
+        for j2 in (glossario.carregar().get("por_id") or {}).values():
+            f = glossario.ficha(j2)
             if f.get("nome"):
-                _anotar("elenco", f["nome"], spl_id=j.get("spl_id"))
+                _anotar("elenco", f["nome"], f["nome"],
+                        spl_id=j2.get("spl_id"))
 
+        # LESÕES — a tela resolve pelo `_identificar_jogador`.
         try:
-            for i in get_injuries(False) or []:
-                _anotar("lesões", i.get("player_name"),
-                        clube=i.get("club") or "")
+            for i2 in get_injuries(False) or []:
+                bruto = i2.get("player_name") or ""
+                clube = i2.get("club") or ""
+                achado = _identificar_jogador(bruto, clube, ctx)
+                _anotar("lesões", (achado.get("nome") or "").strip() or bruto,
+                        bruto, clube=clube)
         except Exception as e:
             desconhecidos.setdefault("lesões", set()).add(f"(erro: {e})")
 
+        # PENDURADOS — a tela resolve pelo id da API-Football.
         try:
-            for c in cartoes_da_temporada(_af_temporada_corrente()) or []:
-                _anotar("pendurados", c.get("jogador"),
-                        af_id=c.get("jogador_id"), clube=c.get("clube") or "")
+            for c2 in cartoes_da_temporada(_af_temporada_corrente()) or []:
+                bruto = c2.get("jogador") or ""
+                f2 = glossario.quem(af_id=c2.get("jogador_id"), nome=bruto,
+                                    clube=c2.get("clube") or "")
+                _anotar("pendurados", f2.get("nome") or bruto, bruto,
+                        af_id=c2.get("jogador_id"), clube=c2.get("clube") or "")
         except Exception as e:
             desconhecidos.setdefault("pendurados", set()).add(f"(erro: {e})")
 
+        # MERCADO — a tela resolve pelos ids guardados no card.
         try:
-            for n in negociacoes(200, 120) or []:
-                _anotar("mercado", n.get("jogador"), spl_id=n.get("spl_id"),
-                        af_id=n.get("af_id"))
+            for n2 in negociacoes(200, 120) or []:
+                bruto = n2.get("jogador") or ""
+                f3 = glossario.quem(spl_id=n2.get("spl_id"),
+                                    af_id=n2.get("af_id"), nome=bruto)
+                _anotar("mercado", f3.get("nome") or bruto, bruto,
+                        spl_id=n2.get("spl_id"), af_id=n2.get("af_id"))
         except Exception as e:
             desconhecidos.setdefault("mercado", set()).add(f"(erro: {e})")
 
-        return por_id, desconhecidos
+        return por_id, desconhecidos, grafias
 
     linhas = ["O MESMO JOGADOR, O MESMO NOME? — " +
               datetime.now(BRT).strftime("%d/%m/%Y %H:%M") + " (Brasília)",
               "=" * 66, ""]
     try:
-        por_id, desconhecidos = await asyncio.to_thread(_juntar)
+        por_id, desconhecidos, grafias = await asyncio.to_thread(_juntar)
     except Exception as e:
         return PlainTextResponse("\n".join(linhas) +
                                  f"\n❌ não consegui medir — "
@@ -11597,18 +11645,41 @@ async def api_diag_padronizacao():
     linhas.append(f"{len(por_id)} jogadores identificados nas guias.")
     linhas.append("")
     if divergentes:
-        linhas.append(f"❌ {len(divergentes)} APARECEM COM MAIS DE UM NOME:")
+        linhas.append(f"❌ {len(divergentes)} APARECEM NA TELA COM MAIS DE UM "
+                      f"NOME:")
         linhas.append("")
         for alvo, d in list(divergentes.items())[:40]:
             linhas.append(f"  {d['canonico'] or alvo}  (DIM_JOGADOR)")
             for nome, guias in sorted(d["vistos"].items()):
-                marca = "  ✅" if nome == d["canonico"] else "  ❌"
-                linhas.append(f"   {marca} \"{nome}\"  ← {', '.join(sorted(guias))}")
+                marca = "✅" if nome == d["canonico"] else "❌"
+                linhas.append(f"     {marca} \"{nome}\"  ← {', '.join(sorted(guias))}")
             linhas.append("")
     else:
-        linhas.append("✅ NENHUM jogador aparece com dois nomes diferentes.")
+        linhas.append("✅ NENHUM jogador aparece na tela com dois nomes "
+                      "diferentes.")
         linhas.append("   Todas as guias medidas exibem o nome da "
                       "DIM_JOGADOR.")
+        linhas.append("")
+
+    # ── AS GRAFIAS QUE AS FONTES GUARDAM: informação, não alarme ────────────
+    #
+    # Cada tabela guarda o nome como a fonte escreveu, e isso está certo — é o
+    # registro do que ela disse. O que não pode é isso chegar à tela. A lista
+    # abaixo mostra o de-para funcionando: à esquerda o que a fonte gravou, à
+    # direita o que a tela exibe.
+    if grafias:
+        total_g = sum(len(v) for v in grafias.values())
+        linhas.append(f"ℹ️ {total_g} grafias diferentes guardadas pelas fontes "
+                      f"e TRADUZIDAS na exibição.")
+        linhas.append("   Isto é o de-para funcionando, e não defeito: a "
+                      "tabela registra o que a")
+        linhas.append("   fonte disse; a tela mostra o que a dimensão diz.")
+        linhas.append("")
+        for alvo, formas in list(grafias.items())[:25]:
+            canonico = (por_id.get(alvo) or {}).get("canonico") or alvo
+            linhas.append(f"  {canonico}")
+            for f2 in sorted(formas)[:6]:
+                linhas.append(f"      ← {f2}")
         linhas.append("")
 
     if desconhecidos:
@@ -18562,23 +18633,61 @@ def _escudo_de_clube(nome: str, da_liga: dict, do_mundo: dict) -> str:
     except Exception:
         pass
 
-    try:
-        import glossary
-        padrao = glossary.padronizar_clube(nome) or ""
-    except Exception:
-        padrao = ""
-    achado = (da_liga.get(nome)
-              or (da_liga.get(padrao) if padrao else "") or "")
+    # ── OS DOIS LADOS NORMALIZADOS, e foi aqui que eu quebrei a guia ────────
+    #
+    # A tabela da liga é indexada pelo nome CRU do calendário — "Al-Ittihad
+    # Club" — e a lesão diz "Al Ittihad". Eu procurava por `da_liga.get(nome)`
+    # e por `da_liga.get(padrao)`, e nenhum dos dois acha: a CHAVE também
+    # precisava ser padronizada, não só a pergunta.
+    #
+    # Isso sempre esteve errado. Passava despercebido porque a tabela do mundo
+    # respondia depois — às vezes com o emblema certo, às vezes com o de
+    # Dubai. Quando eu tranquei o mundo para clube da liga, o "às vezes
+    # errado" virou "sempre vazio", e a guia inteira ficou sem escudo. Ele viu
+    # na hora, e a culpa é minha: eu apertei a regra sem conferir se o caminho
+    # de baixo funcionava sozinho.
+    achado = _do_indice(da_liga, nome)
     if achado:
         return achado
     try:
         import glossario
-        if glossario.e_da_liga(nome) or (padrao and glossario.e_da_liga(padrao)):
+        # O `e_da_liga` já normaliza por dentro. Aqui havia um segundo teste
+        # com uma variável `padrao` que eu apaguei no refactor e esqueci de
+        # tirar daqui — NameError esperando o primeiro clube que chegasse até
+        # esta linha. Quem pegou foi o teste de nomes definidos, de novo.
+        if glossario.e_da_liga(nome):
             return ""
     except Exception:
         pass
-    return (do_mundo.get(nome)
-            or (do_mundo.get(padrao) if padrao else "") or "")
+    return _do_indice(do_mundo, nome)
+
+
+def _do_indice(tabela: dict, nome: str) -> str:
+    """Procura um clube numa tabela de escudos, normalizando OS DOIS LADOS.
+
+    A tabela vem indexada pelo nome como a fonte escreveu, e quem pergunta
+    escreve de outro jeito. Comparar cru contra cru só funciona por
+    coincidência — e por coincidência funcionou durante meses, porque havia
+    uma segunda tabela atrás para cobrir a falha.
+    """
+    if not nome or not tabela:
+        return ""
+    try:
+        import glossary
+        alvo = glossary.chave_latina(glossary.padronizar_clube(nome) or nome)
+    except Exception:
+        return tabela.get(nome) or ""
+    if not alvo:
+        return ""
+    for chave, url in tabela.items():
+        try:
+            k = glossary.chave_latina(
+                glossary.padronizar_clube(chave) or chave or "")
+        except Exception:
+            k = ""
+        if k and k == alvo:
+            return url or ""
+    return ""
 
 
 def _escudo_do_clube_pelo_nome(clube: str, temporada: int) -> str:

@@ -147,7 +147,9 @@ _gl.e_da_liga = lambda c: "nassr" in (c or "").lower().replace("-", "")
 sys.modules["glossario"] = _gl
 
 i = FONTE.index("def _escudo_de_clube(nome: str, da_liga: dict, do_mundo: dict)")
-PORTA = FONTE[i:FONTE.index("\ndef ", i + 10)]
+# O `_do_indice` vai JUNTO: a porta delega a ele a comparação normalizada
+# dos dois lados, e recortar só a primeira função dava NameError.
+PORTA = FONTE[i:FONTE.index("\ndef _escudo_do_clube_pelo_nome")]
 amb3 = {}
 exec(PORTA, amb3)
 _porta = amb3["_escudo_de_clube"]
@@ -163,11 +165,22 @@ def _e(nome):
 conferir(_e("Al-Nassr") == "riade.png",
          "com o clube nas DUAS tabelas, tem de valer o da liga — este é o "
          "caso do Al Nassr de Riade contra o Al Nasr de Dubai")
-conferir(_e("Al Nasr") == "",
-         "a grafia que a liga não tem caiu na tabela do mundo e trouxe o "
-         "escudo de Dubai. Para clube que o GLOSSÁRIO reconhece como da liga, "
-         "o mundo não é recurso: sem escudo é melhor que escudo errado, "
-         "porque o errado é convincente")
+# "Al Nasr" É A GRAFIA CURTA DO CLUBE DE RIADE, e agora ela acha o escudo
+# certo — porque os DOIS lados são normalizados antes de comparar. Antes eu
+# procurava a chave crua na tabela, não achava, e caía no mundo, onde "Al
+# Nasr" é o clube de Dubai. Depois que eu tranquei o mundo, deixou de trazer
+# Dubai e passou a não trazer nada: a guia inteira ficou sem escudo, e foi o
+# que ele viu na tela.
+conferir(_e("Al Nasr") == "riade.png",
+         "a grafia curta do clube de Riade não achou o escudo dele na tabela "
+         "da liga. Os dois lados precisam ser normalizados antes de comparar "
+         "— a chave da tabela também, não só a pergunta")
+
+# E A TRANCA CONTINUA VALENDO para o que a liga realmente não tem.
+conferir(_e("Al Nassr Dubai") == "",
+         "um clube que o glossário reconhece como da liga e que a tabela da "
+         "liga não tem caiu no mundo. Aí sem escudo é melhor que escudo "
+         "errado, porque o errado é convincente")
 conferir(_e("Chelsea") == "chelsea.png",
          "clube de fora da liga só existe na tabela mundial; sem ela, "
          "lesionado no exterior ficaria sem escudo")

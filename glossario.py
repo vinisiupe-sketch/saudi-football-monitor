@@ -480,6 +480,56 @@ def quem(af_id=None, spl_id=None, tm_id=None, nome: str = "",
     return ficha(achado) if achado else {}
 
 
+def so_no_clube(nome: str, clube: str) -> dict:
+    """Um sobrenome solto, resolvido DENTRO do elenco daquele clube.
+
+    O CASO DELE (20/09/26)
+        A guia de Lesões mostrava "Nández" e "Bouabré" marcados SEM ID, com o
+        glossário cheio. A notícia escreve só o sobrenome, e o `identidade` é
+        consulta exata de propósito — ele não adivinha, e é isso que o torna
+        autoridade em vez de mais um palpite.
+
+        Só que aqui não há palpite nenhum a dar: "Nández" é uma palavra do
+        nome de EXATAMENTE UM jogador do Al Qadsiah. Não é semelhança de
+        texto, não é distância de edição, não é "parecido o bastante". É
+        igualdade de palavra, dentro de um elenco de trinta pessoas, com
+        unicidade exigida.
+
+    AS TRÊS GUARDAS, e cada uma tem motivo
+        1. Precisa de CLUBE. Sem ele o universo é a liga inteira e "Ali" acha
+           dez pessoas.
+        2. A palavra tem de bater INTEIRA, depois de normalizada. "Nand" não
+           acha "Nández".
+        3. Tem de ser ÚNICO naquele elenco. Dois jogadores com o mesmo
+           sobrenome devolvem {} — citar o irmão errado é pior que não citar.
+
+    E NÃO VALE PARA PALAVRA CURTA NEM PARA NOME COMPOSTO INTEIRO: uma palavra
+    de três letras acha qualquer coisa, e quem manda um nome de duas palavras
+    já devia ter sido achado pela consulta exata.
+    """
+    import glossary
+    alvo = _chave(nome or "")
+    if not alvo or len(alvo) < 4 or " " in alvo or not (clube or "").strip():
+        return {}
+    chave_clube = glossary.chave_latina(
+        glossary.padronizar_clube(clube) or clube)
+    achados = []
+    for d in (carregar().get("por_id") or {}).values():
+        seu = glossary.chave_latina(
+            glossary.padronizar_clube(d.get("clube") or "")
+            or d.get("clube") or "")
+        if not seu or seu != chave_clube:
+            continue
+        palavras = set()
+        for campo in ("nome_principal", "nome_curto"):
+            palavras |= set(_chave(d.get(campo) or "").split())
+        for g in (d.get("grafias") or []):
+            palavras |= set((g.get("nome_normalizado") or "").split())
+        if alvo in palavras:
+            achados.append(d)
+    return achados[0] if len(achados) == 1 else {}
+
+
 def procurar(termo: str, limite: int = 12) -> list[dict]:
     """As fichas cujo nome contém este pedaço. Para caixa de busca.
 

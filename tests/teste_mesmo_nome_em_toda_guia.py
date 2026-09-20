@@ -90,7 +90,7 @@ ok(CANONICO["s1"] == "Yassine Bounou",
    f"o glossário de teste não está montado: {CANONICO}")
 
 
-def _medir(lesoes, cartoes, mercado):
+def _medir(lesoes, cartoes, mercado, lesoes_resolve=True):
     """Roda a medição de verdade, recortada do main.py.
 
     Recorto e executo em vez de reescrever a lógica aqui: se eu refizesse a
@@ -104,26 +104,60 @@ def _medir(lesoes, cartoes, mercado):
     database.get_injuries = lambda incluir=False: lesoes
     database.cartoes_da_temporada = lambda t: cartoes
     database.negociacoes = lambda a=60, b=45: mercado
-    amb = {"glossario": glossario, "_af_temporada_corrente": lambda: 2026}
+    # A MEDIÇÃO AGORA APLICA A RESOLUÇÃO DE CADA GUIA, e não lê o texto cru.
+    # Então o ambiente precisa das duas funções que as guias usam: o contexto
+    # de elenco e o identificador. Eles entram como o app os tem — o
+    # `_identificar_jogador` de verdade seria melhor, mas ele puxa meio
+    # main.py; aqui basta que a medição CHAME quem resolve, e o que se mede é
+    # se ela compara o exibido.
+    amb = {"glossario": glossario, "_af_temporada_corrente": lambda: 2026,
+           "_contexto_de_elenco": lambda: {},
+           # `lesoes_resolve=False` simula a guia cuja resolução é mais
+           # FRACA que a da medição: ela não acha o jogador e exibe o nome
+           # cru, enquanto o elenco exibe o da dimensão. É essa a divergência
+           # que interessa agora — a guia que vaza a grafia da fonte para a
+           # tela. Quando NINGUÉM acha, o caso é outro: vira "não
+           # identificado", que é a terceira seção do relatório.
+           "_identificar_jogador": (
+               (lambda nome, clube, ctx:
+                glossario.quem(nome=nome, clube=clube) or {})
+               if lesoes_resolve else (lambda nome, clube, ctx: {}))}
     exec(corpo, amb)
-    return amb["_juntar"]()
+    por_id, desconhecidos, _grafias = amb["_juntar"]()
+    return por_id, desconhecidos
 
 
 # ── 1. A MEDIÇÃO ACUSA A DIVERGÊNCIA ────────────────────────────────────
 #
 # O cenário é o real: cada guia guardou a grafia da fonte que a alimentou.
+# A guia de Lesões não resolve; as outras resolvem. Ela exibe "Yassine Bono",
+# o elenco exibe "Yassine Bounou", e a MESMA pessoa aparece com dois nomes.
 por_id, desconhecidos = _medir(
     lesoes=[{"player_name": "Yassine Bono", "club": "Al Hilal"}],
     cartoes=[{"jogador": "Kader Meite", "jogador_id": 102,
               "clube": "Al Hilal"}],
-    mercado=[{"jogador": "Yassine Bono", "spl_id": "s1", "af_id": 101}])
+    mercado=[{"jogador": "Yassine Bono", "spl_id": "s1", "af_id": 101}],
+    lesoes_resolve=False)
 
 divergentes = {k: v for k, v in por_id.items() if len(v["vistos"]) > 1}
-ok(len(divergentes) == 2,
-   f"a medição achou {len(divergentes)} divergências e o cenário tem duas: o "
-   f"Bounou aparece como 'Yassine Bono' em lesões e mercado, e o Meïté como "
-   f"'Kader Meite' nos pendurados. Se ela não acusa isso, ela não serve para "
-   f"nada — e foi para não continuar apontando o lugar errado que ela existe")
+ok(len(divergentes) == 1,
+   f"a medição achou {len(divergentes)} divergências e o cenário tem uma: a "
+   f"guia de Lesões exibe 'Yassine Bono' e o elenco exibe 'Yassine Bounou'. "
+   f"Se ela não acusa isso, ela não serve para nada — e foi para eu parar de "
+   f"apontar o lugar errado que ela existe")
+# E O MERCADO E OS PENDURADOS, QUE RESOLVEM, NÃO PODEM APARECER: eles guardam
+# a grafia da fonte na tabela e exibem a da dimensão. Acusá-los seria alarme
+# falso — foi o que a primeira versão desta medição fez com 108 linhas.
+# Elas PODEM aparecer — mas só sob o nome canônico, que é onde estar é
+# elogio. O que não pode é uma guia que traduz aparecer sob a grafia da fonte.
+_erradas = {g for d in divergentes.values()
+            for nome, guias in d["vistos"].items() if nome != d["canonico"]
+            for g in guias}
+ok(_erradas == {"lesões"},
+   f"as guias exibindo grafia que não é a da dimensão são {_erradas}; só a de "
+   f"Lesões deveria estar, porque só ela não resolveu neste cenário. Acusar "
+   f"quem traduz é alarme falso — foi o que a primeira versão desta medição "
+   f"fez em 108 linhas, e foi por isso que o número assustou à toa")
 
 _bono = por_id.get("s1") or {}
 ok(_bono.get("canonico") == "Yassine Bounou",
@@ -131,11 +165,11 @@ ok(_bono.get("canonico") == "Yassine Bounou",
    f"da DIM_JOGADOR, que é a referência contra a qual tudo é comparado")
 ok(set(_bono.get("vistos", {}).keys()) == {"Yassine Bounou", "Yassine Bono"},
    f"as grafias vistas do Bounou saíram {set(_bono.get('vistos', {}))}")
-ok(_bono.get("vistos", {}).get("Yassine Bono") == {"lesões", "mercado"},
+ok(_bono.get("vistos", {}).get("Yassine Bono") == {"lesões"},
    f"a medição não diz QUAIS guias mostram a grafia divergente: "
    f"{_bono.get('vistos', {}).get('Yassine Bono')}. Sem isso ela vira um "
    f"número sem endereço, e eu volto a consertar por adivinhação")
-ok(_bono.get("vistos", {}).get("Yassine Bounou") == {"elenco"},
+ok("elenco" in (_bono.get("vistos", {}).get("Yassine Bounou") or set()),
    "a medição perdeu o elenco como referência")
 
 # ── 2. TUDO PADRONIZADO NÃO ACUSA NADA ──────────────────────────────────

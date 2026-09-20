@@ -168,14 +168,15 @@ ok(glossario.clube(af_id=123456) == {},
 # 3. O ESCUDO DAS TELAS PASSA PELO DIM_CLUBE
 # ─────────────────────────────────────────────────────────────────────────
 i = FONTE.index("def _escudo_de_clube(nome: str, da_liga: dict, do_mundo: dict)")
-PORTA = FONTE[i:FONTE.index("\ndef ", i + 10)]
+# Leva o `_do_indice` junto: é ele que compara os dois lados normalizados.
+PORTA = FONTE[i:FONTE.index("\ndef _escudo_do_clube_pelo_nome")]
 _sem_comentario = "\n".join(l for l in PORTA.split("\n")
                             if not l.strip().startswith("#"))
 ok("glossario.clube(nome=nome)" in _sem_comentario,
    "a porta do escudo parou de perguntar ao DIM_CLUBE. Ela volta a decidir "
    "por tabela de nome, que é de onde o Al Nasr de Dubai saiu")
 ok(_sem_comentario.index("glossario.clube")
-   < _sem_comentario.index("da_liga.get"),
+   < _sem_comentario.index("_do_indice(da_liga"),
    "o DIM_CLUBE deixou de ser a PRIMEIRA pergunta; as tabelas de nome voltaram "
    "a responder antes da entidade")
 
