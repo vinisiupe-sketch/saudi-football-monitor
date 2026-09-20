@@ -94,6 +94,22 @@ COLETAS = [
                  "ela caiu.",
     },
     {
+        "chave": "clubes",
+        "nome": "Cadastro dos clubes (o DIM_CLUBE)",
+        "fonte": "calendário da liga, Transfermarkt e o próprio glossário",
+        "cadencia": "a cada temporada",
+        "dias": 120,
+        "rota": "/api/clubes/semear",
+        "metodo": "POST",
+        "ajuda": "Monta a ficha de cada clube com os três ids externos "
+                 "pendurados num id interno — a mesma ideia do glossário de "
+                 "jogadores, que faltava para os clubes. É a ÚNICA vez em que "
+                 "o app compara nome de clube com nome de clube; depois disto "
+                 "toda tela pergunta pelo id. Enquanto não rodar, o escudo "
+                 "continua sendo resolvido pelo caminho antigo, que é onde o "
+                 "Al Nasr de Dubai apareceu no lugar do Al-Nassr.",
+    },
+    {
         "chave": "cadastro_das_fontes",
         "nome": "Cadastro das fontes (nascimento, altura, peso)",
         "fonte": "SPL e API-Football",

@@ -11476,6 +11476,98 @@ async def api_clipe_descartar():
     return {"ok": True, "apagados": r["apagados"], "ids": r["ids"]}
 
 
+@app.post("/api/clubes/semear")
+async def api_clubes_semear(season: int = 0):
+    """Monta o DIM_CLUBE a partir do que as três bases já trouxeram.
+
+    É A ÚNICA VEZ EM QUE NOME DE CLUBE É COMPARADO COM NOME DE CLUBE no app
+    inteiro. Depois disto, cada clube tem um id interno com os ids externos
+    pendurados, e nenhuma tela compara string — todas perguntam pelo id.
+    """
+    from database import semear_clubes
+    r = await asyncio.to_thread(semear_clubes,
+                                season or _af_temporada_corrente())
+    try:
+        import glossario
+        glossario.carregar_clubes(forcar=True)
+    except Exception:
+        pass
+    # A DATA FICA GRAVADA, como em toda coleta: sem ela a tela mostra um
+    # número sem dizer de quando.
+    from database import marcar_coleta
+    await asyncio.to_thread(
+        marcar_coleta, "clubes",
+        f"{r.get('novos', 0)} novo(s), {r.get('atualizados', 0)} atualizado(s), "
+        f"{r.get('vistos', 0)} visto(s)",
+        r.get("erro") or "")
+    return r
+
+
+@app.get("/api/diag/clubes", response_class=PlainTextResponse)
+async def api_diag_clubes():
+    """O DIM_CLUBE por extenso: quem tem quais ids, e quem está incompleto.
+
+    POR QUE ESTA PÁGINA
+        Ele passou horas ligando jogador a jogador entre as três bases e o
+        clube não tinha nada disso. Agora tem — e este é o lugar onde se vê o
+        estado do cruzamento, clube a clube, em vez de descobrir pelo escudo
+        errado num post publicado.
+
+        Clube sem `af_id` é clube sem escudo: o endereço do emblema é o número
+        da API-Football dentro da URL. Sem ele a linha aparece aqui marcada, e
+        a tela mostra o nome do clube em vez de um escudo emprestado.
+    """
+    import glossario
+
+    linhas = ["O DIM_CLUBE — " +
+              datetime.now(BRT).strftime("%d/%m/%Y %H:%M") + " (Brasília)",
+              "=" * 62, ""]
+    dados = await asyncio.to_thread(glossario.carregar_clubes, True)
+    fichas = list((dados.get("por_id") or {}).values())
+    if not fichas:
+        linhas.append("Nenhum clube cadastrado ainda.")
+        linhas.append("")
+        linhas.append("Rode a semeadura: Configurações → Jogadores → "
+                      "'Cadastro dos clubes', ou POST /api/clubes/semear.")
+        return PlainTextResponse("\n".join(linhas) + "\n")
+
+    com = {k: sum(1 for f in fichas if f.get(k)) for k in
+           ("af_id", "tm_id", "spl_id")}
+    linhas.append(f"{len(fichas)} clubes no glossário.")
+    linhas.append(f"   com id da API-Football: {com['af_id']}  "
+                  f"(é ele que dá o escudo)")
+    linhas.append(f"   com id do Transfermarkt: {com['tm_id']}")
+    linhas.append(f"   com id da SPL: {com['spl_id']}")
+    linhas.append("")
+
+    faltando = [f for f in fichas if not f.get("af_id")]
+    if faltando:
+        linhas.append(f"❌ {len(faltando)} SEM id da API-Football — estes ficam "
+                      f"sem escudo,")
+        linhas.append("   e é de propósito: emprestar o emblema de um "
+                      "homônimo é o defeito")
+        linhas.append("   que derrubou isto duas vezes.")
+        for f in faltando[:20]:
+            linhas.append(f"     {f.get('nome_canonico')}")
+        linhas.append("")
+
+    linhas.append("CLUBE A CLUBE:")
+    linhas.append("")
+    for f in sorted(fichas, key=lambda x: (x.get("nome_canonico") or "").lower()):
+        marca = "✅" if f.get("af_id") else "❌"
+        linhas.append(f"  {marca} #{f.get('id')} {f.get('nome_canonico')}")
+        linhas.append(f"        af={f.get('af_id') or '—'}  "
+                      f"tm={f.get('tm_id') or '—'}  "
+                      f"spl={f.get('spl_id') or '—'}"
+                      + ("  (revisado)" if f.get("revisado") else ""))
+        grafias = [g.get("nome") for g in (f.get("grafias") or [])
+                   if g.get("nome") and g.get("nome") != f.get("nome_canonico")]
+        if grafias:
+            linhas.append(f"        também aparece como: "
+                          f"{' / '.join(grafias[:4])}")
+    return PlainTextResponse("\n".join(linhas) + "\n")
+
+
 @app.get("/api/diag/nomes-arabes", response_class=PlainTextResponse)
 async def api_diag_nomes_arabes():
     """QUANTOS NOMES DO GLOSSÁRIO O ESPAÇO DO عبد ESCONDE DA IMPRENSA.
@@ -18320,6 +18412,30 @@ def _escudo_de_clube(nome: str, da_liga: dict, do_mundo: dict) -> str:
     """
     if not nome:
         return ""
+
+    # ── O DIM_CLUBE RESPONDE PRIMEIRO (20/09/26) ────────────────────────────
+    #
+    # "fonte externa → ID externo do clube → clube_id_interno → DIM_CLUBE →
+    #  nome, escudo e demais dados padronizados."
+    #
+    # Quando o clube está no glossário, o escudo sai do ID dele — o número
+    # dentro da própria URL — e nenhuma das duas tabelas de nome é consultada.
+    # É o caminho que ele desenhou, e o único em que "Al Nassr" não pode virar
+    # outro clube no meio do percurso.
+    try:
+        import glossario
+        c = glossario.clube(nome=nome)
+        if c.get("escudo"):
+            return c["escudo"]
+        if c:
+            # O clube EXISTE no glossário e ainda não tem id externo nem
+            # escudo próprio. Isso é lacuna de cadastro, não licença para
+            # adivinhar: cair na tabela do mundo aqui seria repetir o defeito
+            # com um passo a mais. O /api/diag/clubes mostra quem está assim.
+            return ""
+    except Exception:
+        pass
+
     try:
         import glossary
         padrao = glossary.padronizar_clube(nome) or ""

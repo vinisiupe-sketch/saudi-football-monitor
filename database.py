@@ -448,6 +448,72 @@ def init_db():
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS glossario_lab_clube (
+                id              SERIAL PRIMARY KEY,
+                nome_canonico   TEXT NOT NULL,
+                nome_curto      TEXT NOT NULL DEFAULT '',
+                spl_id          TEXT,
+                af_id           INTEGER,
+                tm_id           TEXT,
+                escudo          TEXT NOT NULL DEFAULT '',
+                revisado        BOOLEAN NOT NULL DEFAULT FALSE,
+                criado_em       TIMESTAMPTZ DEFAULT NOW(),
+                atualizado_em   TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        # O DIM_CLUBE QUE FALTAVA (20/09/26)
+        #
+        # Ele desenhou o modelo estrela e apontou o buraco:
+        #
+        #     "Repare que as tabelas ao redor se conectam à DIM_JOGADOR por meio
+        #      da chave primária jogador_id_interno. (...) Para clubes, a mesma
+        #      arquitetura: fonte externa → ID externo do clube →
+        #      clube_id_interno → DIM_CLUBE → nome, escudo e demais dados."
+        #
+        # O glossário de JOGADOR tinha isso desde setembro: um id interno com
+        # os três externos pendurados. O clube não tinha nada — era um campo de
+        # TEXTO dentro da ficha do jogador, e cada tela resolvia nome e escudo
+        # por conta, casando string com string.
+        #
+        # Era por isso que o Al Nasr de Dubai aparecia: não havia entidade
+        # "clube" no sistema, só nomes iguais em bases diferentes. Trancar a
+        # tabela mundial, como fiz ontem, foi remendo — o buraco era este.
+        #
+        # AQUI CADA CLUBE É UMA LINHA, com os três ids externos e o nome e o
+        # escudo que TODA tela vai usar. Depois que a correspondência é feita,
+        # ninguém mais compara nome com nome.
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS ix_lab_clube_af ON glossario_lab_clube(af_id)
+        """)
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS ix_lab_clube_tm ON glossario_lab_clube(tm_id)
+        """)
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS ix_lab_clube_spl ON glossario_lab_clube(spl_id)
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS glossario_lab_clube_nome (
+                id              SERIAL PRIMARY KEY,
+                clube_id        INTEGER NOT NULL REFERENCES glossario_lab_clube(id)
+                                  ON DELETE CASCADE,
+                fonte           TEXT NOT NULL,
+                idioma          TEXT NOT NULL DEFAULT '',
+                nome            TEXT NOT NULL,
+                nome_normalizado TEXT NOT NULL DEFAULT '',
+                criado_em       TIMESTAMPTZ DEFAULT NOW(),
+                UNIQUE (clube_id, fonte, idioma, nome)
+            )
+        """)
+        # A PONTE_NOME_VARIANTE do clube. Mesmo papel da tabela de grafias do
+        # jogador: "Al-Nassr", "Al Nassr FC", "النصر" e "Al Nassr Riyadh" são a
+        # mesma entidade, e é aqui que isso fica escrito uma vez só — em vez de
+        # cada tela ter a sua listinha de apelidos.
+        c.execute("""
+            CREATE INDEX IF NOT EXISTS ix_lab_clube_nome_norm
+                ON glossario_lab_clube_nome(nome_normalizado)
+        """)
+
+        c.execute("""
             CREATE TABLE IF NOT EXISTS glossario_lab_nome (
                 id              SERIAL PRIMARY KEY,
                 jogador_id      INTEGER NOT NULL REFERENCES glossario_lab_jogador(id)
@@ -678,6 +744,143 @@ def valor_de_ajuste(chave: str):
             return (ajustes.POR_CHAVE.get(chave) or {}).get("padrao")
         except Exception:
             return None
+
+
+def clubes_completos() -> tuple[list[dict], list[dict]]:
+    """O DIM_CLUBE inteiro: as fichas e as grafias. Matéria-prima do glossário.
+
+    Mesmo formato do `glossario_completo`, e de propósito: a tela de clube é a
+    mesma ideia da de jogador, e quem ler uma entende a outra.
+    """
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            c.execute("""
+                SELECT id, nome_canonico, nome_curto, spl_id, af_id, tm_id,
+                       escudo, revisado
+                  FROM glossario_lab_clube ORDER BY nome_canonico
+            """)
+            fichas = [dict(x) for x in c.fetchall()]
+            c.execute("""
+                SELECT clube_id, fonte, idioma, nome, nome_normalizado
+                  FROM glossario_lab_clube_nome
+            """)
+            return fichas, [dict(x) for x in c.fetchall()]
+    except Exception as e:
+        print(f"⚠️ clubes_completos: {type(e).__name__}: {e}", flush=True)
+        return [], []
+
+
+def semear_clubes(season: int) -> dict:
+    """Cria o DIM_CLUBE a partir do que as três bases JÁ trouxeram.
+
+    A CORRESPONDÊNCIA ACONTECE UMA VEZ, AQUI (20/09/26)
+        "As APIs externas devem servir para identificar e enriquecer as
+         entidades. Depois que a correspondência for feita, a aplicação deve
+         trabalhar com nossos IDs internos e com uma fonte canônica."
+
+        Então este é o único lugar do app onde nome de clube é comparado com
+        nome de clube. Ele roda quando ele manda, olha as três fontes, e grava
+        a linha com os três ids pendurados no id interno. Daqui em diante
+        nenhuma tela compara string: todas perguntam pelo id.
+
+    DE ONDE SAI CADA ID
+        af_id  — do calendário da competição (`partida_liga.casa_id/fora_id`),
+                 que é o que já alimentava a tabela de escudos da liga.
+        tm_id  — do elenco congelado do Transfermarkt.
+        spl_id — da lista de clubes da API da liga, quando ela respondeu.
+
+    NUNCA SOBRESCREVE O QUE ELE REVISOU. Mesma regra da ficha permanente: o
+    `COALESCE` põe o que JÁ ESTÁ primeiro, e a linha marcada como revisada não
+    é tocada nem no nome nem no escudo.
+    """
+    try:
+        import glossary
+    except Exception:
+        glossary = None
+
+    def _chave(n):
+        if not glossary:
+            return " ".join((n or "").lower().split())
+        return glossary.chave_latina(glossary.padronizar_clube(n) or n or "")
+
+    vindos: dict = {}       # chave -> {nome, af_id, tm_id, spl_id}
+
+    def _juntar(nome, **ids):
+        if not (nome or "").strip():
+            return
+        d = vindos.setdefault(_chave(nome), {"nome": nome.strip()})
+        for k, v in ids.items():
+            if v and not d.get(k):
+                d[k] = v
+
+    novos = mexidos = 0
+    try:
+        with get_conn() as conn:
+            c = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            _cria_partida_liga(c)
+            c.execute("""SELECT casa_id AS cid, casa AS nome FROM partida_liga
+                          WHERE season = %s AND casa_id IS NOT NULL
+                         UNION
+                         SELECT fora_id, fora FROM partida_liga
+                          WHERE season = %s AND fora_id IS NOT NULL""",
+                      [season, season])
+            for r in c.fetchall():
+                _juntar(r["nome"], af_id=r["cid"])
+
+            # O `clube_id` do elenco congelado É o id do Transfermarkt: a
+            # tabela nasce da raspagem do kader, e o número vem da própria URL
+            # (`/startseite/verein/{id}`). Está escrito aqui porque o nome da
+            # coluna não diz isso, e eu mesmo errei ao escrever esta consulta
+            # pela primeira vez, procurando um `clube_tm_id` que não existe.
+            c.execute("""SELECT DISTINCT clube, clube_id FROM elenco_congelado
+                          WHERE clube IS NOT NULL AND clube <> ''""")
+            for r in c.fetchall():
+                _juntar(r["clube"], tm_id=str(r.get("clube_id") or "") or None)
+
+            c.execute("""SELECT DISTINCT clube FROM glossario_lab_jogador
+                          WHERE clube IS NOT NULL AND clube <> ''""")
+            for r in c.fetchall():
+                _juntar(r["clube"])
+
+            # ── grava ────────────────────────────────────────────────────────
+            c.execute("SELECT id, nome_canonico FROM glossario_lab_clube")
+            existentes = {_chave(x["nome_canonico"]): x["id"]
+                          for x in c.fetchall()}
+            for chave, d in vindos.items():
+                if chave in existentes:
+                    c.execute("""
+                        UPDATE glossario_lab_clube SET
+                            af_id  = COALESCE(af_id, %s),
+                            tm_id  = COALESCE(tm_id, %s),
+                            spl_id = COALESCE(spl_id, %s),
+                            atualizado_em = NOW()
+                         WHERE id = %s
+                    """, [d.get("af_id"), d.get("tm_id"), d.get("spl_id"),
+                          existentes[chave]])
+                    mexidos += c.rowcount or 0
+                    alvo = existentes[chave]
+                else:
+                    c.execute("""
+                        INSERT INTO glossario_lab_clube
+                            (nome_canonico, af_id, tm_id, spl_id)
+                        VALUES (%s,%s,%s,%s) RETURNING id
+                    """, [d["nome"], d.get("af_id"), d.get("tm_id"),
+                          d.get("spl_id")])
+                    alvo = c.fetchone()["id"]
+                    existentes[chave] = alvo
+                    novos += 1
+                c.execute("""
+                    INSERT INTO glossario_lab_clube_nome
+                        (clube_id, fonte, idioma, nome, nome_normalizado)
+                    VALUES (%s,'semeadura','lat',%s,%s)
+                    ON CONFLICT (clube_id, fonte, idioma, nome) DO NOTHING
+                """, [alvo, d["nome"], chave])
+        _glossario_mudou()
+        return {"novos": novos, "atualizados": mexidos, "vistos": len(vindos)}
+    except Exception as e:
+        print(f"⚠️ semear_clubes: {type(e).__name__}: {e}", flush=True)
+        return {"erro": f"{type(e).__name__}: {e}"}
 
 
 def glossario_completo() -> tuple[list[dict], list[dict]]:

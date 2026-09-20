@@ -297,6 +297,151 @@ def por_spl_id(spl_id) -> dict:
     return (carregar().get("por_spl") or {}).get(str(spl_id or "")) or {}
 
 
+# ── O DIM_CLUBE ─────────────────────────────────────────────────────────────
+#
+# O MODELO ESTRELA DELE, EM 20/09/26
+#     "fonte externa → ID externo do clube → clube_id_interno → DIM_CLUBE →
+#      nome, escudo e demais dados padronizados."
+#
+#     "Não quero que cada guia escolha diretamente uma informação diferente
+#      dependendo da API que alimentou aquele dado."
+#
+# O glossário de JOGADOR já era isso desde setembro. O clube não era nada: um
+# campo de TEXTO dentro da ficha, e cada tela resolvendo nome e escudo por
+# conta própria, casando string com string. O Al Nasr de Dubai não foi um
+# descuido pontual — foi o sintoma de não existir a entidade.
+#
+# Aqui o clube passa a ter as mesmas quatro portas que o jogador tem.
+_CACHE_CLUBE = {"quando": 0.0, "dados": None}
+
+
+def _indexar_clube(por_chave: dict, chave: str, dono: dict) -> None:
+    """Põe o clube no índice SEM repetir a si mesmo.
+
+    ISTO ME PEGOU NA PRIMEIRA RODADA. O "Al Nassr" tem nome canônico "Al
+    Nassr" e nome curto "Nassr", e o `padronizar_clube` leva os dois para a
+    mesma chave — como deve. Sem conferir o id, a ficha entrava duas vezes na
+    mesma lista, a consulta via len(candidatos) == 2 e devolvia {} por
+    "ambiguidade": o clube virava homônimo de si mesmo.
+
+    A guarda da ambiguidade continua valendo, e tem de valer — dois clubes
+    diferentes com o mesmo nome normalizado precisam mesmo virar "não sei".
+    """
+    if not chave:
+        return
+    lista = por_chave.setdefault(chave, [])
+    if not any(x["id"] == dono["id"] for x in lista):
+        lista.append(dono)
+
+
+def _montar_clubes(fichas, grafias) -> dict:
+    por_id, por_af, por_tm, por_spl, por_chave = {}, {}, {}, {}, {}
+    for f in fichas:
+        d = dict(f)
+        d["grafias"] = []
+        por_id[d["id"]] = d
+        if d.get("af_id"):
+            por_af[int(d["af_id"])] = d
+        if d.get("tm_id"):
+            por_tm[str(d["tm_id"])] = d
+        if d.get("spl_id"):
+            por_spl[str(d["spl_id"])] = d
+        for campo in ("nome_canonico", "nome_curto"):
+            _indexar_clube(por_chave, _chave_clube(d.get(campo) or ""), d)
+    for g in grafias:
+        dono = por_id.get(g.get("clube_id"))
+        if not dono:
+            continue
+        dono["grafias"].append(dict(g))
+        k = (g.get("nome_normalizado") or "").strip() or \
+            _chave_clube(g.get("nome") or "")
+        _indexar_clube(por_chave, k, dono)
+    return {"por_id": por_id, "por_af": por_af, "por_tm": por_tm,
+            "por_spl": por_spl, "por_chave": por_chave}
+
+
+def _chave_clube(nome: str) -> str:
+    """A forma de comparação de nome de clube.
+
+    Passa pelo `padronizar_clube` ANTES de normalizar, que é o que faz
+    "Al-Nassr", "Al Nassr FC" e "AlNassr" caírem no mesmo lugar. É a mesma
+    função que o resto do app usa para clube — escrever outra aqui faria o
+    glossário comparar uma coisa contra outra parecida.
+    """
+    import glossary
+    if _e_arabe(nome):
+        return glossary.chave_arabe(nome or "")
+    return glossary.chave_latina(glossary.padronizar_clube(nome) or nome or "")
+
+
+def carregar_clubes(forcar: bool = False) -> dict:
+    agora = time.time()
+    with _TRAVA:
+        fresco = (_CACHE_CLUBE["dados"] is not None
+                  and (agora - _CACHE_CLUBE["quando"]) < PRAZO_SEG)
+        if fresco and not forcar:
+            return _CACHE_CLUBE["dados"]
+    try:
+        import database
+        dados = _montar_clubes(*database.clubes_completos())
+    except Exception as e:
+        print(f"⚠️ glossário de clubes: {type(e).__name__}: {e}", flush=True)
+        return {"por_id": {}, "por_af": {}, "por_tm": {}, "por_spl": {},
+                "por_chave": {}}
+    with _TRAVA:
+        _CACHE_CLUBE["dados"] = dados
+        _CACHE_CLUBE["quando"] = agora
+    return dados
+
+
+def clube(af_id=None, tm_id=None, spl_id=None, nome: str = "") -> dict:
+    """O CLUBE, por qualquer uma das três bases. {} quando não sei.
+
+    Devolve sempre o mesmo nome e o mesmo escudo para a mesma entidade, venha
+    a pergunta de onde vier — que é exatamente o que ele pediu.
+
+    A ordem é a da confiança, como no jogador: identificador antes de nome. E
+    o nome, quando é o único que se tem, entra pela chave normalizada; se ela
+    cair em dois clubes, a resposta é {} em vez de um palpite.
+    """
+    dados = carregar_clubes()
+    achado = None
+    if af_id:
+        try:
+            achado = (dados.get("por_af") or {}).get(int(af_id))
+        except (TypeError, ValueError):
+            achado = None
+    if not achado and tm_id:
+        achado = (dados.get("por_tm") or {}).get(str(tm_id))
+    if not achado and spl_id:
+        achado = (dados.get("por_spl") or {}).get(str(spl_id))
+    if not achado and nome:
+        candidatos = (dados.get("por_chave") or {}).get(_chave_clube(nome)) or []
+        achado = candidatos[0] if len(candidatos) == 1 else None
+    if not achado:
+        return {}
+    return {
+        "id": achado.get("id"),
+        "nome": achado.get("nome_canonico") or "",
+        "nome_curto": achado.get("nome_curto") or "",
+        "af_id": achado.get("af_id"),
+        "tm_id": achado.get("tm_id"),
+        "spl_id": achado.get("spl_id"),
+        # O ESCUDO SAI DO ID, SEMPRE. O campo `escudo` existe para ele
+        # sobrescrever um caso específico; vazio, o endereço é derivado do id
+        # da API-Football — que é o número dentro da própria URL, sem tabela
+        # de nomes no meio. Foi tabela de nome que pôs Dubai no lugar de Riade.
+        "escudo": (achado.get("escudo") or (
+            f"https://media.api-sports.io/football/teams/{achado['af_id']}.png"
+            if achado.get("af_id") else "")),
+        "revisado": bool(achado.get("revisado")),
+    }
+
+
+def quantos_clubes() -> int:
+    return len(carregar_clubes().get("por_id") or {})
+
+
 def quem(af_id=None, spl_id=None, tm_id=None, nome: str = "",
          clube: str = "") -> dict:
     """A FICHA desta pessoa, por qualquer uma das três bases. {} quando não sei.
