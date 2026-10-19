@@ -586,8 +586,27 @@ class Gravador:
         return itens
 
     # ── gravar ────────────────────────────────────────────────────────────
-    def _urls_do_fluxo(self, url: str) -> list:
-        """Vídeo e áudio vêm separados nesta transmissão; pego os dois."""
+    def _urls_do_fluxo(self, url: str) -> tuple:
+        """Vídeo e áudio vêm separados nesta transmissão; pego os dois.
+
+        DEVOLVE TAMBÉM O MOTIVO DA FALHA (16/10/26)
+            Esta função devolvia só a lista, e quando ela voltava vazia quem
+            chamava escrevia "não consegui o fluxo. Ainda está no ar?". O
+            jogo ESTAVA no ar — a linha de cima do log dizia "canal: 1 no ar".
+            A pergunta era um palpite meu, repetido a cada tentativa, enquanto
+            o motivo de verdade estava no `stderr` do yt-dlp, que eu capturava
+            e jogava fora.
+
+            É o mesmo defeito que já me custou três dias nesta aplicação: o
+            app afirmando uma causa plausível em vez de mostrar a que ele tem
+            na mão. "Ainda está no ar?" manda o Vini conferir a transmissão —
+            exatamente o lugar onde o problema não está.
+
+            Agora o que o yt-dlp disse sobe junto. Se for bloqueio de bot, vai
+            estar escrito; se for formato que não existe naquela altura, vai
+            estar escrito; se for o yt-dlp velho demais para o YouTube de
+            hoje, vai estar escrito.
+        """
         alt = int(AJUSTES["gravador_altura_max"])
         try:
             r = subprocess.run(
@@ -596,10 +615,23 @@ class Gravador:
                               "-g", url],
                 capture_output=True, text=True, timeout=120,
                 encoding="utf-8", errors="replace")
-        except Exception:
-            return []
-        return [l.strip() for l in (r.stdout or "").splitlines()
+        except subprocess.TimeoutExpired:
+            return [], "o yt-dlp passou de 120s sem responder"
+        except FileNotFoundError:
+            return [], f"não achei o yt-dlp em {' '.join(self.ytdlp)}"
+        except Exception as e:
+            return [], f"{type(e).__name__}: {e}"
+
+        urls = [l.strip() for l in (r.stdout or "").splitlines()
                 if l.startswith("http")]
+        if urls:
+            return urls, ""
+
+        # A ÚLTIMA LINHA ÚTIL DO stderr. O yt-dlp escreve o diagnóstico no fim,
+        # depois de linhas de progresso que não interessam.
+        linhas = [l.strip() for l in (r.stderr or "").splitlines() if l.strip()]
+        motivo = linhas[-1] if linhas else f"yt-dlp saiu com código {r.returncode}"
+        return [], motivo[:300]
 
     def comecar_pedaco(self, jogo: Jogo) -> bool:
         fluxos = self._urls_do_fluxo(jogo.url)

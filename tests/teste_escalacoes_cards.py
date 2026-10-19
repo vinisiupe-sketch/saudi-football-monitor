@@ -131,6 +131,81 @@ def testar():
     ok(nome == "MD 7" and len(rodada) == 9,
        f"deveria mostrar somente os 9 jogos da MD 7: {nome!r}, {len(rodada)}")
 
+    # ── 5b. A RODADA QUE NÃO AVANÇAVA (19/10/26) ─────────────────────────
+    #
+    #     "as rodadas nao estao avançando"
+    #
+    # A guia mostrava MD 8 em 19 de outubro. A causa: o `Playing` mandava
+    # sozinho, sem olhar data. A API esquece rodadas marcadas como em
+    # andamento, e aquele grupo ganhava para sempre — era o primeiro teste da
+    # escolha e ele nunca falhava.
+    presa = [da_md(8, "2026-09-18", "Playing") for _ in range(9)]
+    presa += [da_md(9, "2026-10-17", "Played") for _ in range(9)]
+    presa += [da_md(10, "2026-10-24", "Scheduled") for _ in range(9)]
+    # Uma SEGUNDA rodada futura, para a escolha ter o que errar: com uma só,
+    # pegar "a próxima" e "a última" dá no mesmo e a conferência não mede nada.
+    presa += [da_md(11, "2026-10-31", "Scheduled") for _ in range(9)]
+    nome, rodada = main._selecionar_rodada(presa, "2026-10-19")
+    ok(nome != "MD 8",
+       f"a rodada travou na MD 8 com um mês de atraso ({nome!r}). Status de "
+       f"'em andamento' numa rodada cujo último jogo já passou não é "
+       f"informação, é lixo que a API esqueceu de limpar")
+    ok(nome == "MD 10",
+       f"entre duas rodadas, deveria mostrar a que VEM (MD 10) — é o que ele "
+       f"precisa para preparar a transmissão. Veio {nome!r}")
+
+    # E ENTRE DUAS "Playing", VALE A MAIS RECENTE. Antes era o `next()`, que
+    # pega a primeira da ordem do dicionário — a ordem em que os jogos vieram
+    # na resposta, não a cronológica. Com duas marcadas, ganhava a mais ANTIGA.
+    # A MAIS ANTIGA entra primeiro na lista de propósito: é a ordem do
+    # dicionário, e é ela que o `next()` antigo devolvia.
+    # AS DUAS PRECISAM ESTAR VIVAS no dia medido, senão a faixa de datas já
+    # descarta uma e a escolha não tem o que decidir — foi o que deixou a
+    # primeira versão desta conferência passar com o defeito plantado.
+    # Rodada espalhada: a MD 10 termina no mesmo dia em que a MD 11 começa.
+    duas = [da_md(10, "2026-10-30", "Playing") for _ in range(5)]
+    duas += [da_md(10, "2026-10-31", "Playing") for _ in range(4)]
+    duas += [da_md(11, "2026-10-31", "Playing") for _ in range(5)]
+    duas += [da_md(11, "2026-11-01", "Playing") for _ in range(4)]
+    nome, _ = main._selecionar_rodada(duas, "2026-10-31")
+    ok(nome == "MD 11",
+       f"com duas marcadas como 'Playing', ganhou a mais antiga ({nome!r}): a "
+       f"escolha era a primeira da ordem do dicionário — a ordem em que os "
+       f"jogos vieram na resposta — e não a mais recente que já começou")
+
+    # E A QUE AINDA NÃO COMEÇOU NÃO GANHA DA QUE ESTÁ EM CAMPO. Foi o furo que
+    # a mutação achou na minha primeira versão: eu peguei a MAIS RECENTE entre
+    # as "Playing", e a da semana seguinte venceria a de hoje.
+    # No dia 30 só a MD 10 começou; a MD 11 está marcada como Playing mas
+    # ainda não entrou em campo. Ela NÃO pode ganhar.
+    nome, _ = main._selecionar_rodada(duas, "2026-10-30")
+    ok(nome == "MD 10",
+       f"a rodada que ainda não começou ganhou da que está sendo jogada hoje "
+       f"({nome!r}). 'Mais recente' só vale entre as que já entraram em campo")
+
+    # ── 5c. O CAMINHO NORMAL NÃO PODE TER QUEBRADO ───────────────────────
+    # Rodada em andamento HOJE continua ganhando de tudo, que é o caso de
+    # domingo de rodada — o dia em que esta tela mais importa.
+    hoje_mesmo = [da_md(12, "2026-11-07", "Playing") for _ in range(9)]
+    hoje_mesmo += [da_md(13, "2026-11-21", "Scheduled") for _ in range(9)]
+    nome, _ = main._selecionar_rodada(hoje_mesmo, "2026-11-07")
+    ok(nome == "MD 12",
+       f"a rodada de hoje deixou de ser a escolhida: {nome!r}")
+
+    # E A RODADA ESPALHADA NO FIM DE SEMANA, sem status de 'Playing' nenhum:
+    # sexta, sábado e domingo. No sábado ela É a rodada corrente, e quem
+    # responde isso é a FAIXA DE DATAS — não o status, que a API às vezes nem
+    # preenche. Sem esta conferência, um sábado de rodada cairia na regra de
+    # baixo e poderia mostrar a próxima.
+    fim_de_semana = [da_md(14, "2026-11-27", "Scheduled") for _ in range(3)]
+    fim_de_semana += [da_md(14, "2026-11-28", "Scheduled") for _ in range(3)]
+    fim_de_semana += [da_md(14, "2026-11-29", "Scheduled") for _ in range(3)]
+    fim_de_semana += [da_md(15, "2026-12-05", "Scheduled") for _ in range(9)]
+    nome, rodada = main._selecionar_rodada(fim_de_semana, "2026-11-28")
+    ok(nome == "MD 14" and len(rodada) == 9,
+       f"no sábado de uma rodada espalhada em três dias, a guia mostrou "
+       f"{nome!r} com {len(rodada)} jogos em vez da MD 14 inteira")
+
     # ── 6. confronto degenerado não casa com nada ────────────────────────
     # Dois nomes que viram o mesmo clube (ou um vazio) não formam jogo. Sem
     # esta guarda, um par degenerado casaria com qualquer outro igualmente

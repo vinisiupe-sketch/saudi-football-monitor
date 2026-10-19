@@ -23138,14 +23138,55 @@ def _selecionar_rodada(jogos: list[dict], hoje: str) -> tuple[str, list[dict]]:
                   for j in grupo}
         return (datas[0] if datas else "", datas[-1] if datas else "", status)
 
-    escolhida = next((g for g in grupos.values() if "Playing" in info(g)[2]), None)
+    # ── A RODADA PAROU DE AVANÇAR (19/10/26) ────────────────────────────────
+    #
+    #     "as rodadas nao estao avançando"
+    #
+    # A guia mostrava MD 8 em 19 de outubro. Dois defeitos empilhados, e os
+    # dois moram nesta escolha:
+    #
+    # 1. O `Playing` MANDAVA SOZINHO, sem olhar data. Se a API esquecer uma
+    #    rodada marcada como em andamento — e ela esquece —, aquele grupo
+    #    ganha para sempre, porque este era o primeiro teste e ele nunca
+    #    falhava. O app ficava preso numa rodada que acabou há um mês.
+    #
+    # 2. ERA O `next()`, QUE PEGA O PRIMEIRO DA ORDEM DO DICIONÁRIO — que é a
+    #    ordem em que os jogos vieram na resposta, não a cronológica. Com duas
+    #    rodadas marcadas como Playing, ganhava a mais ANTIGA. O defeito 1
+    #    criava a situação e o 2 escolhia o pior lado dela.
+    #
+    # A regra agora: o `Playing` continua tendo preferência — ele é o sinal
+    # mais direto que a API dá —, mas só entre as rodadas que ainda fazem
+    # sentido hoje. Rodada cujo último jogo já passou não é "em andamento",
+    # diga o status o que disser. E entre as candidatas vale a MAIS RECENTE
+    # que já começou, nunca a primeira da lista.
+    def _comeco(g):
+        return info(g)[0] or "9999-99-99"
+
+    vivas = [g for g in grupos.values() if info(g)[1] and info(g)[1] >= hoje]
+
+    # ENTRE AS "Playing", A QUE JÁ COMEÇOU — e a mais recente delas.
+    #
+    # Escrevi `max(tocando)` primeiro e a mutação mostrou o furo: uma rodada
+    # da semana que vem marcada como Playing ganharia da que está sendo jogada
+    # HOJE, porque começa depois. "Mais recente" só vale entre as que já
+    # entraram em campo; o resto é futuro, e futuro não está em andamento.
+    tocando = [g for g in vivas if "Playing" in info(g)[2]]
+    comecadas = [g for g in tocando if _comeco(g) <= hoje]
+    escolhida = (max(comecadas, key=_comeco) if comecadas
+                 else min(tocando, key=_comeco) if tocando else None)
     if escolhida is None:
-        escolhida = next((g for g in grupos.values()
-                          if info(g)[0] <= hoje <= info(g)[1]), None)
+        dentro = [g for g in grupos.values() if info(g)[0] <= hoje <= info(g)[1]]
+        escolhida = max(dentro, key=_comeco) if dentro else None
+    if escolhida is None:
+        # Nenhuma rodada em curso: entre duas rodadas. Mostro a que VEM, que é
+        # o que ele precisa para preparar a transmissão — e não a que passou.
+        futuras = [g for g in grupos.values() if _comeco(g) > hoje]
+        escolhida = min(futuras, key=_comeco) if futuras else None
     if escolhida is None:
         anteriores = [g for g in grupos.values() if info(g)[0] and info(g)[0] <= hoje]
-        escolhida = max(anteriores, key=lambda g: info(g)[0]) if anteriores else min(
-            grupos.values(), key=lambda g: info(g)[0] or "9999-99-99")
+        escolhida = max(anteriores, key=_comeco) if anteriores else min(
+            grupos.values(), key=_comeco)
     escolhida = sorted(escolhida, key=lambda j: j.get("matchDateLocal") or "")
     return _nome_da_rodada(escolhida[0]), escolhida
 
