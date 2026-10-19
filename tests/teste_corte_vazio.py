@@ -161,5 +161,179 @@ def testar():
     return len(falhas)
 
 
+# ═════════════════════════════════════════════════════════════════════════
+# O ffprobe QUE NUNCA ERA ENCONTRADO (19/10/26)
+# ═════════════════════════════════════════════════════════════════════════
+#
+# Ele mandou um print com "o corte saiu com 261 bytes" — e SEM o complemento
+# que diz quantos segundos o arquivo tinha. O complemento faltava porque a
+# medida tinha falhado, e a medida falhava porque o caminho do ffprobe era
+# montado com `self.ffmpeg.replace("ffmpeg", "ffprobe")`.
+#
+# O `replace` troca TODAS as ocorrências, e a instalação normal no Windows tem
+# a palavra duas vezes:
+#
+#     C:\ffmpeg\bin\ffmpeg.exe  ->  C:\ffprobe\bin\ffprobe.exe
+#
+# Caminho inexistente, FileNotFoundError, `except Exception: return None`. As
+# TRÊS conferências que dependem do ffprobe passaram a responder "não sei" em
+# silêncio: a duração real, o casamento som/imagem e a guarda que impede o
+# corte de buscar num segundo que ainda não existe.
+#
+# Toda a proteção que este arquivo testa estava desligada no computador dele.
+def testar_ffprobe():
+    import os as _os
+    import gravador as _g
+
+    falhas2 = []
+
+    def ok2(c, m):
+        if not c:
+            falhas2.append(m)
+
+    for caminho, esperado in (
+            # O caso dele: a palavra aparece na PASTA e no arquivo.
+            (r"C:\ffmpeg\bin\ffmpeg.exe", r"C:\ffmpeg\bin\ffprobe.exe"),
+            (r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
+             r"C:\Program Files\ffmpeg\bin\ffprobe.exe"),
+            # SÓ CAMINHOS DE WINDOWS AQUI. Eu tinha posto dois exemplos com
+            # barra de Linux e o teste_roda_no_windows acusou: caminho POSIX
+            # escrito à mão num teste que roda na máquina DELE vira erro que
+            # não fala em sistema operacional. E eram enfeite — o defeito mora
+            # no Windows, que é onde o gravador roda.
+            (r"D:\Apps\ffmpeg\ffmpeg.exe", r"D:\Apps\ffmpeg\ffprobe.exe"),
+    ):
+        corte = max(caminho.rfind("/"), caminho.rfind("\\"))
+        vizinho = (caminho[:corte + 1]
+                   + caminho[corte + 1:].replace("ffmpeg", "ffprobe", 1))
+        ok2(vizinho == esperado,
+            f"de {caminho!r} o ffprobe sairia em {vizinho!r} e devia ser "
+            f"{esperado!r}. Trocar a palavra no caminho INTEIRO renomeia a "
+            f"pasta junto, e o arquivo não existe — foi assim que três "
+            f"conferências viraram silêncio")
+        ok2(caminho.replace("ffmpeg", "ffprobe") == esperado
+            or caminho.count("ffmpeg") > 1,
+            f"o caso {caminho!r} não exercita nada: a palavra aparece uma vez "
+            f"só, e aí o jeito errado e o certo dão no mesmo")
+
+    # A FUNÇÃO DE VERDADE, com o PATH vazio para ela cair no vizinho.
+    import shutil as _sh
+    guardado = _sh.which
+    try:
+        _sh.which = lambda n: None
+        ok2(_g.achar_ffprobe("") == "",
+            "sem ffmpeg e sem PATH o ffprobe deveria sair vazio")
+        ok2(_g.achar_ffprobe(r"C:\ffmpeg\bin\ffmpeg.exe") == "",
+            "um vizinho que NÃO existe no disco foi devolvido como se "
+            "existisse; aí o erro só aparece na hora de cortar")
+        # UM CAMINHO NEUTRO, e não "/usr/bin/...". O `which` está trocado,
+        # então o valor é só um crachá — mas escrever caminho de Linux num
+        # teste que roda no Windows dele vira FileNotFoundError travando o
+        # push, e o teste_roda_no_windows existe para pegar exatamente isso.
+        # Pegou.
+        import tempfile as _tf0
+        do_path = _os.path.join(_tf0.gettempdir(), "ffprobe-de-mentira")
+        _sh.which = lambda n: do_path if n == "ffprobe" else None
+        ok2(_g.achar_ffprobe(r"C:\qualquer\ffmpeg.exe") == do_path,
+            "o ffprobe do PATH deveria ganhar do palpite pelo vizinho")
+
+        # ── A PASTA DE VERDADE, no disco ────────────────────────────────
+        #
+        # Sem isto a conferência não media nada: eu só testava caminho
+        # INEXISTENTE, e aí o jeito certo e o errado devolvem vazio igual.
+        # Plantei o `replace` no caminho inteiro e passou verde.
+        #
+        # Aqui a pasta existe e tem a palavra "ffmpeg" no nome — o layout
+        # normal de instalação no Windows, que é onde o gravador roda.
+        # ── O CAMINHO DE WINDOWS, interceptando o que ela PROCURA ──────
+        #
+        # Este teste roda no Linux, onde não dá para criar uma pasta cujo
+        # separador é `\`. Então em vez de montar o disco eu escuto a
+        # pergunta: para `C:\ffmpeg\bin\ffmpeg.exe`, a função tem de ir
+        # conferir `C:\ffmpeg\bin\ffprobe.exe` — e não outro lugar.
+        #
+        # Sem isto, trocar o `max(rfind("/"), rfind("\\"))` por só a barra do
+        # Linux passava verde: o resultado é vazio de qualquer jeito, porque
+        # nada existe neste disco.
+        # O PATH precisa estar vazio aqui: a linha acima deixou o `which`
+        # respondendo com um ffprobe, e aí a função devolve cedo e nunca
+        # chega a perguntar pelo vizinho — foi o que fez esta conferência
+        # nascer medindo uma lista vazia.
+        _sh.which = lambda n: None
+        perguntas = []
+        guardado_exists = _g.os.path.exists
+        try:
+            _g.os.path.exists = lambda c: (perguntas.append(c), False)[1]
+            _g.achar_ffprobe(r"C:\ffmpeg\bin\ffmpeg.exe")
+        finally:
+            _g.os.path.exists = guardado_exists
+        ok2(perguntas == [r"C:\ffmpeg\bin\ffprobe.exe"],
+            f"com um caminho de Windows ela foi procurar em {perguntas} e "
+            f"devia procurar em ['C:\\ffmpeg\\bin\\ffprobe.exe']. "
+            f"Reconhecer só a barra do Linux faz o nome do arquivo virar o "
+            f"caminho inteiro — e o gravador roda no Windows dele")
+
+        import tempfile as _tf
+        _sh.which = lambda n: None
+        with _tf.TemporaryDirectory() as tmp:
+            bin_ = _os.path.join(tmp, "ffmpeg", "bin")
+            _os.makedirs(bin_)
+            alvo = _os.path.join(bin_, "ffprobe")
+            open(_os.path.join(bin_, "ffmpeg"), "w").close()
+            open(alvo, "w").close()
+            achado = _g.achar_ffprobe(_os.path.join(bin_, "ffmpeg"))
+            ok2(achado == alvo,
+                f"com o ffprobe AO LADO do ffmpeg, numa pasta chamada "
+                f"'ffmpeg', ele devolveu {achado!r} em vez de {alvo!r}. "
+                f"Trocar a palavra no caminho inteiro renomeia a pasta junto "
+                f"e aponta para um lugar que não existe — era esse o defeito "
+                f"na máquina dele")
+    finally:
+        _sh.which = guardado
+
+    # E A FALTA DELE PRECISA SER DITA. Era o silêncio que fazia o Vini receber
+    # uma mensagem pela metade e não ter como saber que faltava uma peça.
+    # SEM OS COMENTÁRIOS: a explicação dentro do `achar_ffprobe` CITA o
+    # código errado para contar o que mudou, e procurar no texto todo
+    # encontrava a minha própria explicação. Quinta vez nesta suíte.
+    bruto = open(_os.path.join(RAIZ, "gravador.py"), encoding="utf-8").read()
+    fonte = "\n".join(l for l in bruto.split("\n")
+                      if not l.strip().startswith("#"))
+    ok2("NÃO ACHEI O ffprobe" in bruto,
+        "a falta do ffprobe voltou a ser silenciosa. Três conferências "
+        "dependem dele, e elas morrem sem avisar")
+    # A FORMA DO CÓDIGO, PELA ÁRVORE SINTÁTICA — e não pelo texto.
+    #
+    # Minha conferência anterior procurava a string no arquivo sem os
+    # comentários, e falhava: a explicação dentro do `achar_ffprobe` cita o
+    # código errado dentro de uma DOCSTRING, que não começa com `#`. Na
+    # árvore, docstring é uma constante e chamada é uma chamada — não há como
+    # confundir as duas.
+    import ast as _ast
+    arvore = _ast.parse(bruto)
+    culpadas = []
+    for no in _ast.walk(arvore):
+        if not isinstance(no, _ast.Call):
+            continue
+        f2 = no.func
+        if (isinstance(f2, _ast.Attribute) and f2.attr == "replace"
+                and len(no.args) == 2
+                and all(isinstance(a, _ast.Constant) for a in no.args)
+                and [a.value for a in no.args] == ["ffmpeg", "ffprobe"]):
+            # Dois argumentos = sem limite de trocas. O jeito certo passa um
+            # terceiro (`, 1`) e aplica só no nome do arquivo.
+            culpadas.append(no.lineno)
+    ok2(not culpadas,
+        f"voltou o `self.ffmpeg.replace(...)` sem limite de trocas, nas "
+        f"linhas {culpadas}. Ele renomeia a PASTA junto com o arquivo, e o "
+        f"caminho que sai não existe")
+
+    for f in falhas2:
+        print("  ✗", f)
+    print("  ✓ o ffprobe é encontrado mesmo com 'ffmpeg' no nome da pasta"
+          if not falhas2 else f"\nFALHAS: {len(falhas2)}")
+    return len(falhas2)
+
+
 if __name__ == "__main__":
-    sys.exit(1 if testar() else 0)
+    sys.exit(1 if (testar() + testar_ffprobe()) else 0)

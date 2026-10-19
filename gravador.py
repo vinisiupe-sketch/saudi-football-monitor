@@ -285,6 +285,47 @@ def achar(nome: str) -> str:
     return shutil.which(nome) or shutil.which(nome + ".exe") or ""
 
 
+def achar_ffprobe(ffmpeg: str) -> str:
+    """O ffprobe, procurado direito.
+
+    O DEFEITO QUE ISTO SUBSTITUI (19/10/26)
+        Estava escrito `self.ffmpeg.replace("ffmpeg", "ffprobe")`. O `replace`
+        troca TODAS as ocorrências, e o caminho de instalação normal no Windows
+        tem a palavra duas vezes:
+
+            C:\\ffmpeg\\bin\\ffmpeg.exe  ->  C:\\ffprobe\\bin\\ffprobe.exe
+
+        Esse caminho não existe. O `subprocess` levantava FileNotFoundError, o
+        `except Exception: return None` engolia, e as três conferências que
+        dependem do ffprobe passaram a devolver "não sei" para sempre — em
+        silêncio, que é o pior jeito de uma proteção morrer.
+
+        O sintoma que ele viu: "o corte saiu com 261 bytes", sem o complemento
+        que diz quantos segundos o arquivo tinha. O complemento não aparecia
+        PORQUE a medida tinha falhado — a mensagem incompleta era o próprio
+        defeito se denunciando, e eu não li.
+
+    Procuro primeiro no PATH. Só depois caio para o lado do ffmpeg, trocando
+    apenas o NOME DO ARQUIVO — nunca o caminho inteiro.
+    """
+    direto = achar("ffprobe")
+    if direto:
+        return direto
+    if not ffmpeg:
+        return ""
+    # A SEPARAÇÃO É FEITA À MÃO, nos dois separadores.
+    #
+    # O `os.path.split` só entende a barra da plataforma em que está rodando:
+    # no Linux ele não reconhece `\`, e devolve o caminho inteiro como se
+    # fosse o nome do arquivo. O gravador roda no Windows do Vini, onde isso
+    # funcionaria — mas o teste roda aqui, e um teste que não consegue
+    # exercitar o caminho de Windows não guarda o defeito de Windows.
+    corte = max(ffmpeg.rfind("/"), ffmpeg.rfind("\\"))
+    pasta, arq = ffmpeg[:corte + 1], ffmpeg[corte + 1:]
+    vizinho = pasta + arq.replace("ffmpeg", "ffprobe", 1)
+    return vizinho if os.path.exists(vizinho) else ""
+
+
 def achar_ytdlp() -> list:
     """O executável some do PATH no Python 3.14; como módulo sempre funciona."""
     direto = achar("yt-dlp")
@@ -433,6 +474,18 @@ class Gravador:
         self.app, self.token = app, token
         self.host = urllib.parse.urlsplit(app).hostname or app
         self.ytdlp, self.ffmpeg = ytdlp, ffmpeg
+        self.ffprobe = achar_ffprobe(ffmpeg)
+        if not self.ffprobe:
+            # DITO ALTO, UMA VEZ, NA SUBIDA. Três conferências dependem do
+            # ffprobe: a duração real do arquivo, o atraso entre som e imagem,
+            # e a guarda que impede o corte de buscar num segundo que ainda não
+            # existe. Sem ele as três viram `None` em silêncio — e o Vini
+            # recebe "o corte saiu com 261 bytes" sem nenhuma explicação,
+            # justamente porque a explicação vinha dessa medida.
+            diz("⚠️ NÃO ACHEI O ffprobe. O gravador funciona, mas perde três "
+                "conferências: a duração real do arquivo, o casamento entre "
+                "som e imagem, e a guarda que evita cortar num trecho que "
+                "ainda não foi gravado. Instale junto do ffmpeg.")
         self.jogos: dict[str, Jogo] = {}
         self.canal = ""
         self.olhei_o_canal = 0.0
@@ -750,9 +803,11 @@ class Gravador:
     # ── cortar ────────────────────────────────────────────────────────────
     def _comeco(self, caminho: str, fluxo: str) -> float | None:
         """Em que segundo a trilha começa, segundo o próprio arquivo."""
+        if not self.ffprobe:
+            return None
         try:
             r = subprocess.run(
-                [self.ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "error",
+                [self.ffprobe, "-v", "error",
                  "-select_streams", fluxo, "-show_entries", "stream=start_time",
                  "-of", "csv=p=0", caminho],
                 capture_output=True, text=True, timeout=60)
@@ -785,9 +840,11 @@ class Gravador:
         do arquivo. É rápido mesmo com gigabytes, e é a única medida honesta
         aqui — a outra era uma suposição.
         """
+        if not self.ffprobe:
+            return None
         try:
             r = subprocess.run(
-                [self.ffmpeg.replace("ffmpeg", "ffprobe"), "-v", "error",
+                [self.ffprobe, "-v", "error",
                  "-show_entries", "format=duration", "-of", "csv=p=0", caminho],
                 capture_output=True, text=True, timeout=60)
             return float((r.stdout or "").strip().splitlines()[0])
@@ -957,8 +1014,21 @@ class Gravador:
             # caso normal. Se ainda assim vier vazio, digo o que sei em vez de
             # repetir "provavelmente" — a palavra que mandou o Vini adivinhar.
             real = self._gravado_de_verdade(pedaco.caminho)
-            extra = (f"; o arquivo tem {real:.0f}s e eu pedi a partir de "
-                     f"{inicio:.0f}s") if real is not None else ""
+            if real is not None:
+                extra = (f"; o arquivo tem {real:.0f}s e eu pedi a partir de "
+                         f"{inicio:.0f}s")
+            elif not self.ffprobe:
+                # A AUSÊNCIA DA EXPLICAÇÃO TAMBÉM É INFORMAÇÃO. Esta mensagem
+                # apareceu para ele sem complemento nenhum, e o complemento
+                # faltava justamente porque a medida tinha falhado — o defeito
+                # se denunciando num espaço em branco, que ninguém lê.
+                extra = ("; e não sei dizer mais porque o ffprobe não foi "
+                         "encontrado nesta máquina — é ele que mede quanto "
+                         "vídeo o arquivo tem de verdade")
+            else:
+                extra = ("; e o ffprobe não conseguiu medir este arquivo, o "
+                         "que costuma querer dizer que ele está vazio ou "
+                         "corrompido")
             self._falhou(cid, f"o corte saiu com {len(dados)} bytes{extra}")
             return
 
