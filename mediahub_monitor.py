@@ -42,6 +42,64 @@ def na_janela(inicio, momento, antecedencia=100, recuperacao=0):
             <= momento <= inicio + timedelta(minutes=recuperacao))
 
 
+# Minutos antes do pontapé em que vale a pena abrir o navegador. Chromium é o
+# que pesa na conta do Railway (1,38 GB de média contra 0,50 GB do app
+# inteiro), então o navegador só existe dentro de um destes pontos.
+PONTOS_PADRAO = (75, 70, 65, 60, 55, 50)
+
+
+def pontos_de_checagem(texto=""):
+    """Lê a lista de minutos de MEDIAHUB_CHECKPOINTS, em ordem decrescente."""
+    if texto is None or not str(texto).strip():
+        return list(PONTOS_PADRAO)
+    pontos = set()
+    for pedaco in str(texto).replace(";", ",").split(","):
+        pedaco = pedaco.strip()
+        if not pedaco:
+            continue
+        try:
+            valor = int(pedaco)
+        except ValueError:
+            raise MonitorError(
+                "MEDIAHUB_CHECKPOINTS só aceita minutos inteiros separados por vírgula.")
+        if valor < 0:
+            raise MonitorError("MEDIAHUB_CHECKPOINTS não aceita minutos negativos.")
+        pontos.add(valor)
+    if not pontos:
+        raise MonitorError("MEDIAHUB_CHECKPOINTS ficou vazio; remova a variável para usar o padrão.")
+    return sorted(pontos, reverse=True)
+
+
+def no_ponto(inicio, momento, pontos, tolerancia=5):
+    """Verdadeiro quando `momento` cai na faixa de algum ponto de checagem.
+
+    A faixa vai do ponto até `tolerancia` minutos depois, porque o relógio do
+    agendador nunca bate exato — sem ela um atraso de dez segundos pularia a
+    checagem inteira.
+    """
+    for minutos in pontos:
+        alvo = inicio - timedelta(minutes=minutos)
+        if alvo <= momento < alvo + timedelta(minutes=tolerancia):
+            return True
+    return False
+
+
+def espera_ate_o_ponto(inicios, momento, pontos, tolerancia=5, teto=900):
+    """Segundos até a próxima faixa de checagem — nunca mais que `teto`.
+
+    É o que permite dormir com o navegador fechado entre um ponto e outro.
+    """
+    futuros = []
+    for inicio in inicios:
+        for minutos in pontos:
+            alvo = inicio - timedelta(minutes=minutos)
+            if alvo > momento:
+                futuros.append((alvo - momento).total_seconds())
+    if not futuros:
+        return teto
+    return max(1, min(teto, min(futuros)))
+
+
 def temporada_mediahub(dia):
     inicio = dia.year if dia.month >= 7 else dia.year - 1
     return f"{inicio}/{str(inicio + 1)[-2:]}"
@@ -165,6 +223,26 @@ class Estado:
     def entregue(self, registro, digest):
         return self.dados["registros"].get(registro, {}).get("sha256") == digest
 
+    def jogo_entregue(self, inicio):
+        """Já confirmamos um PDF deste jogo? Então ele sai da agenda do dia.
+
+        É o "se receber antes, para": o pontapé gravado em `confirmar` vem do
+        próprio PDF, então ele identifica o jogo sem depender do título.
+        """
+        for registro in self.dados.get("registros", {}).values():
+            texto = registro.get("inicio")
+            if not texto:
+                continue
+            try:
+                quando = datetime.fromisoformat(str(texto))
+            except ValueError:
+                continue
+            if quando.tzinfo is None:
+                continue
+            if abs((quando - inicio).total_seconds()) <= 60:
+                return True
+        return False
+
     def confirmar(self, registro, digest, inicio):
         self.dados["registros"][registro] = {
             "sha256": digest, "inicio": inicio.isoformat(), "checado": time.time()}
@@ -203,7 +281,13 @@ class Monitor:
         self.estado = Estado(os.environ.get("MEDIAHUB_DATA_DIR", "/data"))
         self.intervalo = max(60, int(os.environ.get("MEDIAHUB_INTERVAL_SECONDS", "60")))
         self.revisao = max(60, int(os.environ.get("MEDIAHUB_REVISION_SECONDS", "300")))
+        self.pontos = pontos_de_checagem(os.environ.get("MEDIAHUB_CHECKPOINTS", ""))
+        self.tolerancia = max(1, int(os.environ.get("MEDIAHUB_CHECKPOINT_TOLERANCE", "5")))
         self.antecedencia = int(os.environ.get("MEDIAHUB_BEFORE_MINUTES", "100"))
+        # A guarda de `processar` não pode ser mais estreita que o ponto mais
+        # distante, senão o PDF achado no primeiro ponto seria recusado logo
+        # depois de baixado.
+        self.antecedencia = max(self.antecedencia, max(self.pontos) + self.tolerancia)
         # Quatro horas permitem recuperar um PDF perdido por diferença de nome
         # ainda no mesmo dia, sem manter a consulta atravessando a madrugada.
         self.recuperacao = max(240, int(os.environ.get("MEDIAHUB_AFTER_MINUTES", "240")))
@@ -437,14 +521,26 @@ class Monitor:
         dia = agora().astimezone(ARABIA).date()
         if agenda.get("data_arabia") != dia.isoformat():
             raise MonitorError("O calendário devolveu uma data desatualizada.")
-        ativos = [j for j in agenda["jogos"] if na_janela(
-            instante(j["pontape_utc"]), agora(), self.antecedencia, self.recuperacao)]
+        momento = agora()
+        inicios = [instante(j["pontape_utc"]) for j in agenda["jogos"]]
+        pendentes = [i for i in inicios if not self.estado.jogo_entregue(i)]
+        espera = espera_ate_o_ponto(pendentes, momento, self.pontos, self.tolerancia)
+        ativos = [j for j in agenda["jogos"]
+                  if not self.estado.jogo_entregue(instante(j["pontape_utc"]))
+                  and no_ponto(instante(j["pontape_utc"]), momento,
+                               self.pontos, self.tolerancia)]
         if not ativos:
-            await self.status(cli, "aguardando", "Aguardando a janela de 100 minutos antes dos jogos.")
+            faltam = len(pendentes)
+            await self.status(
+                cli, "aguardando",
+                f"Fora dos pontos de checagem; {faltam} jogo(s) pendente(s). "
+                f"Próxima consulta em {round(espera / 60)} min, sem navegador aberto."
+                if faltam else
+                "Todas as escalações de hoje já chegaram; nada a consultar.")
             if self.browser:
                 await self.browser.close()
                 self.browser = self.context = self.page = None
-            return
+            return espera
         await self.abrir(pw)
         await self.status(cli, "buscando", "Consultando os PDFs de hoje no Media Hub.")
         erros = []
@@ -488,12 +584,21 @@ class Monitor:
         await self.context.storage_state(path=str(self.estado.pasta / "sessao.json"))
         if erros:
             raise MonitorError(erros[0])
+        restam = [i for i in inicios if not self.estado.jogo_entregue(i)]
+        espera = espera_ate_o_ponto(restam, agora(), self.pontos, self.tolerancia)
+        # Entre um ponto e outro o navegador não serve para nada e é ele que
+        # pesa na conta. Se o próximo ponto não é logo ali, fecha.
+        if self.browser and espera > self.tolerancia * 60:
+            await self.browser.close()
+            self.browser = self.context = self.page = None
         if candidatos == 0:
             await self.status(
                 cli, "monitorando",
-                "Media Hub consultado: nenhuma escalação dos jogos de hoje encontrada. Nova tentativa em 1 minuto.")
+                "Media Hub consultado: nenhuma escalação dos jogos de hoje encontrada. "
+                f"Próximo ponto de checagem em {round(espera / 60)} min.")
         else:
             await self.status(cli, "monitorando", "Verificação concluída. Aguardando novos PDFs ou correções.")
+        return espera
 
 
 async def executar(args):
@@ -524,8 +629,9 @@ async def executar(args):
             erros = 0
             while not parar.is_set():
                 inicio = time.monotonic()
+                espera = monitor.intervalo
                 try:
-                    await monitor.ciclo(cli, pw)
+                    espera = await monitor.ciclo(cli, pw) or monitor.intervalo
                     erros = 0
                 except Exception as exc:
                     erros += 1
@@ -538,7 +644,8 @@ async def executar(args):
                     if erros:
                         raise MonitorError("A verificação falhou. Consulte o status acima.")
                     return
-                intervalo = min(900, monitor.intervalo * 2 ** min(erros, 4))
+                intervalo = (min(900, monitor.intervalo * 2 ** min(erros, 4))
+                             if erros else espera)
                 try:
                     await asyncio.wait_for(parar.wait(), max(1, intervalo - (time.monotonic() - inicio)))
                 except asyncio.TimeoutError:
