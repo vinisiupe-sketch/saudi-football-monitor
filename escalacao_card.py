@@ -155,84 +155,44 @@ def _escudo_no_bloco(base, dados, bloco):
                                int(y + (alt - novo[1]) / 2)))
 
 
-# ── A BANDEIRA É EMOJI ──────────────────────────────────────────────────
+# ── A BANDEIRA É A DO CAMPINHO ──────────────────────────────────────────
 #
-# ELE PEDIU (23/10/26): "as bandeiras dos jogadores tem que ser de emoji".
+# O emoji que vem no texto do PDF e no elenco é a FONTE; o que se desenha é
+# a imagem do país, do mesmo jeito que o campinho faz (`isoBandeira` em
+# campinho.html, `iso_da_bandeira` + flagcdn em escalacao_arte.py).
 #
-# O desenho da bandeira saudita tem a shahada escrita; o PNG do flagcdn
-# reduzido a 40px vira um borrão verde. O emoji é desenhado para ser lido
-# nesse tamanho, e é o que o template dele usa.
+# EU TENTEI DESENHAR O EMOJI DIRETO E DEU O DEFEITO QUE O CAMPINHO JÁ TINHA
+# RESOLVIDO (23/10/26). Uma bandeira em emoji são DUAS letras especiais que
+# só viram bandeira quando quem desenha sabe juntá-las. O Pillow, como o
+# Windows dele, não junta: a arte do Hilal saiu com "MA", "FR", "SA", "SN"
+# em letras azuis no lugar das bandeiras. O comentário do campinho dizia
+# exatamente isso desde setembro, e eu não li antes de escrever.
 #
-# A fonte não entra no repositório: `nixpacks.toml` instala o pacote
-# `fonts-noto-color-emoji` na imagem. Se ela não estiver lá, a bandeira volta
-# a ser a imagem baixada — perder a bandeira seria pior que ter a antiga.
-EMOJI_CANDIDATAS = (
-    os.path.join(FONTES, "NotoColorEmoji.ttf"),
-    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
-    "/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf",
-    "/usr/share/fonts/NotoColorEmoji.ttf",
-    "/System/Library/Fonts/Apple Color Emoji.ttc",
-)
-# O NotoColorEmoji é fonte de BITMAP: o Pillow só a abre no tamanho em que
-# ela foi desenhada. Desenho nesse tamanho e reduzo depois.
-EMOJI_CORPO = 109
-
-_EMOJI_CACHE = []
+# A CAIXA É FIXA. A imagem do país vem na proporção real dele — a da Croácia
+# é 2:1, a da Suíça é quadrada — e redimensionar só pela altura fazia a
+# bandeira larga invadir o número ("25 L. CHELFI"). Agora ela cabe dentro de
+# 60x40, centrada, e o número começa sempre no mesmo lugar.
+BANDEIRA_LARG = int(BANDEIRA_ALT * 1.5)
 
 
-def fonte_de_emoji():
-    """A fonte de emoji colorido, ou None. Procura uma vez só."""
-    if _EMOJI_CACHE:
-        return _EMOJI_CACHE[0]
-    from PIL import ImageFont
-    achada = None
-    for caminho in EMOJI_CANDIDATAS:
-        if not os.path.exists(caminho):
-            continue
-        try:
-            achada = ImageFont.truetype(caminho, EMOJI_CORPO)
-            break
-        except Exception:
-            continue
-    _EMOJI_CACHE.append(achada)
-    return achada
-
-
-def bandeira_de_emoji(emoji: str, alt=BANDEIRA_ALT):
-    """O emoji desenhado e reduzido para a altura da linha, ou None."""
-    if not emoji:
-        return None
-    fonte = fonte_de_emoji()
-    if fonte is None:
-        return None
-    try:
-        from PIL import Image, ImageDraw
-        tela = Image.new("RGBA", (EMOJI_CORPO * 2, EMOJI_CORPO * 2), (0, 0, 0, 0))
-        ImageDraw.Draw(tela).text(
-            (EMOJI_CORPO // 2, EMOJI_CORPO // 2), emoji, font=fonte,
-            embedded_color=True, anchor="mm")
-        caixa = tela.getbbox()
-        if not caixa:
-            return None
-        corte = tela.crop(caixa)
-        larg = max(1, int(round(corte.width * alt / corte.height)))
-        return corte.resize((larg, int(alt)), _lanczos())
-    except Exception:
-        # Pillow sem suporte a bitmap colorido, fonte estranha, o que for: a
-        # imagem baixada assume e a arte sai com bandeira do mesmo jeito.
-        return None
-
-
-def _bandeira(dados, emoji="", alt=BANDEIRA_ALT):
-    """A bandeirinha na altura da linha: emoji primeiro, imagem depois."""
-    desenhada = bandeira_de_emoji(emoji, alt)
-    if desenhada is not None:
-        return desenhada
+def _bandeira(dados, alt=BANDEIRA_ALT, larg_max=None):
+    """A bandeira do país dentro da caixa da linha, proporção preservada."""
     img = _abrir(dados)
     if img is None:
         return None
-    larg = max(1, int(round(img.width * alt / img.height)))
-    return img.resize((larg, int(alt)), _lanczos())
+    larg_max = larg_max or BANDEIRA_LARG
+    escala = min(alt / img.height, larg_max / img.width)
+    novo = (max(1, int(round(img.width * escala))),
+            max(1, int(round(img.height * escala))))
+    return img.resize(novo, _lanczos())
+
+
+def _colar_bandeira(base, band, meio):
+    """Centra a bandeira na caixa fixa da coluna, na altura da linha."""
+    if band is None:
+        return
+    x = MARGEM_ESQ + int((BANDEIRA_LARG - band.width) / 2)
+    base.alpha_composite(band, (x, int(meio - band.height / 2)))
 
 
 def sem_inicial(nome: str) -> str:
@@ -314,9 +274,16 @@ def cortar(d, texto: str, fonte, limite: float, tracking: float = 0.0) -> str:
     if largura(d, texto, fonte, tracking) <= limite:
         return texto
     corte = texto
-    while corte and largura(d, corte + "…", fonte, tracking) > limite:
+    while corte and largura(d, corte + RETICENCIAS, fonte, tracking) > limite:
         corte = corte[:-1]
-    return (corte + "…") if corte else ""
+    return (corte.rstrip() + RETICENCIAS) if corte.strip() else ""
+
+
+# TRÊS PONTOS, e não o caractere "…" (U+2026): a WorkSans do projeto é o
+# recorte LATIN e ele não está lá dentro. Desenhado, saía invisível — e a
+# arte do Hilal mostrou "KALIDOU KOULIBA" parecendo erro de digitação, sem
+# nada dizendo que o nome tinha sido cortado.
+RETICENCIAS = "..."
 
 
 def _nome_do_clube(d, texto, limite):
@@ -389,16 +356,12 @@ def montar(dados: dict) -> bytes:
 
     for i, j in enumerate(jogadores):
         meio = LINHA_1 + i * LINHA_PASSO
-        band = _bandeira(j.get("bandeira"), j.get("emoji") or "")
-        if band is not None:
-            base.alpha_composite(band, (MARGEM_ESQ, int(meio - band.height / 2)))
+        _colar_bandeira(base, _bandeira(j.get("bandeira")), meio)
         escrever(d, base, (texto_x, meio),
                  cortar(d, linhas[i], f_lista, cabe, tracking), f_lista, tracking)
 
     if nome_tec:
-        band = _bandeira(tecnico.get("bandeira"), tecnico.get("emoji") or "")
-        if band is not None:
-            base.alpha_composite(band, (MARGEM_ESQ, int(TECNICO_Y - band.height / 2)))
+        _colar_bandeira(base, _bandeira(tecnico.get("bandeira")), TECNICO_Y)
         escrever(d, base, (texto_x, TECNICO_Y),
                  cortar(d, nome_tec, f_tec, cabe, tracking), f_tec, tracking)
 

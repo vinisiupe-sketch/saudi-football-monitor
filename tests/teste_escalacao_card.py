@@ -126,95 +126,57 @@ ok(ec._linha_de({"numero": "99", "nome": "C. Mbemba"}) == "99 MBEMBA",
    "o corte da inicial não chegou à linha desenhada")
 
 
-# ── A BANDEIRA DE EMOJI, E A QUEDA SEM ELA ──────────────────────────────
+# ── A BANDEIRA É A DO CAMPINHO (23/10/26) ───────────────────────────────
 #
-#   "as bandeiras dos jogadores tem que ser de emoji"
-#
-# A fonte vem da imagem (nixpacks instala fonts-noto-color-emoji) e não do
-# repositório, então aqui ela pode não existir. O que este teste garante é a
-# regra que vale nos dois casos: COM a fonte, o emoji manda; SEM ela, a
-# imagem baixada assume — e a bandeira nunca some.
-quadrado = Image.new("RGBA", (60, 40), (200, 30, 30, 255))
-qb = io.BytesIO()
-quadrado.save(qb, "PNG")
+# Eu tentei desenhar o emoji direto e a arte do Hilal saiu com "MA", "FR",
+# "SA" em letras azuis no lugar das bandeiras: o Pillow não junta as duas
+# letras do emoji numa bandeira, igual ao Windows dele — defeito que o
+# campinho já documentava e resolvia desde setembro, convertendo o emoji em
+# sigla e desenhando a IMAGEM do país. Este módulo faz o mesmo, e esta guarda
+# impede que alguém volte a desenhar emoji como texto aqui dentro.
+_FONTE_CARD = open(os.path.join(RAIZ, "escalacao_card.py"), encoding="utf-8").read()
+_codigo_card = "\n".join(l for l in _FONTE_CARD.split("\n")
+                         if not l.strip().startswith("#"))
+ok("embedded_color" not in _codigo_card and "NotoColorEmoji" not in _codigo_card,
+   "a arte voltou a desenhar a bandeira como EMOJI DE TEXTO. Sem quem junte "
+   "as duas letras, ela sai \"SA\", \"NL\", \"MA\" — foi a arte do Hilal")
 
-tem_fonte = ec.fonte_de_emoji() is not None
-band = ec._bandeira(qb.getvalue(), "\U0001F1F8\U0001F1E6")
-ok(band is not None,
-   "a bandeira sumiu mesmo tendo imagem baixada. Perder a bandeira é pior "
-   "que ter a antiga")
-ok(band.height == ec.BANDEIRA_ALT,
-   f"a bandeira saiu com {band.height}px de altura em vez de {ec.BANDEIRA_ALT}")
 
-if tem_fonte:
-    so_emoji = ec._bandeira(None, "\U0001F1F8\U0001F1E6")
-    ok(so_emoji is not None,
-       "com a fonte de emoji instalada, a bandeira não saiu sem imagem "
-       "baixada — o emoji é que devia estar mandando")
-else:
-    ok(ec.bandeira_de_emoji("\U0001F1F8\U0001F1E6") is None,
-       "sem a fonte instalada a função de emoji devia devolver vazio em "
-       "silêncio, para a imagem assumir")
-    ok(ec._bandeira(None, "\U0001F1F8\U0001F1E6") is None,
-       "sem fonte e sem imagem a bandeira tinha de ser vazio, não erro")
+def _bandeira_de(larg, alt):
+    im = Image.new("RGBA", (larg, alt), (200, 30, 30, 255))
+    b = io.BytesIO()
+    im.save(b, "PNG")
+    return b.getvalue()
 
-ok(ec.bandeira_de_emoji("") is None,
-   "emoji vazio devolveu alguma coisa")
-ok(ec._bandeira(None, "") is None,
-   "sem imagem e sem emoji a bandeira não é vazia")
 
-# A procura roda em toda linha de toda arte: tem de acontecer UMA vez.
-for _ in range(5):
-    ec.fonte_de_emoji()
-ok(len(ec._EMOJI_CACHE) == 1,
-   f"a fonte de emoji foi procurada {len(ec._EMOJI_CACHE)} vezes. São cinco "
-   "buscas no disco por linha da lista, doze linhas por arte")
+# A CAIXA É FIXA: 60x40. Croácia é 2:1, Suíça é quadrada, Catar é 28:11.
+for nome_pais, (lw, lh) in (("Croácia", (80, 40)), ("Suíça", (80, 80)),
+                            ("Catar", (80, 31)), ("Brasil", (80, 56))):
+    band = ec._bandeira(_bandeira_de(lw, lh))
+    ok(band is not None, f"a bandeira da {nome_pais} sumiu")
+    if band is not None:
+        ok(band.width <= ec.BANDEIRA_LARG and band.height <= ec.BANDEIRA_ALT,
+           f"a bandeira da {nome_pais} saiu {band.size} e passou da caixa "
+           f"{ec.BANDEIRA_LARG}x{ec.BANDEIRA_ALT}. Foi a da Croácia invadindo "
+           "o número em \"25 L. CHELFI\"")
+        ok(band.width == ec.BANDEIRA_LARG or band.height == ec.BANDEIRA_ALT,
+           f"a bandeira da {nome_pais} ficou menor que a caixa nos dois lados "
+           f"({band.size}); ela tem de encostar em um deles")
 
-# O EMOJI TEM DE CHEGAR AO DESENHO, e isto não pode depender de a fonte
-# existir na máquina que roda o teste — aqui ela não existe, lá no Railway
-# sim. Então ponho um desenhador de mentira no lugar e olho a cor que saiu:
-# sem isto, apagar o emoji de `montar` passava calado e só se descobriria
-# com a arte no ar.
-ROXO = (160, 0, 240, 255)
-_real = ec.bandeira_de_emoji
-try:
-    ec.bandeira_de_emoji = lambda emoji, alt=ec.BANDEIRA_ALT: (
-        Image.new("RGBA", (60, int(alt)), ROXO) if emoji else None)
-    verde = Image.new("RGBA", (60, 40), (0, 200, 0, 255))
-    vb = io.BytesIO()
-    verde.save(vb, "PNG")
-    com_emoji = Image.open(io.BytesIO(ec.montar({
-        "clube": "X",
-        "jogadores": [{"numero": "01", "nome": "RODAK",
-                       "bandeira": vb.getvalue(),
-                       "emoji": "\U0001F1F8\U0001F1E6"}]}))).convert("RGB")
-    cor = com_emoji.getpixel((ec.MARGEM_ESQ + 20, ec.LINHA_1))
-    ok(abs(cor[0] - 160) < 30 and abs(cor[2] - 240) < 30,
-       f"a bandeira desenhada é {cor} e não o emoji. O emoji chegou ao "
-       "módulo e foi ignorado na hora de desenhar — com a fonte instalada "
-       "no Railway, a arte sairia com o PNG borrado do mesmo jeito")
+ok(ec._bandeira(None) is None and ec._bandeira(b"lixo") is None,
+   "sem imagem a bandeira não devolveu vazio")
 
-    # O TÉCNICO tem a mesma linha e o mesmo direito à bandeira.
-    tec = Image.open(io.BytesIO(ec.montar({
-        "clube": "X", "jogadores": [{"numero": "01", "nome": "RODAK"}],
-        "tecnico": {"nome": "ARTHUR PAPAS", "bandeira": vb.getvalue(),
-                    "emoji": "\U0001F1E6\U0001F1FA"}}))).convert("RGB")
-    cor_t = tec.getpixel((ec.MARGEM_ESQ + 20, ec.TECNICO_Y))
-    ok(abs(cor_t[0] - 160) < 30 and abs(cor_t[2] - 240) < 30,
-       f"a bandeira do técnico é {cor_t} e não o emoji. A linha dele é igual "
-       "às outras e foi esquecida — defeito que só aparece na última linha "
-       "da arte")
-
-    sem_emoji = Image.open(io.BytesIO(ec.montar({
-        "clube": "X",
-        "jogadores": [{"numero": "01", "nome": "RODAK",
-                       "bandeira": vb.getvalue()}]}))).convert("RGB")
-    cor2 = sem_emoji.getpixel((ec.MARGEM_ESQ + 20, ec.LINHA_1))
-    ok(cor2[1] > 120 and cor2[0] < 90,
-       f"sem emoji a bandeira saiu {cor2} em vez da imagem baixada. A queda "
-       "para a imagem é o que garante que nenhuma bandeira some")
-finally:
-    ec.bandeira_de_emoji = _real
+# E a bandeira, por mais larga que seja, termina ANTES de o número começar.
+texto_x = ec.MARGEM_ESQ + int(ec.BANDEIRA_ALT * 1.5) + ec.BANDEIRA_GAP
+larga = Image.open(io.BytesIO(ec.montar({
+    "clube": "X",
+    "jogadores": [{"numero": "25", "nome": "CHELFI",
+                   "bandeira": _bandeira_de(200, 40)}]}))).convert("RGB")
+vermelho_no_numero = any(
+    larga.getpixel((x, ec.LINHA_1))[0] > 150 and larga.getpixel((x, ec.LINHA_1))[1] < 80
+    for x in range(texto_x - 4, texto_x + 30))
+ok(not vermelho_no_numero,
+   "uma bandeira 5:1 foi desenhada por cima do número da camisa")
 
 
 # ── O NOME COMPRIDO NÃO PODE ESTOURAR ───────────────────────────────────
@@ -236,7 +198,16 @@ ok(all(d.textlength(ec.cortar(d, t, f, 400), font=f) <= 400
    "texto invadindo a borda da arte, que foi o defeito do rascunho dele")
 ok(ec.cortar(d, "01 DUDA", f, 400) == "01 DUDA",
    "um nome que cabia foi abreviado à toa")
-ok(ec.cortar(d, longos[0], f, 400).endswith("…"),
+# As reticências têm de APARECER. O caractere "…" não existe na WorkSans do
+# projeto (recorte latin) e saía invisível: "KALIDOU KOULIBA" parecia erro
+# de digitação na arte do Hilal, sem nada dizendo que tinha sido cortado.
+from fontTools.ttLib import TTFont as _TTFont               # noqa: E402
+
+_cmap = _TTFont(os.path.join(ec.FONTES, ec.FONTE_LISTA)).getBestCmap()
+ok(all(ord(c) in _cmap for c in ec.RETICENCIAS),
+   f"as reticências {ec.RETICENCIAS!r} usam um caractere que a fonte da lista "
+   "não tem; o corte sai invisível e o nome parece digitado errado")
+ok(ec.cortar(d, longos[0], f, 400).endswith(ec.RETICENCIAS),
    "o nome que não cabia foi desenhado inteiro, estourando a borda, em vez "
    "de sair com reticências")
 ok(ec.cortar(d, "QUALQUER", f, 1) == "",

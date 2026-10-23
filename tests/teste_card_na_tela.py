@@ -182,7 +182,7 @@ ok(r2.headers.get("X-Destaque") == "HENRIQUE",
 # Sem capitão e sem escolha, alguém tem de ser o destaque: arte sem foto é a
 # arte pela metade.
 r3 = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq"})
-ok(r3.headers.get("X-Destaque") == "Marko Rodák",
+ok(r3.headers.get("X-Destaque") == "Rodák",
    f"sem capitão a arte não escolheu ninguém ({r3.headers.get('X-Destaque')})")
 
 # O QUE FALTOU TEM DE SER DITO. Foto e escudo somem calados na imagem.
@@ -339,13 +339,14 @@ _lista = _capturado.get("jogadores") or []
 ok(len(_lista) == 2, f"chegaram {len(_lista)} jogadores na arte, e eram 2")
 if len(_lista) == 2:
     casou, nao_casou = _lista[0], _lista[1]
-    ok(casou["nome"] == "Marko Rodák",
-       f"o nome que chegou à arte foi '{casou['nome']}' — o do PDF. O "
+    ok(casou["nome"] == "Rodák",
+       f"o nome que chegou à arte foi '{casou['nome']}'. A placa do campinho "
+       "escreve a ÚLTIMA palavra do nome do elenco (nomeCurto em "
+       "campinho.html) — mandar o nome inteiro fez a arte do Hilal sair "
+       "'KALIDOU KOULIBA...' estourando a borda. E não o do PDF: o "
        "campinho tem a grafia que ele escolheu em Ajustes")
-    ok(casou["emoji"] == "\U0001F1F8\U0001F1F0",
-       f"a bandeira que chegou à arte foi {casou['emoji']!r}. O emoji vem do "
-       "campinho, que é onde a nacionalidade já está resolvida — sem ele a "
-       "arte desenha o PNG borrado do flagcdn")
+    ok(casou["bandeira"] is not None,
+       "o jogador que casou com o elenco chegou à arte sem bandeira")
     ok(nao_casou["nome"] == "KHATEEB",
        "quem o elenco não reconheceu perdeu o nome do PDF e some da arte")
 
@@ -362,7 +363,7 @@ ok(r9b.headers.get("X-Do-Campinho") == "1/1",
 # O CASO QUE ELE VIU: o PDF escreve a inicial, o campinho tem o nome inteiro.
 r9c = _chamar({"texto": "99 C. MBEMBA\n", "clube": "Al-Ettifaq",
                "destaque": "C. MBEMBA"})
-ok(r9c.headers.get("X-Destaque") == "Chancel Mbemba",
+ok(r9c.headers.get("X-Destaque") == "Mbemba",
    f"'C. MBEMBA' do PDF saiu como '{r9c.headers.get('X-Destaque')}'. O "
    "campinho tem o nome inteiro, resolvido na fonte que ele escolheu — era "
    "essa a origem que ele mandou usar")
@@ -380,21 +381,37 @@ ok(r11.headers.get("X-Do-Campinho") == "0/6"
 
 
 # ── A BANDEIRA DE EMOJI CHEGA AO MÓDULO ─────────────────────────────────
-rota_fonte = FONTE[FONTE.find("async def api_elencos_card"):
-                   FONTE.find("def escalacao_arte_iso")]
-ok('"emoji": j["bandeira"]' in rota_fonte,
-   "o emoji do texto não é repassado para a arte, então ela nunca vai poder "
-   "desenhar a bandeira como emoji — só o PNG do flagcdn")
-ok('"emoji": corpo.get("bandeira_tecnico")' in rota_fonte,
-   "o emoji do técnico não é repassado")
+# A BANDEIRA: o emoji do CAMPINHO vira a sigla, e a sigla vira a imagem do
+# país — como no campinho. Prova pelo endereço pedido: a linha "70 KHATEEB"
+# do PDF não tem emoji nenhum, e mesmo assim a bandeira certa tem de ser
+# pedida quando o elenco conhece a camisa.
+pedidos = []
 
+
+async def _anota(cli, url):
+    pedidos.append(url or "")
+    return b"PNG-FALSO" if url else None
+
+
+_chamar({"texto": "70 KHATEEB\n", "clube": "Al-Ettifaq"},
+        _baixar=_anota, _baixar_foto=_anota,
+        elenco={"jogadores": [{"numero": 70, "nome": "Abdullah Khateeb",
+                               "foto": "https://spl/70.png",
+                               "pais_bandeira": "\U0001F1F8\U0001F1E6"}]})
+ok(any(u.endswith("/sa.png") for u in pedidos),
+   f"a bandeira do campinho não foi pedida (pedidos: {pedidos}). O emoji "
+   "está no elenco e na linha do PDF; a arte tem de desenhar a imagem do "
+   "país a partir dele, como o campinho")
+
+# E NADA DE FONTE DE EMOJI NO BUILD: ela existiu por um commit e produziu a
+# arte do Hilal com letras no lugar das bandeiras.
 NIX = open(os.path.join(RAIZ, "nixpacks.toml"), encoding="utf-8").read()
-ok("fonts-noto-color-emoji" in NIX,
-   "a fonte de emoji saiu da imagem. Sem ela a bandeira saudita volta a ser "
-   "um borrão verde de 40px")
-ok('aptPkgs = ["ffmpeg", "fonts-noto-color-emoji"]' in NIX,
-   "o ffmpeg saiu da lista junto. aptPkgs ACRESCENTA, mas quem reescreve a "
-   "linha pode derrubar o corte da fita sem perceber")
+_linha_apt = next((l for l in NIX.splitlines() if l.strip().startswith("aptPkgs")), "")
+ok("ffmpeg" in _linha_apt,
+   "o ffmpeg saiu da imagem — é ele que corta a fita dos clipes")
+ok("emoji" not in _linha_apt,
+   "a fonte de emoji voltou ao build. Desenhada pelo Pillow ela vira \"SA\", "
+   "\"NL\" em letras — a bandeira certa é a imagem, como no campinho")
 
 
 # ── O BOTÃO NA TELA ─────────────────────────────────────────────────────

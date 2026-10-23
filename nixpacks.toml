@@ -9,12 +9,10 @@
 # sozinho para o Python, e trocar essa lista quebraria o build inteiro. O
 # aptPkgs acrescenta.
 #
-# A FONTE DE EMOJI entra pela mesma porta, por causa das bandeirinhas da arte
-# de escalação: "as bandeiras dos jogadores tem que ser de emoji" (23/10/26).
-# O PNG do flagcdn reduzido a 40px faz a shahada da bandeira saudita virar um
-# borrão; o emoji é desenhado para ser lido nesse tamanho.
-#
-# Sem o pacote a arte não quebra — a bandeira volta a ser a imagem baixada.
-# `/api/diag/saude` diz qual dos dois está valendo.
+# NÃO HÁ FONTE DE EMOJI AQUI DE PROPÓSITO (23/10/26). Ela entrou um dia para a
+# arte de escalação desenhar as bandeiras em emoji, e a arte saiu com "MA",
+# "FR", "SA" em letras: o Pillow não junta as duas letras do emoji numa
+# bandeira. As bandeiras são desenhadas como no campinho — sigla do emoji →
+# imagem do país —, que é como o projeto resolveu isso desde setembro.
 [phases.setup]
-aptPkgs = ["ffmpeg", "fonts-noto-color-emoji"]
+aptPkgs = ["ffmpeg"]

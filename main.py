@@ -12027,26 +12027,6 @@ async def api_diag_saude():
               f"pendurados, elencos congelados e o glossário; sem ele quase "
               f"toda guia fica vazia ou quebra.", bem=False)
 
-    # ── a fonte de emoji da arte de escalação ────────────────────────────────
-    # Sem ela a arte não quebra: a bandeirinha volta a ser o PNG baixado. Mas
-    # a troca é silenciosa, e ele só descobriria olhando a imagem e achando a
-    # bandeira saudita borrada de novo. Então o estado é dito aqui.
-    #
-    # DEPOIS do bloco da versão, e não junto dele: `teste_saude` executa aquele
-    # trecho isolado para conferir o carimbo do commit, e uma linha a mais ali
-    # dentro quebra a leitura dele.
-    try:
-        import escalacao_card as _card
-        _emoji = _card.fonte_de_emoji()
-        conta("Bandeiras da arte",
-              "emoji colorido (Noto)." if _emoji else
-              "SEM a fonte de emoji: as bandeiras saem do flagcdn, e a "
-              "saudita fica ilegível em 40px. Falta o pacote "
-              "fonts-noto-color-emoji na imagem — confira o nixpacks.toml e "
-              "se o build rodou depois dele.", bem=bool(_emoji))
-    except Exception as _e:
-        conta("Bandeiras da arte", f"não consegui conferir: {_e}", bem=False)
-
     # ── o glossário ──────────────────────────────────────────────────────────
     try:
         import glossario
@@ -19699,6 +19679,18 @@ def _linhas_da_escalacao(texto: str) -> list[dict]:
     return linhas
 
 
+def _nome_da_placa(nome: str) -> str:
+    """O nome que o campinho escreve na placa: a última palavra.
+
+    É o `nomeCurto` de public/campinho.html, linha por linha: "Youssef
+    En-Nesyri" vira "En-Nesyri", "Sergej Milinković-Savić" vira
+    "Milinković-Savić". A regra mora lá; isto é a mesma regra do lado do
+    servidor, para a arte de escalação e o campinho escreverem igual.
+    """
+    partes = (nome or "").split()
+    return partes[-1] if partes else ""
+
+
 _SUFIXOS_DE_CLUBE = ("CLUB", "FC", "SFC", "SC", "FOOTBALL CLUB", "SAUDI CLUB")
 
 
@@ -19805,7 +19797,11 @@ async def api_elencos_card(request: Request):
         linha["nome_do_texto"] = linha["nome"]
         if achado:
             vindos_do_campinho += 1
-            linha["nome"] = achado.get("nome") or linha["nome"]
+            # A PLACA DO CAMPINHO, e não o nome inteiro: `nomeCurto(j.nome)`
+            # em campinho.html é a última palavra — BOUNOU, KOULIBALY,
+            # MILINKOVIĆ-SAVIĆ. Mandar o nome do elenco inteiro fez a arte do
+            # Hilal sair "KALIDOU KOULIBA..." estourando a borda (23/10/26).
+            linha["nome"] = _nome_da_placa(achado.get("nome")) or linha["nome"]
             linha["bandeira"] = achado.get("pais_bandeira") or linha["bandeira"]
             linha["foto"] = achado.get("foto")
 
@@ -19858,10 +19854,9 @@ async def api_elencos_card(request: Request):
         "ancora": corpo.get("ancora", 0.5),
         "escudo": escudo,
         "escudo_adversario": escudo_adv,
-        "tecnico": {"nome": corpo.get("tecnico") or "", "bandeira": band_tec,
-                    "emoji": corpo.get("bandeira_tecnico") or ""},
+        "tecnico": {"nome": corpo.get("tecnico") or "", "bandeira": band_tec},
         "jogadores": [{"numero": j["numero"], "nome": j["nome"],
-                       "bandeira": bandeiras[i], "emoji": j["bandeira"]}
+                       "bandeira": bandeiras[i]}
                       for i, j in enumerate(jogadores)],
     })
     nome_arquivo = (curto or clube or "escalacao").lower()
