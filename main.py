@@ -19731,19 +19731,36 @@ def _nome_curto_de_clube(nome: str) -> str:
 async def api_elencos_card(request: Request):
     """O PNG 1080x1350 da escalação na arte dele: foto grande e a lista.
 
-    A página manda o que ela JÁ TEM no card de escalação — o texto do
-    matchsheet, o técnico, os dois times. O servidor só resolve o que ela não
-    tem: a foto do destaque, as bandeirinhas e os dois escudos.
+    TUDO SAI DA MESMA PORTA DO CAMPINHO (23/10/26)
+        A primeira versão montou um caminho próprio: o escudo pelo DIM_CLUBE,
+        o nome pelo glossário direto, a bandeira pelo flagcdn. Ele cortou:
+
+            "Você tá complicando coisas que já temos. Na aba campinho temos os
+             escudos que servem de filtro. Use aquela origem. Assim como tem
+             os emojis associados os nomes que usamos pro campinho. O nome
+             usado no campinho é também a melhor fonte pra buscar nome dos
+             jogadores. Temos tudo lá."
+
+        Ele está certo, e não é só economia de código: a guia de Elencos já
+        resolve nome pela fonte que ELE escolheu em Ajustes, já tem a foto
+        certa e já traz a bandeira em emoji. Um segundo caminho para a mesma
+        pergunta um dia responde diferente — e aí a arte e o campinho mostram
+        grafias distintas do mesmo jogador, que é o que o star schema existe
+        para impedir.
+
+        Então aqui não há resolução nova: `api_elencos_times` dá os escudos
+        (os mesmos dos chips de filtro) e `api_elencos_jogadores` dá o elenco
+        (os mesmos nomes, fotos e emojis do campinho).
+
+    A PONTE É O NÚMERO DA CAMISA, e não o nome: é assim que o matchsheet já
+    cruza a folha oficial com o elenco. Quem não casar fica com a linha do
+    PDF, que é melhor que buraco.
 
     O DESTAQUE é o capitão por padrão, e quem escolhe outro é ele na tela.
     """
     import asyncio
 
     import escalacao_card
-    # DENTRO da função, como no resto do arquivo: `glossario` não é importado
-    # no topo. Em setembro um `_db` faltando aqui virou NameError engolido por
-    # um `except Exception` e o ajuste parou de funcionar em silêncio.
-    import glossario
 
     try:
         corpo = await request.json()
@@ -19759,31 +19776,71 @@ async def api_elencos_card(request: Request):
 
     clube = (corpo.get("clube") or "").strip()
     adversario = (corpo.get("adversario") or "").strip()
-    ficha_clube = glossario.clube(nome=clube) if clube else {}
-    ficha_adv = glossario.clube(nome=adversario) if adversario else {}
+
+    # ── O ELENCO E OS ESCUDOS, PELAS PORTAS DO CAMPINHO ─────────────────
+    elenco, times = {}, {}
+    try:
+        elenco = await api_elencos_jogadores(clube=clube)
+    except Exception:
+        elenco = {}
+    try:
+        times = await api_elencos_times()
+    except Exception:
+        times = {}
+
+    do_campinho = {}
+    for j in (elenco.get("jogadores") or []):
+        if j.get("numero") is not None:
+            do_campinho[str(j["numero"]).strip()] = j
+
+    # Quem casou pelo número ganha o nome, a foto e a bandeira do campinho.
+    # "C. MBEMBA" do PDF vira a grafia que ele escolheu em Ajustes.
+    vindos_do_campinho = 0
+    for linha in jogadores:
+        achado = do_campinho.get(str(linha["numero"]).lstrip("0") or "0") \
+            or do_campinho.get(str(linha["numero"]))
+        linha["foto"] = None
+        # O nome que a TELA mostrou fica guardado: é por ele que o seletor de
+        # destaque manda o pedido, e trocar sem guardar quebraria a escolha.
+        linha["nome_do_texto"] = linha["nome"]
+        if achado:
+            vindos_do_campinho += 1
+            linha["nome"] = achado.get("nome") or linha["nome"]
+            linha["bandeira"] = achado.get("pais_bandeira") or linha["bandeira"]
+            linha["foto"] = achado.get("foto")
+
+    escudos = {}
+    for t in (times.get("times") or []):
+        chave = glossary.padronizar_clube(t.get("nome") or "") or (t.get("nome") or "")
+        escudos[chave.lower()] = t
+
+    def _do_campinho(nome):
+        chave = (glossary.padronizar_clube(nome) or nome or "").lower()
+        return escudos.get(chave) or {}
+
+    casa, fora = _do_campinho(clube), _do_campinho(adversario)
 
     # O destaque: o que ele escolheu, ou o capitão, ou o primeiro da lista.
-    # Nunca vazio — arte sem foto é a arte pela metade.
+    # Nunca vazio — arte sem foto é a arte pela metade. A comparação é feita
+    # com o nome que a TELA mostrou, que é o do texto, e não com o já trocado.
     escolhido = (corpo.get("destaque") or corpo.get("capitao") or "").strip().upper()
     destaque = next((j for j in jogadores
-                     if j["nome"].strip().upper() == escolhido), jogadores[0])
-
-    ficha_destaque = glossario.quem(nome=destaque["nome"], clube=clube) or {}
+                     if j["nome"].strip().upper() == escolhido
+                     or j.get("nome_do_texto", "").strip().upper() == escolhido),
+                    jogadores[0])
 
     isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
     iso_tec = escalacao_arte_iso(corpo.get("bandeira_tecnico"))
 
-    # O ESCUDO: o glossário manda, porque resolve pelo id. Mas o DIM_CLUBE
-    # pode não ter sido semeado ainda — e foi esse o caso em 23/10/26, com a
-    # arte saindo com os dois blocos do canto vazios. A tela já mostra o
-    # escudo de cada time no card do jogo; ela manda o endereço junto, e ele
-    # entra quando o glossário não responde.
-    url_escudo = ficha_clube.get("escudo") or corpo.get("escudo") or ""
-    url_escudo_adv = ficha_adv.get("escudo") or corpo.get("escudo_adversario") or ""
+    # O ESCUDO é o MESMO dos chips de filtro do campinho. Quando a lista de
+    # clubes não responder, entra o endereço que a tela já exibe no card do
+    # jogo — nunca um bloco vazio sem explicação.
+    url_escudo = casa.get("escudo") or corpo.get("escudo") or ""
+    url_escudo_adv = fora.get("escudo") or corpo.get("escudo_adversario") or ""
 
     async with httpx.AsyncClient(follow_redirects=True) as client:
         baixados = await asyncio.gather(
-            _baixar_foto(client, ficha_destaque.get("foto")),
+            _baixar_foto(client, destaque.get("foto")),
             _baixar(client, url_escudo),
             _baixar(client, url_escudo_adv),
             _baixar(client, f"https://flagcdn.com/w80/{iso_tec}.png" if iso_tec else None),
@@ -19793,7 +19850,7 @@ async def api_elencos_card(request: Request):
     foto, escudo, escudo_adv, band_tec = baixados[:4]
     bandeiras = baixados[4:]
 
-    curto = ficha_clube.get("nome_curto") or _nome_curto_de_clube(clube)
+    curto = _nome_curto_de_clube(casa.get("nome") or clube)
     png = escalacao_card.montar({
         "clube": curto,
         "foto": foto,
@@ -19814,6 +19871,10 @@ async def api_elencos_card(request: Request):
         # Para ele saber, ANTES de publicar, o que não entrou: foto que não
         # baixou e escudo que faltou somem sem erro nenhum na tela.
         "X-Destaque": destaque["nome"],
+        # Quantos dos onze a guia de Elencos reconheceu pelo número. Baixo
+        # aqui quer dizer nome e foto vindos do PDF, e é o aviso de que o
+        # elenco daquele clube não carregou.
+        "X-Do-Campinho": f"{vindos_do_campinho}/{len(jogadores)}",
         # O nome que FOI PARA A ARTE. Quando o DIM_CLUBE não responde ele sai
         # da regra automática, e ele precisa poder conferir qual dos dois é.
         "X-Clube": curto,

@@ -112,31 +112,51 @@ class RespostaFalsa:
         self.status_code = status_code
 
 
-def _chamar(corpo, **stubs):
-    """Roda a rota com o download e o glossário de mentira."""
-    import glossario
+# O ELENCO DO CAMPINHO, como a guia de Elencos o entrega: nome já resolvido
+# pelo glossário na fonte que ele escolheu, foto, bandeira em emoji e número.
+ELENCO = {"jogadores": [
+    {"numero": 1, "nome": "Marko Rodák", "foto": "https://spl/1.png",
+     "pais_bandeira": "\U0001F1F8\U0001F1F0"},
+    {"numero": 99, "nome": "Chancel Mbemba", "foto": "https://spl/99.png",
+     "pais_bandeira": "\U0001F1E8\U0001F1E9"},
+    {"numero": 42, "nome": "Kanté", "foto": "https://spl/42.png",
+     "pais_bandeira": "\U0001F1E8\U0001F1EE"},
+]}
+TIMES = {"times": [
+    {"nome": "Al-Ettifaq", "escudo": "https://spl/ettifaq.png"},
+    {"nome": "Al-Ittihad Club", "escudo": "https://spl/ittihad.png"},
+]}
 
+
+def _chamar(corpo, **stubs):
+    """Roda a rota com as portas do campinho e o download de mentira."""
     guardados = {
         "_baixar": main._baixar, "_baixar_foto": main._baixar_foto,
         "Response": main.Response, "JSONResponse": main.JSONResponse,
-        "clube": glossario.clube, "quem": glossario.quem}
+        "jogadores": main.api_elencos_jogadores, "times": main.api_elencos_times}
     main.Response = RespostaFalsa
     main.JSONResponse = RespostaFalsa
 
     async def baixar(cli, url):
         return b"PNG-FALSO" if url else None
 
+    async def elenco(**k):
+        return stubs.get("elenco", ELENCO)
+
+    async def times(**k):
+        return stubs.get("times", TIMES)
+
     main._baixar = stubs.get("_baixar", baixar)
     main._baixar_foto = stubs.get("_baixar_foto", baixar)
-    glossario.clube = stubs.get("clube", lambda **k: {
-        "nome_curto": "ETTIFAQ", "escudo": "https://spl/escudo.png"})
-    glossario.quem = stubs.get("quem", lambda **k: {"foto": "https://spl/foto.png"})
+    main.api_elencos_jogadores = elenco
+    main.api_elencos_times = times
     try:
         return asyncio.run(main.api_elencos_card(PedidoFalso(corpo)))
     finally:
         main._baixar, main._baixar_foto = guardados["_baixar"], guardados["_baixar_foto"]
         main.Response, main.JSONResponse = guardados["Response"], guardados["JSONResponse"]
-        glossario.clube, glossario.quem = guardados["clube"], guardados["quem"]
+        main.api_elencos_jogadores = guardados["jogadores"]
+        main.api_elencos_times = guardados["times"]
 
 
 r = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq", "adversario": "Al-Ittihad",
@@ -145,7 +165,10 @@ ok(getattr(r, "media_type", "") == "image/png",
    f"a rota não devolveu um PNG: {getattr(r, 'media_type', '?')}")
 ok(len(getattr(r, "body", b"")) > 10000,
    "o PNG veio pequeno demais para ser a arte")
-ok(r.headers.get("X-Destaque") == "KANTÉ",
+# "Kanté" e não "KANTÉ": o capitão foi escolhido pelo nome que a TELA mostra
+# (o do texto), e depois ganhou a grafia do campinho. As duas coisas ao mesmo
+# tempo são o ponto — a escolha dele continua valendo com o nome novo.
+ok(r.headers.get("X-Destaque") == "Kanté",
    f"o destaque saiu '{r.headers.get('X-Destaque')}' e não o capitão. Ele "
    "pediu o capitão como padrão")
 
@@ -159,7 +182,7 @@ ok(r2.headers.get("X-Destaque") == "HENRIQUE",
 # Sem capitão e sem escolha, alguém tem de ser o destaque: arte sem foto é a
 # arte pela metade.
 r3 = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq"})
-ok(r3.headers.get("X-Destaque") == "RODÁK",
+ok(r3.headers.get("X-Destaque") == "Marko Rodák",
    f"sem capitão a arte não escolheu ninguém ({r3.headers.get('X-Destaque')})")
 
 # O QUE FALTOU TEM DE SER DITO. Foto e escudo somem calados na imagem.
@@ -194,12 +217,26 @@ rota = next(n for n in ast.walk(arvore)
             if isinstance(n, ast.AsyncFunctionDef) and n.name == "api_elencos_card")
 importados = {a.name for n in ast.walk(rota) if isinstance(n, ast.Import)
               for a in n.names}
-ok("glossario" in importados,
-   "a rota usa `glossario` sem importar dentro dela. No topo do main ele não "
-   "existe: em setembro um `_db` faltando assim virou NameError engolido por "
-   "um `except` e o ajuste parou de funcionar em silêncio")
 ok("escalacao_card" in importados,
    "a rota não importa o módulo da arte dentro dela")
+
+# A rota NÃO PODE resolver por conta própria. Ela pergunta às mesmas portas
+# que o campinho usa — foi isso que ele cortou em 23/10/26: "você tá
+# complicando coisas que já temos (...) temos tudo lá". Um segundo caminho
+# para a mesma pergunta um dia responde diferente, e aí a arte e o campinho
+# mostram grafias distintas do mesmo jogador.
+chamadas = {n.func.id for n in ast.walk(rota)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+ok("api_elencos_jogadores" in chamadas,
+   "a rota deixou de pedir o elenco à guia de Elencos. Nome, foto e bandeira "
+   "voltam a ser resolvidos por um caminho só dela")
+ok("api_elencos_times" in chamadas,
+   "a rota deixou de pedir os clubes à mesma lista que desenha os chips de "
+   "filtro do campinho")
+atributos = {n.func.attr for n in ast.walk(rota)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)}
+ok("clube" not in atributos and "quem" not in atributos,
+   "a rota voltou a consultar o glossário direto, em paralelo ao campinho")
 
 
 # ── O CAPITÃO É GRAVADO ─────────────────────────────────────────────────
@@ -233,32 +270,113 @@ ok(main._nome_curto_de_clube("AL") == "AL"
    "a regra esvaziou o nome do clube. Arte sem o nome do time não serve")
 
 r5 = _chamar({"texto": TEXTO, "clube": "Diriyah Club", "adversario": "Al Ittihad"},
-             clube=lambda **k: {})
+             times={"times": []})
 ok(r5.headers.get("X-Clube") == "DIRIYAH",
-   f"com o glossário mudo a arte saiu com '{r5.headers.get('X-Clube')}'. "
-   "Era 'DIRIYAH CLUB' inteiro que ele viu na tela")
-r6 = _chamar({"texto": TEXTO, "clube": "Diriyah Club"},
-             clube=lambda **k: {"nome_curto": "DIRIYAH FC", "escudo": "u"})
-ok(r6.headers.get("X-Clube") == "DIRIYAH FC",
-   "a curadoria do glossário perdeu para a regra automática. Quem semeou o "
-   "cadastro espera que ele mande")
+   f"a arte saiu com '{r5.headers.get('X-Clube')}'. Era 'DIRIYAH CLUB' "
+   "inteiro que ele viu na tela")
 
 
-# ── O ESCUDO QUANDO O DIM_CLUBE ESTÁ VAZIO ──────────────────────────────
+# ── O ESCUDO SAI DOS CHIPS DO CAMPINHO (23/10/26) ───────────────────────
 #
-#   "não saíram os escudos dos times"
+#   "Na aba campinho temos os escudos que servem de filtro. Use aquela
+#    origem."
 #
-r7 = _chamar({"texto": TEXTO, "clube": "Diriyah Club", "adversario": "Al Ittihad",
-              "escudo": "https://spl/a.png", "escudo_adversario": "https://spl/b.png"},
-             clube=lambda **k: {})
+r7 = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq", "adversario": "Al Ittihad"})
 ok((r7.headers.get("X-Faltou") or "") == "nada",
-   f"sem o cadastro semeado os escudos continuaram faltando "
-   f"('{r7.headers.get('X-Faltou')}'), mesmo a tela mandando o endereço "
-   "que ela já exibe no card do jogo")
+   f"os escudos não vieram da lista de clubes do campinho "
+   f"('{r7.headers.get('X-Faltou')}') — é a mesma lista dos chips de filtro")
+
+# A grafia do clube muda entre a folha oficial e a lista: "Al Ittihad" x
+# "Al-Ittihad Club". Os dois lados passam pelo padronizador, como no resto
+# do app; sem isso o escudo do adversário volta a faltar.
+ok("escudo-adversario" not in (r7.headers.get("X-Faltou") or ""),
+   "o escudo do adversário não casou porque o nome vem escrito diferente na "
+   "folha oficial e na lista de clubes")
+
+# E quando a lista não responder, o endereço que a tela já exibe assume.
+r8 = _chamar({"texto": TEXTO, "clube": "X", "adversario": "Y",
+              "escudo": "https://a.png", "escudo_adversario": "https://b.png"},
+             times={"times": []})
+ok((r8.headers.get("X-Faltou") or "") == "nada",
+   "com a lista de clubes fora do ar os blocos do canto saíram vazios, "
+   "mesmo a tela tendo mandado o escudo que ela já mostra no card")
 
 ok("data-escudo=" in FONTE and "escudo: botao.dataset.escudo" in FONTE,
-   "a tela parou de mandar o escudo que ela já tem; os blocos do canto "
-   "voltam a sair vazios enquanto o DIM_CLUBE estiver vazio")
+   "a tela parou de mandar o escudo de reserva")
+
+
+# ── O NOME E A BANDEIRA VÊM DO CAMPINHO ─────────────────────────────────
+#
+#   "o nome usado no campinho é também a melhor fonte pra buscar nome dos
+#    jogadores. Temos tudo lá."
+#
+r9 = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq", "adversario": "Al Ittihad",
+              "destaque": "KANTÉ"})
+ok(r9.headers.get("X-Destaque") == "Kanté",
+   f"o destaque saiu '{r9.headers.get('X-Destaque')}'. Quem casou pelo "
+   "número tem de ganhar o nome do campinho — a grafia que ele escolheu em "
+   "Ajustes, e não a que o PDF escreveu")
+# Dois dos seis: o elenco de mentira só tem as camisas 1, 42 e 99, e a 99 não
+# está nesta folha. O número existe para ele ver quando o elenco não carregou.
+ok(r9.headers.get("X-Do-Campinho") == "2/6",
+   f"o cruzamento com o elenco reconheceu {r9.headers.get('X-Do-Campinho')} "
+   "e deviam ser 2 de 6")
+
+# O QUE REALMENTE CHEGA NA ARTE. Os cabeçalhos contam o cruzamento, mas não
+# provam que nome, bandeira e foto foram repassados — apagar a linha da
+# bandeira passava calado neste teste até 23/10/26.
+import escalacao_card as _ec                                # noqa: E402
+
+_capturado = {}
+_montar_real = _ec.montar
+try:
+    _ec.montar = lambda d: (_capturado.update(d), _montar_real(d))[1]
+    _chamar({"texto": "01 RODAK DO PDF\n70 KHATEEB\n", "clube": "Al-Ettifaq"})
+finally:
+    _ec.montar = _montar_real
+
+_lista = _capturado.get("jogadores") or []
+ok(len(_lista) == 2, f"chegaram {len(_lista)} jogadores na arte, e eram 2")
+if len(_lista) == 2:
+    casou, nao_casou = _lista[0], _lista[1]
+    ok(casou["nome"] == "Marko Rodák",
+       f"o nome que chegou à arte foi '{casou['nome']}' — o do PDF. O "
+       "campinho tem a grafia que ele escolheu em Ajustes")
+    ok(casou["emoji"] == "\U0001F1F8\U0001F1F0",
+       f"a bandeira que chegou à arte foi {casou['emoji']!r}. O emoji vem do "
+       "campinho, que é onde a nacionalidade já está resolvida — sem ele a "
+       "arte desenha o PNG borrado do flagcdn")
+    ok(nao_casou["nome"] == "KHATEEB",
+       "quem o elenco não reconheceu perdeu o nome do PDF e some da arte")
+
+ok((_capturado.get("clube") or "") == "ETTIFAQ",
+   f"o nome curto que chegou à arte foi '{_capturado.get('clube')}'")
+
+
+# A PONTE É O NÚMERO: a folha escreve "01" e o elenco guarda 1.
+r9b = _chamar({"texto": "01 QUALQUER\n", "clube": "Al-Ettifaq"})
+ok(r9b.headers.get("X-Do-Campinho") == "1/1",
+   "o zero à esquerda da folha oficial não casou com o número do elenco. "
+   "São as duas pontas do mesmo jogador e nenhuma arte casaria")
+
+# O CASO QUE ELE VIU: o PDF escreve a inicial, o campinho tem o nome inteiro.
+r9c = _chamar({"texto": "99 C. MBEMBA\n", "clube": "Al-Ettifaq",
+               "destaque": "C. MBEMBA"})
+ok(r9c.headers.get("X-Destaque") == "Chancel Mbemba",
+   f"'C. MBEMBA' do PDF saiu como '{r9c.headers.get('X-Destaque')}'. O "
+   "campinho tem o nome inteiro, resolvido na fonte que ele escolheu — era "
+   "essa a origem que ele mandou usar")
+
+# Quem o elenco não conhece FICA com a linha do PDF. Some ninguém.
+r10 = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq", "destaque": "KHATEEB"})
+ok(r10.headers.get("X-Destaque") == "KHATEEB",
+   "o jogador que o elenco não reconheceu sumiu em vez de ficar com o nome "
+   "do PDF. Linha a menos na arte é pior que grafia imperfeita")
+
+r11 = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq"}, elenco={"jogadores": []})
+ok(r11.headers.get("X-Do-Campinho") == "0/6"
+   and len(getattr(r11, "body", b"")) > 10000,
+   "com o elenco vazio a arte não saiu. Ela tem de sair com o que o PDF deu")
 
 
 # ── A BANDEIRA DE EMOJI CHEGA AO MÓDULO ─────────────────────────────────
