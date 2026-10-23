@@ -19649,6 +19649,124 @@ async def api_elencos_arte(request: Request):
         "X-Fontes": ausentes["fontes"] or "nenhuma respondeu"})
 
 
+_LINHA_DA_ESCALACAO = re.compile(
+    r"^\s*(?P<band>[\U0001F1E6-\U0001F1FF]{2})?\s*"
+    r"(?P<num>[0-9]{1,3})\s+(?P<nome>.+?)\s*$")
+
+
+def _linhas_da_escalacao(texto: str) -> list[dict]:
+    """O texto do matchsheet de volta em bandeira, número e nome.
+
+    LER O TEXTO, E NÃO REMONTAR A ESCALAÇÃO (23/10/26)
+        Este texto é o MESMO que ele copia e cola hoje: já passou pelo
+        cruzamento com o elenco, pelo glossário e pelo zero à esquerda. Ir
+        buscar os jogadores de novo criaria um segundo caminho para a mesma
+        pergunta, e dois caminhos divergem — a arte sairia com um nome e o
+        texto copiado com outro, que é exatamente o que o star schema existe
+        para impedir.
+
+        Então a arte é o texto desenhado. Se ele corrigir uma linha na tela
+        antes de gerar, a correção vai junto.
+    """
+    linhas = []
+    for bruta in (texto or "").split("\n"):
+        achado = _LINHA_DA_ESCALACAO.match(bruta)
+        if not achado:
+            continue
+        linhas.append({"numero": achado.group("num"),
+                       "nome": achado.group("nome"),
+                       "bandeira": achado.group("band") or ""})
+    return linhas
+
+
+@app.post("/api/elencos/card")
+async def api_elencos_card(request: Request):
+    """O PNG 1080x1350 da escalação na arte dele: foto grande e a lista.
+
+    A página manda o que ela JÁ TEM no card de escalação — o texto do
+    matchsheet, o técnico, os dois times. O servidor só resolve o que ela não
+    tem: a foto do destaque, as bandeirinhas e os dois escudos.
+
+    O DESTAQUE é o capitão por padrão, e quem escolhe outro é ele na tela.
+    """
+    import asyncio
+
+    import escalacao_card
+    # DENTRO da função, como no resto do arquivo: `glossario` não é importado
+    # no topo. Em setembro um `_db` faltando aqui virou NameError engolido por
+    # um `except Exception` e o ajuste parou de funcionar em silêncio.
+    import glossario
+
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+
+    jogadores = _linhas_da_escalacao(corpo.get("texto") or "")
+    if not jogadores:
+        return JSONResponse(
+            {"erro": "não reconheci nenhuma linha de jogador no texto"},
+            status_code=400)
+    jogadores = jogadores[:11]
+
+    clube = (corpo.get("clube") or "").strip()
+    adversario = (corpo.get("adversario") or "").strip()
+    ficha_clube = glossario.clube(nome=clube) if clube else {}
+    ficha_adv = glossario.clube(nome=adversario) if adversario else {}
+
+    # O destaque: o que ele escolheu, ou o capitão, ou o primeiro da lista.
+    # Nunca vazio — arte sem foto é a arte pela metade.
+    escolhido = (corpo.get("destaque") or corpo.get("capitao") or "").strip().upper()
+    destaque = next((j for j in jogadores
+                     if j["nome"].strip().upper() == escolhido), jogadores[0])
+
+    ficha_destaque = glossario.quem(nome=destaque["nome"], clube=clube) or {}
+
+    isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
+    iso_tec = escalacao_arte_iso(corpo.get("bandeira_tecnico"))
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        baixados = await asyncio.gather(
+            _baixar_foto(client, ficha_destaque.get("foto")),
+            _baixar(client, ficha_clube.get("escudo") or ""),
+            _baixar(client, ficha_adv.get("escudo") or ""),
+            _baixar(client, f"https://flagcdn.com/w80/{iso_tec}.png" if iso_tec else None),
+            *[_baixar(client, f"https://flagcdn.com/w80/{i}.png" if i else None)
+              for i in isos])
+
+    foto, escudo, escudo_adv, band_tec = baixados[:4]
+    bandeiras = baixados[4:]
+
+    png = escalacao_card.montar({
+        "clube": ficha_clube.get("nome_curto") or clube,
+        "foto": foto,
+        "zoom": corpo.get("zoom") or 1.0,
+        "ancora": corpo.get("ancora", 0.5),
+        "escudo": escudo,
+        "escudo_adversario": escudo_adv,
+        "tecnico": {"nome": corpo.get("tecnico") or "", "bandeira": band_tec},
+        "jogadores": [{"numero": j["numero"], "nome": j["nome"],
+                       "bandeira": bandeiras[i]}
+                      for i, j in enumerate(jogadores)],
+    })
+    nome_arquivo = (ficha_clube.get("nome_curto") or clube or "escalacao").lower()
+    nome_arquivo = re.sub(r"[^a-z0-9]+", "-", nome_arquivo).strip("-") or "escalacao"
+    return Response(png, media_type="image/png", headers={
+        "Content-Disposition": f'attachment; filename="{nome_arquivo}-escalacao.png"',
+        # Para ele saber, ANTES de publicar, o que não entrou: foto que não
+        # baixou e escudo que faltou somem sem erro nenhum na tela.
+        "X-Destaque": destaque["nome"],
+        "X-Faltou": ", ".join(n for n, v in (("foto", foto), ("escudo", escudo),
+                                             ("escudo-adversario", escudo_adv))
+                              if not v) or "nada"})
+
+
+def escalacao_arte_iso(emoji):
+    """O ISO de duas letras do emoji de bandeira, pela mesma regra do campinho."""
+    import escalacao_arte
+    return escalacao_arte.iso_da_bandeira(emoji)
+
+
 @app.get("/api/elencos/desfalques")
 async def api_elencos_desfalques(clube: str = ""):
     """Quem está fora, para a PRÉVIA na tela desenhar a mesma saia do PNG.
@@ -22633,6 +22751,13 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
   padding: 6px 16px; font-size: .72rem; font-weight: 700; color: var(--c-text); cursor: pointer;
 }}
 .esc-copy.copied {{ border-color: #B6FF00; color: #B6FF00; }}
+.esc-arte {{ margin-left: 6px; font-size: .75rem; padding: 5px 10px; cursor: pointer;
+  border-radius: 6px; border: 1px solid var(--c-borda, #334); background: transparent;
+  color: inherit; }}
+.esc-arte:disabled {{ opacity: .6; cursor: default; }}
+.esc-destaque {{ margin-left: 6px; font-size: .75rem; padding: 5px 6px;
+  border-radius: 6px; border: 1px solid var(--c-borda, #334);
+  background: transparent; color: inherit; max-width: 170px; }}
 
 .esc-aviso {{
   font-size: .7rem; color: #FFBE5D; margin-top: 10px; border: 1px solid rgba(255,190,93,.3);
@@ -22800,7 +22925,16 @@ async function carregarRecentes() {{
       html += '<div class="esc-time"><h3>' + esc(t.time) + '</h3>'
         + '<div class="tecnico">Técnico: ' + esc(t.tecnico || '—') + '</div>'
         + '<textarea class="esc-texto" id="' + id + '">' + esc(t.texto) + '</textarea>'
-        + '<button class="esc-copy" data-alvo="' + id + '">📋 Copiar</button>';
+        + '<button class="esc-copy" data-alvo="' + id + '">📋 Copiar</button>'
+        // A arte lê o MESMO textarea do copiar. Se ele corrigir uma linha
+        // antes de gerar, a correção entra na imagem — duas saídas do mesmo
+        // texto, e não duas montagens independentes que divergem.
+        + '<button class="esc-arte" data-alvo="' + id + '"'
+        + ' data-clube="' + esc(t.time || '') + '"'
+        + ' data-adversario="' + esc((e[lado === 'casa' ? 'fora' : 'casa'] || {{}}).time || '') + '"'
+        + ' data-tecnico="' + esc(t.tecnico || '') + '"'
+        + ' data-capitao="' + esc(t.capitao || '') + '">🖼️ Arte</button>'
+        + '<select class="esc-destaque" id="d_' + id + '"></select>';
       if (t.deduzidos && t.deduzidos.length) {{
         html += '<div class="esc-deduzidos">Confira: '
           + t.deduzidos.map(esc).join(', ')
@@ -22822,6 +22956,74 @@ async function carregarRecentes() {{
       if (campo) copyText(b, campo.value);
     }};
   }});
+  alvo.querySelectorAll('.esc-arte').forEach(function (b) {{ prepararArte(b); }});
+}}
+
+// Os nomes do seletor saem do PRÓPRIO textarea, relidos a cada abertura: se
+// ele corrigir uma linha, o seletor já oferece o nome corrigido.
+function nomesDaEscalacao(texto) {{
+  return (texto || '').split('\\n').map(function (l) {{
+    const m = l.match(/^\\s*(?:[\\uD83C][\\uDDE6-\\uDDFF]{{2}})?\\s*[0-9]{{1,3}}\\s+(.+?)\\s*$/);
+    return m ? m[1] : '';
+  }}).filter(Boolean);
+}}
+
+function prepararArte(botao) {{
+  const campo = document.getElementById(botao.dataset.alvo);
+  const sel = document.getElementById('d_' + botao.dataset.alvo);
+  if (!campo || !sel) return;
+
+  function encher() {{
+    const escolhido = sel.value;
+    const nomes = nomesDaEscalacao(campo.value);
+    const cap = (botao.dataset.capitao || '').toUpperCase();
+    sel.innerHTML = nomes.map(function (n) {{
+      return '<option' + (n.toUpperCase() === cap ? ' data-cap="1"' : '') + '>'
+        + n + '</option>';
+    }}).join('');
+    // O capitão é o padrão, como ele pediu; uma escolha dele já feita manda.
+    if (nomes.indexOf(escolhido) >= 0) sel.value = escolhido;
+    else {{
+      const dele = nomes.find(function (n) {{ return n.toUpperCase() === cap; }});
+      if (dele) sel.value = dele;
+    }}
+  }}
+  encher();
+  campo.addEventListener('input', encher);
+
+  botao.onclick = async function () {{
+    const antes = botao.textContent;
+    botao.disabled = true; botao.textContent = 'Montando…';
+    try {{
+      const r = await fetch('/api/elencos/card', {{
+        method: 'POST', headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{
+          texto: campo.value, clube: botao.dataset.clube,
+          adversario: botao.dataset.adversario,
+          tecnico: botao.dataset.tecnico, destaque: sel.value}})}});
+      if (!r.ok) {{
+        let msg = 'não consegui montar a arte';
+        try {{ msg = (await r.json()).erro || msg; }} catch (e) {{}}
+        throw new Error(msg);
+      }}
+      // O que FALTOU vai no cabeçalho: foto que não baixou e escudo ausente
+      // somem calados na imagem, e ele publicaria sem perceber.
+      const faltou = r.headers.get('X-Faltou') || 'nada';
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (botao.dataset.clube || 'escalacao')
+        .toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-escalacao.png';
+      a.click();
+      setTimeout(function () {{ URL.revokeObjectURL(url); }}, 10000);
+      botao.textContent = faltou === 'nada' ? '✅ Baixou' : '⚠️ Sem ' + faltou;
+    }} catch (e) {{
+      botao.textContent = '❌ ' + (e.message || 'falhou');
+    }}
+    botao.disabled = false;
+    setTimeout(function () {{ botao.textContent = antes; }}, 4000);
+  }};
 }}
 
 async function carregarMonitor() {{
@@ -23036,6 +23238,15 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
             for j in dados[lado]["titulares"]
             if not matchsheet.nome_de_campo(j.get("nome_curto", ""),
                                             j.get("nome", ""))[1]]
+        # O CAPITÃO vai junto porque a arte de escalação abre com a foto dele
+        # — "o ideal seria eu escolher na hora, mas ele vindo como padrão a do
+        # capitão" (22/10/26). A marca "C" só existe aqui, no parse do PDF;
+        # sem gravar agora, a arte teria de adivinhar quem é o destaque. Sai
+        # com o MESMO nome de campo das linhas do texto, para casar com elas.
+        _cap = next((j for j in dados[lado]["titulares"] if j.get("capitao")), None)
+        dados[lado]["capitao"] = (
+            matchsheet.nome_de_campo(_cap.get("nome_curto", ""),
+                                     _cap.get("nome", ""))[0] if _cap else "")
 
     dados["avisos"] = avisos
     dados["glossario_pdf"] = {
@@ -23067,9 +23278,9 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
                 "rodada": dados.get("rodada"), "estadio": dados.get("estadio"),
                 "data": dados.get("data"), "hora": dados.get("hora"),
                 "casa": {k: dados["casa"].get(k)
-                         for k in ("time", "tecnico", "texto", "deduzidos")},
+                         for k in ("time", "tecnico", "texto", "deduzidos", "capitao")},
                 "fora": {k: dados["fora"].get(k)
-                         for k in ("time", "tecnico", "texto", "deduzidos")},
+                         for k in ("time", "tecnico", "texto", "deduzidos", "capitao")},
                 "avisos": avisos}, ensure_ascii=False))
     except Exception:
         return _com_cors_mediahub(JSONResponse(

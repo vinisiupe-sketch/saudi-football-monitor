@@ -48,7 +48,14 @@ def testar():
     if inicio < 0:
         print("  ✗", falhas[0])
         return len(falhas)
-    bloco = FONTE[inicio:inicio + 3000]
+    # O bloco vai do começo do laço até onde ele termina de verdade — a linha
+    # que joga o HTML na tela. Antes eram 3000 caracteres contados na mão, e
+    # bastou o laço crescer (o botão de Arte, 23/10/26) para o segundo
+    # `</details>` cair fora da janela e o teste acusar um defeito que não
+    # existia. Medida arbitrária acusa a própria idade, não o código.
+    fim = FONTE.find("alvo.innerHTML = html;", inicio)
+    ok(fim > inicio, "não achei o fim do laço que monta os cards")
+    bloco = FONTE[inicio:fim if fim > inicio else inicio + 3000]
 
     # ── 1. é <details>, e não div com onclick ────────────────────────────
     ok("'<details class=\"esc-card'" in bloco,
