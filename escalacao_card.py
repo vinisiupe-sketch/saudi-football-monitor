@@ -64,6 +64,11 @@ BANDEIRA_ALT = 40
 BANDEIRA_GAP = 22
 CORPO_LISTA = 50               # teto; encolhe junto se o nome mais longo não couber
 CORPO_MIN = 34
+# Fração do corpo tirada de cada espaço entre letras. Negativo = condensado.
+TRACKING = -0.035
+# Os jogadores NÃO são negrito; só o técnico é. Pedido dele em 23/10/26.
+FONTE_LISTA = "WorkSans-Regular-latin.ttf"
+FONTE_TECNICO = "WorkSans-Bold-latin.ttf"
 
 BRANCO = (255, 255, 255, 255)
 
@@ -171,8 +176,33 @@ def _linha_de(j):
     return f"{numero} {nome}".strip()
 
 
-def _corpo_que_cabe(linhas, limite, arquivo="WorkSans-SemiBold-latin.ttf"):
-    """O maior corpo em que TODAS as linhas cabem.
+def largura(d, texto: str, fonte, tracking: float = 0.0) -> float:
+    """A largura do texto JÁ CONDENSADO.
+
+    Medida letra a letra porque é letra a letra que ele vai ser desenhado — se
+    a conta usasse `textlength` da palavra inteira e o desenho fosse
+    condensado, a medida e a arte discordariam, e o limite da borda deixaria
+    de valer."""
+    if not texto:
+        return 0.0
+    return (sum(d.textlength(c, font=fonte) for c in texto)
+            + tracking * (len(texto) - 1))
+
+
+def escrever(d, base, xy, texto: str, fonte, tracking: float = 0.0) -> None:
+    """O texto com o espaço entre letras apertado.
+
+    ELE PEDIU (23/10/26): "condensaria um pouco o espaço entre as letras pra
+    evitar quebra de linha". Condensar ganha espaço sem diminuir a letra, que
+    é melhor que encolher a lista inteira por causa de um nome só."""
+    x, y = xy
+    for c in texto:
+        d.text((x, y), c, font=fonte, fill=BRANCO, anchor="lm")
+        x += d.textlength(c, font=fonte) + tracking
+
+
+def _corpo_que_cabe(linhas, limite, arquivo=FONTE_LISTA):
+    """O maior corpo em que TODAS as linhas cabem, já com o tracking.
 
     Uniforme, e não por linha: diminuir só o nome comprido faz a lista parecer
     desalinhada. Foi o `GLUŠČEVIĆ` estourando a borda no rascunho dele que
@@ -182,21 +212,21 @@ def _corpo_que_cabe(linhas, limite, arquivo="WorkSans-SemiBold-latin.ttf"):
     corpo = CORPO_LISTA
     while corpo > CORPO_MIN:
         f = _fonte(arquivo, corpo)
-        if all(d.textlength(t, font=f) <= limite for t in linhas):
+        if all(largura(d, t, f, corpo * TRACKING) <= limite for t in linhas):
             break
         corpo -= 1
     return corpo
 
 
-def cortar(d, texto: str, fonte, limite: float) -> str:
-    """O que não couber nem no corpo mínimo sai com reticências.
+def cortar(d, texto: str, fonte, limite: float, tracking: float = 0.0) -> str:
+    """O que não couber nem condensado no corpo mínimo sai com reticências.
 
     Encolher a lista inteira abaixo do legível por causa de um nome só é pior
     que abreviar esse nome. Só chega aqui quem o glossário não encurtou."""
-    if d.textlength(texto, font=fonte) <= limite:
+    if largura(d, texto, fonte, tracking) <= limite:
         return texto
     corte = texto
-    while corte and d.textlength(corte + "…", font=fonte) > limite:
+    while corte and largura(d, corte + "…", fonte, tracking) > limite:
         corte = corte[:-1]
     return (corte + "…") if corte else ""
 
@@ -241,36 +271,48 @@ def montar(dados: dict) -> bytes:
 
     d = ImageDraw.Draw(base)
 
+    # O nome do clube começa NA MESMA COLUNA da bandeira dos jogadores. Antes
+    # ele era alinhado à direita, e foi o vão que sobrava à esquerda que ele
+    # estranhou: "não entendi o espaço a esquerda do ETTIFAQ" (23/10/26).
     clube = (dados.get("clube") or "").strip().upper()
     if clube:
-        f = _nome_do_clube(d, clube, MARGEM_DIR - PAINEL_ESQ - 20)
-        d.text((MARGEM_DIR, NOME_CLUBE_BASE), clube, font=f,
-               fill=BRANCO, anchor="rs")
+        f = _nome_do_clube(d, clube, MARGEM_DIR - MARGEM_ESQ)
+        # Desconta o espaço interno do glifo: o que tem de encostar na coluna
+        # da bandeira é a TINTA da primeira letra, não a origem dela. Num
+        # corpo de 128 esse vão passa de seis pixels e se enxerga.
+        #
+        # Pela MÁSCARA, e não por `textbbox`: a caixa de layout devolve x0=0
+        # mesmo quando o desenho só começa sete pixels adiante. Foi medindo
+        # pelo lugar errado que o primeiro conserto não consertou nada.
+        folga = (f.getmask(clube).getbbox() or (0,))[0]
+        d.text((MARGEM_ESQ - folga, NOME_CLUBE_BASE), clube, font=f,
+               fill=BRANCO, anchor="ls")
 
     jogadores = (dados.get("jogadores") or [])[:11]
     tecnico = dados.get("tecnico") or {}
     texto_x = MARGEM_ESQ + int(BANDEIRA_ALT * 1.5) + BANDEIRA_GAP
+    cabe = MARGEM_DIR - texto_x
     linhas = [_linha_de(j) for j in jogadores]
     nome_tec = (tecnico.get("nome") or "").strip().upper()
-    corpo = _corpo_que_cabe(linhas + ([nome_tec] if nome_tec else []),
-                            MARGEM_DIR - texto_x)
-    f_lista = _fonte("WorkSans-SemiBold-latin.ttf", corpo)
-    f_tec = _fonte("WorkSans-Bold-latin.ttf", corpo)
+    corpo = _corpo_que_cabe(linhas + ([nome_tec] if nome_tec else []), cabe)
+    tracking = corpo * TRACKING
+    f_lista = _fonte(FONTE_LISTA, corpo)
+    f_tec = _fonte(FONTE_TECNICO, corpo)
 
     for i, j in enumerate(jogadores):
         meio = LINHA_1 + i * LINHA_PASSO
         band = _bandeira(j.get("bandeira"))
         if band is not None:
             base.alpha_composite(band, (MARGEM_ESQ, int(meio - band.height / 2)))
-        d.text((texto_x, meio), cortar(d, linhas[i], f_lista, MARGEM_DIR - texto_x),
-               font=f_lista, fill=BRANCO, anchor="lm")
+        escrever(d, base, (texto_x, meio),
+                 cortar(d, linhas[i], f_lista, cabe, tracking), f_lista, tracking)
 
     if nome_tec:
         band = _bandeira(tecnico.get("bandeira"))
         if band is not None:
             base.alpha_composite(band, (MARGEM_ESQ, int(TECNICO_Y - band.height / 2)))
-        d.text((texto_x, TECNICO_Y), cortar(d, nome_tec, f_tec, MARGEM_DIR - texto_x),
-               font=f_tec, fill=BRANCO, anchor="lm")
+        escrever(d, base, (texto_x, TECNICO_Y),
+                 cortar(d, nome_tec, f_tec, cabe, tracking), f_tec, tracking)
 
     saida = io.BytesIO()
     base.convert("RGB").save(saida, "PNG")

@@ -213,6 +213,80 @@ ok(_montar(foto=b.getvalue(), jogadores=onze_j)
    "sendo desenhados para fora do painel, por cima dos escudos")
 
 
+# ── OS TRÊS AJUSTES DE 23/10/26 ─────────────────────────────────────────
+#
+#   "somente o nome do técnico em negrito, dos jogadores, não"
+#   "condensaria um pouco o espaço entre as letras"
+#   "a primeira letra do nome do clube tem que tá alinhada com a bandeira"
+#
+ok("Bold" in ec.FONTE_TECNICO and "Bold" not in ec.FONTE_LISTA,
+   "o negrito voltou para a lista dos jogadores. Ele pediu negrito SÓ no "
+   "técnico")
+ok(os.path.exists(os.path.join(ec.FONTES, ec.FONTE_LISTA))
+   and os.path.exists(os.path.join(ec.FONTES, ec.FONTE_TECNICO)),
+   "uma das fontes escolhidas não existe na pasta; a arte cairia no deploy")
+
+ok(ec.TRACKING < 0, "o espaço entre as letras deixou de ser condensado")
+f50 = ec._fonte(ec.FONTE_LISTA, 50)
+ok(ec.largura(d, "AL OTAIBI", f50, 50 * ec.TRACKING)
+   < ec.largura(d, "AL OTAIBI", f50, 0),
+   "condensar não diminuiu a largura da linha; o tracking não está sendo "
+   "aplicado na medida")
+# E o condensado tem de chegar nos PIXELS: medir certo e desenhar solto
+# passou calado numa versão anterior deste teste.
+def _tinta(texto, fonte, tracking):
+    tela = Image.new("RGBA", (900, 120), (0, 0, 0, 255))
+    ec.escrever(ImageDraw.Draw(tela), tela, (20, 60), texto, fonte, tracking)
+    caixa = tela.convert("L").point(lambda v: 255 if v > 60 else 0).getbbox()
+    return (caixa[2] - caixa[0]) if caixa else 0
+
+
+solto = _tinta("61 AL OTAIBI", f50, 0)
+apertado = _tinta("61 AL OTAIBI", f50, 50 * ec.TRACKING)
+ok(apertado < solto,
+   f"a linha desenhada ocupa {apertado}px condensada e {solto}px solta — ou "
+   "seja, o tracking foi calculado e não chegou ao desenho")
+ok(abs(apertado - ec.largura(d, "61 AL OTAIBI", f50, 50 * ec.TRACKING)) < 12,
+   "a largura medida e a largura desenhada discordam; é por essa conta que o "
+   "limite da borda decide abreviar, então ela tem de bater")
+
+ok(ec.largura(d, "A", f50, 50 * ec.TRACKING) == ec.largura(d, "A", f50, 0),
+   "uma letra sozinha mudou de largura: o tracking está sendo somado depois "
+   "da última letra, e aí a medida não bate com o desenho")
+
+# O ALINHAMENTO, MEDIDO NOS PIXELS: a primeira letra do nome do clube e a
+# bandeira do jogador têm de começar na MESMA coluna. Conferir a constante não
+# bastava — era um `anchor="rs"` que jogava o nome para a direita, e a
+# constante estava certa o tempo todo.
+marca = Image.new("RGBA", (60, 40), (255, 0, 0, 255))
+mb = io.BytesIO()
+marca.save(mb, "PNG")
+arte2 = Image.open(io.BytesIO(_montar(
+    clube="ETTIFAQ",
+    jogadores=[{"numero": "01", "nome": "RODAK", "bandeira": mb.getvalue()}]
+    + [{"numero": str(i + 2), "nome": f"N{i}"} for i in range(10)]))).convert("RGB")
+pix = arte2.load()
+
+
+def _primeira_coluna(y0, y1, teste):
+    for x in range(ec.PAINEL_ESQ, ec.MARGEM_DIR):
+        if any(teste(pix[x, y]) for y in range(y0, y1)):
+            return x
+    return None
+
+
+x_band = _primeira_coluna(ec.LINHA_1 - 20, ec.LINHA_1 + 20,
+                          lambda c: c[0] > 180 and c[1] < 80 and c[2] < 80)
+x_clube = _primeira_coluna(ec.NOME_CLUBE_BASE - 110, ec.NOME_CLUBE_BASE,
+                           lambda c: min(c) > 200)
+ok(x_band is not None and x_clube is not None,
+   "não achei a bandeira ou o nome do clube na arte para comparar")
+if x_band is not None and x_clube is not None:
+    ok(abs(x_clube - x_band) <= 2,
+       f"o nome do clube começa em x={x_clube} e a bandeira em x={x_band}. "
+       "Era esse vão à esquerda do ETTIFAQ que ele estranhou")
+
+
 if falhas:
     print("❌ " + str(len(falhas)) + " falha(s):")
     for f_ in falhas:
