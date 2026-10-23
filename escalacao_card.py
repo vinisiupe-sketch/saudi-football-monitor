@@ -55,17 +55,37 @@ FOTO_TOPO = 56                      # respiro acima da cabeça, com zoom 1
 # ── O PAINEL DA DIREITA ────────────────────────────────────────────────────
 MARGEM_ESQ = 560               # onde a bandeira começa
 MARGEM_DIR = 1014              # onde nada pode passar
-NOME_CLUBE_BASE = 190          # linha de base do nome do clube
-NOME_CLUBE_CORPO = 128
+NOME_CLUBE_BASE = 196          # linha de base do nome do clube
 LINHA_1 = 300                  # centro da primeira linha da lista
 LINHA_PASSO = 78
 TECNICO_Y = 1180
 BANDEIRA_ALT = 40
 BANDEIRA_GAP = 22
-CORPO_LISTA = 50               # teto; encolhe junto se o nome mais longo não couber
-CORPO_MIN = 34
+
+# ── O TAMANHO É FIXO, O MESMO EM TODAS AS ARTES (23/10/26) ─────────────────
+#
+#   "Notei que cada arte tem um tamanho diferente de fonte, o ideal é
+#    padronizar a menor dos tamanhos entre todas pra não ter essa variação."
+#
+# Antes cada arte encolhia a lista até caber o nome mais longo DELA, então o
+# Hilal saía num corpo e o Qadsiah em outro. Agora o corpo é um só, e é o
+# menor de todos: o que faz caber a placa mais longa da liga, "22
+# MILINKOVIĆ-SAVIĆ", medida com a fonte e o tracking de verdade. Nome que um
+# dia passar disso sai com reticências — a lista não encolhe por causa dele.
+#
+# O TÉCNICO NÃO ENTRA NESSA CONTA. "ATHANASIOS PAPASTAMATIOU" exigiria corpo
+# 25 e encolheria todas as artes por causa de um clube. Quando o nome dele não
+# couber, ele perde os primeiros nomes e fica o sobrenome (`tecnico_que_cabe`).
+CORPO_LISTA = 36
 # Fração do corpo tirada de cada espaço entre letras. Negativo = condensado.
 TRACKING = -0.035
+
+# O NOME DO CLUBE: maior e mais fechado. "Pode ser maior, basta condensá-la
+# mais, fechando o espaço entre as letras." 174 com tracking -0,05 é o maior
+# corpo em que cabe o nome mais largo dos 18 clubes desta temporada, TAAWOUN.
+# Também fixo: um clube promovido com nome mais longo encolhe sozinho, e só ele.
+NOME_CLUBE_CORPO = 174
+TRACKING_CLUBE = -0.05
 # Os jogadores NÃO são negrito; só o técnico é. Pedido dele em 23/10/26.
 FONTE_LISTA = "WorkSans-Regular-latin.ttf"
 FONTE_TECNICO = "WorkSans-Bold-latin.ttf"
@@ -237,7 +257,8 @@ def largura(d, texto: str, fonte, tracking: float = 0.0) -> float:
             + tracking * (len(texto) - 1))
 
 
-def escrever(d, base, xy, texto: str, fonte, tracking: float = 0.0) -> None:
+def escrever(d, base, xy, texto: str, fonte, tracking: float = 0.0,
+             anchor: str = "lm") -> None:
     """O texto com o espaço entre letras apertado.
 
     ELE PEDIU (23/10/26): "condensaria um pouco o espaço entre as letras pra
@@ -245,25 +266,25 @@ def escrever(d, base, xy, texto: str, fonte, tracking: float = 0.0) -> None:
     é melhor que encolher a lista inteira por causa de um nome só."""
     x, y = xy
     for c in texto:
-        d.text((x, y), c, font=fonte, fill=BRANCO, anchor="lm")
+        d.text((x, y), c, font=fonte, fill=BRANCO, anchor=anchor)
         x += d.textlength(c, font=fonte) + tracking
 
 
-def _corpo_que_cabe(linhas, limite, arquivo=FONTE_LISTA):
-    """O maior corpo em que TODAS as linhas cabem, já com o tracking.
+def tecnico_que_cabe(d, nome: str, fonte, limite: float, tracking: float) -> str:
+    """O nome do técnico no corpo fixo: inteiro se couber, senão o sobrenome.
 
-    Uniforme, e não por linha: diminuir só o nome comprido faz a lista parecer
-    desalinhada. Foi o `GLUŠČEVIĆ` estourando a borda no rascunho dele que
-    pediu isto."""
-    from PIL import ImageDraw, Image
-    d = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-    corpo = CORPO_LISTA
-    while corpo > CORPO_MIN:
-        f = _fonte(arquivo, corpo)
-        if all(largura(d, t, f, corpo * TRACKING) <= limite for t in linhas):
-            break
-        corpo -= 1
-    return corpo
+    "ATHANASIOS PAPASTAMATIOU" pediria corpo 25 e, se mandasse no tamanho,
+    encolheria todas as artes. Em vez disso caem os primeiros nomes, um de
+    cada vez — "FABIO LUIZ CARILLE" tenta "LUIZ CARILLE" antes de "CARILLE" —
+    porque ninguém lê "ATHANASIOS PAPAS..." e entende quem é. Só se nem o
+    sobrenome couber é que entram as reticências.
+    """
+    partes = (nome or "").split()
+    for i in range(len(partes)):
+        tentativa = " ".join(partes[i:])
+        if largura(d, tentativa, fonte, tracking) <= limite:
+            return tentativa
+    return cortar(d, partes[-1] if partes else "", fonte, limite, tracking)
 
 
 def cortar(d, texto: str, fonte, limite: float, tracking: float = 0.0) -> str:
@@ -286,15 +307,22 @@ def cortar(d, texto: str, fonte, limite: float, tracking: float = 0.0) -> str:
 RETICENCIAS = "..."
 
 
+FONTE_CLUBE = "DesenhoCondensado-Heavy.ttf"
+
+
 def _nome_do_clube(d, texto, limite):
-    """O nome do clube, o maior possível sem passar da borda."""
+    """O nome do clube no corpo fixo; só encolhe quem não couber.
+
+    Devolve (fonte, tracking). Com os 18 clubes desta temporada ninguém
+    encolhe — o corpo foi medido no mais largo deles. A descida existe para o
+    promovido de nome comprido, e afeta só ele."""
     corpo = NOME_CLUBE_CORPO
     while corpo > 40:
-        f = _fonte("DesenhoCondensado-Heavy.ttf", corpo)
-        if d.textlength(texto, font=f) <= limite:
-            return f
+        f = _fonte(FONTE_CLUBE, corpo)
+        if largura(d, texto, f, corpo * TRACKING_CLUBE) <= limite:
+            return f, corpo * TRACKING_CLUBE
         corpo -= 2
-    return _fonte("DesenhoCondensado-Heavy.ttf", 40)
+    return _fonte(FONTE_CLUBE, 40), 40 * TRACKING_CLUBE
 
 
 def montar(dados: dict) -> bytes:
@@ -331,17 +359,14 @@ def montar(dados: dict) -> bytes:
     # estranhou: "não entendi o espaço a esquerda do ETTIFAQ" (23/10/26).
     clube = (dados.get("clube") or "").strip().upper()
     if clube:
-        f = _nome_do_clube(d, clube, MARGEM_DIR - MARGEM_ESQ)
-        # Desconta o espaço interno do glifo: o que tem de encostar na coluna
-        # da bandeira é a TINTA da primeira letra, não a origem dela. Num
-        # corpo de 128 esse vão passa de seis pixels e se enxerga.
-        #
-        # Pela MÁSCARA, e não por `textbbox`: a caixa de layout devolve x0=0
-        # mesmo quando o desenho só começa sete pixels adiante. Foi medindo
-        # pelo lugar errado que o primeiro conserto não consertou nada.
-        folga = (f.getmask(clube).getbbox() or (0,))[0]
-        d.text((MARGEM_ESQ - folga, NOME_CLUBE_BASE), clube, font=f,
-               fill=BRANCO, anchor="ls")
+        f, trk = _nome_do_clube(d, clube, MARGEM_DIR - MARGEM_ESQ)
+        # Desconta o espaço interno da PRIMEIRA letra: o que tem de encostar
+        # na coluna da bandeira é a tinta dela, não a origem. Pela máscara, e
+        # não por `textbbox` — a caixa de layout devolve zero mesmo quando o
+        # desenho só começa sete pixels adiante.
+        folga = (f.getmask(clube[0]).getbbox() or (0,))[0]
+        escrever(d, base, (MARGEM_ESQ - folga, NOME_CLUBE_BASE), clube, f,
+                 trk, anchor="ls")
 
     jogadores = (dados.get("jogadores") or [])[:11]
     tecnico = dados.get("tecnico") or {}
@@ -349,7 +374,7 @@ def montar(dados: dict) -> bytes:
     cabe = MARGEM_DIR - texto_x
     linhas = [_linha_de(j) for j in jogadores]
     nome_tec = (tecnico.get("nome") or "").strip().upper()
-    corpo = _corpo_que_cabe(linhas + ([nome_tec] if nome_tec else []), cabe)
+    corpo = CORPO_LISTA
     tracking = corpo * TRACKING
     f_lista = _fonte(FONTE_LISTA, corpo)
     f_tec = _fonte(FONTE_TECNICO, corpo)
@@ -363,7 +388,8 @@ def montar(dados: dict) -> bytes:
     if nome_tec:
         _colar_bandeira(base, _bandeira(tecnico.get("bandeira")), TECNICO_Y)
         escrever(d, base, (texto_x, TECNICO_Y),
-                 cortar(d, nome_tec, f_tec, cabe, tracking), f_tec, tracking)
+                 tecnico_que_cabe(d, nome_tec, f_tec, cabe, tracking),
+                 f_tec, tracking)
 
     saida = io.BytesIO()
     base.convert("RGB").save(saida, "PNG")

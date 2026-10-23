@@ -122,9 +122,15 @@ ELENCO = {"jogadores": [
     {"numero": 42, "nome": "Kanté", "foto": "https://spl/42.png",
      "pais_bandeira": "\U0001F1E8\U0001F1EE"},
 ]}
+# Como a lista do campinho responde NO AR (conferido em 23/10/26): nomes e
+# escudos da API-Football, e o id do clube lá dentro do endereço do escudo.
 TIMES = {"times": [
-    {"nome": "Al-Ettifaq", "escudo": "https://spl/ettifaq.png"},
-    {"nome": "Al-Ittihad Club", "escudo": "https://spl/ittihad.png"},
+    {"id": 2934, "nome": "Al-Ettifaq",
+     "escudo": "https://media.api-sports.io/football/teams/2934.png"},
+    {"id": 2938, "nome": "Al-Ittihad FC",
+     "escudo": "https://media.api-sports.io/football/teams/2938.png"},
+    {"id": 2932, "nome": "Al-Hilal Saudi FC",
+     "escudo": "https://media.api-sports.io/football/teams/2932.png"},
 ]}
 
 
@@ -133,7 +139,8 @@ def _chamar(corpo, **stubs):
     guardados = {
         "_baixar": main._baixar, "_baixar_foto": main._baixar_foto,
         "Response": main.Response, "JSONResponse": main.JSONResponse,
-        "jogadores": main.api_elencos_jogadores, "times": main.api_elencos_times}
+        "jogadores": main.api_elencos_jogadores, "times": main.api_elencos_times,
+        "af": main._af_get}
     main.Response = RespostaFalsa
     main.JSONResponse = RespostaFalsa
 
@@ -150,6 +157,11 @@ def _chamar(corpo, **stubs):
     main._baixar_foto = stubs.get("_baixar_foto", baixar)
     main.api_elencos_jogadores = elenco
     main.api_elencos_times = times
+
+    async def af(path, params, ttl=None):
+        return stubs.get("af", (None, "sem chave no teste"))
+
+    main._af_get = af
     try:
         return asyncio.run(main.api_elencos_card(PedidoFalso(corpo)))
     finally:
@@ -157,6 +169,7 @@ def _chamar(corpo, **stubs):
         main.Response, main.JSONResponse = guardados["Response"], guardados["JSONResponse"]
         main.api_elencos_jogadores = guardados["jogadores"]
         main.api_elencos_times = guardados["times"]
+        main._af_get = guardados["af"]
 
 
 r = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq", "adversario": "Al-Ittihad",
@@ -412,6 +425,150 @@ ok("ffmpeg" in _linha_apt,
 ok("emoji" not in _linha_apt,
    "a fonte de emoji voltou ao build. Desenhada pelo Pillow ela vira \"SA\", "
    "\"NL\" em letras — a bandeira certa é a imagem, como no campinho")
+
+
+# ── O NOME DO CLUBE SAI DA FOLHA OFICIAL ────────────────────────────────
+# Na lista do campinho o Hilal é "Al-Hilal Saudi FC". Se o nome viesse de lá
+# a arte diria "HILAL SAUDI" — e ele aprovou "HILAL".
+r12 = _chamar({"texto": TEXTO, "clube": "AL HILAL", "adversario": "AL ITTIHAD"})
+ok(r12.headers.get("X-Clube") == "HILAL",
+   f"o nome do clube saiu '{r12.headers.get('X-Clube')}'. A lista do campinho "
+   "chama o Hilal de 'Al-Hilal Saudi FC'; o nome da arte vem da folha")
+ok("escudo" not in (r12.headers.get("X-Faltou") or "").replace("escudo-adversario", ""),
+   "o escudo do Hilal não casou com a lista do campinho, que o chama de "
+   "'Al-Hilal Saudi FC'")
+
+
+# ── A BANDEIRA DO TÉCNICO (23/10/26) ────────────────────────────────────
+#
+#   "Não tá vindo o emoji do país do treinador."
+#
+COACHS = {"response": [
+    {"name": "S. Inzaghi", "firstname": "Simone", "lastname": "Inzaghi",
+     "nationality": "Italy",
+     "career": [{"team": {"id": 2932}, "start": "2025-06-03", "end": None},
+                {"team": {"id": 505}, "start": "2021-07-01", "end": "2025-06-02"}]},
+    {"name": "J. Jesus", "firstname": "Jorge", "lastname": "Jesus",
+     "nationality": "Portugal",
+     "career": [{"team": {"id": 2932}, "start": "2023-07-01", "end": "2025-06-01"}]},
+]}
+pedidos_af = []
+
+
+async def _baixa_anotando(cli, url):
+    pedidos_af.append(url or "")
+    return b"PNG-FALSO" if url else None
+
+
+r13 = _chamar({"texto": TEXTO, "clube": "AL HILAL", "adversario": "AL ITTIHAD",
+               "tecnico": "SIMONE INZAGHI"},
+              af=(COACHS, None), _baixar=_baixa_anotando)
+ok(any(u.endswith("/it.png") for u in pedidos_af),
+   f"a bandeira da Itália não foi pedida para o Inzaghi (pedidos: "
+   f"{[u for u in pedidos_af if 'flagcdn' in u]}). A nacionalidade vem da "
+   "API-Football pelo id do clube que está no escudo do campinho")
+ok("bandeira-tecnico" not in (r13.headers.get("X-Faltou") or ""),
+   "com a bandeira do técnico encontrada, o cabeçalho ainda acusou falta")
+
+# QUEM MANDA É A FOLHA OFICIAL. A API-Football devolve todo mundo que já
+# treinou o clube — aqui o Jorge Jesus, que passou pelo Hilal. O nome escrito
+# na folha decide qual deles é: com "SIMONE INZAGHI" sai a Itália, com
+# "JORGE JESUS" sai Portugal, mesmo que a carreira dele lá esteja fechada —
+# a folha é de hoje, a carreira da API pode estar atrasada.
+async def _af_coachs(path, params, ttl=None):
+    return COACHS, None
+_af_guardado = main._af_get
+try:
+    main._af_get = _af_coachs
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI")) == "🇮🇹",
+       "o técnico atual do Hilal não saiu com a bandeira da Itália")
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "JORGE JESUS")) == "🇵🇹",
+       "o técnico escrito na folha perdeu para quem a API diz ser o atual. A "
+       "folha oficial é do dia do jogo")
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "ROBERTO")) == "🇮🇹",
+       "sem sobrenome que case, o ÚNICO técnico atual do clube devia ser "
+       "usado — a folha às vezes traz só um nome, como 'BRUNO' e 'THOMAS'")
+    # Um id que NÃO é da API-Football (a lista caiu na reserva do
+    # Transfermarkt) apontaria para outro time. Não pergunta.
+    ok(asyncio.run(main._emoji_do_tecnico(
+        {"escudo": "https://tmssl.akamaized.net//images/wappen/head/1114.png"},
+        "SIMONE INZAGHI")) == "",
+       "o técnico foi procurado com um id do Transfermarkt na API-Football — "
+       "o número 1114 lá é outro clube, e a bandeira sairia de outro técnico")
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "")) == "",
+       "sem nome de técnico a função perguntou mesmo assim")
+finally:
+    main._af_get = _af_guardado
+
+# Sem a nacionalidade, o aviso aparece — só quando HÁ técnico na folha.
+r14 = _chamar({"texto": TEXTO, "clube": "AL HILAL", "tecnico": "SIMONE INZAGHI"})
+ok("bandeira-tecnico" in (r14.headers.get("X-Faltou") or ""),
+   "a bandeira do técnico faltou e ninguém foi avisado")
+
+
+# ── A BANDEIRA DA INGLATERRA ────────────────────────────────────────────
+# No elenco ela é um emoji de outro tipo, que não vira sigla. A linha do PDF
+# tem o 🇬🇧, e ele tem de ficar.
+INGLATERRA = "\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F"
+pedidos_ing = []
+
+
+async def _anota_ing(cli, url):
+    pedidos_ing.append(url or "")
+    return b"PNG-FALSO" if url else None
+
+
+_chamar({"texto": "\U0001F1EC\U0001F1E7 11 O. WATKINS\n", "clube": "AL HILAL"},
+        _baixar=_anota_ing, _baixar_foto=_anota_ing,
+        elenco={"jogadores": [{"numero": 11, "nome": "Ollie Watkins",
+                               "pais_bandeira": INGLATERRA}]})
+ok(any(u.endswith("/gb.png") for u in pedidos_ing),
+   "o Watkins saiu sem bandeira: o emoji da Inglaterra do campinho não vira "
+   "sigla e derrubou o 🇬🇧 que a linha do PDF já tinha")
+
+# E a linha com esse emoji no TEXTO não pode sumir da arte.
+_l = main._linhas_da_escalacao(INGLATERRA + " 09 TONEY\n\U0001F1F8\U0001F1E6 01 X")
+ok(len(_l) == 2 and _l[0]["nome"] == "TONEY" and _l[0]["numero"] == "09",
+   f"a linha com a bandeira da Inglaterra foi lida assim: {_l}")
+
+
+# ── O SELETOR, RODADO NO NAVEGADOR DE VERDADE ───────────────────────────
+#
+#   "Não tá dando pra selecionar o jogador da foto."
+#
+# A expressão esperava a bandeira como 1 pedaço + 2, e no JavaScript ela são
+# 4. Toda linha com bandeira sumia do seletor. Conferir o texto do código não
+# pegaria isso — então aqui o JavaScript roda, no Node, com as linhas reais
+# da folha do Hilal.
+import json as _json                                       # noqa: E402
+import shutil as _shutil                                   # noqa: E402
+import subprocess as _sub                                  # noqa: E402
+import tempfile as _tmp                                    # noqa: E402
+
+_node = _shutil.which("node") or _shutil.which("nodejs")
+_i = FONTE.find("function nomesDaEscalacao")
+_j = FONTE.find("function prepararArte", _i)
+ok(_i > 0 and _j > _i, "a função que enche o seletor sumiu da página")
+if _node and _i > 0:
+    # O HTML mora numa f-string: {{ vira {, e \\ vira \ — exatamente o
+    # que o navegador recebe.
+    _js = FONTE[_i:_j].replace("{{", "{").replace("}}", "}").replace("\\\\", "\\")
+    _folha = ("\U0001F1F2\U0001F1E6 37 BONO\n\U0001F1F8\U0001F1F3 03 K. KOULIBALY\n"
+              "\U0001F1F7\U0001F1F8 22 S. MILINKOVIĆ-SAVIĆ\n" + INGLATERRA
+              + " 09 TONEY\n23 WIJNALDUM")
+    with _tmp.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                 encoding="utf-8") as _arq:
+        _arq.write(_js + "\nconsole.log(JSON.stringify(nomesDaEscalacao("
+                   + _json.dumps(_folha) + ")));")
+    _saida = _sub.run([_node, _arq.name], capture_output=True, text=True,
+                      timeout=30)
+    try:
+        _nomes = _json.loads(_saida.stdout.strip() or "[]")
+    except Exception:
+        _nomes = []
+    ok(_nomes == ["BONO", "K. KOULIBALY", "S. MILINKOVIĆ-SAVIĆ", "TONEY", "WIJNALDUM"],
+       f"o seletor do navegador leu {_nomes}. Toda linha com bandeira tem de "
+       "virar opção — foi o seletor vazio que ele não conseguiu usar")
 
 
 # ── O BOTÃO NA TELA ─────────────────────────────────────────────────────

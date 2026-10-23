@@ -179,25 +179,62 @@ ok(not vermelho_no_numero,
    "uma bandeira 5:1 foi desenhada por cima do número da camisa")
 
 
-# ── O NOME COMPRIDO NÃO PODE ESTOURAR ───────────────────────────────────
-curtos = ["01 DUDA", "11 KANTÉ"]
-longos = ["71 GLUŠČEVIĆ MONTENEGRINO", "61 ABDULRAHMAN AL DAWSARI"]
-c1 = ec._corpo_que_cabe(curtos, 400)
-c2 = ec._corpo_que_cabe(curtos + longos, 400)
-ok(c2 < c1,
-   "a lista com um nome comprido manteve o mesmo corpo de letra. Foi o "
-   "'GLUŠČEVIĆ' passando da borda no rascunho dele que pediu isto")
-ok(c2 >= ec.CORPO_MIN,
-   "o corpo encolheu abaixo do mínimo legível para caber um nome")
-
+# ── O TAMANHO É UM SÓ, EM TODAS AS ARTES (23/10/26) ─────────────────────
+#
+#   "Notei que cada arte tem um tamanho diferente de fonte, o ideal é
+#    padronizar a menor dos tamanhos entre todas."
+#
 d = ImageDraw.Draw(Image.new("RGBA", (1, 1)))
-f = ec._fonte("WorkSans-SemiBold-latin.ttf", c2)
-ok(all(d.textlength(ec.cortar(d, t, f, 400), font=f) <= 400
-       for t in curtos + longos),
-   "mesmo depois de encolher E abreviar, alguma linha passa do limite. É o "
-   "texto invadindo a borda da arte, que foi o defeito do rascunho dele")
-ok(ec.cortar(d, "01 DUDA", f, 400) == "01 DUDA",
+TEXTO_X = ec.MARGEM_ESQ + int(ec.BANDEIRA_ALT * 1.5) + ec.BANDEIRA_GAP
+CABE = ec.MARGEM_DIR - TEXTO_X
+f = ec._fonte(ec.FONTE_LISTA, ec.CORPO_LISTA)
+TRK = ec.CORPO_LISTA * ec.TRACKING
+
+# As placas mais longas da liga, como o campinho as escreve. O corpo fixo é
+# "o menor de todos" justamente porque a mais longa delas tem de caber.
+for placa in ("22 MILINKOVIĆ-SAVIĆ", "10 KORTAJARENA", "07 AL-KUWAYKIBI",
+              "71 GLUŠČEVIĆ", "38 SUMMERVILLE"):
+    ok(ec.largura(d, placa, f, TRK) <= CABE,
+       f"'{placa}' não cabe no corpo fixo {ec.CORPO_LISTA}. O tamanho único "
+       "tem de ser o que serve para a placa mais longa da liga, senão ela sai "
+       "abreviada em toda arte do clube dela")
+
+# E A PROVA DE QUE NÃO VARIA: o corpo usado na lista é o MESMO numa arte de
+# nomes curtos e numa de nomes longos. Era essa a variação que ele viu.
+_usados = []
+_fonte_real = ec._fonte
+
+
+def _espia(arquivo, tamanho):
+    if arquivo in (ec.FONTE_LISTA, ec.FONTE_TECNICO):
+        _usados.append((arquivo, int(tamanho)))
+    return _fonte_real(arquivo, tamanho)
+
+
+try:
+    ec._fonte = _espia
+    ec.montar({"clube": "HILAL", "tecnico": {"nome": "BRUNO"},
+               "jogadores": [{"numero": "1", "nome": "DUDA"}]})
+    curtas = set(_usados)
+    _usados.clear()
+    ec.montar({"clube": "HILAL", "tecnico": {"nome": "ATHANASIOS PAPASTAMATIOU"},
+               "jogadores": [{"numero": "22", "nome": "MILINKOVIĆ-SAVIĆ"},
+                             {"numero": "61", "nome": "ABDULRAHMAN AL DAWSARI MONTENEGRINO"}]})
+    longas = set(_usados)
+finally:
+    ec._fonte = _fonte_real
+ok(curtas == longas and {t for _, t in curtas} == {ec.CORPO_LISTA},
+   f"o corpo da lista mudou conforme os nomes ({curtas} x {longas}). A "
+   "variação entre uma arte e outra é exatamente o que ele pediu para acabar")
+
+# Quem passar do corpo fixo sai abreviado — a lista não encolhe por um nome.
+_longo = "61 ABDULRAHMAN AL DAWSARI MONTENEGRINO"
+ok(ec.cortar(d, _longo, f, CABE, TRK).endswith(ec.RETICENCIAS)
+   and ec.largura(d, ec.cortar(d, _longo, f, CABE, TRK), f, TRK) <= CABE,
+   "o nome longo demais passou da borda em vez de sair abreviado")
+ok(ec.cortar(d, "01 DUDA", f, CABE, TRK) == "01 DUDA",
    "um nome que cabia foi abreviado à toa")
+
 # As reticências têm de APARECER. O caractere "…" não existe na WorkSans do
 # projeto (recorte latin) e saía invisível: "KALIDOU KOULIBA" parecia erro
 # de digitação na arte do Hilal, sem nada dizendo que tinha sido cortado.
@@ -207,14 +244,65 @@ _cmap = _TTFont(os.path.join(ec.FONTES, ec.FONTE_LISTA)).getBestCmap()
 ok(all(ord(c) in _cmap for c in ec.RETICENCIAS),
    f"as reticências {ec.RETICENCIAS!r} usam um caractere que a fonte da lista "
    "não tem; o corte sai invisível e o nome parece digitado errado")
-ok(ec.cortar(d, longos[0], f, 400).endswith(ec.RETICENCIAS),
-   "o nome que não cabia foi desenhado inteiro, estourando a borda, em vez "
-   "de sair com reticências")
 ok(ec.cortar(d, "QUALQUER", f, 1) == "",
    "com limite impossível a função devolveu texto em vez de nada")
 
-ok(ec._corpo_que_cabe(curtos, 400) == ec._corpo_que_cabe(curtos, 400),
-   "o cálculo do corpo não é estável entre chamadas")
+
+# ── O TÉCNICO NÃO DITA O TAMANHO ────────────────────────────────────────
+ft = ec._fonte(ec.FONTE_TECNICO, ec.CORPO_LISTA)
+ok(ec.tecnico_que_cabe(d, "SIMONE INZAGHI", ft, CABE, TRK) == "SIMONE INZAGHI",
+   "um técnico que cabia inteiro perdeu o primeiro nome")
+_papas = ec.tecnico_que_cabe(d, "ATHANASIOS PAPASTAMATIOU", ft, CABE, TRK)
+ok(_papas == "PAPASTAMATIOU",
+   f"'ATHANASIOS PAPASTAMATIOU' virou '{_papas}'. Quando não cabe, caem os "
+   "primeiros nomes e fica o sobrenome — 'ATHANASIOS PAPAS...' ninguém "
+   "reconhece")
+_carille = ec.tecnico_que_cabe(d, "FABIO LUIZ CARILLE DA SILVA SANTOS", ft, CABE, TRK)
+ok(ec.largura(d, _carille, ft, TRK) <= CABE and _carille.endswith("SANTOS"),
+   f"o nome composto longo saiu '{_carille}': tinha de perder os primeiros "
+   "nomes um a um e manter o fim")
+ok(ec.tecnico_que_cabe(d, "", ft, CABE, TRK) == "",
+   "técnico sem nome devolveu texto")
+
+# E A ARTE USA ISSO. A função certa existir não prova nada — uma versão em
+# que `montar` chamava o corte com reticências passou pelas asserções acima.
+# Aqui se olha o que foi DESENHADO na linha do técnico.
+_escritos = []
+_escrever_real = ec.escrever
+try:
+    ec.escrever = lambda d_, b_, xy, texto, *a, **k: (
+        _escritos.append(texto), _escrever_real(d_, b_, xy, texto, *a, **k))
+    ec.montar({"clube": "ETTIFAQ",
+               "tecnico": {"nome": "ATHANASIOS PAPASTAMATIOU"},
+               "jogadores": [{"numero": "1", "nome": "RODAK"}]})
+finally:
+    ec.escrever = _escrever_real
+ok("PAPASTAMATIOU" in _escritos,
+   f"a linha do técnico foi desenhada como {_escritos[-1:]!r}. Quando o nome "
+   "não cabe, a arte tem de mostrar o sobrenome inteiro — e não "
+   "'ATHANASIOS PAPAS...'")
+
+
+# ── O NOME DO CLUBE: MAIOR, MAIS FECHADO, E O MESMO TAMANHO PARA TODOS ──
+#
+#   "A fonte com nome do clube pode ser maior, basta condensá-la mais,
+#    fechando o espaço entre as letras."
+#
+CLUBES_DA_TEMPORADA = ("HAZEM", "FAYHA", "FATEH", "SHABAB", "FAISALY", "NASSR",
+                       "ITTIHAD", "DIRIYAH", "QADSIAH", "HILAL", "AHLI",
+                       "KHALEEJ", "NEOM", "ABHA", "KHOLOOD", "ETTIFAQ",
+                       "RIYADH", "TAAWOUN")
+ok(ec.NOME_CLUBE_CORPO > 128 and ec.TRACKING_CLUBE < ec.TRACKING,
+   "o nome do clube não ficou maior e mais condensado que antes")
+for nome_clube in CLUBES_DA_TEMPORADA:
+    fc, _trk = ec._nome_do_clube(d, nome_clube, ec.MARGEM_DIR - ec.MARGEM_ESQ)
+    ok(fc.size == ec.NOME_CLUBE_CORPO,
+       f"'{nome_clube}' saiu no corpo {fc.size} e não no {ec.NOME_CLUBE_CORPO}. "
+       "Todos os clubes da temporada têm de caber no mesmo tamanho, senão o "
+       "nome do clube varia de uma arte para a outra")
+fc_longo, _ = ec._nome_do_clube(d, "BUKAYRIYAHHHHH", ec.MARGEM_DIR - ec.MARGEM_ESQ)
+ok(fc_longo.size < ec.NOME_CLUBE_CORPO,
+   "um nome de clube que não cabe não encolheu: passaria da borda da arte")
 
 
 # ── A FOTO: apoiada na base, com respiro em cima ────────────────────────

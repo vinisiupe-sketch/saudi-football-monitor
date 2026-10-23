@@ -19649,9 +19649,62 @@ async def api_elencos_arte(request: Request):
         "X-Fontes": ausentes["fontes"] or "nenhuma respondeu"})
 
 
+# Tudo o que vem ANTES do número é a bandeira, seja ela qual for. A primeira
+# versão aceitava só o par de letras regionais (🇧🇷), e a linha com a
+# bandeira da Inglaterra — que é outro tipo de emoji — sumia da arte inteira.
 _LINHA_DA_ESCALACAO = re.compile(
-    r"^\s*(?P<band>[\U0001F1E6-\U0001F1FF]{2})?\s*"
-    r"(?P<num>[0-9]{1,3})\s+(?P<nome>.+?)\s*$")
+    r"^\s*(?P<band>[^0-9]*?)\s*(?P<num>[0-9]{1,3})\s+(?P<nome>.+?)\s*$")
+
+
+_ID_AF_NO_ESCUDO = re.compile(r"api-sports\.io/football/teams/(\d+)\.")
+
+
+def _sem_acento(texto: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", texto or "")
+                   if not unicodedata.combining(c)).lower()
+
+
+async def _emoji_do_tecnico(clube_campinho: dict, nome: str) -> str:
+    """O emoji do país do técnico, pela API-Football. "" quando não sei.
+
+    O ID DO CLUBE NA API-FOOTBALL já está na lista de clubes do campinho: é o
+    número dentro do endereço do escudo (…/football/teams/2932.png). Se o
+    endereço não for de lá — a lista caiu para uma reserva —, não pergunto:
+    um id de outra base apontaria para outro time.
+
+    QUEM É O TÉCNICO: o que tem o SOBRENOME da folha oficial e está no clube
+    agora (`career` sem data de fim). Sem sobrenome que case, só aceito se
+    houver UM técnico atual — dois atuais é ambiguidade, e bandeira errada no
+    técnico é pior que nenhuma.
+
+    Cache de um dia: técnico não muda de país, e são duas consultas por clube.
+    """
+    import arbitragem
+    achado = _ID_AF_NO_ESCUDO.search((clube_campinho or {}).get("escudo") or "")
+    if not achado or not (nome or "").strip():
+        return ""
+    af_id = int(achado.group(1))
+    dados, erro = await _af_get("coachs", {"team": af_id}, ttl=86400)
+    if erro or not dados:
+        return ""
+    sobrenome = _sem_acento((nome.split() or [""])[-1])
+    atuais, com_nome = [], []
+    for c in dados.get("response") or []:
+        carreira = c.get("career") or []
+        if any((x.get("team") or {}).get("id") == af_id and not x.get("end")
+               for x in carreira):
+            atuais.append(c)
+        nomes = _sem_acento(" ".join(str(c.get(k) or "")
+                                     for k in ("name", "firstname", "lastname")))
+        if sobrenome and sobrenome in nomes.split():
+            com_nome.append(c)
+    escolhido = (next((c for c in com_nome if c in atuais), None)
+                 or (com_nome[0] if len(com_nome) == 1 else None)
+                 or (atuais[0] if len(atuais) == 1 else None))
+    if not escolhido:
+        return ""
+    return arbitragem.bandeira(escolhido.get("nationality") or "") or ""
 
 
 def _linhas_da_escalacao(texto: str) -> list[dict]:
@@ -19802,7 +19855,13 @@ async def api_elencos_card(request: Request):
             # MILINKOVIĆ-SAVIĆ. Mandar o nome do elenco inteiro fez a arte do
             # Hilal sair "KALIDOU KOULIBA..." estourando a borda (23/10/26).
             linha["nome"] = _nome_da_placa(achado.get("nome")) or linha["nome"]
-            linha["bandeira"] = achado.get("pais_bandeira") or linha["bandeira"]
+            # A bandeira do campinho manda — MAS só se ela virar sigla. A da
+            # Inglaterra no elenco é um emoji de outro tipo (bandeira preta +
+            # letras invisíveis) que não vira sigla, e o Watkins ficava sem
+            # bandeira mesmo com o 🇬🇧 escrito na linha do PDF.
+            emoji_campinho = achado.get("pais_bandeira") or ""
+            if escalacao_arte_iso(emoji_campinho):
+                linha["bandeira"] = emoji_campinho
             linha["foto"] = achado.get("foto")
 
     escudos = {}
@@ -19826,7 +19885,19 @@ async def api_elencos_card(request: Request):
                     jogadores[0])
 
     isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
-    iso_tec = escalacao_arte_iso(corpo.get("bandeira_tecnico"))
+
+    # A BANDEIRA DO TÉCNICO (23/10/26): "não tá vindo o emoji do país do
+    # treinador". A folha oficial só traz o nome dele. Quem sabe a
+    # nacionalidade é a API-Football, e o id do clube lá já está na mesma
+    # lista de clubes do campinho — é o número dentro do endereço do escudo.
+    tecnico = (corpo.get("tecnico") or "").strip()
+    emoji_tec = corpo.get("bandeira_tecnico") or ""
+    if tecnico and not emoji_tec:
+        try:
+            emoji_tec = await _emoji_do_tecnico(casa, tecnico)
+        except Exception:
+            emoji_tec = ""
+    iso_tec = escalacao_arte_iso(emoji_tec)
 
     # O ESCUDO é o MESMO dos chips de filtro do campinho. Quando a lista de
     # clubes não responder, entra o endereço que a tela já exibe no card do
@@ -19846,7 +19917,10 @@ async def api_elencos_card(request: Request):
     foto, escudo, escudo_adv, band_tec = baixados[:4]
     bandeiras = baixados[4:]
 
-    curto = _nome_curto_de_clube(casa.get("nome") or clube)
+    # O nome do clube sai da FOLHA OFICIAL ("AL HILAL", "AL QADSIAH"), e não
+    # da lista do campinho: lá eles se chamam "Al-Hilal Saudi FC" e
+    # "Al-Qadisiyah FC", que viraria "HILAL SAUDI" e "QADISIYAH" na arte.
+    curto = _nome_curto_de_clube(clube)
     png = escalacao_card.montar({
         "clube": curto,
         "foto": foto,
@@ -19874,7 +19948,9 @@ async def api_elencos_card(request: Request):
         # da regra automática, e ele precisa poder conferir qual dos dois é.
         "X-Clube": curto,
         "X-Faltou": ", ".join(n for n, v in (("foto", foto), ("escudo", escudo),
-                                             ("escudo-adversario", escudo_adv))
+                                             ("escudo-adversario", escudo_adv),
+                                             ("bandeira-tecnico",
+                                              band_tec if tecnico else True))
                               if not v) or "nada"})
 
 
@@ -23082,10 +23158,15 @@ async function carregarRecentes() {{
 
 // Os nomes do seletor saem do PRÓPRIO textarea, relidos a cada abertura: se
 // ele corrigir uma linha, o seletor já oferece o nome corrigido.
+//
+// TUDO ANTES DO NÚMERO É A BANDEIRA, seja ela qual for (23/10/26). A versão
+// anterior esperava a bandeira como 1 pedaço + 2, mas no JavaScript uma
+// bandeira são 4 pedaços (dois pares). Nenhuma linha com bandeira casava, e
+// o seletor ficava vazio — "não tá dando pra selecionar o jogador da foto".
 function nomesDaEscalacao(texto) {{
   return (texto || '').split('\\n').map(function (l) {{
-    const m = l.match(/^\\s*(?:[\\uD83C][\\uDDE6-\\uDDFF]{{2}})?\\s*[0-9]{{1,3}}\\s+(.+?)\\s*$/);
-    return m ? m[1] : '';
+    const m = l.match(/^[^0-9]*?([0-9]{{1,3}})\\s+(.+?)\\s*$/);
+    return m ? m[2] : '';
   }}).filter(Boolean);
 }}
 
