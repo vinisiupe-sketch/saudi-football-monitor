@@ -12027,6 +12027,26 @@ async def api_diag_saude():
               f"pendurados, elencos congelados e o glossário; sem ele quase "
               f"toda guia fica vazia ou quebra.", bem=False)
 
+    # ── a fonte de emoji da arte de escalação ────────────────────────────────
+    # Sem ela a arte não quebra: a bandeirinha volta a ser o PNG baixado. Mas
+    # a troca é silenciosa, e ele só descobriria olhando a imagem e achando a
+    # bandeira saudita borrada de novo. Então o estado é dito aqui.
+    #
+    # DEPOIS do bloco da versão, e não junto dele: `teste_saude` executa aquele
+    # trecho isolado para conferir o carimbo do commit, e uma linha a mais ali
+    # dentro quebra a leitura dele.
+    try:
+        import escalacao_card as _card
+        _emoji = _card.fonte_de_emoji()
+        conta("Bandeiras da arte",
+              "emoji colorido (Noto)." if _emoji else
+              "SEM a fonte de emoji: as bandeiras saem do flagcdn, e a "
+              "saudita fica ilegível em 40px. Falta o pacote "
+              "fonts-noto-color-emoji na imagem — confira o nixpacks.toml e "
+              "se o build rodou depois dele.", bem=bool(_emoji))
+    except Exception as _e:
+        conta("Bandeiras da arte", f"não consegui conferir: {_e}", bem=False)
+
     # ── o glossário ──────────────────────────────────────────────────────────
     try:
         import glossario
@@ -19679,6 +19699,34 @@ def _linhas_da_escalacao(texto: str) -> list[dict]:
     return linhas
 
 
+_SUFIXOS_DE_CLUBE = ("CLUB", "FC", "SFC", "SC", "FOOTBALL CLUB", "SAUDI CLUB")
+
+
+def _nome_curto_de_clube(nome: str) -> str:
+    """'DIRIYAH CLUB' vira 'DIRIYAH'. 'AL ITTIHAD' vira 'ITTIHAD'.
+
+    É SÓ A RESERVA. Quem manda é o `nome_curto` do DIM_CLUBE, que é curadoria
+    dele. Esta regra existe para o dia — hoje — em que o cadastro de clubes
+    ainda não foi semeado: sem ela a arte sai com o nome oficial inteiro
+    ocupando a largura toda, que foi o que ele viu em 23/10/26.
+
+    Nunca devolve vazio: um clube sem nome na arte é pior que um nome longo.
+    """
+    bruto = " ".join((nome or "").split()).upper()
+    if not bruto:
+        return ""
+    for sufixo in sorted(_SUFIXOS_DE_CLUBE, key=len, reverse=True):
+        if bruto.endswith(" " + sufixo):
+            bruto = bruto[: -len(sufixo) - 1].strip()
+            break
+    # O "AL" é artigo em metade dos nomes desta liga e ele não o usa na arte:
+    # os templates dele dizem NEOM, AHLI, ETTIFAQ. Só cai quando sobra nome.
+    for artigo in ("AL-", "AL "):
+        if bruto.startswith(artigo) and len(bruto) > len(artigo) + 2:
+            return bruto[len(artigo):].strip()
+    return bruto
+
+
 @app.post("/api/elencos/card")
 async def api_elencos_card(request: Request):
     """O PNG 1080x1350 da escalação na arte dele: foto grande e a lista.
@@ -19725,11 +19773,19 @@ async def api_elencos_card(request: Request):
     isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
     iso_tec = escalacao_arte_iso(corpo.get("bandeira_tecnico"))
 
+    # O ESCUDO: o glossário manda, porque resolve pelo id. Mas o DIM_CLUBE
+    # pode não ter sido semeado ainda — e foi esse o caso em 23/10/26, com a
+    # arte saindo com os dois blocos do canto vazios. A tela já mostra o
+    # escudo de cada time no card do jogo; ela manda o endereço junto, e ele
+    # entra quando o glossário não responde.
+    url_escudo = ficha_clube.get("escudo") or corpo.get("escudo") or ""
+    url_escudo_adv = ficha_adv.get("escudo") or corpo.get("escudo_adversario") or ""
+
     async with httpx.AsyncClient(follow_redirects=True) as client:
         baixados = await asyncio.gather(
             _baixar_foto(client, ficha_destaque.get("foto")),
-            _baixar(client, ficha_clube.get("escudo") or ""),
-            _baixar(client, ficha_adv.get("escudo") or ""),
+            _baixar(client, url_escudo),
+            _baixar(client, url_escudo_adv),
             _baixar(client, f"https://flagcdn.com/w80/{iso_tec}.png" if iso_tec else None),
             *[_baixar(client, f"https://flagcdn.com/w80/{i}.png" if i else None)
               for i in isos])
@@ -19737,25 +19793,30 @@ async def api_elencos_card(request: Request):
     foto, escudo, escudo_adv, band_tec = baixados[:4]
     bandeiras = baixados[4:]
 
+    curto = ficha_clube.get("nome_curto") or _nome_curto_de_clube(clube)
     png = escalacao_card.montar({
-        "clube": ficha_clube.get("nome_curto") or clube,
+        "clube": curto,
         "foto": foto,
         "zoom": corpo.get("zoom") or 1.0,
         "ancora": corpo.get("ancora", 0.5),
         "escudo": escudo,
         "escudo_adversario": escudo_adv,
-        "tecnico": {"nome": corpo.get("tecnico") or "", "bandeira": band_tec},
+        "tecnico": {"nome": corpo.get("tecnico") or "", "bandeira": band_tec,
+                    "emoji": corpo.get("bandeira_tecnico") or ""},
         "jogadores": [{"numero": j["numero"], "nome": j["nome"],
-                       "bandeira": bandeiras[i]}
+                       "bandeira": bandeiras[i], "emoji": j["bandeira"]}
                       for i, j in enumerate(jogadores)],
     })
-    nome_arquivo = (ficha_clube.get("nome_curto") or clube or "escalacao").lower()
+    nome_arquivo = (curto or clube or "escalacao").lower()
     nome_arquivo = re.sub(r"[^a-z0-9]+", "-", nome_arquivo).strip("-") or "escalacao"
     return Response(png, media_type="image/png", headers={
         "Content-Disposition": f'attachment; filename="{nome_arquivo}-escalacao.png"',
         # Para ele saber, ANTES de publicar, o que não entrou: foto que não
         # baixou e escudo que faltou somem sem erro nenhum na tela.
         "X-Destaque": destaque["nome"],
+        # O nome que FOI PARA A ARTE. Quando o DIM_CLUBE não responde ele sai
+        # da regra automática, e ele precisa poder conferir qual dos dois é.
+        "X-Clube": curto,
         "X-Faltou": ", ".join(n for n, v in (("foto", foto), ("escudo", escudo),
                                              ("escudo-adversario", escudo_adv))
                               if not v) or "nada"})
@@ -22933,6 +22994,10 @@ async function carregarRecentes() {{
         + ' data-clube="' + esc(t.time || '') + '"'
         + ' data-adversario="' + esc((e[lado === 'casa' ? 'fora' : 'casa'] || {{}}).time || '') + '"'
         + ' data-tecnico="' + esc(t.tecnico || '') + '"'
+        // O escudo que o card já mostra vai junto: enquanto o cadastro de
+        // clubes não for semeado, é ele que preenche os blocos do canto.
+        + ' data-escudo="' + esc((j[lado] || {{}}).escudo || '') + '"'
+        + ' data-escudo-adv="' + esc((j[lado === 'casa' ? 'fora' : 'casa'] || {{}}).escudo || '') + '"'
         + ' data-capitao="' + esc(t.capitao || '') + '">🖼️ Arte</button>'
         + '<select class="esc-destaque" id="d_' + id + '"></select>';
       if (t.deduzidos && t.deduzidos.length) {{
@@ -23000,6 +23065,8 @@ function prepararArte(botao) {{
         body: JSON.stringify({{
           texto: campo.value, clube: botao.dataset.clube,
           adversario: botao.dataset.adversario,
+          escudo: botao.dataset.escudo,
+          escudo_adversario: botao.dataset.escudoAdv,
           tecnico: botao.dataset.tecnico, destaque: sel.value}})}});
       if (!r.ok) {{
         let msg = 'não consegui montar a arte';

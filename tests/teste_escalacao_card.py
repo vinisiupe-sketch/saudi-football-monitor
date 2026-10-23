@@ -101,6 +101,122 @@ ok(ec._linha_de({"numero": "GK", "nome": "Rodák"}) == "GK RODÁK",
    "um número que não é dígito foi estragado pelo preenchimento com zero")
 
 
+# ── A INICIAL ABREVIADA CAI (23/10/26) ──────────────────────────────────
+#
+#   "o nome curto dos jogadores, se n tiver, o ideal é cortar o nome que tá
+#    abreviado deixando só o outro"
+#
+for bruto, esperado in (("C. MBEMBA", "MBEMBA"), ("B. DJIMSITI", "DJIMSITI"),
+                        ("L. CHELFI", "CHELFI"), ("E. MILLOT", "MILLOT"),
+                        ("A AL GHAMDI", "AL GHAMDI")):
+    ok(ec.sem_inicial(bruto) == esperado,
+       f"'{bruto}' virou '{ec.sem_inicial(bruto)}' e devia virar "
+       f"'{esperado}'. A inicial não informa nada e come a largura do "
+       "sobrenome")
+
+for intacto in ("ÓSCAR RODRÍGUEZ", "HUSSAIN AL QAHT", "AL OTAIBI",
+                "WIJNALDUM", "AL NEMR"):
+    ok(ec.sem_inicial(intacto) == intacto,
+       f"'{intacto}' foi mutilado para '{ec.sem_inicial(intacto)}'. Só a "
+       "INICIAL cai — 'AL' tem duas letras e é metade dos nomes desta liga")
+
+ok(ec.sem_inicial("R. K.") == "R. K." and ec.sem_inicial("") == "",
+   "um nome só de iniciais ficou vazio. Linha sem nome é linha inútil")
+ok(ec._linha_de({"numero": "99", "nome": "C. Mbemba"}) == "99 MBEMBA",
+   "o corte da inicial não chegou à linha desenhada")
+
+
+# ── A BANDEIRA DE EMOJI, E A QUEDA SEM ELA ──────────────────────────────
+#
+#   "as bandeiras dos jogadores tem que ser de emoji"
+#
+# A fonte vem da imagem (nixpacks instala fonts-noto-color-emoji) e não do
+# repositório, então aqui ela pode não existir. O que este teste garante é a
+# regra que vale nos dois casos: COM a fonte, o emoji manda; SEM ela, a
+# imagem baixada assume — e a bandeira nunca some.
+quadrado = Image.new("RGBA", (60, 40), (200, 30, 30, 255))
+qb = io.BytesIO()
+quadrado.save(qb, "PNG")
+
+tem_fonte = ec.fonte_de_emoji() is not None
+band = ec._bandeira(qb.getvalue(), "\U0001F1F8\U0001F1E6")
+ok(band is not None,
+   "a bandeira sumiu mesmo tendo imagem baixada. Perder a bandeira é pior "
+   "que ter a antiga")
+ok(band.height == ec.BANDEIRA_ALT,
+   f"a bandeira saiu com {band.height}px de altura em vez de {ec.BANDEIRA_ALT}")
+
+if tem_fonte:
+    so_emoji = ec._bandeira(None, "\U0001F1F8\U0001F1E6")
+    ok(so_emoji is not None,
+       "com a fonte de emoji instalada, a bandeira não saiu sem imagem "
+       "baixada — o emoji é que devia estar mandando")
+else:
+    ok(ec.bandeira_de_emoji("\U0001F1F8\U0001F1E6") is None,
+       "sem a fonte instalada a função de emoji devia devolver vazio em "
+       "silêncio, para a imagem assumir")
+    ok(ec._bandeira(None, "\U0001F1F8\U0001F1E6") is None,
+       "sem fonte e sem imagem a bandeira tinha de ser vazio, não erro")
+
+ok(ec.bandeira_de_emoji("") is None,
+   "emoji vazio devolveu alguma coisa")
+ok(ec._bandeira(None, "") is None,
+   "sem imagem e sem emoji a bandeira não é vazia")
+
+# A procura roda em toda linha de toda arte: tem de acontecer UMA vez.
+for _ in range(5):
+    ec.fonte_de_emoji()
+ok(len(ec._EMOJI_CACHE) == 1,
+   f"a fonte de emoji foi procurada {len(ec._EMOJI_CACHE)} vezes. São cinco "
+   "buscas no disco por linha da lista, doze linhas por arte")
+
+# O EMOJI TEM DE CHEGAR AO DESENHO, e isto não pode depender de a fonte
+# existir na máquina que roda o teste — aqui ela não existe, lá no Railway
+# sim. Então ponho um desenhador de mentira no lugar e olho a cor que saiu:
+# sem isto, apagar o emoji de `montar` passava calado e só se descobriria
+# com a arte no ar.
+ROXO = (160, 0, 240, 255)
+_real = ec.bandeira_de_emoji
+try:
+    ec.bandeira_de_emoji = lambda emoji, alt=ec.BANDEIRA_ALT: (
+        Image.new("RGBA", (60, int(alt)), ROXO) if emoji else None)
+    verde = Image.new("RGBA", (60, 40), (0, 200, 0, 255))
+    vb = io.BytesIO()
+    verde.save(vb, "PNG")
+    com_emoji = Image.open(io.BytesIO(ec.montar({
+        "clube": "X",
+        "jogadores": [{"numero": "01", "nome": "RODAK",
+                       "bandeira": vb.getvalue(),
+                       "emoji": "\U0001F1F8\U0001F1E6"}]}))).convert("RGB")
+    cor = com_emoji.getpixel((ec.MARGEM_ESQ + 20, ec.LINHA_1))
+    ok(abs(cor[0] - 160) < 30 and abs(cor[2] - 240) < 30,
+       f"a bandeira desenhada é {cor} e não o emoji. O emoji chegou ao "
+       "módulo e foi ignorado na hora de desenhar — com a fonte instalada "
+       "no Railway, a arte sairia com o PNG borrado do mesmo jeito")
+
+    # O TÉCNICO tem a mesma linha e o mesmo direito à bandeira.
+    tec = Image.open(io.BytesIO(ec.montar({
+        "clube": "X", "jogadores": [{"numero": "01", "nome": "RODAK"}],
+        "tecnico": {"nome": "ARTHUR PAPAS", "bandeira": vb.getvalue(),
+                    "emoji": "\U0001F1E6\U0001F1FA"}}))).convert("RGB")
+    cor_t = tec.getpixel((ec.MARGEM_ESQ + 20, ec.TECNICO_Y))
+    ok(abs(cor_t[0] - 160) < 30 and abs(cor_t[2] - 240) < 30,
+       f"a bandeira do técnico é {cor_t} e não o emoji. A linha dele é igual "
+       "às outras e foi esquecida — defeito que só aparece na última linha "
+       "da arte")
+
+    sem_emoji = Image.open(io.BytesIO(ec.montar({
+        "clube": "X",
+        "jogadores": [{"numero": "01", "nome": "RODAK",
+                       "bandeira": vb.getvalue()}]}))).convert("RGB")
+    cor2 = sem_emoji.getpixel((ec.MARGEM_ESQ + 20, ec.LINHA_1))
+    ok(cor2[1] > 120 and cor2[0] < 90,
+       f"sem emoji a bandeira saiu {cor2} em vez da imagem baixada. A queda "
+       "para a imagem é o que garante que nenhuma bandeira some")
+finally:
+    ec.bandeira_de_emoji = _real
+
+
 # ── O NOME COMPRIDO NÃO PODE ESTOURAR ───────────────────────────────────
 curtos = ["01 DUDA", "11 KANTÉ"]
 longos = ["71 GLUŠČEVIĆ MONTENEGRINO", "61 ABDULRAHMAN AL DAWSARI"]

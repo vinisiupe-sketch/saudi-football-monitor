@@ -155,13 +155,101 @@ def _escudo_no_bloco(base, dados, bloco):
                                int(y + (alt - novo[1]) / 2)))
 
 
-def _bandeira(dados, alt=BANDEIRA_ALT):
-    """A bandeirinha na altura da linha, proporção preservada."""
+# ── A BANDEIRA É EMOJI ──────────────────────────────────────────────────
+#
+# ELE PEDIU (23/10/26): "as bandeiras dos jogadores tem que ser de emoji".
+#
+# O desenho da bandeira saudita tem a shahada escrita; o PNG do flagcdn
+# reduzido a 40px vira um borrão verde. O emoji é desenhado para ser lido
+# nesse tamanho, e é o que o template dele usa.
+#
+# A fonte não entra no repositório: `nixpacks.toml` instala o pacote
+# `fonts-noto-color-emoji` na imagem. Se ela não estiver lá, a bandeira volta
+# a ser a imagem baixada — perder a bandeira seria pior que ter a antiga.
+EMOJI_CANDIDATAS = (
+    os.path.join(FONTES, "NotoColorEmoji.ttf"),
+    "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf",
+    "/usr/share/fonts/truetype/noto-color-emoji/NotoColorEmoji.ttf",
+    "/usr/share/fonts/NotoColorEmoji.ttf",
+    "/System/Library/Fonts/Apple Color Emoji.ttc",
+)
+# O NotoColorEmoji é fonte de BITMAP: o Pillow só a abre no tamanho em que
+# ela foi desenhada. Desenho nesse tamanho e reduzo depois.
+EMOJI_CORPO = 109
+
+_EMOJI_CACHE = []
+
+
+def fonte_de_emoji():
+    """A fonte de emoji colorido, ou None. Procura uma vez só."""
+    if _EMOJI_CACHE:
+        return _EMOJI_CACHE[0]
+    from PIL import ImageFont
+    achada = None
+    for caminho in EMOJI_CANDIDATAS:
+        if not os.path.exists(caminho):
+            continue
+        try:
+            achada = ImageFont.truetype(caminho, EMOJI_CORPO)
+            break
+        except Exception:
+            continue
+    _EMOJI_CACHE.append(achada)
+    return achada
+
+
+def bandeira_de_emoji(emoji: str, alt=BANDEIRA_ALT):
+    """O emoji desenhado e reduzido para a altura da linha, ou None."""
+    if not emoji:
+        return None
+    fonte = fonte_de_emoji()
+    if fonte is None:
+        return None
+    try:
+        from PIL import Image, ImageDraw
+        tela = Image.new("RGBA", (EMOJI_CORPO * 2, EMOJI_CORPO * 2), (0, 0, 0, 0))
+        ImageDraw.Draw(tela).text(
+            (EMOJI_CORPO // 2, EMOJI_CORPO // 2), emoji, font=fonte,
+            embedded_color=True, anchor="mm")
+        caixa = tela.getbbox()
+        if not caixa:
+            return None
+        corte = tela.crop(caixa)
+        larg = max(1, int(round(corte.width * alt / corte.height)))
+        return corte.resize((larg, int(alt)), _lanczos())
+    except Exception:
+        # Pillow sem suporte a bitmap colorido, fonte estranha, o que for: a
+        # imagem baixada assume e a arte sai com bandeira do mesmo jeito.
+        return None
+
+
+def _bandeira(dados, emoji="", alt=BANDEIRA_ALT):
+    """A bandeirinha na altura da linha: emoji primeiro, imagem depois."""
+    desenhada = bandeira_de_emoji(emoji, alt)
+    if desenhada is not None:
+        return desenhada
     img = _abrir(dados)
     if img is None:
         return None
     larg = max(1, int(round(img.width * alt / img.height)))
     return img.resize((larg, int(alt)), _lanczos())
+
+
+def sem_inicial(nome: str) -> str:
+    """'C. MBEMBA' vira 'MBEMBA'. 'ÓSCAR RODRÍGUEZ' fica como está.
+
+    ELE PEDIU (23/10/26): "o nome curto dos jogadores, se não tiver, o ideal é
+    cortar o nome que tá abreviado deixando só o outro".
+
+    Quem tem nome curto no glossário não passa por aqui — este é o caso em que
+    o nome veio do PDF, e a liga escreve "C. MBEMBA". Na arte a inicial não
+    informa nada e come a largura que o sobrenome precisa.
+
+    Só corta o que é INICIAL de verdade: uma letra, com ponto ou sem. E nunca
+    esvazia o nome — se sobrarem só iniciais, devolve o que veio."""
+    pedacos = (nome or "").split()
+    resto = [p for p in pedacos if len(p.rstrip(".")) > 1]
+    return " ".join(resto) if resto else (nome or "").strip()
 
 
 def _linha_de(j):
@@ -172,7 +260,7 @@ def _linha_de(j):
     numero = str(j.get("numero") or "").strip()
     if numero.isdigit():
         numero = numero.zfill(2)
-    nome = (j.get("nome") or "").strip().upper()
+    nome = sem_inicial((j.get("nome") or "").strip().upper())
     return f"{numero} {nome}".strip()
 
 
@@ -301,14 +389,14 @@ def montar(dados: dict) -> bytes:
 
     for i, j in enumerate(jogadores):
         meio = LINHA_1 + i * LINHA_PASSO
-        band = _bandeira(j.get("bandeira"))
+        band = _bandeira(j.get("bandeira"), j.get("emoji") or "")
         if band is not None:
             base.alpha_composite(band, (MARGEM_ESQ, int(meio - band.height / 2)))
         escrever(d, base, (texto_x, meio),
                  cortar(d, linhas[i], f_lista, cabe, tracking), f_lista, tracking)
 
     if nome_tec:
-        band = _bandeira(tecnico.get("bandeira"))
+        band = _bandeira(tecnico.get("bandeira"), tecnico.get("emoji") or "")
         if band is not None:
             base.alpha_composite(band, (MARGEM_ESQ, int(TECNICO_Y - band.height / 2)))
         escrever(d, base, (texto_x, TECNICO_Y),

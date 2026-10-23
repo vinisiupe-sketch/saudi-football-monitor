@@ -214,6 +214,71 @@ ok('dados[lado]["capitao"]' in FONTE,
    "ninguém calcula o capitão a partir dos titulares")
 
 
+# ── O NOME CURTO DO CLUBE (23/10/26) ────────────────────────────────────
+#
+#   "não saiu o nome reduzido do clube"
+#
+# O DIM_CLUBE estava vazio — a semeadura nunca rodou — e a arte saiu com
+# "DIRIYAH CLUB" ocupando a largura toda. A curadoria dele continua mandando
+# quando existe; isto aqui é a reserva para quando não existe.
+for bruto, esperado in (("DIRIYAH CLUB", "DIRIYAH"), ("AL ITTIHAD", "ITTIHAD"),
+                        ("Al-Ettifaq", "ETTIFAQ"), ("Al Ahli SFC", "AHLI"),
+                        ("Al-Qadsiah FC", "QADSIAH"), ("NEOM", "NEOM")):
+    got = main._nome_curto_de_clube(bruto)
+    ok(got == esperado,
+       f"'{bruto}' virou '{got}' e devia virar '{esperado}'")
+
+ok(main._nome_curto_de_clube("AL") == "AL"
+   and main._nome_curto_de_clube("") == "",
+   "a regra esvaziou o nome do clube. Arte sem o nome do time não serve")
+
+r5 = _chamar({"texto": TEXTO, "clube": "Diriyah Club", "adversario": "Al Ittihad"},
+             clube=lambda **k: {})
+ok(r5.headers.get("X-Clube") == "DIRIYAH",
+   f"com o glossário mudo a arte saiu com '{r5.headers.get('X-Clube')}'. "
+   "Era 'DIRIYAH CLUB' inteiro que ele viu na tela")
+r6 = _chamar({"texto": TEXTO, "clube": "Diriyah Club"},
+             clube=lambda **k: {"nome_curto": "DIRIYAH FC", "escudo": "u"})
+ok(r6.headers.get("X-Clube") == "DIRIYAH FC",
+   "a curadoria do glossário perdeu para a regra automática. Quem semeou o "
+   "cadastro espera que ele mande")
+
+
+# ── O ESCUDO QUANDO O DIM_CLUBE ESTÁ VAZIO ──────────────────────────────
+#
+#   "não saíram os escudos dos times"
+#
+r7 = _chamar({"texto": TEXTO, "clube": "Diriyah Club", "adversario": "Al Ittihad",
+              "escudo": "https://spl/a.png", "escudo_adversario": "https://spl/b.png"},
+             clube=lambda **k: {})
+ok((r7.headers.get("X-Faltou") or "") == "nada",
+   f"sem o cadastro semeado os escudos continuaram faltando "
+   f"('{r7.headers.get('X-Faltou')}'), mesmo a tela mandando o endereço "
+   "que ela já exibe no card do jogo")
+
+ok("data-escudo=" in FONTE and "escudo: botao.dataset.escudo" in FONTE,
+   "a tela parou de mandar o escudo que ela já tem; os blocos do canto "
+   "voltam a sair vazios enquanto o DIM_CLUBE estiver vazio")
+
+
+# ── A BANDEIRA DE EMOJI CHEGA AO MÓDULO ─────────────────────────────────
+rota_fonte = FONTE[FONTE.find("async def api_elencos_card"):
+                   FONTE.find("def escalacao_arte_iso")]
+ok('"emoji": j["bandeira"]' in rota_fonte,
+   "o emoji do texto não é repassado para a arte, então ela nunca vai poder "
+   "desenhar a bandeira como emoji — só o PNG do flagcdn")
+ok('"emoji": corpo.get("bandeira_tecnico")' in rota_fonte,
+   "o emoji do técnico não é repassado")
+
+NIX = open(os.path.join(RAIZ, "nixpacks.toml"), encoding="utf-8").read()
+ok("fonts-noto-color-emoji" in NIX,
+   "a fonte de emoji saiu da imagem. Sem ela a bandeira saudita volta a ser "
+   "um borrão verde de 40px")
+ok('aptPkgs = ["ffmpeg", "fonts-noto-color-emoji"]' in NIX,
+   "o ffmpeg saiu da lista junto. aptPkgs ACRESCENTA, mas quem reescreve a "
+   "linha pode derrubar o corte da fita sem perceber")
+
+
 # ── O BOTÃO NA TELA ─────────────────────────────────────────────────────
 ok("esc-arte" in FONTE and "🖼️ Arte" in FONTE,
    "o botão da arte sumiu da guia de Escalações")
