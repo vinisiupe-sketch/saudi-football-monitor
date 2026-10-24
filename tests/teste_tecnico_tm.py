@@ -252,7 +252,8 @@ FONTE = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
 ok('"tecnico": {"nome": tecnico, "bandeira": band_tec}' in FONTE,
    "a arte voltou a desenhar o nome do técnico da FOLHA ('BRUNO') em vez do "
    "nome do Transfermarkt ('BRUNO LAGE')")
-ok("await _tecnico_do_clube(" in FONTE[FONTE.find("async def api_elencos_card"):],
+ok("await _tecnico_do_clube(" in FONTE[FONTE.find("async def _lado_da_escalacao"):
+                                      FONTE.find("async def api_elencos_card")],
    "a rota da arte não pergunta mais o técnico ao Transfermarkt")
 
 

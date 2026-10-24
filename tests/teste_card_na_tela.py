@@ -274,7 +274,16 @@ ok("escalacao_card" in importados,
 # complicando coisas que já temos (...) temos tudo lá". Um segundo caminho
 # para a mesma pergunta um dia responde diferente, e aí a arte e o campinho
 # mostram grafias distintas do mesmo jogador.
-chamadas = {n.func.id for n in ast.walk(rota)
+# Desde 24/10/26 quem resolve o time é `_lado_da_escalacao`, a função que a
+# arte E a legenda usam. A rota tem de passar por ela, e ela pelas portas.
+_lado_fn = next(n for n in ast.walk(arvore)
+                if isinstance(n, ast.AsyncFunctionDef) and n.name == "_lado_da_escalacao")
+_chamadas_rota = {n.func.id for n in ast.walk(rota)
+                  if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
+ok("_lado_da_escalacao" in _chamadas_rota,
+   "a rota da arte deixou de resolver o time pela função compartilhada; arte e "
+   "legenda do mesmo jogo voltariam a poder discordar")
+chamadas = {n.func.id for n in ast.walk(_lado_fn)
             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)}
 ok("api_elencos_jogadores" in chamadas,
    "a rota deixou de pedir o elenco à guia de Elencos. Nome, foto e bandeira "

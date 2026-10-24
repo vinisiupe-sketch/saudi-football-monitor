@@ -19951,55 +19951,19 @@ def _nome_curto_de_clube(nome: str) -> str:
     return bruto
 
 
-@app.post("/api/elencos/card")
-async def api_elencos_card(request: Request):
-    """O PNG 1080x1350 da escalação na arte dele: foto grande e a lista.
+async def _lado_da_escalacao(jogadores: list, clube: str, adversario: str = "",
+                             tecnico_folha: str = "") -> dict:
+    """Um time da folha oficial resolvido pelas portas do campinho.
 
-    TUDO SAI DA MESMA PORTA DO CAMPINHO (23/10/26)
-        A primeira versão montou um caminho próprio: o escudo pelo DIM_CLUBE,
-        o nome pelo glossário direto, a bandeira pelo flagcdn. Ele cortou:
+    É o ÚNICO lugar que decide, para a arte e para a legenda, o nome de cada
+    jogador (a placa do campinho), a bandeira dele, os escudos e o técnico
+    (Transfermarkt). As duas saídas do mesmo jogo saem daqui — se cada uma
+    resolvesse por conta própria, um dia a arte diria "Bounou" e a legenda
+    outra coisa, que é o que o star schema existe para impedir.
 
-            "Você tá complicando coisas que já temos. Na aba campinho temos os
-             escudos que servem de filtro. Use aquela origem. Assim como tem
-             os emojis associados os nomes que usamos pro campinho. O nome
-             usado no campinho é também a melhor fonte pra buscar nome dos
-             jogadores. Temos tudo lá."
-
-        Ele está certo, e não é só economia de código: a guia de Elencos já
-        resolve nome pela fonte que ELE escolheu em Ajustes, já tem a foto
-        certa e já traz a bandeira em emoji. Um segundo caminho para a mesma
-        pergunta um dia responde diferente — e aí a arte e o campinho mostram
-        grafias distintas do mesmo jogador, que é o que o star schema existe
-        para impedir.
-
-        Então aqui não há resolução nova: `api_elencos_times` dá os escudos
-        (os mesmos dos chips de filtro) e `api_elencos_jogadores` dá o elenco
-        (os mesmos nomes, fotos e emojis do campinho).
-
-    A PONTE É O NÚMERO DA CAMISA, e não o nome: é assim que o matchsheet já
-    cruza a folha oficial com o elenco. Quem não casar fica com a linha do
-    PDF, que é melhor que buraco.
-
-    O DESTAQUE é o capitão por padrão, e quem escolhe outro é ele na tela.
+    `jogadores` são as linhas já lidas do texto (`_linhas_da_escalacao`).
     """
-    import asyncio
-
-    import escalacao_card
-
-    try:
-        corpo = await request.json()
-    except Exception:
-        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
-
-    jogadores = _linhas_da_escalacao(corpo.get("texto") or "")
-    if not jogadores:
-        return JSONResponse(
-            {"erro": "não reconheci nenhuma linha de jogador no texto"},
-            status_code=400)
-    jogadores = jogadores[:11]
-
-    clube = (corpo.get("clube") or "").strip()
-    adversario = (corpo.get("adversario") or "").strip()
+    jogadores = [dict(j) for j in (jogadores or [])][:11]
 
     # ── O ELENCO E OS ESCUDOS, PELAS PORTAS DO CAMPINHO ─────────────────
     elenco, times = {}, {}
@@ -20054,17 +20018,6 @@ async def api_elencos_card(request: Request):
 
     casa, fora = _do_campinho(clube), _do_campinho(adversario)
 
-    # O destaque: o que ele escolheu, ou o capitão, ou o primeiro da lista.
-    # Nunca vazio — arte sem foto é a arte pela metade. A comparação é feita
-    # com o nome que a TELA mostrou, que é o do texto, e não com o já trocado.
-    escolhido = (corpo.get("destaque") or corpo.get("capitao") or "").strip().upper()
-    destaque = next((j for j in jogadores
-                     if j["nome"].strip().upper() == escolhido
-                     or j.get("nome_do_texto", "").strip().upper() == escolhido),
-                    jogadores[0])
-
-    isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
-
     # O TÉCNICO VEM DO TRANSFERMARKT (24/10/26):
     #
     #   "Pq o técnico você não puxa direto da api-spl ou do scrap do
@@ -20075,9 +20028,85 @@ async def api_elencos_card(request: Request):
     # (o `id` de `casa`). De lá vêm o NOME COMPLETO — a folha escreve "BRUNO",
     # o TM escreve "Bruno Lage" — e a nacionalidade, que vira emoji pelo
     # mesmo `_elenco_pais` dos jogadores do campinho.
-    tecnico_folha = (corpo.get("tecnico") or "").strip()
     tecnico, emoji_tec, motivo_tec = await _tecnico_do_clube(
         casa, tecnico_folha, clube)
+
+    return {"jogadores": jogadores, "casa": casa, "fora": fora,
+            "vindos_do_campinho": vindos_do_campinho, "tecnico": tecnico,
+            "emoji_tec": emoji_tec, "motivo_tec": motivo_tec,
+            "tecnico_folha": tecnico_folha}
+
+
+@app.post("/api/elencos/card")
+async def api_elencos_card(request: Request):
+    """O PNG 1080x1350 da escalação na arte dele: foto grande e a lista.
+
+    TUDO SAI DA MESMA PORTA DO CAMPINHO (23/10/26)
+        A primeira versão montou um caminho próprio: o escudo pelo DIM_CLUBE,
+        o nome pelo glossário direto, a bandeira pelo flagcdn. Ele cortou:
+
+            "Você tá complicando coisas que já temos. Na aba campinho temos os
+             escudos que servem de filtro. Use aquela origem. Assim como tem
+             os emojis associados os nomes que usamos pro campinho. O nome
+             usado no campinho é também a melhor fonte pra buscar nome dos
+             jogadores. Temos tudo lá."
+
+        Ele está certo, e não é só economia de código: a guia de Elencos já
+        resolve nome pela fonte que ELE escolheu em Ajustes, já tem a foto
+        certa e já traz a bandeira em emoji. Um segundo caminho para a mesma
+        pergunta um dia responde diferente — e aí a arte e o campinho mostram
+        grafias distintas do mesmo jogador, que é o que o star schema existe
+        para impedir.
+
+        Então aqui não há resolução nova: `api_elencos_times` dá os escudos
+        (os mesmos dos chips de filtro) e `api_elencos_jogadores` dá o elenco
+        (os mesmos nomes, fotos e emojis do campinho).
+
+    A PONTE É O NÚMERO DA CAMISA, e não o nome: é assim que o matchsheet já
+    cruza a folha oficial com o elenco. Quem não casar fica com a linha do
+    PDF, que é melhor que buraco.
+
+    O DESTAQUE é o capitão por padrão, e quem escolhe outro é ele na tela.
+    """
+    import asyncio
+
+    import escalacao_card
+
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+
+    jogadores = _linhas_da_escalacao(corpo.get("texto") or "")
+    if not jogadores:
+        return JSONResponse(
+            {"erro": "não reconheci nenhuma linha de jogador no texto"},
+            status_code=400)
+    jogadores = jogadores[:11]
+
+    clube = (corpo.get("clube") or "").strip()
+    adversario = (corpo.get("adversario") or "").strip()
+    tecnico_folha = (corpo.get("tecnico") or "").strip()
+
+    # TUDO O QUE É DO TIME — nome e bandeira de cada um, escudos, técnico —
+    # sai de `_lado_da_escalacao`, a mesma função que a legenda usa. Arte e
+    # legenda do mesmo jogo não podem discordar sobre quem é quem.
+    lado = await _lado_da_escalacao(jogadores, clube, adversario, tecnico_folha)
+    jogadores = lado["jogadores"]
+    casa, fora = lado["casa"], lado["fora"]
+    vindos_do_campinho = lado["vindos_do_campinho"]
+    tecnico, emoji_tec, motivo_tec = lado["tecnico"], lado["emoji_tec"], lado["motivo_tec"]
+
+    # O destaque: o que ele escolheu, ou o capitão, ou o primeiro da lista.
+    # Nunca vazio — arte sem foto é a arte pela metade. A comparação é feita
+    # com o nome que a TELA mostrou, que é o do texto, e não com o já trocado.
+    escolhido = (corpo.get("destaque") or corpo.get("capitao") or "").strip().upper()
+    destaque = next((j for j in jogadores
+                     if j["nome"].strip().upper() == escolhido
+                     or j.get("nome_do_texto", "").strip().upper() == escolhido),
+                    jogadores[0])
+
+    isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
     iso_tec = escalacao_arte_iso(emoji_tec)
     # Uma linha por arte no log do Railway. Foi ela que mostrou, em 24/10/26,
     # que a API-Football não tinha nacionalidade nem técnico desses clubes.
@@ -20141,6 +20170,231 @@ async def api_elencos_card(request: Request):
                                              ("bandeira-tecnico",
                                               band_tec if tecnico else True))
                               if not v) or "nada"})
+
+
+# ── A LEGENDA DAS ESCALAÇÕES (24/10/26) ─────────────────────────────────────
+#
+#   "Quero um botão pra montar esse texto padrão: 🔴🔵📋 Escalações de
+#    Al-Qadsiah e Al-Hilal para a partida de logo mais, às 15h, pela 11ª
+#    rodada da Saudi Pro League. 🔴➡️ (...) são os estrangeiros titulares de
+#    Brendan Rodgers. (...) 🖥️ Transmissão: CANAL GOAT 🐐 e Xsports."
+#
+# Tudo o que é do time sai de `_lado_da_escalacao`, a mesma função da arte:
+# os nomes são os da arte ("pode ser o mesmo que vai pra arte"), o técnico é
+# o do Transfermarkt, e "estrangeiro" é quem tem bandeira e ela não é a
+# saudita. Cores dos clubes: TEAM_CORES, as dos posts. Transmissão: a tabela
+# que a tela de posts agendados marca.
+
+SAUDITA = "\U0001F1F8\U0001F1E6"
+
+# Como ele escreve o canal dele no texto. Os outros saem como estão
+# cadastrados nos posts.
+_CANAL_NA_LEGENDA = {"Canal GOAT 🐐": "CANAL GOAT 🐐"}
+
+
+def _emojis(texto: str) -> list:
+    """'🔵⚪️' → ['🔵', '⚪️']: o seletor de variação fica com o emoji dele."""
+    out = []
+    for ch in texto or "":
+        if ch == "\ufe0f" and out:
+            out[-1] += ch
+        elif not ch.isspace():
+            out.append(ch)
+    return out
+
+
+def _cores_do_jogo(casa: str, fora: str) -> tuple:
+    """A bolinha de cada clube: a primeira cor de cada um no TEAM_CORES.
+
+    Se as duas primeiras forem iguais, o visitante usa a SEGUNDA cor dele — é
+    o que ele fez à mão no exemplo: Al Ahli 🟢 e Al Khaleej 🟡, quando a
+    primeira do Khaleej também é verde.
+    """
+    indice = {}
+    for nome, cores in TEAM_CORES.items():
+        chave = (glossary.padronizar_clube(nome) or nome).strip().lower()
+        indice[chave] = _emojis(cores)
+
+    def _de(nome):
+        return indice.get((glossary.padronizar_clube(nome) or nome or "").strip().lower()) or []
+
+    c1, c2 = _de(casa), _de(fora)
+    cor_casa = c1[0] if c1 else ""
+    cor_fora = c2[0] if c2 else ""
+    if cor_fora and cor_fora == cor_casa and len(c2) > 1:
+        cor_fora = c2[1]
+    return cor_casa, cor_fora
+
+
+def _lista_em_portugues(nomes: list) -> str:
+    """'A, B e C'."""
+    nomes = [n for n in nomes if n]
+    if len(nomes) <= 1:
+        return "".join(nomes)
+    return ", ".join(nomes[:-1]) + " e " + nomes[-1]
+
+
+def _nome_de_gente(nome: str) -> str:
+    """O nome escrito como nome: 'WIJNALDUM' → 'Wijnaldum'.
+
+    O que veio do campinho já está em caixa certa e não é mexido. O que veio
+    da folha oficial está todo em maiúsculas, e no texto corrido isso grita."""
+    nome = (nome or "").strip()
+    if nome and nome == nome.upper():
+        return " ".join(p[:1] + p[1:].lower() if "-" not in p
+                        else "-".join(q[:1] + q[1:].lower() for q in p.split("-"))
+                        for p in nome.split())
+    return nome
+
+
+def _hora_do_jogo(quando: str) -> str:
+    """'15h' ou '15h30', no horário de Brasília."""
+    try:
+        instante = datetime.fromisoformat((quando or "").replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if instante.tzinfo is None:
+        return ""
+    local = instante.astimezone(BRT)
+    return f"{local.hour}h" + (f"{local.minute:02d}" if local.minute else "")
+
+
+def _fixture_do_jogo(casa: str, fora: str, quando: str):
+    """O id do jogo na API-Football, pelo calendário guardado no banco.
+
+    É por esse id que a tela de posts grava a transmissão. Casa e fora casam
+    pelo nome padronizado; entre jogos repetidos do mesmo confronto, ganha o
+    mais perto da data — e só até um dia e meio de diferença."""
+    from database import partidas_da_liga
+    try:
+        alvo = datetime.fromisoformat((quando or "").replace("Z", "+00:00"))
+    except ValueError:
+        alvo = None
+    pc = (glossary.padronizar_clube(casa) or casa or "").strip().lower()
+    pf = (glossary.padronizar_clube(fora) or fora or "").strip().lower()
+    melhor, distancia = None, None
+    for p in partidas_da_liga(_af_temporada_corrente(), todas=True):
+        a = (glossary.padronizar_clube(p.get("casa") or "") or p.get("casa") or "").strip().lower()
+        b = (glossary.padronizar_clube(p.get("fora") or "") or p.get("fora") or "").strip().lower()
+        if (a, b) != (pc, pf):
+            continue
+        d = None
+        if alvo is not None:
+            try:
+                dp = datetime.fromisoformat(str(p.get("data") or "").replace("Z", "+00:00"))
+                if dp.tzinfo is None:
+                    dp = dp.replace(tzinfo=timezone.utc)
+                d = abs((dp - alvo).total_seconds())
+            except ValueError:
+                d = None
+        if alvo is not None and (d is None or d > 36 * 3600):
+            continue
+        if melhor is None or (d is not None and (distancia is None or d < distancia)):
+            melhor, distancia = p, d
+    return (melhor or {}).get("fixture_id")
+
+
+def _linha_dos_estrangeiros(cor: str, lado: dict, clube: str) -> tuple:
+    """(a linha do time, os nomes sem nacionalidade para o aviso)."""
+    estrangeiros, sem_pais = [], []
+    import escalacao_card
+    for j in lado.get("jogadores") or []:
+        # O MESMO NOME DA ARTE: a placa do campinho, ou a linha da folha sem a
+        # inicial abreviada ("C. MBEMBA" → "Mbemba"), como `_linha_de` faz.
+        nome = _nome_de_gente(escalacao_card.sem_inicial(j.get("nome") or ""))
+        emoji = (j.get("bandeira") or "").strip()
+        if not emoji:
+            sem_pais.append(nome)
+        elif emoji != SAUDITA:
+            estrangeiros.append(nome)
+    tecnico = _nome_de_gente(lado.get("tecnico") or "")
+    de_quem = tecnico or clube
+    prefixo = f"{cor}➡️ " if cor else "➡️ "
+    if not estrangeiros:
+        return (f"{prefixo}Nenhum estrangeiro entre os titulares de {de_quem}.",
+                sem_pais)
+    if len(estrangeiros) == 1:
+        return (f"{prefixo}{estrangeiros[0]} é o estrangeiro titular de {de_quem}.",
+                sem_pais)
+    return (f"{prefixo}{_lista_em_portugues(estrangeiros)} são os estrangeiros "
+            f"titulares de {de_quem}.", sem_pais)
+
+
+def _linha_da_transmissao(canais) -> str:
+    """'🖥️ Transmissão: CANAL GOAT 🐐 e XSports.'"""
+    if canais is None:
+        return "🖥️ Transmissão: a confirmar"
+    if not canais:
+        return "❌ Sem transmissão"
+    nomes = [_CANAL_NA_LEGENDA.get(c, c) for c in canais]
+    linha = "🖥️ Transmissão: " + _lista_em_portugues(nomes)
+    return linha + ("." if linha[-1:].isalnum() else "")
+
+
+@app.post("/api/escalacao/legenda")
+async def api_escalacao_legenda(request: Request):
+    """O texto das escalações do jogo, pronto para copiar."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+    casa_req, fora_req = corpo.get("casa") or {}, corpo.get("fora") or {}
+    time_casa = (casa_req.get("time") or "").strip()
+    time_fora = (fora_req.get("time") or "").strip()
+    nome_casa = (casa_req.get("nome") or time_casa).strip()
+    nome_fora = (fora_req.get("nome") or time_fora).strip()
+
+    avisos = []
+    lados = {}
+    for chave, req, este, outro in (("casa", casa_req, time_casa, time_fora),
+                                     ("fora", fora_req, time_fora, time_casa)):
+        linhas = _linhas_da_escalacao(req.get("texto") or "")
+        if not linhas:
+            return JSONResponse({"erro": f"não há escalação de {este or chave}"},
+                                status_code=400)
+        lados[chave] = await _lado_da_escalacao(
+            linhas, este, outro, (req.get("tecnico") or "").strip())
+
+    cor_casa, cor_fora = _cores_do_jogo(time_casa, time_fora)
+    hora = _hora_do_jogo(corpo.get("quando") or "")
+    rodada = str(corpo.get("rodada") or "").strip()
+    abertura = (f"{cor_casa}{cor_fora}📋 Escalações de {nome_casa} e {nome_fora} "
+                f"para a partida de logo mais"
+                + (f", às {hora}" if hora else "")
+                + (f", pela {rodada}ª rodada" if rodada.isdigit() else "")
+                + " da Saudi Pro League.")
+    if not hora:
+        avisos.append("não achei o horário do jogo")
+
+    partes = [abertura]
+    for chave, cor, nome in (("casa", cor_casa, nome_casa), ("fora", cor_fora, nome_fora)):
+        linha, sem_pais = _linha_dos_estrangeiros(cor, lados[chave], nome)
+        partes.append(linha)
+        if sem_pais:
+            avisos.append(f"{nome}: sem nacionalidade, fora da lista — "
+                          + ", ".join(sem_pais))
+        if not lados[chave].get("tecnico"):
+            avisos.append(f"{nome}: técnico não encontrado")
+
+    try:
+        fixture = _fixture_do_jogo(time_casa, time_fora, corpo.get("quando") or "")
+    except Exception:
+        fixture = None
+    canais = None
+    if fixture:
+        from database import transmissao_do_jogo
+        try:
+            canais = transmissao_do_jogo(fixture)
+        except Exception:
+            canais = None
+    else:
+        avisos.append("não achei o jogo no calendário da API-Football para ver "
+                      "a transmissão")
+    if fixture and canais is None:
+        avisos.append("a transmissão deste jogo ainda não foi marcada nos posts")
+    partes.append(_linha_da_transmissao(canais))
+
+    return {"texto": "\n\n".join(partes), "avisos": avisos}
 
 
 def escalacao_arte_iso(emoji):
@@ -23137,6 +23391,13 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
   border-radius: 6px; border: 1px solid var(--c-borda, #334); background: transparent;
   color: inherit; }}
 .esc-arte:disabled {{ opacity: .6; cursor: default; }}
+.esc-legenda {{ margin-top: 12px; }}
+.esc-legenda-btn {{ background: none; border: 1px solid #B6FF00; color: #B6FF00;
+  border-radius: 99px; padding: 7px 18px; font-size: .74rem; font-weight: 700;
+  cursor: pointer; }}
+.esc-legenda-btn:disabled {{ opacity: .6; cursor: default; }}
+.esc-legenda-aviso {{ font-size: .7rem; color: #FFBE5D; margin-top: 6px; line-height: 1.5; }}
+.esc-legenda-texto {{ margin-top: 8px; min-height: 230px; }}
 .esc-destaque {{ margin-left: 6px; font-size: .75rem; padding: 5px 6px;
   border-radius: 6px; border: 1px solid var(--c-borda, #334);
   background: transparent; color: inherit; max-width: 170px; }}
@@ -23329,6 +23590,21 @@ async function carregarRecentes() {{
       }}
       html += '</div>';
     }});
+    // A LEGENDA DO JOGO (24/10/26): um botão para os dois times, porque o
+    // texto fala dos dois. Ele lê os dois campos de escalação COMO ESTÃO NA
+    // TELA — correção feita ali entra na legenda, como entra na arte.
+    if ((e.casa || {{}}).texto && (e.fora || {{}}).texto) {{
+      html += '<div class="esc-legenda">'
+        + '<button class="esc-legenda-btn" data-i="' + i + '"'
+        + ' data-nome-casa="' + esc(nomeCasa) + '" data-nome-fora="' + esc(nomeFora) + '"'
+        + ' data-time-casa="' + esc(e.casa.time || '') + '" data-time-fora="' + esc(e.fora.time || '') + '"'
+        + ' data-tec-casa="' + esc(e.casa.tecnico || '') + '" data-tec-fora="' + esc(e.fora.tecnico || '') + '"'
+        + ' data-quando="' + esc(j.quando || '') + '" data-rodada="' + esc(e.rodada || '') + '">'
+        + '📝 Copiar legenda</button>'
+        + '<div class="esc-legenda-aviso" id="leg_aviso_' + i + '"></div>'
+        + '<textarea class="esc-texto esc-legenda-texto" id="leg_' + i + '" readonly hidden></textarea>'
+        + '</div>';
+    }}
     if (e.avisos && e.avisos.length) {{
       html += '<div class="esc-aviso">' + e.avisos.map(esc).join('<br>') + '</div>';
     }}
@@ -23343,6 +23619,47 @@ async function carregarRecentes() {{
     }};
   }});
   alvo.querySelectorAll('.esc-arte').forEach(function (b) {{ prepararArte(b); }});
+  alvo.querySelectorAll('.esc-legenda-btn').forEach(function (b) {{
+    b.onclick = function () {{ copiarLegenda(b); }};
+  }});
+}}
+
+// O texto aparece num campo embaixo do botão E vai para a área de
+// transferência. Copiar depois de esperar o servidor nem sempre é aceito pelo
+// navegador; com o texto na tela e já selecionado, um Ctrl+C resolve.
+async function copiarLegenda(b) {{
+  const d = b.dataset, i = d.i;
+  const campoCasa = document.getElementById('rec_' + i + '_casa');
+  const campoFora = document.getElementById('rec_' + i + '_fora');
+  const saida = document.getElementById('leg_' + i);
+  const aviso = document.getElementById('leg_aviso_' + i);
+  const antes = b.textContent;
+  b.disabled = true; b.textContent = 'Montando…';
+  try {{
+    const r = await fetch('/api/escalacao/legenda', {{
+      method: 'POST', headers: {{'Content-Type': 'application/json'}},
+      body: JSON.stringify({{
+        quando: d.quando, rodada: d.rodada,
+        casa: {{nome: d.nomeCasa, time: d.timeCasa, tecnico: d.tecCasa,
+                texto: campoCasa ? campoCasa.value : ''}},
+        fora: {{nome: d.nomeFora, time: d.timeFora, tecnico: d.tecFora,
+                texto: campoFora ? campoFora.value : ''}}}})}});
+    const x = await r.json();
+    if (!r.ok) throw new Error(x.erro || 'não consegui montar a legenda');
+    saida.value = x.texto; saida.hidden = false;
+    aviso.textContent = (x.avisos || []).length ? '⚠️ ' + x.avisos.join(' · ') : '';
+    try {{
+      await navigator.clipboard.writeText(x.texto);
+      b.textContent = '✅ Legenda copiada';
+    }} catch (e) {{
+      saida.focus(); saida.select();
+      b.textContent = '📋 Texto selecionado: Ctrl+C';
+    }}
+  }} catch (e) {{
+    b.textContent = '❌ ' + (e.message || 'falhou');
+  }}
+  b.disabled = false;
+  setTimeout(function () {{ b.textContent = antes; }}, 4000);
 }}
 
 // Os nomes do seletor saem do PRÓPRIO textarea, relidos a cada abertura: se
