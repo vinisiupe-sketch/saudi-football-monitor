@@ -262,8 +262,17 @@ ok(getattr(vazio, "status_code", 200) == 400,
 import ast                                                 # noqa: E402
 
 arvore = ast.parse(FONTE)
+# A ROTA só lê o pedido e devolve a imagem; quem monta a arte é
+# `_montar_arte_escalacao`, que o post automático de escalação também usa
+# (24/10/26). As conferências abaixo olham para ela — e a rota tem de passar
+# por ela, senão a arte do botão e a do post divergem.
+_rota_http = next(n for n in ast.walk(arvore)
+                  if isinstance(n, ast.AsyncFunctionDef) and n.name == "api_elencos_card")
+ok("_montar_arte_escalacao" in {c.func.id for c in ast.walk(_rota_http)
+                                if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)},
+   "a rota da arte deixou de usar a mesma montagem do post automático")
 rota = next(n for n in ast.walk(arvore)
-            if isinstance(n, ast.AsyncFunctionDef) and n.name == "api_elencos_card")
+            if isinstance(n, ast.AsyncFunctionDef) and n.name == "_montar_arte_escalacao")
 importados = {a.name for n in ast.walk(rota) if isinstance(n, ast.Import)
               for a in n.names}
 ok("escalacao_card" in importados,

@@ -97,9 +97,9 @@ DISPENSADAS = {
     # Fonte crua de comparação.
     "/api/af-window-transfers": "a janela da API-Football, crua, para comparar "
                                 "com a nossa",
-    "/api/escalacao-pdf": "a súmula em PDF: o nome é o que está impresso no "
-                          "papel, e o cruzamento com o elenco é feito pelo "
-                          "matchsheet, que tem teste próprio",
+    # "/api/escalacao-pdf" SAIU DAQUI em 24/10/26: gravar a folha agora monta
+    # o post de escalação, que resolve cada time pelo campinho e pelo
+    # glossário. A dispensa deixou de ser verdade, e este teste avisou.
 }
 
 

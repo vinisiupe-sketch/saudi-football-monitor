@@ -5145,6 +5145,70 @@ def obter_escudo_extra(chave: str) -> bytes | None:
         return None
 
 
+# ── A ARTE DE ESCALAÇÃO DOS POSTS (24/10/26) ────────────────────────────────
+#
+# O post de escalação leva as duas artes do jogo. Elas ficam no BANCO, como
+# os escudos extras, e pelo mesmo motivo: o disco do Railway é efêmero, e a
+# imagem montada uma hora antes do jogo sumiria no próximo deploy — o post
+# sairia sem foto, sem erro nenhum.
+#
+# Junto da imagem fica o que foi usado para montá-la (`dados`: a escalação, o
+# clube, o técnico, o destaque). É isso que permite trocar o jogador da foto
+# na home sem reler o PDF.
+
+def _cria_post_arte(c) -> None:
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS post_arte (
+            chave         TEXT PRIMARY KEY,
+            png           BYTEA NOT NULL,
+            dados         TEXT NOT NULL DEFAULT '{}',
+            atualizado_em TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+
+
+def salvar_post_arte(chave: str, png: bytes, dados: dict) -> bool:
+    import json as _json
+    if not chave or not png:
+        return False
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_post_arte(c)
+            c.execute("""
+                INSERT INTO post_arte (chave, png, dados, atualizado_em)
+                VALUES (%s, %s, %s, NOW())
+                ON CONFLICT (chave) DO UPDATE
+                   SET png = EXCLUDED.png, dados = EXCLUDED.dados,
+                       atualizado_em = NOW()
+            """, [chave, psycopg2.Binary(png),
+                  _json.dumps(dados or {}, ensure_ascii=False)])
+        return True
+    except Exception as e:
+        print(f"⚠️ salvar_post_arte({chave}): {e}")
+        return False
+
+
+def obter_post_arte(chave: str) -> dict | None:
+    """{"png": bytes, "dados": dict} ou None."""
+    import json as _json
+    try:
+        with get_conn() as conn:
+            c = conn.cursor()
+            _cria_post_arte(c)
+            c.execute("SELECT png, dados FROM post_arte WHERE chave = %s", [chave])
+            linha = c.fetchone()
+            if not linha or not linha[0]:
+                return None
+            try:
+                dados = _json.loads(linha[1] or "{}")
+            except Exception:
+                dados = {}
+            return {"png": bytes(linha[0]), "dados": dados}
+    except Exception:
+        return None
+
+
 # ── CARTÕES ─────────────────────────────────────────────────────────────────
 #
 # Um registro por cartão mostrado, e não um contador por jogador.

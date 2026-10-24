@@ -268,8 +268,10 @@ _js = FONTE[FONTE.find("async function copiarLegenda"):]
 ok("campoCasa.value" in _js[:2500] and "campoFora.value" in _js[:2500],
    "a legenda não lê os campos de escalação da tela — correção feita ali não "
    "entraria no texto")
-ok("_lado_da_escalacao(" in FONTE[FONTE.find("async def api_escalacao_legenda"):
-                                  FONTE.find("def escalacao_arte_iso")],
+ok("_lado_da_escalacao(" in FONTE[FONTE.find("async def _montar_legenda"):
+                                  FONTE.find("async def api_escalacao_legenda")]
+   and "_montar_legenda(" in FONTE[FONTE.find("async def api_escalacao_legenda"):
+                                   FONTE.find("def escalacao_arte_iso")],
    "a legenda resolve os times por um caminho próprio, e não pela mesma "
    "função da arte")
 

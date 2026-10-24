@@ -15140,19 +15140,28 @@ def _log_de_entrada(limite: int = 40) -> list:
             if (p.get("status") or "") != "pendente":
                 continue
             fid = pg.jogo_da_chave(p.get("chave_unica"))
-            itens.append({
+            item_post = {
                 "tipo": "posts", "titulo": (p.get("texto") or "")[:120],
                 "texto": p.get("texto") or "",
+                "tipo_post": p.get("tipo") or "",
                 "fixture_id": fid,
-                "canais": (marcados.get(fid) or []) if fid is not None else [],
-                "canais_possiveis": pg.TRANSMISSOES,
                 # Ordeno pelo HORÁRIO DO JOGO, não pela hora em que o post foi
                 # criado. Todos nascem juntos, às 23h da véspera; ordenar pela
                 # criação embaralharia a rodada inteira num empate só.
                 "quando": (p.get("agendado_para") or p.get("criado_em") or ""),
                 "estado": p.get("status") or "",
                 "id": p.get("id"), "onde": "/posts",
-            })
+            }
+            if p.get("tipo") == "escalacao":
+                # As duas artes, cada uma com quem pode ir para a foto. Os
+                # botões de canal do bola rolando não entram: a transmissão
+                # já está escrita na legenda.
+                item_post["lados"] = _lados_do_post(p)
+                item_post["onde"] = "/escalacao-pdf"
+            else:
+                item_post["canais"] = (marcados.get(fid) or []) if fid is not None else []
+                item_post["canais_possiveis"] = pg.TRANSMISSOES
+            itens.append(item_post)
     except Exception:
         pass
     try:
@@ -15242,6 +15251,16 @@ async def api_aprovacao_decidir(tipo: str, item_id: int, decisao: str = ""):
     if tipo != "posts":
         return JSONResponse(
             {"erro": f"ainda não sei aprovar '{tipo}' por aqui — abra a guia"}, 400)
+    # O ✓ DO POST DE ESCALAÇÃO PUBLICA NA HORA (24/10/26). O aprovado comum
+    # espera o horário marcado — no bola rolando, o pontapé —, e a escalação
+    # é para sair assim que ele decide: "postar direto já no twitter".
+    if decisao == "sim":
+        item = obter_post(item_id) or {}
+        if item.get("tipo") == "escalacao":
+            r = await _publicar_post_agora(item_id)
+            if r.get("erro"):
+                return JSONResponse({"erro": r["erro"]}, 409)
+            return {"ok": True, "estado": "publicado", "post_id": r.get("post_id")}
     novo = "aprovado" if decisao == "sim" else "cancelado"
     if not marcar_post(item_id, novo):
         return JSONResponse({"erro": "não consegui mudar este post"}, 409)
@@ -15249,6 +15268,13 @@ async def api_aprovacao_decidir(tipo: str, item_id: int, decisao: str = ""):
 
 
 _HOME_CSS = """
+.artes{display:flex;gap:10px;margin:10px 0 12px;flex-wrap:wrap}
+.arte{flex:1 1 140px;max-width:220px;display:flex;flex-direction:column;gap:6px}
+.arte img{width:100%;border-radius:8px;cursor:zoom-in;border:1px solid var(--c-border);
+  transition:opacity .2s}
+.arte label{font-size:.72rem;color:var(--c-muted-3);display:flex;flex-direction:column;gap:4px}
+.arte select{font-size:.78rem;padding:5px 6px;border-radius:6px;background:transparent;
+  color:var(--c-text);border:1px solid var(--c-border)}
 body{background:var(--c-bg);color:var(--c-text);
   font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;margin:0}
 .wrap{max-width:820px;margin:0 auto;padding:6px 16px 70px}
@@ -15384,6 +15410,9 @@ async function saudar() {
 saudar();
 
 async function carregar() {
+  // Escolhendo o jogador da foto: a lista não se refaz embaixo do dedo dele.
+  const foco = document.activeElement;
+  if (foco && foco.tagName === 'SELECT' && foco.closest('#log')) return;
   let d;
   try {
     const r = await fetch('/api/aprovacao?_=' + Date.now());
@@ -15419,6 +15448,16 @@ async function carregar() {
   });
 
   const alvo = document.getElementById('log');
+  // Os cards que estavam abertos continuam abertos depois de refazer a lista.
+  // Sem isso, a atualização de minuto em minuto fechava o post no meio da
+  // conferência das artes.
+  const abertos = new Set();
+  alvo.querySelectorAll('.caixa').forEach(function (c) {
+    const corpo = c.querySelector('.corpo');
+    if (corpo && corpo.classList.contains('aberto') && c.dataset.chave) {
+      abertos.add(c.dataset.chave);
+    }
+  });
   alvo.innerHTML = '';
   const log = d.log || [];
   if (!log.length) {
@@ -15430,12 +15469,20 @@ async function carregar() {
       + 'sozinhos.</div>';
     return;
   }
-  log.forEach(function (i) { alvo.appendChild(linha(i)); });
+  log.forEach(function (i) {
+    const c = linha(i);
+    if (abertos.has(c.dataset.chave)) {
+      const corpo = c.querySelector('.corpo');
+      if (corpo) corpo.classList.add('aberto');
+    }
+    alvo.appendChild(c);
+  });
 }
 
 function linha(i) {
   const caixa = document.createElement('div');
   caixa.className = 'caixa';
+  caixa.dataset.chave = (i.tipo || '') + ':' + (i.id || '');
 
   const d = document.createElement('div');
   d.className = 'item';
@@ -15488,6 +15535,56 @@ function detalhe(i) {
     p.className = 'texto';
     p.textContent = i.texto;
     box.appendChild(p);
+  }
+
+  // Post de ESCALACAO: as duas artes que vao junto, cada uma com o seletor
+  // de quem aparece na foto. Trocar refaz so aquela arte, no servidor, e a
+  // previa aqui embaixo ja mostra a nova. Clique na arte abre em tamanho real.
+  if (i.tipo_post === 'escalacao' && Array.isArray(i.lados) && i.lados.length) {
+    const galeria = document.createElement('div');
+    galeria.className = 'artes';
+    i.lados.forEach(function (l) {
+      const c = document.createElement('div');
+      c.className = 'arte';
+      const img = document.createElement('img');
+      const url = function () {
+        return '/api/posts/imagem?p=' + encodeURIComponent(l.ref) + '&v=' + Date.now();
+      };
+      img.src = url();
+      img.alt = l.clube || '';
+      img.title = 'abrir em tamanho real';
+      img.onclick = function () { window.open(img.src, '_blank', 'noopener'); };
+      const rot = document.createElement('label');
+      rot.textContent = (l.clube || '') + ' · foto: ';
+      const sel = document.createElement('select');
+      (l.opcoes || []).forEach(function (n) {
+        const o = document.createElement('option');
+        o.value = n; o.textContent = n;
+        if (n === l.destaque) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.onchange = async function () {
+        sel.disabled = true; img.style.opacity = '0.4';
+        try {
+          const r = await fetch('/api/posts/' + i.id + '/destaque', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({lado: l.lado, jogador: sel.value})});
+          const j = await r.json();
+          if (!r.ok) throw new Error(j.erro || ('HTTP ' + r.status));
+          l.destaque = sel.value;
+          img.src = url();
+        } catch (e) {
+          alert('nao deu para trocar o jogador: ' + (e.message || e));
+          sel.value = l.destaque;
+        }
+        sel.disabled = false; img.style.opacity = '1';
+      };
+      rot.appendChild(sel);
+      c.appendChild(img);
+      c.appendChild(rot);
+      galeria.appendChild(c);
+    });
+    box.appendChild(galeria);
   }
 
   // Post de BOLA ROLANDO: as emissoras ficam aqui, para voce marcar e aprovar
@@ -15561,8 +15658,13 @@ function botao(i, decisao, rotulo) {
   const b = document.createElement('button');
   b.className = 'dec ' + decisao;
   b.textContent = rotulo;
-  b.title = decisao === 'sim' ? 'aprovar' : 'recusar';
+  const publicaJa = decisao === 'sim' && i.tipo_post === 'escalacao';
+  b.title = publicaJa ? 'publicar agora no X'
+          : (decisao === 'sim' ? 'aprovar' : 'recusar');
   b.onclick = async function () {
+    // O ✓ do post de escalação PUBLICA na hora, com as duas artes. É ação
+    // pública e sem volta: confirma antes, como qualquer envio.
+    if (publicaJa && !confirm('Publicar agora no X, com as duas artes?')) return;
     b.disabled = true;
     try {
       const r = await fetch('/api/aprovacao/' + i.tipo + '/' + i.id
@@ -17826,6 +17928,11 @@ async def api_posts_imagem(p: str):
     if not dados:
         return Response(status_code=404)
     # Cache curto para o que veio do banco: você acabou de subir e quer ver.
+    # A arte de escalação, nenhum: ela muda quando ele troca o jogador da
+    # foto, e a prévia tem de mostrar a nova na hora.
+    if p.startswith("arte:"):
+        return Response(content=dados, media_type="image/png",
+                        headers={"Cache-Control": "no-store"})
     idade = 60 if p.startswith("db:") else 86400
     return Response(content=dados, media_type="image/png",
                     headers={"Cache-Control": f"public, max-age={idade}"})
@@ -18107,6 +18214,13 @@ def _bytes_da_imagem(ref: str) -> bytes | None:
         return None
     if ref.startswith("db:"):
         return obter_escudo_extra(ref[3:])
+    # A arte de escalação do post, montada quando a folha chegou e guardada
+    # no banco (24/10/26). Lida na hora: se ele trocou o jogador da foto, a
+    # versão publicada é a última.
+    if ref.startswith("arte:"):
+        from database import obter_post_arte
+        arte = obter_post_arte(ref[5:])
+        return (arte or {}).get("png")
     base = os.path.abspath(os.path.join(os.path.dirname(__file__), "public", "escudos"))
     caminho = os.path.abspath(ref)
     if caminho.startswith(base + os.sep) and os.path.exists(caminho):
@@ -18319,6 +18433,12 @@ async def api_posts_cancelar(post_id: int):
 @app.post("/api/posts/{post_id}/publicar")
 async def api_posts_publicar(post_id: int):
     """Publica no X. Só sai daqui por clique — nada publica sozinho."""
+    return await _publicar_post_agora(post_id)
+
+
+async def _publicar_post_agora(post_id: int) -> dict:
+    """O envio de verdade ao X. O botão da guia e o ✓ da home (no post de
+    escalação) passam por aqui — um envio, um lugar."""
     item = obter_post(post_id)
     if not item:
         return {"erro": "post não encontrado"}
@@ -20037,51 +20157,18 @@ async def _lado_da_escalacao(jogadores: list, clube: str, adversario: str = "",
             "tecnico_folha": tecnico_folha}
 
 
-@app.post("/api/elencos/card")
-async def api_elencos_card(request: Request):
-    """O PNG 1080x1350 da escalação na arte dele: foto grande e a lista.
+async def _montar_arte_escalacao(corpo: dict) -> tuple:
+    """(PNG, cabeçalhos) da arte de UM time. A rota e o post automático usam.
 
-    TUDO SAI DA MESMA PORTA DO CAMPINHO (23/10/26)
-        A primeira versão montou um caminho próprio: o escudo pelo DIM_CLUBE,
-        o nome pelo glossário direto, a bandeira pelo flagcdn. Ele cortou:
-
-            "Você tá complicando coisas que já temos. Na aba campinho temos os
-             escudos que servem de filtro. Use aquela origem. Assim como tem
-             os emojis associados os nomes que usamos pro campinho. O nome
-             usado no campinho é também a melhor fonte pra buscar nome dos
-             jogadores. Temos tudo lá."
-
-        Ele está certo, e não é só economia de código: a guia de Elencos já
-        resolve nome pela fonte que ELE escolheu em Ajustes, já tem a foto
-        certa e já traz a bandeira em emoji. Um segundo caminho para a mesma
-        pergunta um dia responde diferente — e aí a arte e o campinho mostram
-        grafias distintas do mesmo jogador, que é o que o star schema existe
-        para impedir.
-
-        Então aqui não há resolução nova: `api_elencos_times` dá os escudos
-        (os mesmos dos chips de filtro) e `api_elencos_jogadores` dá o elenco
-        (os mesmos nomes, fotos e emojis do campinho).
-
-    A PONTE É O NÚMERO DA CAMISA, e não o nome: é assim que o matchsheet já
-    cruza a folha oficial com o elenco. Quem não casar fica com a linha do
-    PDF, que é melhor que buraco.
-
-    O DESTAQUE é o capitão por padrão, e quem escolhe outro é ele na tela.
+    Levanta ValueError quando o texto não tem linha de jogador.
     """
     import asyncio
 
     import escalacao_card
 
-    try:
-        corpo = await request.json()
-    except Exception:
-        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
-
     jogadores = _linhas_da_escalacao(corpo.get("texto") or "")
     if not jogadores:
-        return JSONResponse(
-            {"erro": "não reconheci nenhuma linha de jogador no texto"},
-            status_code=400)
+        raise ValueError("não reconheci nenhuma linha de jogador no texto")
     jogadores = jogadores[:11]
 
     clube = (corpo.get("clube") or "").strip()
@@ -20100,11 +20187,20 @@ async def api_elencos_card(request: Request):
     # O destaque: o que ele escolheu, ou o capitão, ou o primeiro da lista.
     # Nunca vazio — arte sem foto é a arte pela metade. A comparação é feita
     # com o nome que a TELA mostrou, que é o do texto, e não com o já trocado.
-    escolhido = (corpo.get("destaque") or corpo.get("capitao") or "").strip().upper()
-    destaque = next((j for j in jogadores
-                     if j["nome"].strip().upper() == escolhido
-                     or j.get("nome_do_texto", "").strip().upper() == escolhido),
-                    jogadores[0])
+    #
+    # NESTA ORDEM: o escolhido, o capitão, o primeiro. Se a folha for relida
+    # com uma correção e o escolhido sair da escalação, quem assume é o
+    # capitão — que é o padrão que ele pediu —, e não o goleiro por acaso.
+    def _o(nome):
+        alvo = (nome or "").strip().upper()
+        if not alvo:
+            return None
+        return next((j for j in jogadores
+                     if j["nome"].strip().upper() == alvo
+                     or j.get("nome_do_texto", "").strip().upper() == alvo), None)
+
+    destaque = (_o(corpo.get("destaque")) or _o(corpo.get("capitao"))
+                or jogadores[0])
 
     isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
     iso_tec = escalacao_arte_iso(emoji_tec)
@@ -20152,7 +20248,7 @@ async def api_elencos_card(request: Request):
     })
     nome_arquivo = (curto or clube or "escalacao").lower()
     nome_arquivo = re.sub(r"[^a-z0-9]+", "-", nome_arquivo).strip("-") or "escalacao"
-    return Response(png, media_type="image/png", headers={
+    return png, {
         "Content-Disposition": f'attachment; filename="{nome_arquivo}-escalacao.png"',
         # Para ele saber, ANTES de publicar, o que não entrou: foto que não
         # baixou e escudo que faltou somem sem erro nenhum na tela.
@@ -20169,7 +20265,49 @@ async def api_elencos_card(request: Request):
                                              ("escudo-adversario", escudo_adv),
                                              ("bandeira-tecnico",
                                               band_tec if tecnico else True))
-                              if not v) or "nada"})
+                              if not v) or "nada"}
+
+
+@app.post("/api/elencos/card")
+async def api_elencos_card(request: Request):
+    """O PNG 1080x1350 da escalação na arte dele: foto grande e a lista.
+
+    TUDO SAI DA MESMA PORTA DO CAMPINHO (23/10/26)
+        A primeira versão montou um caminho próprio: o escudo pelo DIM_CLUBE,
+        o nome pelo glossário direto, a bandeira pelo flagcdn. Ele cortou:
+
+            "Você tá complicando coisas que já temos. Na aba campinho temos os
+             escudos que servem de filtro. Use aquela origem. Assim como tem
+             os emojis associados os nomes que usamos pro campinho. O nome
+             usado no campinho é também a melhor fonte pra buscar nome dos
+             jogadores. Temos tudo lá."
+
+        Ele está certo, e não é só economia de código: a guia de Elencos já
+        resolve nome pela fonte que ELE escolheu em Ajustes, já tem a foto
+        certa e já traz a bandeira em emoji. Um segundo caminho para a mesma
+        pergunta um dia responde diferente — e aí a arte e o campinho mostram
+        grafias distintas do mesmo jogador, que é o que o star schema existe
+        para impedir.
+
+        Então aqui não há resolução nova: `api_elencos_times` dá os escudos
+        (os mesmos dos chips de filtro) e `api_elencos_jogadores` dá o elenco
+        (os mesmos nomes, fotos e emojis do campinho).
+
+    A PONTE É O NÚMERO DA CAMISA, e não o nome: é assim que o matchsheet já
+    cruza a folha oficial com o elenco. Quem não casar fica com a linha do
+    PDF, que é melhor que buraco.
+
+    O DESTAQUE é o capitão por padrão, e quem escolhe outro é ele na tela.
+    """
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+    try:
+        png, cabecalhos = await _montar_arte_escalacao(corpo)
+    except ValueError as e:
+        return JSONResponse({"erro": str(e)}, status_code=400)
+    return Response(png, media_type="image/png", headers=cabecalhos)
 
 
 # ── A LEGENDA DAS ESCALAÇÕES (24/10/26) ─────────────────────────────────────
@@ -20331,13 +20469,11 @@ def _linha_da_transmissao(canais) -> str:
     return linha + ("." if linha[-1:].isalnum() else "")
 
 
-@app.post("/api/escalacao/legenda")
-async def api_escalacao_legenda(request: Request):
-    """O texto das escalações do jogo, pronto para copiar."""
-    try:
-        corpo = await request.json()
-    except Exception:
-        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+async def _montar_legenda(corpo: dict) -> dict:
+    """{"texto", "avisos"} da legenda do jogo. A rota e o post automático usam.
+
+    Levanta ValueError quando falta a escalação de um dos times.
+    """
     casa_req, fora_req = corpo.get("casa") or {}, corpo.get("fora") or {}
     time_casa = (casa_req.get("time") or "").strip()
     time_fora = (fora_req.get("time") or "").strip()
@@ -20350,8 +20486,7 @@ async def api_escalacao_legenda(request: Request):
                                      ("fora", fora_req, time_fora, time_casa)):
         linhas = _linhas_da_escalacao(req.get("texto") or "")
         if not linhas:
-            return JSONResponse({"erro": f"não há escalação de {este or chave}"},
-                                status_code=400)
+            raise ValueError(f"não há escalação de {este or chave}")
         lados[chave] = await _lado_da_escalacao(
             linhas, este, outro, (req.get("tecnico") or "").strip())
 
@@ -20395,6 +20530,189 @@ async def api_escalacao_legenda(request: Request):
     partes.append(_linha_da_transmissao(canais))
 
     return {"texto": "\n\n".join(partes), "avisos": avisos}
+
+
+@app.post("/api/escalacao/legenda")
+async def api_escalacao_legenda(request: Request):
+    """O texto das escalações do jogo, pronto para copiar."""
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+    try:
+        return await _montar_legenda(corpo)
+    except ValueError as e:
+        return JSONResponse({"erro": str(e)}, status_code=400)
+
+
+# ── O POST DE ESCALAÇÃO, NA HOME, PRONTO PARA O X (24/10/26) ────────────────
+#
+#   "Preciso que disponibilize pra postar direto já no twitter na homepage,
+#    como tem o do bola rolando. Já com a legenda de acordo com o jogo e a
+#    foto dos dois times anexada. Assim como o do bola rolando, opção de
+#    clicar e abrir pra ver e trocar o jogador da imagem se for o caso. Por
+#    padrão, sete o capitão na foto. Tem que ficar disponível logo após
+#    montar automaticamente a foto (que vai ser logo após estar disponível a
+#    lista das duas equipes)."
+#
+# O gatilho é a gravação da folha oficial (POST /api/escalacao-pdf), que já
+# traz as duas equipes juntas. Dali, em segundo plano, saem as duas artes —
+# pela MESMA `_montar_arte_escalacao` do botão — e a legenda — pela MESMA
+# `_montar_legenda` —, e o post entra na fila que a home já mostra.
+
+ARABIA = timezone(timedelta(hours=3))
+
+
+def _quando_da_folha(dados: dict) -> str:
+    """'23 October 2026' + '21:00' (hora da Arábia, como a folha escreve) → UTC."""
+    texto = f"{dados.get('data') or ''} {dados.get('hora') or ''}".strip()
+    try:
+        local = datetime.strptime(texto, "%d %B %Y %H:%M")
+    except (ValueError, TypeError):
+        return ""
+    return local.replace(tzinfo=ARABIA).astimezone(timezone.utc).isoformat()
+
+
+def _chave_do_post_escalacao(dados: dict) -> str:
+    """A mesma chave com que a folha é gravada: um jogo, um post."""
+    return "escalacao:" + "|".join([dados.get("data") or "",
+                                    (dados.get("casa") or {}).get("time") or "",
+                                    (dados.get("fora") or {}).get("time") or ""])
+
+
+def _nomes_das_linhas(texto: str) -> list:
+    return [j["nome"] for j in _linhas_da_escalacao(texto or "")]
+
+
+def _lados_do_post(post: dict) -> list:
+    """As duas artes de um post de escalação, para a home mostrar e trocar."""
+    from database import obter_post_arte
+    lados = []
+    for ref in post.get("imagens") or []:
+        if not ref.startswith("arte:"):
+            continue
+        dados = (obter_post_arte(ref[5:]) or {}).get("dados") or {}
+        lados.append({
+            "lado": ref.rsplit(":", 1)[-1], "ref": ref,
+            "clube": _nome_curto_de_clube(dados.get("clube") or ""),
+            "opcoes": _nomes_das_linhas(dados.get("texto") or ""),
+            "destaque": dados.get("destaque") or dados.get("capitao") or ""})
+    return lados
+
+
+async def gerar_post_escalacao(dados: dict) -> dict:
+    """Monta as duas artes e a legenda, e põe o post na fila.
+
+    IDEMPOTENTE. O monitor relê a folha de tempos em tempos; cada releitura
+    passa por aqui. Se a escalação de um time não mudou, a arte dele não é
+    refeita — e a ESCOLHA DELE do jogador da foto nunca é desfeita: ela
+    volta para o capitão só se o escolhido sair da escalação.
+
+    O texto do post também não é reescrito quando o post já existe:
+    `enfileirar_post` preserva o que ele possa ter editado.
+    """
+    from database import enfileirar_post, obter_post_arte, salvar_post_arte
+    casa, fora = dados.get("casa") or {}, dados.get("fora") or {}
+    if not (casa.get("texto") and fora.get("texto")):
+        return {"pulado": "falta a escalação de um dos times"}
+    base = _chave_do_post_escalacao(dados)
+    quando = _quando_da_folha(dados)
+
+    refs = []
+    for lado, este, outro in (("casa", casa, fora), ("fora", fora, casa)):
+        chave_arte = f"{base}:{lado}"
+        anterior = (obter_post_arte(chave_arte) or {}).get("dados") or {}
+        corpo = {"texto": este.get("texto") or "",
+                 "clube": este.get("time") or "",
+                 "adversario": outro.get("time") or "",
+                 "tecnico": este.get("tecnico") or "",
+                 "capitao": este.get("capitao") or "",
+                 "destaque": anterior.get("destaque") or este.get("capitao") or ""}
+        mesma = (anterior and anterior.get("texto") == corpo["texto"]
+                 and anterior.get("tecnico") == corpo["tecnico"])
+        if not mesma:
+            png, _cab = await _montar_arte_escalacao(corpo)
+            salvar_post_arte(chave_arte, png, corpo)
+        refs.append("arte:" + chave_arte)
+
+    # Os nomes de exibição são os da SPL, os mesmos do card do jogo na guia.
+    try:
+        lista = await api_elencos_times()
+    except Exception:
+        lista = {}
+    por_chave = {(glossary.padronizar_clube(t.get("nome") or "") or t.get("nome") or "").lower(): t
+                 for t in (lista.get("times") or [])}
+
+    def _exibir(time_folha):
+        t = por_chave.get((glossary.padronizar_clube(time_folha) or time_folha or "").lower())
+        return (t or {}).get("nome") or time_folha
+
+    legenda = await _montar_legenda({
+        "quando": quando, "rodada": dados.get("rodada"),
+        "casa": {"nome": _exibir(casa.get("time")), "time": casa.get("time"),
+                 "tecnico": casa.get("tecnico") or "", "texto": casa.get("texto")},
+        "fora": {"nome": _exibir(fora.get("time")), "time": fora.get("time"),
+                 "tecnico": fora.get("tecnico") or "", "texto": fora.get("texto")}})
+    r = enfileirar_post("escalacao", base, legenda["texto"], refs, quando or None)
+    print(f"📝 post de escalação {base}: {r}"
+          + (f" — avisos: {'; '.join(legenda['avisos'])}" if legenda["avisos"] else ""),
+          flush=True)
+    return {"post": r, "chave": base, "avisos": legenda["avisos"]}
+
+
+_TAREFAS_DE_FUNDO: set = set()
+
+
+def agendar_post_escalacao(dados: dict) -> None:
+    """Dispara o post em segundo plano: quem grava a folha é o monitor do
+    Media Hub, e ele não pode ficar esperando o Transfermarkt e as imagens."""
+    import asyncio
+
+    async def _seguro():
+        try:
+            await gerar_post_escalacao(dados)
+        except Exception as e:
+            print(f"⚠️ post de escalação: {type(e).__name__}: {e}", flush=True)
+
+    try:
+        tarefa = asyncio.get_running_loop().create_task(_seguro())
+    except RuntimeError:
+        return
+    # Guardada até acabar: tarefa sem referência pode ser recolhida no meio.
+    _TAREFAS_DE_FUNDO.add(tarefa)
+    tarefa.add_done_callback(_TAREFAS_DE_FUNDO.discard)
+
+
+@app.post("/api/posts/{post_id}/destaque")
+async def api_posts_destaque(post_id: int, request: Request):
+    """Troca o jogador da foto numa das artes do post e refaz só aquela arte."""
+    from database import obter_post, obter_post_arte, salvar_post_arte
+    try:
+        corpo = await request.json()
+    except Exception:
+        return JSONResponse({"erro": "corpo inválido"}, status_code=400)
+    item = obter_post(post_id)
+    if not item or item.get("tipo") != "escalacao":
+        return JSONResponse({"erro": "este post não é de escalação"}, status_code=404)
+    if item.get("status") not in ("pendente", "aprovado"):
+        return JSONResponse({"erro": f"o post já está '{item.get('status')}'"}, status_code=409)
+    lado = corpo.get("lado")
+    if lado not in ("casa", "fora"):
+        return JSONResponse({"erro": "diga qual time: casa ou fora"}, status_code=400)
+    ref = next((r for r in (item.get("imagens") or [])
+                if r.startswith("arte:") and r.endswith(f":{lado}")), None)
+    arte = obter_post_arte(ref[5:]) if ref else None
+    if not arte:
+        return JSONResponse({"erro": "não achei a arte deste time"}, status_code=404)
+    dados = dict(arte.get("dados") or {})
+    dados["destaque"] = (corpo.get("jogador") or "").strip()
+    try:
+        png, cab = await _montar_arte_escalacao(dados)
+    except ValueError as e:
+        return JSONResponse({"erro": str(e)}, status_code=400)
+    if not salvar_post_arte(ref[5:], png, dados):
+        return JSONResponse({"erro": "não consegui guardar a arte nova"}, status_code=500)
+    return {"ok": True, "destaque": cab.get("X-Destaque"), "faltou": cab.get("X-Faltou")}
 
 
 def escalacao_arte_iso(emoji):
@@ -23997,6 +24315,9 @@ async def api_escalacao_pdf(request: Request, arquivo: UploadFile = File(...)):
             {"erro": "PDF lido, mas não foi possível salvar a escalação. Tente novamente.",
              "salvo": False}, status_code=503))
     dados["salvo"] = True
+    # O POST DE ESCALAÇÃO nasce aqui: a folha acabou de ser gravada com as
+    # duas equipes. Em segundo plano — o monitor não espera as imagens.
+    agendar_post_escalacao(dados)
     return _com_cors_mediahub(JSONResponse(dados))
 
 
