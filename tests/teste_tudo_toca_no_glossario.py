@@ -90,6 +90,9 @@ DISPENSADAS = {
     "/api/diag/congelado": "mostra o elenco congelado como ele está no banco",
     "/api/diag/escalacao": "mostra o que a API-Football respondeu, cru",
     "/api/diag/pendurado": "mostra a contagem de cartões por dentro",
+    "/api/diag/tecnicos": ("confere o raspador de técnicos do Transfermarkt no "
+                           "ar; técnico não existe no glossário, e os clubes vêm "
+                           "da mesma lista do campinho, sem nome próprio"),
 
     # Fonte crua de comparação.
     "/api/af-window-transfers": "a janela da API-Football, crua, para comparar "

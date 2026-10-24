@@ -188,6 +188,15 @@ def _chamar(corpo, **stubs):
         return resposta
 
     main._af_get = _com_times(tecnico)
+
+    # O TRANSFERMARKT de mentira também: sem isto o teste tentava o TM de
+    # verdade, esperava 3 s e 6 s entre as tentativas e levava meio minuto.
+    import elenco_tm as _tm
+    _tm_real = _tm.tecnico
+
+    async def tm(clube_id):
+        return stubs.get("tm", ({}, "sem Transfermarkt no teste"))
+    _tm.tecnico = tm
     try:
         return asyncio.run(main.api_elencos_card(PedidoFalso(corpo)))
     finally:
@@ -196,6 +205,7 @@ def _chamar(corpo, **stubs):
         main.api_elencos_jogadores = guardados["jogadores"]
         main.api_elencos_times = guardados["times"]
         main._af_get = guardados["af"]
+        _tm.tecnico = _tm_real
 
 
 r = _chamar({"texto": TEXTO, "clube": "Al-Ettifaq", "adversario": "Al-Ittihad",
@@ -745,6 +755,36 @@ if _node and _i > 0:
     ok(_nomes == ["BONO", "K. KOULIBALY", "S. MILINKOVIĆ-SAVIĆ", "TONEY", "WIJNALDUM"],
        f"o seletor do navegador leu {_nomes}. Toda linha com bandeira tem de "
        "virar opção — foi o seletor vazio que ele não conseguiu usar")
+
+
+# ── O TÉCNICO DA ARTE É O DO TRANSFERMARKT (24/10/26) ───────────────────
+#
+#   "Bruno Lage além de estar vindo sem bandeira tá vindo só 'Bruno'."
+#
+_desenhado = {}
+_montar_real2 = _ec.montar
+try:
+    _ec.montar = lambda d: (_desenhado.update(d), _montar_real2(d))[1]
+    _pedidos_tm = []
+
+    async def _anota_tm(cli, url):
+        _pedidos_tm.append(url or "")
+        return b"PNG-FALSO" if url else None
+    r16 = _chamar({"texto": TEXTO, "clube": "DIRIYAH CLUB", "adversario": "AL ITTIHAD",
+                   "tecnico": "BRUNO"},
+                  times={"times": [{"id": 1234, "nome": "Diriyah",
+                                    "escudo": "https://spl/diriyah.webp"}]},
+                  tm=({"nome": "Bruno Lage", "nacionalidades": ["Portugal"]}, None),
+                  _baixar=_anota_tm)
+finally:
+    _ec.montar = _montar_real2
+ok((_desenhado.get("tecnico") or {}).get("nome") == "Bruno Lage",
+   f"o técnico desenhado foi {(_desenhado.get('tecnico') or {}).get('nome')!r}. "
+   "A folha diz 'BRUNO'; o Transfermarkt diz 'Bruno Lage', e é ele que vale")
+ok(any(u.endswith("/pt.png") for u in _pedidos_tm),
+   "a bandeira de Portugal não foi pedida para o Bruno Lage")
+ok("bandeira-tecnico" not in (r16.headers.get("X-Faltou") or ""),
+   "com o técnico achado no Transfermarkt, o aviso de falta apareceu")
 
 
 # ── O BOTÃO NA TELA ─────────────────────────────────────────────────────

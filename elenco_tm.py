@@ -314,6 +314,115 @@ async def elenco(clube_id: int, season: int | None = None) -> tuple[list[dict], 
                             _parse_elenco)
 
 
+# ── O TÉCNICO DO CLUBE (24/10/26) ───────────────────────────────────────────
+#
+#   "Pq o técnico você não puxa direto da api-spl ou do scrap do transfermkt?
+#    Estão atualizados e não muda. Seta no time correspondente e pega de lá."
+#
+# A API-Football, que eu tinha usado, não serve para técnico desta liga: no
+# log do ar ela devolveu o Jens Wissing SEM nacionalidade e ZERO técnicos para
+# o Diriyah. E a folha oficial escreve só "BRUNO" — é o Bruno Lage.
+#
+# A página é a da COMISSÃO TÉCNICA do clube (/mitarbeiter/verein/ID): o
+# treinador principal vem com nome completo e bandeira, no mesmo formato de
+# tabela do elenco. Eu NÃO consegui ver essa página daqui — o Transfermarkt é
+# bloqueado para mim —, então o parser procura o técnico de mais de um jeito e
+# quem confere o resultado no ar é /api/diag/tecnicos.
+
+TTL_TECNICO = 7 * 24 * 3600     # treinador muda raramente; a conferência é semanal
+
+# Como o TM em português escreve o cargo do técnico principal. Comparação sem
+# acento e em minúsculas; "treinador adjunto" e "treinador de goleiros" NÃO
+# entram — por isso é igualdade, e não "contém".
+_CARGOS_DO_PRINCIPAL = {"treinador", "treinador principal", "tecnico",
+                        "tecnico principal", "manager", "head coach",
+                        "cheftrainer", "trainer"}
+
+
+def _sem_acento_minusculo(txt: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFKD", txt or "")
+                   if not unicodedata.combining(c)).strip().lower()
+
+
+def _bandeiras_de(no) -> list[str]:
+    """Os países das bandeirinhas dentro de um pedaço da página, em ordem."""
+    out = []
+    for im in no.select("img.flaggenrahmen, img[class*='flagge']"):
+        t = (im.get("title") or im.get("alt") or "").strip()
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def _parse_tecnico(soup: BeautifulSoup) -> dict:
+    """{nome, nacionalidades, cargo, trainer_id} do técnico principal, ou {}.
+
+    Linha por linha da tabela da comissão: o link de perfil de TREINADOR dá o
+    nome; o texto da linha dá o cargo; as bandeirinhas da linha dão o país.
+    Ganha a linha cujo cargo é o do técnico principal; sem nenhuma assim, a
+    primeira linha com treinador — é a ordem em que o TM lista a comissão.
+    """
+    candidatos = []
+    for link in soup.select("a[href*='/profil/trainer/']"):
+        nome = (link.get("title") or link.get_text(" ", strip=True) or "").strip()
+        tid = _id_de(link.get("href", ""), r"/trainer/(\d+)")
+        if not nome or not tid:
+            continue
+        linha = link.find_parent("tr")
+        # A linha de fora: o TM aninha uma tabela pequena (foto, nome, cargo)
+        # dentro da célula; as bandeiras ficam na linha da tabela de fora.
+        while linha is not None and linha.find_parent("tr") is not None \
+                and not _bandeiras_de(linha):
+            linha = linha.find_parent("tr")
+        if linha is None:
+            linha = link.parent
+        textos = [t.strip() for t in linha.stripped_strings]
+        cargo = next((t for t in textos
+                      if _sem_acento_minusculo(t) in _CARGOS_DO_PRINCIPAL), "")
+        if any(c["trainer_id"] == tid for c in candidatos):
+            continue
+        candidatos.append({"nome": nome, "nacionalidades": _bandeiras_de(linha),
+                           "cargo": cargo, "trainer_id": tid})
+    if not candidatos:
+        return {}
+    principal = next((c for c in candidatos if c["cargo"]), candidatos[0])
+    return principal
+
+
+def _parse_nacionalidade_perfil(soup: BeautifulSoup) -> list[str]:
+    """Os países da ficha do treinador ("Nacionalidade:" na tabela de dados).
+
+    Reserva para quando a linha da comissão vier sem bandeira."""
+    for rotulo in soup.find_all(string=re.compile(r"Nacionalidade|Citizenship|Nationality", re.I)):
+        caixa = rotulo.find_parent(["span", "th", "td", "li", "div"])
+        if caixa is None:
+            continue
+        valor = caixa.find_next_sibling() or caixa.parent
+        paises = _bandeiras_de(valor) if valor is not None else []
+        if paises:
+            return paises
+    return []
+
+
+async def tecnico(clube_id: int) -> tuple[dict, str | None]:
+    """O técnico principal do clube no Transfermarkt: (ficha, aviso)."""
+    ficha, aviso = await _com_cache(f"tecnico:{int(clube_id)}", TTL_TECNICO,
+                                    f"x/mitarbeiter/verein/{int(clube_id)}",
+                                    _parse_tecnico)
+    ficha = dict(ficha or {})
+    if ficha and not ficha.get("nacionalidades") and ficha.get("trainer_id"):
+        try:
+            paises, _ = await _com_cache(
+                f"tecnico-perfil:{ficha['trainer_id']}", TTL_TECNICO,
+                f"x/profil/trainer/{ficha['trainer_id']}",
+                _parse_nacionalidade_perfil)
+            ficha["nacionalidades"] = list(paises or [])
+        except Exception as e:
+            aviso = (aviso + "; " if aviso else "") + f"ficha do treinador: {e}"
+    return ficha, aviso
+
+
 async def nome_no_pais_de_origem(jogador_id: int) -> tuple[str | None, str | None]:
     """Consulta somente uma ficha, acionada manualmente no laboratório."""
     return await _com_cache(f"perfil:nome-origem:{int(jogador_id)}", TTL_PERFIL,

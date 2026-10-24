@@ -11700,6 +11700,43 @@ async def api_diag_padronizacao():
     return PlainTextResponse("\n".join(linhas) + "\n")
 
 
+@app.get("/api/diag/tecnicos", response_class=PlainTextResponse)
+async def diag_tecnicos(clube: str = ""):
+    """O técnico de cada clube da liga, como a arte de escalação vai usar.
+
+    POR QUE ESTA PÁGINA EXISTE (24/10/26)
+        A leitura do técnico no Transfermarkt foi escrita sem que eu pudesse
+        ver a página do TM — ela é bloqueada para mim. Esta página roda NO
+        AR, onde o TM responde, e mostra para os 18 clubes o que saiu: nome,
+        país, bandeira. É aqui que se confere, antes da próxima arte, se o
+        parser acertou — e não na arte de um jogo, um clube de cada vez.
+
+    Lenta na primeira vez (o TM aceita uma consulta a cada 1,5 s); depois
+    fica guardada por uma semana. `?clube=Hilal` confere um só.
+    """
+    agora = datetime.now(BRT).strftime("%d/%m/%Y %H:%M")
+    lista = await api_elencos_times()
+    times = lista.get("times") or []
+    if clube:
+        alvo = (glossary.padronizar_clube(clube) or clube).lower()
+        times = [t for t in times
+                 if (glossary.padronizar_clube(t.get("nome") or "")
+                     or t.get("nome") or "").lower() == alvo]
+    linhas = [f"OS TÉCNICOS — {agora} (Brasília)",
+              f"lista de clubes: {lista.get('fonte') or '?'}, {len(times)} clube(s)",
+              "=" * 62, ""]
+    com_bandeira = 0
+    for t in times:
+        nome_tec, emoji, motivo = await _tecnico_do_clube(t, "", t.get("nome") or "")
+        com_bandeira += bool(emoji)
+        linhas.append(f"{(t.get('nome') or '?'):14} tm={t.get('id') or '-':<6} "
+                      f"{emoji or '  '}  {nome_tec or '— SEM TÉCNICO —'}")
+        if not emoji:
+            linhas.append(f"{'':22}↳ {motivo}")
+    linhas += ["", f"{com_bandeira} de {len(times)} com bandeira."]
+    return "\n".join(linhas)
+
+
 @app.get("/api/diag/clubes", response_class=PlainTextResponse)
 async def api_diag_clubes():
     """O DIM_CLUBE por extenso: quem tem quais ids, e quem está incompleto.
@@ -19661,6 +19698,41 @@ _LINHA_DA_ESCALACAO = re.compile(
 # primeira no arquivo inteiro, em silêncio — e ficou assim por um commit.
 
 
+async def _tecnico_do_clube(clube_campinho: dict, nome_folha: str,
+                            clube: str) -> tuple:
+    """(nome do técnico, emoji do país, motivo).
+
+    1. O TRANSFERMARKT, pelo id do clube na lista do campinho. Nome completo e
+       nacionalidade de lá — "o scrap do transfermkt está atualizado". Quando
+       ele responde, o nome dele vale mais que o da folha, que às vezes traz
+       só o primeiro nome ("BRUNO") ou o nome de registro ("ATHANASIOS
+       PAPASTAMATIOU", que ele mesmo escreve ARTHUR PAPAS).
+    2. Se o Transfermarkt não responder, a API-Football — só para a bandeira,
+       e com o nome da folha. É a reserva, não o caminho.
+
+    O motivo volta sempre: é ele que vai para o log.
+    """
+    import elenco_tm
+    tm_id = (clube_campinho or {}).get("id")
+    motivo_tm = "o clube não tem id do Transfermarkt na lista do campinho"
+    if tm_id:
+        try:
+            ficha, aviso = await elenco_tm.tecnico(int(tm_id))
+        except Exception as e:
+            ficha, aviso = {}, f"{type(e).__name__}: {e}"
+        if ficha.get("nome"):
+            paises = ficha.get("nacionalidades") or []
+            emoji = (_elenco_pais(paises).get("pais_bandeira") or "") if paises else ""
+            motivo = (f"Transfermarkt: {ficha['nome']} ({', '.join(paises) or 'sem país'})"
+                      + (f" — {aviso}" if aviso else ""))
+            return ficha["nome"], emoji, motivo
+        motivo_tm = f"Transfermarkt sem técnico ({aviso or 'página sem treinador'})"
+    if not nome_folha:
+        return "", "", motivo_tm
+    emoji, motivo_af = await _emoji_do_tecnico(clube, nome_folha)
+    return nome_folha, emoji, f"{motivo_tm}; reserva API-Football: {motivo_af}"
+
+
 async def _af_id_do_clube(clube: str) -> tuple:
     """(id do clube na API-Football, motivo). Pela lista de clubes DELA.
 
@@ -19993,24 +20065,25 @@ async def api_elencos_card(request: Request):
 
     isos = [escalacao_arte_iso(j.get("bandeira")) for j in jogadores]
 
-    # A BANDEIRA DO TÉCNICO (23/10/26): "não tá vindo o emoji do país do
-    # treinador". A folha oficial só traz o nome dele. Quem sabe a
-    # nacionalidade é a API-Football; o id do clube lá sai da lista de clubes
-    # DELA, casada pelo nome da folha (`_af_id_do_clube`).
-    tecnico = (corpo.get("tecnico") or "").strip()
-    emoji_tec = corpo.get("bandeira_tecnico") or ""
-    motivo_tec = "veio da tela" if emoji_tec else ""
-    if tecnico and not emoji_tec:
-        try:
-            emoji_tec, motivo_tec = await _emoji_do_tecnico(clube, tecnico)
-        except Exception as e:
-            emoji_tec, motivo_tec = "", f"{type(e).__name__}: {e}"
+    # O TÉCNICO VEM DO TRANSFERMARKT (24/10/26):
+    #
+    #   "Pq o técnico você não puxa direto da api-spl ou do scrap do
+    #    transfermkt? Estão atualizados e não muda. Seta no time
+    #    correspondente e pega de lá. Vai vir certo."
+    #
+    # O id do clube no Transfermarkt já está na lista de clubes do campinho
+    # (o `id` de `casa`). De lá vêm o NOME COMPLETO — a folha escreve "BRUNO",
+    # o TM escreve "Bruno Lage" — e a nacionalidade, que vira emoji pelo
+    # mesmo `_elenco_pais` dos jogadores do campinho.
+    tecnico_folha = (corpo.get("tecnico") or "").strip()
+    tecnico, emoji_tec, motivo_tec = await _tecnico_do_clube(
+        casa, tecnico_folha, clube)
     iso_tec = escalacao_arte_iso(emoji_tec)
-    # Uma linha por arte no log do Railway. Foi a falta dela que deixou a
-    # bandeira dos técnicos faltando sem ninguém saber por quê (24/10/26).
-    print(f"🎨 arte {clube or '?'}: técnico {tecnico or '-'} → "
-          f"{emoji_tec or 'SEM BANDEIRA'} ({motivo_tec or 'sem técnico'})",
-          flush=True)
+    # Uma linha por arte no log do Railway. Foi ela que mostrou, em 24/10/26,
+    # que a API-Football não tinha nacionalidade nem técnico desses clubes.
+    print(f"🎨 arte {clube or '?'}: técnico {tecnico or '-'} (folha: "
+          f"{tecnico_folha or '-'}) → {emoji_tec or 'SEM BANDEIRA'} "
+          f"({motivo_tec or 'sem técnico'})", flush=True)
 
     # O ESCUDO é o MESMO dos chips de filtro do campinho. Quando a lista de
     # clubes não responder, entra o endereço que a tela já exibe no card do
@@ -20041,7 +20114,9 @@ async def api_elencos_card(request: Request):
         "ancora": corpo.get("ancora", 0.5),
         "escudo": escudo,
         "escudo_adversario": escudo_adv,
-        "tecnico": {"nome": corpo.get("tecnico") or "", "bandeira": band_tec},
+        # O nome do TRANSFERMARKT quando ele respondeu ("BRUNO LAGE"), e o da
+        # folha só como reserva. A folha escrevia "BRUNO" e era isso que saía.
+        "tecnico": {"nome": tecnico, "bandeira": band_tec},
         "jogadores": [{"numero": j["numero"], "nome": j["nome"],
                        "bandeira": bandeiras[i]}
                       for i, j in enumerate(jogadores)],
