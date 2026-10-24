@@ -19659,52 +19659,129 @@ _LINHA_DA_ESCALACAO = re.compile(
 _ID_AF_NO_ESCUDO = re.compile(r"api-sports\.io/football/teams/(\d+)\.")
 
 
-def _sem_acento(texto: str) -> str:
-    import unicodedata
-    return "".join(c for c in unicodedata.normalize("NFKD", texto or "")
-                   if not unicodedata.combining(c)).lower()
+# `_sem_acento` NÃO é definida aqui: ela já existe lá em cima, na linha da
+# API-Football de jogadores. Uma segunda com o mesmo nome substituiria a
+# primeira no arquivo inteiro, em silêncio — e ficou assim por um commit.
 
 
-async def _emoji_do_tecnico(clube_campinho: dict, nome: str) -> str:
-    """O emoji do país do técnico, pela API-Football. "" quando não sei.
+async def _emoji_do_tecnico(clube_campinho: dict, nome: str) -> tuple:
+    """(emoji do país do técnico, motivo). Emoji vazio quando não sei.
 
     O ID DO CLUBE NA API-FOOTBALL já está na lista de clubes do campinho: é o
     número dentro do endereço do escudo (…/football/teams/2932.png). Se o
     endereço não for de lá — a lista caiu para uma reserva —, não pergunto:
     um id de outra base apontaria para outro time.
 
-    QUEM É O TÉCNICO: o que tem o SOBRENOME da folha oficial e está no clube
-    agora (`career` sem data de fim). Sem sobrenome que case, só aceito se
-    houver UM técnico atual — dois atuais é ambiguidade, e bandeira errada no
-    técnico é pior que nenhuma.
+    DUAS PERGUNTAS, NESTA ORDEM (24/10/26)
+        "Os técnicos todos estão vindo sem bandeira."
+        A primeira versão só perguntava "quem treina o clube X?", e o cadastro
+        de técnicos da API-Football para a liga saudita pode estar atrasado:
+        se ela ainda acha que o Inzaghi está na Inter, essa pergunta não traz
+        ele. Então, sem resposta pelo clube, pergunto pelo SOBRENOME da folha
+        e escolho, entre os que voltam, quem tem ligação com o clube.
 
-    Cache de um dia: técnico não muda de país, e são duas consultas por clube.
+    QUEM MANDA É A FOLHA OFICIAL. Entre os que a API devolve, ganha quem tem o
+    sobrenome escrito na folha; entre esses, quem está (ou já esteve) no
+    clube. Sem sobrenome que case, só o ÚNICO técnico atual do clube — dois é
+    ambiguidade, e bandeira errada no técnico é pior que nenhuma. Pela busca
+    por nome, sem ligação nenhuma com o clube, só aceito quem casa o nome
+    INTEIRO da folha e é o único a casar.
+
+    O MOTIVO VOLTA JUNTO e vai para o log: foi a falta dele que me deixou sem
+    saber, com a bandeira faltando em todas as artes, por que faltava.
+
+    Cache de um dia: técnico não muda de país.
     """
     import arbitragem
+    partes = (nome or "").split()
+    if not partes:
+        return "", "a folha não trouxe o técnico"
     achado = _ID_AF_NO_ESCUDO.search((clube_campinho or {}).get("escudo") or "")
-    if not achado or not (nome or "").strip():
-        return ""
+    if not achado:
+        return "", "o clube não tem id da API-Football na lista do campinho"
     af_id = int(achado.group(1))
-    dados, erro = await _af_get("coachs", {"team": af_id}, ttl=86400)
-    if erro or not dados:
-        return ""
-    sobrenome = _sem_acento((nome.split() or [""])[-1])
-    atuais, com_nome = [], []
-    for c in dados.get("response") or []:
+    sobrenome = _sem_acento(partes[-1])
+    nome_todo = set(_sem_acento(" ".join(partes)).split())
+
+    def _ligacao(c):
+        """2 = está no clube agora, 1 = já passou por ele, 0 = nunca."""
+        if (c.get("team") or {}).get("id") == af_id:
+            return 2
         carreira = c.get("career") or []
         if any((x.get("team") or {}).get("id") == af_id and not x.get("end")
                for x in carreira):
-            atuais.append(c)
-        nomes = _sem_acento(" ".join(str(c.get(k) or "")
-                                     for k in ("name", "firstname", "lastname")))
-        if sobrenome and sobrenome in nomes.split():
-            com_nome.append(c)
-    escolhido = (next((c for c in com_nome if c in atuais), None)
-                 or (com_nome[0] if len(com_nome) == 1 else None)
-                 or (atuais[0] if len(atuais) == 1 else None))
-    if not escolhido:
-        return ""
-    return arbitragem.bandeira(escolhido.get("nationality") or "") or ""
+            return 2
+        if any((x.get("team") or {}).get("id") == af_id for x in carreira):
+            return 1
+        return 0
+
+    def _nomes(c):
+        return set(_sem_acento(" ".join(str(c.get(k) or "") for k in
+                                        ("name", "firstname", "lastname"))
+                               .replace(".", " ")).split())
+
+    def _emoji(c):
+        return arbitragem.bandeira(c.get("nationality") or "") or ""
+
+    erros, atuais_do_clube = [], []
+    perguntas = [("pelo clube", {"team": af_id})]
+    if len(partes[-1]) >= 3:
+        perguntas.append(("pelo sobrenome", {"search": partes[-1].title()}))
+    for como, params in perguntas:
+        dados, erro = await _af_get("coachs", params, ttl=86400)
+        if erro:
+            erros.append(f"{como}: {erro}")
+            continue
+        resposta = (dados or {}).get("response") or []
+        com_nome = [c for c in resposta if sobrenome in _nomes(c)]
+        ligados = [c for c in com_nome if _ligacao(c)]
+        if ligados:
+            c = max(ligados, key=_ligacao)
+            return _emoji(c), f"{como}: {c.get('name')} ({c.get('nationality')})"
+        if "team" in params:
+            if len(com_nome) == 1:
+                c = com_nome[0]
+                return _emoji(c), f"{como}: {c.get('name')} ({c.get('nationality')})"
+            atuais_do_clube = [c for c in resposta if _ligacao(c) == 2]
+        else:
+            inteiros = [c for c in com_nome
+                        if len(nome_todo) >= 2 and nome_todo <= _nomes(c)]
+            if len(inteiros) == 1:
+                c = inteiros[0]
+                return _emoji(c), (f"{como}, nome inteiro: {c.get('name')} "
+                                   f"({c.get('nationality')})")
+        erros.append(f"{como}: {len(resposta)} técnico(s) na resposta, "
+                     f"{len(com_nome)} com o sobrenome '{partes[-1]}'")
+
+    # O PALPITE, por último e só para nome de UMA palavra. A folha às vezes
+    # escreve só "BRUNO" ou "THOMAS", que pode ser apelido e não aparecer no
+    # cadastro; aí o único técnico atual do clube é a melhor resposta. Com
+    # nome completo que não casou com ninguém, NÃO: seria dar ao Inzaghi a
+    # bandeira do Jorge Jesus porque o cadastro ainda não trocou os dois.
+    if len(partes) == 1 and len(atuais_do_clube) == 1:
+        c = atuais_do_clube[0]
+        return _emoji(c), (f"pelo clube, único atual (folha com um nome só): "
+                           f"{c.get('name')} ({c.get('nationality')})")
+    return "", "; ".join(erros) or "sem resposta"
+
+
+def _cabecalho(texto) -> str:
+    """Valor de cabeçalho HTTP: só latin-1, ou o servidor cai com erro 500.
+
+    Aconteceu no ar em 23/10/26: "J. STANĚK" no cabeçalho do destaque e a arte
+    inteira não saiu — UnicodeEncodeError. Ć, Ě, Š (Milinković-Savić,
+    Rajković, Šemper) não existem em latin-1. Tiro o acento só no cabeçalho,
+    que é aviso para a tela; a imagem continua com o nome certo.
+    """
+    import unicodedata
+    texto = str(texto or "")
+    try:
+        texto.encode("latin-1")
+        return texto
+    except UnicodeEncodeError:
+        sem = "".join(c for c in unicodedata.normalize("NFKD", texto)
+                      if not unicodedata.combining(c))
+        return sem.encode("latin-1", "replace").decode("latin-1")
 
 
 def _linhas_da_escalacao(texto: str) -> list[dict]:
@@ -19892,12 +19969,18 @@ async def api_elencos_card(request: Request):
     # lista de clubes do campinho — é o número dentro do endereço do escudo.
     tecnico = (corpo.get("tecnico") or "").strip()
     emoji_tec = corpo.get("bandeira_tecnico") or ""
+    motivo_tec = "veio da tela" if emoji_tec else ""
     if tecnico and not emoji_tec:
         try:
-            emoji_tec = await _emoji_do_tecnico(casa, tecnico)
-        except Exception:
-            emoji_tec = ""
+            emoji_tec, motivo_tec = await _emoji_do_tecnico(casa, tecnico)
+        except Exception as e:
+            emoji_tec, motivo_tec = "", f"{type(e).__name__}: {e}"
     iso_tec = escalacao_arte_iso(emoji_tec)
+    # Uma linha por arte no log do Railway. Foi a falta dela que deixou a
+    # bandeira dos técnicos faltando sem ninguém saber por quê (24/10/26).
+    print(f"🎨 arte {clube or '?'}: técnico {tecnico or '-'} → "
+          f"{emoji_tec or 'SEM BANDEIRA'} ({motivo_tec or 'sem técnico'})",
+          flush=True)
 
     # O ESCUDO é o MESMO dos chips de filtro do campinho. Quando a lista de
     # clubes não responder, entra o endereço que a tela já exibe no card do
@@ -19939,14 +20022,15 @@ async def api_elencos_card(request: Request):
         "Content-Disposition": f'attachment; filename="{nome_arquivo}-escalacao.png"',
         # Para ele saber, ANTES de publicar, o que não entrou: foto que não
         # baixou e escudo que faltou somem sem erro nenhum na tela.
-        "X-Destaque": destaque["nome"],
+        "X-Destaque": _cabecalho(destaque["nome"]),
         # Quantos dos onze a guia de Elencos reconheceu pelo número. Baixo
         # aqui quer dizer nome e foto vindos do PDF, e é o aviso de que o
         # elenco daquele clube não carregou.
         "X-Do-Campinho": f"{vindos_do_campinho}/{len(jogadores)}",
         # O nome que FOI PARA A ARTE. Quando o DIM_CLUBE não responde ele sai
         # da regra automática, e ele precisa poder conferir qual dos dois é.
-        "X-Clube": curto,
+        "X-Clube": _cabecalho(curto),
+        "X-Tecnico": _cabecalho(motivo_tec or "sem técnico"),
         "X-Faltou": ", ".join(n for n, v in (("foto", foto), ("escudo", escudo),
                                              ("escudo-adversario", escudo_adv),
                                              ("bandeira-tecnico",

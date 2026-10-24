@@ -480,25 +480,149 @@ async def _af_coachs(path, params, ttl=None):
 _af_guardado = main._af_get
 try:
     main._af_get = _af_coachs
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI")) == "🇮🇹",
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))[0] == "🇮🇹",
        "o técnico atual do Hilal não saiu com a bandeira da Itália")
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "JORGE JESUS")) == "🇵🇹",
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "JORGE JESUS"))[0] == "🇵🇹",
        "o técnico escrito na folha perdeu para quem a API diz ser o atual. A "
        "folha oficial é do dia do jogo")
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "ROBERTO")) == "🇮🇹",
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "ROBERTO"))[0] == "🇮🇹",
        "sem sobrenome que case, o ÚNICO técnico atual do clube devia ser "
        "usado — a folha às vezes traz só um nome, como 'BRUNO' e 'THOMAS'")
     # Um id que NÃO é da API-Football (a lista caiu na reserva do
     # Transfermarkt) apontaria para outro time. Não pergunta.
     ok(asyncio.run(main._emoji_do_tecnico(
         {"escudo": "https://tmssl.akamaized.net//images/wappen/head/1114.png"},
-        "SIMONE INZAGHI")) == "",
+        "SIMONE INZAGHI"))[0] == "",
        "o técnico foi procurado com um id do Transfermarkt na API-Football — "
        "o número 1114 lá é outro clube, e a bandeira sairia de outro técnico")
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "")) == "",
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], ""))[0] == "",
        "sem nome de técnico a função perguntou mesmo assim")
 finally:
     main._af_get = _af_guardado
+
+# ── QUANDO O CADASTRO DA API-FOOTBALL ESTÁ ATRASADO (24/10/26) ─────────
+#
+#   "Os técnicos todos estão vindo sem bandeira."
+#
+# Perguntar só "quem treina o clube X?" depende de a API já ter registrado a
+# troca de técnico. Se ela ainda devolve o anterior, o nome da folha não casa
+# e a bandeira some. A segunda pergunta é pelo sobrenome.
+ANTIGO = {"response": [
+    {"name": "J. Jesus", "firstname": "Jorge", "lastname": "Jesus",
+     "nationality": "Portugal", "team": {"id": 2932},
+     "career": [{"team": {"id": 2932}, "start": "2023-07-01", "end": None}]}]}
+BUSCA_INZAGHI = {"response": [
+    {"name": "F. Inzaghi", "firstname": "Filippo", "lastname": "Inzaghi",
+     "nationality": "Italy", "team": {"id": 999},
+     "career": [{"team": {"id": 999}, "start": "2024-07-01", "end": None}]},
+    {"name": "S. Inzaghi", "firstname": "Simone", "lastname": "Inzaghi",
+     "nationality": "Italy", "team": {"id": 505},
+     "career": [{"team": {"id": 2932}, "start": "2025-06-03", "end": None},
+                {"team": {"id": 505}, "start": "2021-07-01", "end": "2025-06-02"}]}]}
+perguntas_feitas = []
+
+
+async def _af_atrasada(path, params, ttl=None):
+    perguntas_feitas.append(dict(params))
+    if "team" in params:
+        return ANTIGO, None
+    if params.get("search") == "Inzaghi":
+        return BUSCA_INZAGHI, None
+    return {"response": []}, None
+
+
+_af_guardado = main._af_get
+try:
+    main._af_get = _af_atrasada
+    emo, motivo = asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))
+    ok(emo == "🇮🇹",
+       f"com a API ainda achando que o Jorge Jesus treina o Hilal, o Inzaghi "
+       f"ficou sem bandeira ({motivo!r}). A busca pelo sobrenome da folha "
+       "tinha de achá-lo")
+    ok({"search": "Inzaghi"} in perguntas_feitas,
+       "a segunda pergunta, pelo sobrenome, não foi feita")
+    ok("Jesus" not in (motivo or ""),
+       "o técnico antigo ganhou do nome escrito na folha")
+
+    # Pela busca, sem ligação nenhuma com o clube, só o nome INTEIRO serve —
+    # e só se for um. "Filippo Inzaghi" não é "Simone Inzaghi".
+    async def _af_so_filippo(path, params, ttl=None):
+        if "team" in params:
+            return {"response": []}, None
+        return {"response": [BUSCA_INZAGHI["response"][0]]}, None
+    main._af_get = _af_so_filippo
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))[0] == "",
+       "o Filippo Inzaghi foi aceito como técnico do Hilal só por ter o "
+       "sobrenome. Bandeira errada no técnico é pior que nenhuma")
+
+    # O CADASTRO ATRASADO E A BUSCA SEM NADA: a API diz que o Jorge Jesus
+    # treina o Hilal e não acha nenhum Inzaghi. A folha diz SIMONE INZAGHI.
+    # Dar a bandeira de Portugal aqui é pôr no ar a nacionalidade de outra
+    # pessoa — o palpite "único atual" não vale para nome completo.
+    async def _af_so_jesus(path, params, ttl=None):
+        if "team" in params:
+            return ANTIGO, None
+        return {"response": []}, None
+    main._af_get = _af_so_jesus
+    emo, motivo = asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))
+    ok(emo == "",
+       f"a folha diz SIMONE INZAGHI e a arte saiu com a bandeira de quem a API "
+       f"acha que treina o clube ({motivo!r}). Bandeira errada no técnico é "
+       "pior que nenhuma")
+    # Com UM nome só na folha, o único atual vale — pode ser apelido.
+    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "MISTER"))[0] == "🇵🇹",
+       "folha com um nome só (como BRUNO, THOMAS) e um único técnico atual: "
+       "esse devia ser usado")
+
+    # E O MOTIVO VOLTA quando falha — é o que vai para o log.
+    async def _af_fora(path, params, ttl=None):
+        return None, "API-Football: limite diário atingido"
+    main._af_get = _af_fora
+    emo, motivo = asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))
+    ok(emo == "" and "limite" in motivo,
+       f"a API recusou e o motivo se perdeu ({motivo!r}). Foi a falta dele que "
+       "deixou a bandeira faltando sem ninguém saber por quê")
+finally:
+    main._af_get = _af_guardado
+
+ok('print(f"🎨 arte' in FONTE,
+   "a arte parou de registrar no log o que aconteceu com a bandeira do técnico")
+
+
+# ── CABEÇALHO COM Ě, Ć, Š NÃO PODE DERRUBAR A ARTE ──────────────────────
+# No ar em 23/10/26: "J. STANĚK" no cabeçalho do destaque e erro 500 —
+# cabeçalho HTTP só aceita latin-1. Com o Milinković-Savić ou o Rajković no
+# destaque, a arte simplesmente não saía.
+r15 = _chamar({"texto": "\U0001F1E8\U0001F1FF 36 J. STANĚK\n\U0001F1F7\U0001F1F8 22 S. MILINKOVIĆ-SAVIĆ\n",
+               "clube": "AL HAZEM", "destaque": "S. MILINKOVIĆ-SAVIĆ",
+               "tecnico": "MARINO PUŠIĆ"},
+              elenco={"jogadores": []})
+try:
+    for _k, _v in r15.headers.items():
+        str(_v).encode("latin-1")
+    _cab_ok = True
+except UnicodeEncodeError as _e:
+    _cab_ok = False
+    falhas.append(f"um cabeçalho não é latin-1 ({_e}). No ar isso é erro 500 "
+                  "e a arte não sai — foi o 'STANĚK' de 23/10/26")
+ok(_cab_ok and "MILINKOVIC" in (r15.headers.get("X-Destaque") or "").upper(),
+   f"o destaque perdeu o nome no cabeçalho: {r15.headers.get('X-Destaque')!r}")
+
+
+# ── UMA FUNÇÃO, UM NOME ─────────────────────────────────────────────────
+# Eu escrevi uma segunda `_sem_acento` e ela substituiu a primeira no arquivo
+# inteiro, em silêncio, por um commit. Nome repetido no módulo é isso.
+import collections as _col                                 # noqa: E402
+
+_defs = _col.Counter(n.name for n in ast.parse(FONTE).body
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)))
+_repetidas = sorted(n for n, q in _defs.items() if q > 1)
+ok(not [n for n in _repetidas if n in ("_sem_acento", "_emoji_do_tecnico",
+                                       "_cabecalho", "_nome_da_placa",
+                                       "_linhas_da_escalacao")],
+   f"funções definidas duas vezes no main.py: {_repetidas}. A segunda apaga "
+   "a primeira em todo o arquivo")
+
 
 # Sem a nacionalidade, o aviso aparece — só quando HÁ técnico na folha.
 r14 = _chamar({"texto": TEXTO, "clube": "AL HILAL", "tecnico": "SIMONE INZAGHI"})
