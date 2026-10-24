@@ -122,16 +122,39 @@ ELENCO = {"jogadores": [
     {"numero": 42, "nome": "Kanté", "foto": "https://spl/42.png",
      "pais_bandeira": "\U0001F1E8\U0001F1EE"},
 ]}
-# Como a lista do campinho responde NO AR (conferido em 23/10/26): nomes e
-# escudos da API-Football, e o id do clube lá dentro do endereço do escudo.
-TIMES = {"times": [
-    {"id": 2934, "nome": "Al-Ettifaq",
-     "escudo": "https://media.api-sports.io/football/teams/2934.png"},
-    {"id": 2938, "nome": "Al-Ittihad FC",
-     "escudo": "https://media.api-sports.io/football/teams/2938.png"},
-    {"id": 2932, "nome": "Al-Hilal Saudi FC",
-     "escudo": "https://media.api-sports.io/football/teams/2932.png"},
+# COMO A LISTA DE CLUBES DO CAMPINHO É DE VERDADE: a fonte é a SPL — nome
+# curto da SPL, escudo da SPL (.webp) e id do TRANSFERMARKT.
+#
+# Esta lista já esteve escrita aqui com escudos e ids da API-Football. Era o
+# formato que eu IMAGINEI, a partir de uma resposta que não conferi de onde
+# vinha (24/10/26). O código foi feito para esse formato, o teste usava esse
+# formato, tudo passava — e no ar nenhum técnico saiu com bandeira, porque o
+# id da API-Football nunca estava lá. Dado de teste tem de ser cópia do real.
+TIMES = {"fonte": "spl", "avisos": [], "times": [
+    {"id": 7732, "nome": "Al Ettifaq", "sigla": "ETT",
+     "escudo": "https://media-sdp.spl.com.sa/clubLogos/ab988d0ad28b419b96ab3cf2c49e0f6f.webp"},
+    {"id": 8023, "nome": "Al Ittihad", "sigla": "ITT",
+     "escudo": "https://media-sdp.spl.com.sa/clubLogos/5c55f144687d497da1249c312392bb47.webp"},
+    {"id": 1114, "nome": "Al Hilal", "sigla": "HIL",
+     "escudo": "https://media-sdp.spl.com.sa/clubLogos/ae14a651fb584440979f8c4d02b89428.webp"},
 ]}
+# E a lista de clubes da liga NA API-FOOTBALL, com os nomes de lá — é dela que
+# sai o id para perguntar pelo técnico.
+TEAMS_AF = {"response": [
+    {"team": {"id": 2934, "name": "Al-Ettifaq"}},
+    {"team": {"id": 2938, "name": "Al-Ittihad FC"}},
+    {"team": {"id": 2932, "name": "Al-Hilal Saudi FC"}},
+    {"team": {"id": 2933, "name": "Al-Qadisiyah FC"}},
+]}
+
+
+def _com_times(responde_tecnico):
+    """Stub da API-Football: a lista de clubes de verdade, e o técnico do teste."""
+    async def af(path, params, ttl=None):
+        if path == "teams":
+            return TEAMS_AF, None
+        return await responde_tecnico(path, params, ttl)
+    return af
 
 
 def _chamar(corpo, **stubs):
@@ -158,10 +181,13 @@ def _chamar(corpo, **stubs):
     main.api_elencos_jogadores = elenco
     main.api_elencos_times = times
 
-    async def af(path, params, ttl=None):
-        return stubs.get("af", (None, "sem chave no teste"))
+    async def tecnico(path, params, ttl=None):
+        resposta = stubs.get("af", (None, "sem chave no teste"))
+        if callable(resposta):
+            return await resposta(path, params, ttl)
+        return resposta
 
-    main._af_get = af
+    main._af_get = _com_times(tecnico)
     try:
         return asyncio.run(main.api_elencos_card(PedidoFalso(corpo)))
     finally:
@@ -428,15 +454,14 @@ ok("emoji" not in _linha_apt,
 
 
 # ── O NOME DO CLUBE SAI DA FOLHA OFICIAL ────────────────────────────────
-# Na lista do campinho o Hilal é "Al-Hilal Saudi FC". Se o nome viesse de lá
-# a arte diria "HILAL SAUDI" — e ele aprovou "HILAL".
+# Cada base escreve o clube do seu jeito ("Al-Hilal Saudi FC" na API-Football,
+# "Al Hilal" na SPL). O nome da arte vem da folha, que é a grafia aprovada.
 r12 = _chamar({"texto": TEXTO, "clube": "AL HILAL", "adversario": "AL ITTIHAD"})
 ok(r12.headers.get("X-Clube") == "HILAL",
    f"o nome do clube saiu '{r12.headers.get('X-Clube')}'. A lista do campinho "
-   "chama o Hilal de 'Al-Hilal Saudi FC'; o nome da arte vem da folha")
+   "escreve o clube do seu jeito; o nome da arte vem da folha")
 ok("escudo" not in (r12.headers.get("X-Faltou") or "").replace("escudo-adversario", ""),
-   "o escudo do Hilal não casou com a lista do campinho, que o chama de "
-   "'Al-Hilal Saudi FC'")
+   "o escudo do Hilal não casou com a lista de clubes do campinho")
 
 
 # ── A BANDEIRA DO TÉCNICO (23/10/26) ────────────────────────────────────
@@ -466,7 +491,7 @@ r13 = _chamar({"texto": TEXTO, "clube": "AL HILAL", "adversario": "AL ITTIHAD",
 ok(any(u.endswith("/it.png") for u in pedidos_af),
    f"a bandeira da Itália não foi pedida para o Inzaghi (pedidos: "
    f"{[u for u in pedidos_af if 'flagcdn' in u]}). A nacionalidade vem da "
-   "API-Football pelo id do clube que está no escudo do campinho")
+   "API-Football, pelo id do clube na lista de clubes DELA")
 ok("bandeira-tecnico" not in (r13.headers.get("X-Faltou") or ""),
    "com a bandeira do técnico encontrada, o cabeçalho ainda acusou falta")
 
@@ -479,23 +504,21 @@ async def _af_coachs(path, params, ttl=None):
     return COACHS, None
 _af_guardado = main._af_get
 try:
-    main._af_get = _af_coachs
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))[0] == "🇮🇹",
+    main._af_get = _com_times(_af_coachs)
+    ok(asyncio.run(main._emoji_do_tecnico("AL HILAL", "SIMONE INZAGHI"))[0] == "🇮🇹",
        "o técnico atual do Hilal não saiu com a bandeira da Itália")
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "JORGE JESUS"))[0] == "🇵🇹",
+    ok(asyncio.run(main._emoji_do_tecnico("AL HILAL", "JORGE JESUS"))[0] == "🇵🇹",
        "o técnico escrito na folha perdeu para quem a API diz ser o atual. A "
        "folha oficial é do dia do jogo")
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "ROBERTO"))[0] == "🇮🇹",
+    ok(asyncio.run(main._emoji_do_tecnico("AL HILAL", "ROBERTO"))[0] == "🇮🇹",
        "sem sobrenome que case, o ÚNICO técnico atual do clube devia ser "
        "usado — a folha às vezes traz só um nome, como 'BRUNO' e 'THOMAS'")
-    # Um id que NÃO é da API-Football (a lista caiu na reserva do
-    # Transfermarkt) apontaria para outro time. Não pergunta.
-    ok(asyncio.run(main._emoji_do_tecnico(
-        {"escudo": "https://tmssl.akamaized.net//images/wappen/head/1114.png"},
-        "SIMONE INZAGHI"))[0] == "",
-       "o técnico foi procurado com um id do Transfermarkt na API-Football — "
-       "o número 1114 lá é outro clube, e a bandeira sairia de outro técnico")
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], ""))[0] == "",
+    # Clube que a API-Football não conhece: sem id, sem pergunta, e o motivo
+    # diz o que houve — é ele que vai para o log.
+    emo, motivo = asyncio.run(main._emoji_do_tecnico("CLUBE INVENTADO", "SIMONE INZAGHI"))
+    ok(emo == "" and "lista de clubes da API-Football" in motivo,
+       f"um clube que a API não conhece devolveu {emo!r} / {motivo!r}")
+    ok(asyncio.run(main._emoji_do_tecnico("AL HILAL", ""))[0] == "",
        "sem nome de técnico a função perguntou mesmo assim")
 finally:
     main._af_get = _af_guardado
@@ -533,8 +556,8 @@ async def _af_atrasada(path, params, ttl=None):
 
 _af_guardado = main._af_get
 try:
-    main._af_get = _af_atrasada
-    emo, motivo = asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))
+    main._af_get = _com_times(_af_atrasada)
+    emo, motivo = asyncio.run(main._emoji_do_tecnico("AL HILAL", "SIMONE INZAGHI"))
     ok(emo == "🇮🇹",
        f"com a API ainda achando que o Jorge Jesus treina o Hilal, o Inzaghi "
        f"ficou sem bandeira ({motivo!r}). A busca pelo sobrenome da folha "
@@ -550,8 +573,8 @@ try:
         if "team" in params:
             return {"response": []}, None
         return {"response": [BUSCA_INZAGHI["response"][0]]}, None
-    main._af_get = _af_so_filippo
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))[0] == "",
+    main._af_get = _com_times(_af_so_filippo)
+    ok(asyncio.run(main._emoji_do_tecnico("AL HILAL", "SIMONE INZAGHI"))[0] == "",
        "o Filippo Inzaghi foi aceito como técnico do Hilal só por ter o "
        "sobrenome. Bandeira errada no técnico é pior que nenhuma")
 
@@ -563,22 +586,51 @@ try:
         if "team" in params:
             return ANTIGO, None
         return {"response": []}, None
-    main._af_get = _af_so_jesus
-    emo, motivo = asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))
+    main._af_get = _com_times(_af_so_jesus)
+    emo, motivo = asyncio.run(main._emoji_do_tecnico("AL HILAL", "SIMONE INZAGHI"))
     ok(emo == "",
        f"a folha diz SIMONE INZAGHI e a arte saiu com a bandeira de quem a API "
        f"acha que treina o clube ({motivo!r}). Bandeira errada no técnico é "
        "pior que nenhuma")
     # Com UM nome só na folha, o único atual vale — pode ser apelido.
-    ok(asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "MISTER"))[0] == "🇵🇹",
+    ok(asyncio.run(main._emoji_do_tecnico("AL HILAL", "MISTER"))[0] == "🇵🇹",
        "folha com um nome só (como BRUNO, THOMAS) e um único técnico atual: "
        "esse devia ser usado")
+
+    # A PERGUNTA VAI PARA O CLUBE CERTO. A folha do Hilal pergunta pelo id
+    # do Hilal na API-Football (2932), e não pelo do adversário.
+    perguntas_feitas.clear()
+    _chamar({"texto": TEXTO, "clube": "AL HILAL", "adversario": "AL ITTIHAD",
+             "tecnico": "SIMONE INZAGHI"}, af=_af_atrasada)
+    ok({"team": 2932} in perguntas_feitas and {"team": 2938} not in perguntas_feitas,
+       f"a API foi perguntada sobre {perguntas_feitas}: o técnico do Hilal tem "
+       "de ser procurado no Hilal (2932)")
+
+    # A LIGAÇÃO TAMBÉM PELO NOME DO TIME. Quando o id que a busca devolve não
+    # bate com o da lista de clubes, o nome padronizado decide. Folha com uma
+    # palavra só ("INZAGHI"), sem a regra do nome inteiro para salvar.
+    async def _af_ids_trocados(path, params, ttl=None):
+        if "team" in params:
+            return {"response": []}, None
+        return {"response": [
+            {"name": "F. Inzaghi", "firstname": "Filippo", "lastname": "Inzaghi",
+             "nationality": "Brazil", "team": {"id": 999, "name": "Benevento"},
+             "career": [{"team": {"id": 999, "name": "Benevento"}, "end": None}]},
+            {"name": "S. Inzaghi", "firstname": "Simone", "lastname": "Inzaghi",
+             "nationality": "Italy", "team": {"id": 77777, "name": "Al-Hilal Saudi FC"},
+             "career": [{"team": {"id": 77777, "name": "Al-Hilal Saudi FC"}, "end": None}]},
+        ]}, None
+    main._af_get = _com_times(_af_ids_trocados)
+    emo, motivo = asyncio.run(main._emoji_do_tecnico("AL HILAL", "INZAGHI"))
+    ok(emo == "🇮🇹",
+       f"o técnico do Hilal veio com outro id e o nome do time não foi usado "
+       f"para reconhecer o clube ({emo!r}, {motivo!r})")
 
     # E O MOTIVO VOLTA quando falha — é o que vai para o log.
     async def _af_fora(path, params, ttl=None):
         return None, "API-Football: limite diário atingido"
-    main._af_get = _af_fora
-    emo, motivo = asyncio.run(main._emoji_do_tecnico(TIMES["times"][2], "SIMONE INZAGHI"))
+    main._af_get = _com_times(_af_fora)
+    emo, motivo = asyncio.run(main._emoji_do_tecnico("AL HILAL", "SIMONE INZAGHI"))
     ok(emo == "" and "limite" in motivo,
        f"a API recusou e o motivo se perdeu ({motivo!r}). Foi a falta dele que "
        "deixou a bandeira faltando sem ninguém saber por quê")

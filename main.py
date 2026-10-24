@@ -19656,39 +19656,62 @@ _LINHA_DA_ESCALACAO = re.compile(
     r"^\s*(?P<band>[^0-9]*?)\s*(?P<num>[0-9]{1,3})\s+(?P<nome>.+?)\s*$")
 
 
-_ID_AF_NO_ESCUDO = re.compile(r"api-sports\.io/football/teams/(\d+)\.")
-
-
 # `_sem_acento` NÃO é definida aqui: ela já existe lá em cima, na linha da
 # API-Football de jogadores. Uma segunda com o mesmo nome substituiria a
 # primeira no arquivo inteiro, em silêncio — e ficou assim por um commit.
 
 
-async def _emoji_do_tecnico(clube_campinho: dict, nome: str) -> tuple:
+async def _af_id_do_clube(clube: str) -> tuple:
+    """(id do clube na API-Football, motivo). Pela lista de clubes DELA.
+
+    POR QUE NÃO PELA LISTA DO CAMPINHO (24/10/26)
+        Eu tinha suposto que a lista de clubes do campinho trazia o id da
+        API-Football dentro do endereço do escudo. Não traz: ela vem da SPL,
+        com escudo da SPL e id do Transfermarkt. Eu tinha visto uma resposta
+        com escudos da API-Football, não conferi de onde vinha, e construí em
+        cima. No ar, o id nunca era achado e TODOS os técnicos saíram sem
+        bandeira.
+
+        Então o id sai da própria API-Football — a liga inteira numa
+        consulta, guardada por um dia — e o clube casa pelo nome através do
+        `padronizar_clube`, o mesmo que casa a folha oficial com o resto do
+        app. "Al-Hilal Saudi FC", "Al Khaleej Saihat", "Al Taawon" e os
+        outros nomes de lá caem todos no mesmo nome padrão da folha.
+    """
+    alvo = (glossary.padronizar_clube(clube) or clube or "").strip().lower()
+    if not alvo:
+        return None, "a folha não trouxe o clube"
+    dados, erro = await _af_get("teams", {"league": AF_LEAGUE_SPL,
+                                          "season": _af_temporada_corrente()},
+                                ttl=86400)
+    if erro:
+        return None, f"lista de clubes da API-Football: {erro}"
+    for item in (dados or {}).get("response") or []:
+        time_af = item.get("team") or {}
+        nome_af = time_af.get("name") or ""
+        if (glossary.padronizar_clube(nome_af) or nome_af).strip().lower() == alvo:
+            return time_af.get("id"), ""
+    return None, f"'{clube}' não está na lista de clubes da API-Football"
+
+
+async def _emoji_do_tecnico(clube: str, nome: str) -> tuple:
     """(emoji do país do técnico, motivo). Emoji vazio quando não sei.
 
-    O ID DO CLUBE NA API-FOOTBALL já está na lista de clubes do campinho: é o
-    número dentro do endereço do escudo (…/football/teams/2932.png). Se o
-    endereço não for de lá — a lista caiu para uma reserva —, não pergunto:
-    um id de outra base apontaria para outro time.
+    O ID DO CLUBE na API-Football sai de `_af_id_do_clube` — a lista de
+    clubes da própria API, casada pelo nome da folha.
 
     DUAS PERGUNTAS, NESTA ORDEM (24/10/26)
-        "Os técnicos todos estão vindo sem bandeira."
-        A primeira versão só perguntava "quem treina o clube X?", e o cadastro
-        de técnicos da API-Football para a liga saudita pode estar atrasado:
-        se ela ainda acha que o Inzaghi está na Inter, essa pergunta não traz
-        ele. Então, sem resposta pelo clube, pergunto pelo SOBRENOME da folha
-        e escolho, entre os que voltam, quem tem ligação com o clube.
+        Primeiro "quem treina o clube X?"; se o nome da folha não casar com
+        ninguém, pelo SOBRENOME da folha, escolhendo quem tem ligação com o
+        clube. O cadastro de técnicos pode estar atrasado em relação à troca.
 
     QUEM MANDA É A FOLHA OFICIAL. Entre os que a API devolve, ganha quem tem o
     sobrenome escrito na folha; entre esses, quem está (ou já esteve) no
-    clube. Sem sobrenome que case, só o ÚNICO técnico atual do clube — dois é
-    ambiguidade, e bandeira errada no técnico é pior que nenhuma. Pela busca
-    por nome, sem ligação nenhuma com o clube, só aceito quem casa o nome
-    INTEIRO da folha e é o único a casar.
+    clube. O palpite "único técnico atual" só vale para folha de UM nome
+    (BRUNO, THOMAS). Pela busca, sem ligação com o clube, só o nome INTEIRO e
+    só se for um.
 
-    O MOTIVO VOLTA JUNTO e vai para o log: foi a falta dele que me deixou sem
-    saber, com a bandeira faltando em todas as artes, por que faltava.
+    O MOTIVO VOLTA JUNTO e vai para o log.
 
     Cache de um dia: técnico não muda de país.
     """
@@ -19696,22 +19719,29 @@ async def _emoji_do_tecnico(clube_campinho: dict, nome: str) -> tuple:
     partes = (nome or "").split()
     if not partes:
         return "", "a folha não trouxe o técnico"
-    achado = _ID_AF_NO_ESCUDO.search((clube_campinho or {}).get("escudo") or "")
-    if not achado:
-        return "", "o clube não tem id da API-Football na lista do campinho"
-    af_id = int(achado.group(1))
+    af_id, motivo_clube = await _af_id_do_clube(clube)
+    if not af_id:
+        return "", motivo_clube
+    alvo = (glossary.padronizar_clube(clube) or clube or "").strip().lower()
     sobrenome = _sem_acento(partes[-1])
     nome_todo = set(_sem_acento(" ".join(partes)).split())
 
+    def _e_o_clube(t):
+        """O time é o da folha: pelo id, ou pelo nome padronizado."""
+        t = t or {}
+        if t.get("id") == af_id:
+            return True
+        nm = t.get("name") or ""
+        return bool(nm) and (glossary.padronizar_clube(nm) or nm).strip().lower() == alvo
+
     def _ligacao(c):
         """2 = está no clube agora, 1 = já passou por ele, 0 = nunca."""
-        if (c.get("team") or {}).get("id") == af_id:
+        if _e_o_clube(c.get("team")):
             return 2
         carreira = c.get("career") or []
-        if any((x.get("team") or {}).get("id") == af_id and not x.get("end")
-               for x in carreira):
+        if any(_e_o_clube(x.get("team")) and not x.get("end") for x in carreira):
             return 2
-        if any((x.get("team") or {}).get("id") == af_id for x in carreira):
+        if any(_e_o_clube(x.get("team")) for x in carreira):
             return 1
         return 0
 
@@ -19965,14 +19995,14 @@ async def api_elencos_card(request: Request):
 
     # A BANDEIRA DO TÉCNICO (23/10/26): "não tá vindo o emoji do país do
     # treinador". A folha oficial só traz o nome dele. Quem sabe a
-    # nacionalidade é a API-Football, e o id do clube lá já está na mesma
-    # lista de clubes do campinho — é o número dentro do endereço do escudo.
+    # nacionalidade é a API-Football; o id do clube lá sai da lista de clubes
+    # DELA, casada pelo nome da folha (`_af_id_do_clube`).
     tecnico = (corpo.get("tecnico") or "").strip()
     emoji_tec = corpo.get("bandeira_tecnico") or ""
     motivo_tec = "veio da tela" if emoji_tec else ""
     if tecnico and not emoji_tec:
         try:
-            emoji_tec, motivo_tec = await _emoji_do_tecnico(casa, tecnico)
+            emoji_tec, motivo_tec = await _emoji_do_tecnico(clube, tecnico)
         except Exception as e:
             emoji_tec, motivo_tec = "", f"{type(e).__name__}: {e}"
     iso_tec = escalacao_arte_iso(emoji_tec)
@@ -20000,9 +20030,9 @@ async def api_elencos_card(request: Request):
     foto, escudo, escudo_adv, band_tec = baixados[:4]
     bandeiras = baixados[4:]
 
-    # O nome do clube sai da FOLHA OFICIAL ("AL HILAL", "AL QADSIAH"), e não
-    # da lista do campinho: lá eles se chamam "Al-Hilal Saudi FC" e
-    # "Al-Qadisiyah FC", que viraria "HILAL SAUDI" e "QADISIYAH" na arte.
+    # O nome do clube sai da FOLHA OFICIAL ("AL HILAL", "AL QADSIAH"), que é
+    # a grafia que ele aprovou na arte. Nenhuma lista de clubes de outra base
+    # entra aqui: cada uma escreve o clube do seu jeito.
     curto = _nome_curto_de_clube(clube)
     png = escalacao_card.montar({
         "clube": curto,
