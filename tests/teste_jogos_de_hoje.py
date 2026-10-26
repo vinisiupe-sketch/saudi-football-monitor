@@ -58,6 +58,12 @@ def _importar_main():
                  "starlette.middleware", "starlette.middleware.base",
                  "starlette.responses", "starlette.requests", "lxml"):
         sys.modules.setdefault(nome, _Dublê(nome))
+    # Os decoradores de rota devolvem a PRÓPRIA função: este arquivo chama a
+    # rota de verdade (26/10/26), e um decorador falso a trocaria por um dublê.
+    app = sys.modules["fastapi"].FastAPI.return_value
+    for metodo in ("get", "post", "put", "patch", "delete", "middleware",
+                   "on_event", "exception_handler", "websocket"):
+        getattr(app, metodo).side_effect = lambda *a, **k: (lambda f: f)
     sys.modules.pop("main", None)
     import main
     return main
@@ -71,27 +77,93 @@ def testar():
        "/api/diag/ saiu de LIVRES — a rota jogos-de-hoje ficaria atrás de "
        "login, e a tarefa agendada não tem sessão de navegador nenhuma")
 
-    # ── a conversão de hora local (Arábia) pra UTC ──────────────────────
-    # 21:00 na Arábia (UTC+3) é 18:00 em UTC, no MESMO dia.
-    ok(main._pontape_utc_de_local("2026-09-01T21:00:00") == "2026-09-01T18:00:00Z",
-       "pontapé às 21h local da Arábia deveria virar 18h UTC do mesmo dia")
-    # Perto da virada: 01:00 local (Arábia) é 22:00 UTC do dia ANTERIOR —
-    # o dia muda na conta, não só a hora. Se alguém trocar o sinal (somar em
-    # vez de subtrair 3h), o dia sai errado pro lado contrário.
-    ok(main._pontape_utc_de_local("2026-09-02T01:00:00") == "2026-09-01T22:00:00Z",
-       "pontapé à 01h local da Arábia deveria virar 22h UTC do dia ANTERIOR "
-       "— a data muda, não só a hora; um sinal trocado (+3h em vez de -3h) "
-       "não pega esse caso")
-    ok(main._pontape_utc_de_local("") == "",
-       "sem matchDateLocal, tem que devolver vazio — nunca inventar horário")
-    ok(main._pontape_utc_de_local("data quebrada") == "",
-       "matchDateLocal ilegível tem que devolver vazio, não estourar erro")
-    print("  _pontape_utc_de_local: Arábia (UTC+3) -> UTC, com troca de dia na virada")
+    # ── O HORÁRIO DO JOGO É O DO matchDateUtc (26/10/26) ───────────────
+    #
+    # Este teste dizia que o matchDateLocal da liga vem na hora da Arábia e
+    # conferia que a rota tirava 3 horas dele. O log do monitor desmentiu:
+    # em 24/10 ele foi buscar a escalação de NEOM x Abha às 09:45 UTC, para
+    # um jogo das 14:00 UTC — o "local" já vinha com o relógio do UTC, e as
+    # 3 horas tiradas jogaram o jogo para as 11:00. As escalações pararam de
+    # chegar. O registro abaixo é o desse jogo, como a liga o publicou.
+    neom_abha = {"matchDateUtc": "2026-10-24T14:00:00Z",
+                 "matchDateLocal": "2026-10-24T14:00:00",
+                 "home": {"shortName": "NEOM SC"}, "away": {"shortName": "Abha"}}
+    quando, dia = main._pontape_e_dia_na_arabia(neom_abha)
+    ok(quando is not None and quando.strftime("%Y-%m-%dT%H:%M:%SZ") == "2026-10-24T14:00:00Z",
+       f"NEOM x Abha saiu às {quando} e era às 14:00 UTC. Três horas a menos "
+       "foi o que fez o monitor buscar a escalação antes de ela existir")
+    ok(dia == "2026-10-24", f"o dia na Arábia saiu {dia!r}")
+
+    # A VIRADA DO DIA: 21:30 UTC já é 00:30 do dia seguinte na Arábia. É a
+    # data da Arábia que o Media Hub usa para filtrar os PDFs.
+    tarde = {"matchDateUtc": "2026-10-26T21:30:00Z",
+             "matchDateLocal": "2026-10-26T21:30:00"}
+    ok(main._pontape_e_dia_na_arabia(tarde)[1] == "2026-10-27",
+       "um jogo às 21:30 UTC ficou no dia errado; na Arábia já é o dia seguinte")
+
+    # Sem UTC, o local entra COM o fuso da Arábia carimbado (é o que ele
+    # significa quando vem sozinho) — a mesma regra do card de Escalações.
+    so_local = {"matchDateLocal": "2026-10-24T17:00:00"}
+    ok(main._pontape_e_dia_na_arabia(so_local)[0].strftime("%H:%M") == "14:00",
+       "sem matchDateUtc, o local não foi lido como hora da Arábia")
+    ok(main._pontape_e_dia_na_arabia({}) == (None, ""),
+       "sem data nenhuma, a função inventou um horário")
+    ok(main._pontape_e_dia_na_arabia({"matchDateUtc": "lixo"}) == (None, ""),
+       "com data ilegível, a função inventou um horário em vez de desistir")
+
+    # ── A ROTA INTEIRA, COMO O MONITOR A CONSULTA ───────────────────────
+    import liga_spl
+    from datetime import datetime as _dt, timezone as _tz
+    guard = (liga_spl.temporada, liga_spl.jogos_da_temporada, main.datetime)
+
+    class _Agora(_dt):
+        @classmethod
+        def now(cls, tz=None):
+            return _dt(2026, 10, 24, 9, 0, tzinfo=_tz.utc)
+
+    try:
+        liga_spl.temporada = lambda dia, cli: 99
+        liga_spl.jogos_da_temporada = lambda sid, cli: [
+            neom_abha,
+            # O jogo de ONTEM na Arábia não pode entrar na agenda de hoje.
+            {"matchDateUtc": "2026-10-23T18:00:00Z", "matchDateLocal": "2026-10-23T18:00:00",
+             "home": {"shortName": "Al Qadsiah"}, "away": {"shortName": "Al Hilal"}}]
+        main.datetime = _Agora
+        import asyncio
+        agenda = asyncio.run(main.diag_jogos_de_hoje())
+    finally:
+        liga_spl.temporada, liga_spl.jogos_da_temporada, main.datetime = guard
+    jogos = (agenda or {}).get("jogos") or []
+    ok(len(jogos) == 1 and jogos[0]["casa"] == "NEOM SC",
+       f"a agenda de 24/10 saiu com {[(j.get('casa'), j.get('fora')) for j in jogos]}")
+    ok(jogos and jogos[0]["pontape_utc"] == "2026-10-24T14:00:00Z",
+       f"a agenda que o monitor lê diz {jogos[0].get('pontape_utc') if jogos else '-'} "
+       "para NEOM x Abha; o jogo era às 14:00 UTC. É esse número que decide a "
+       "hora dos pontos de checagem")
+    ok(jogos and jogos[0]["pontape_local_arabia"] == "2026-10-24T17:00:00",
+       "o horário da Arábia na agenda não é o UTC mais 3 horas")
+
+    # E A CONTA ERRADA NÃO VOLTA: nenhuma parte do app tira 3 horas do
+    # matchDateLocal por conta própria.
+    fonte = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()
+    ok("def _pontape_utc_de_local" not in fonte,
+       "a conta que tirava 3 horas do matchDateLocal voltou ao main.py")
+    # Os três lugares que fazem conta de HORÁRIO com o jogo da liga — a
+    # agenda do monitor, o coletor que mede a escalação da liga e o
+    # diagnóstico — passam pela mesma função. (Comparar só a DATA pelo
+    # matchDateLocal, como outras partes fazem, só erra em jogo depois das
+    # 21h UTC, que esta liga praticamente não tem.)
+    for marco in ('async def diag_jogos_de_hoje', 'escala_do_jogo(sid, j.get("matchId"), cli)'):
+        i = fonte.find(marco)
+        ok(i > 0 and "_pontape_e_dia_na_arabia(j)" in fonte[max(0, i - 2500):i + 2500],
+           f"perto de '{marco[:40]}' a conta do horário do jogo não passa mais "
+           "pela função única — é por esse caminho que as 3 horas voltam")
+    print("  horário do jogo: matchDateUtc, e o dia pela Arábia")
 
     for f in falhas:
         print("  ✗", f)
     print(f"\nFALHAS: {len(falhas)}" if falhas else
-          "  ✓ jogos-de-hoje: rota livre de login, conversão de fuso Arábia->UTC certa")
+          "  ✓ jogos-de-hoje: rota livre de login, pontapé pelo matchDateUtc")
     return len(falhas)
 
 

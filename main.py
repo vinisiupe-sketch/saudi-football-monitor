@@ -10578,14 +10578,8 @@ async def coletar_escalacoes() -> dict:
         with httpx.Client(timeout=20.0, follow_redirects=True) as cli:
             sid = _liga.temporada(hoje_arabia, cli)
             for j in (_liga.jogos_da_temporada(sid, cli) if sid else []):
-                local = j.get("matchDateLocal") or ""
-                if local[:10] != hoje_arabia:
-                    continue
-                bruto = _pontape_utc_de_local(local)
-                try:
-                    quando = datetime.strptime(
-                        bruto, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-                except Exception:
+                quando, dia = _pontape_e_dia_na_arabia(j)
+                if quando is None or dia != hoje_arabia:
                     continue
                 if not na_janela(quando):
                     continue
@@ -24351,6 +24345,28 @@ def _instante_do_jogo(j: dict):
     return quando
 
 
+def _pontape_e_dia_na_arabia(j: dict) -> tuple:
+    """(pontapé em UTC, data do jogo na Arábia 'AAAA-MM-DD'), ou (None, "").
+
+    UMA CONTA SÓ PARA O HORÁRIO DO JOGO (26/10/26). Havia duas no app: o card
+    da guia de Escalações usava `_instante_do_jogo` (o `matchDateUtc` da
+    liga) e acertava; a agenda do monitor do Media Hub tirava 3 horas do
+    `matchDateLocal`, supondo que ele viesse na hora da Arábia. Ele vem com o
+    MESMO relógio do UTC — e o monitor foi buscar a escalação de NEOM x Abha
+    às 09:45 UTC, para um jogo das 14:00. Com a janela larga antiga (100 min
+    antes, 4 h depois) o erro passava despercebido; com os pontos de
+    checagem, as escalações pararam de chegar.
+
+    A data "de hoje" também sai do instante certo: um jogo às 21:30 UTC já é
+    o dia seguinte na Arábia.
+    """
+    quando = _instante_do_jogo(j)
+    if quando is None:
+        return None, ""
+    quando = quando.astimezone(timezone.utc)
+    return quando, (quando + timedelta(hours=3)).strftime("%Y-%m-%d")
+
+
 def _nome_da_rodada(j: dict) -> str:
     bloco = j.get("matchSet") or {}
     return (bloco.get("shortName") or bloco.get("name")
@@ -25728,14 +25744,14 @@ async def diag_jogos_de_hoje():
 
     jogos = []
     for j in todos:
-        local = j.get("matchDateLocal") or ""
-        if local[:10] != hoje_arabia:
+        quando, dia = _pontape_e_dia_na_arabia(j)
+        if quando is None or dia != hoje_arabia:
             continue
         jogos.append({
             "casa": (j.get("home") or {}).get("shortName") or "",
             "fora": (j.get("away") or {}).get("shortName") or "",
-            "pontape_local_arabia": local,
-            "pontape_utc": _pontape_utc_de_local(local),
+            "pontape_local_arabia": (quando + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%S"),
+            "pontape_utc": quando.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "rodada": _nome_da_rodada(j),
         })
     return {"data_arabia": hoje_arabia, "jogos": jogos}
@@ -26005,7 +26021,7 @@ async def diag_escalacao_oficial():
                     linhas + ["  temporada não encontrada"]))
             todos = liga_spl.jogos_da_temporada(sid, cli)
             hoje = [j for j in todos
-                    if (j.get("matchDateLocal") or "")[:10] == hoje_arabia]
+                    if _pontape_e_dia_na_arabia(j)[1] == hoje_arabia]
             if not hoje:
                 return PlainTextResponse("\n".join(
                     linhas + ["  sem jogo hoje — rode num dia de partida, "
@@ -26013,11 +26029,9 @@ async def diag_escalacao_oficial():
             for j in hoje:
                 casa = (j.get("home") or {}).get("shortName") or "?"
                 fora = (j.get("away") or {}).get("shortName") or "?"
-                utc = _pontape_utc_de_local(j.get("matchDateLocal") or "")
+                pontape = _pontape_e_dia_na_arabia(j)[0]
                 falta = ""
                 try:
-                    pontape = datetime.strptime(utc, "%Y-%m-%dT%H:%M:%SZ").replace(
-                        tzinfo=timezone.utc)
                     minutos = (pontape - agora).total_seconds() / 60
                     falta = (f"faltam {minutos:.0f} min" if minutos >= 0
                              else f"começou há {-minutos:.0f} min")
@@ -26051,15 +26065,10 @@ async def diag_escalacao_oficial():
     return PlainTextResponse("\n".join(linhas))
 
 
-def _pontape_utc_de_local(local: str) -> str:
-    """matchDateLocal da API da liga vem sem fuso, já na hora da Arábia
-    Saudita (UTC+3) — três horas pra trás dá o instante em UTC. Devolve ""
-    para o que não é uma data válida, em vez de chutar um horário errado."""
-    try:
-        ingenuo = datetime.fromisoformat((local or "").replace("Z", ""))
-    except ValueError:
-        return ""
-    return (ingenuo - timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M:%SZ")
+# `_pontape_utc_de_local` SAIU (26/10/26): ela tirava 3 horas do
+# `matchDateLocal` da liga, que já vem com o relógio do UTC, e pôs o monitor
+# do Media Hub para buscar as escalações três horas antes da hora. A conta
+# certa é `_pontape_e_dia_na_arabia`.
 
 
 @app.get("/api/diag/coletor", response_class=PlainTextResponse)

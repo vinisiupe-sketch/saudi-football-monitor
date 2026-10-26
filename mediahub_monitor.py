@@ -531,12 +531,19 @@ class Monitor:
                                self.pontos, self.tolerancia)]
         if not ativos:
             faltam = len(pendentes)
-            await self.status(
-                cli, "aguardando",
-                f"Fora dos pontos de checagem; {faltam} jogo(s) pendente(s). "
-                f"Próxima consulta em {round(espera / 60)} min, sem navegador aberto."
-                if faltam else
-                "Todas as escalações de hoje já chegaram; nada a consultar.")
+            # "Todas chegaram" só quando HOUVE jogo. Sem jogo nenhum no dia a
+            # frase dizia o mesmo, e foi ela que estava no log em 26/10 —
+            # parecendo sucesso — enquanto as escalações não chegavam.
+            if not inicios:
+                mensagem = "Nenhum jogo da liga hoje; nada a consultar."
+            elif faltam:
+                mensagem = (f"Fora dos pontos de checagem; {faltam} jogo(s) "
+                            f"pendente(s), o próximo às "
+                            f"{min(pendentes).strftime('%H:%M')} UTC. Sem "
+                            f"navegador aberto.")
+            else:
+                mensagem = "Todas as escalações de hoje já chegaram; nada a consultar."
+            await self.status(cli, "aguardando", mensagem)
             if self.browser:
                 await self.browser.close()
                 self.browser = self.context = self.page = None
