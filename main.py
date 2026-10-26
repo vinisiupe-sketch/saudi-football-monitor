@@ -12729,6 +12729,8 @@ const PASSO = __PASSO_AJUSTE__;   // quanto os botões movem a janela
 // 2 — emoji, árabe, e o "𝑮𝑶𝑶…𝑳", que é feito de símbolos matemáticos. Um texto
 // de 200 símbolos pode passar de 280 no X. Contar aqui igual ao servidor
 // evita descobrir isso só na hora de publicar, com o jogo andando.
+// O limite vem do servidor (x_client.LIMITE_X), o mesmo que o envio usa.
+const LIMITE_X = __LIMITE_X__;
 function pesoX(t) {
   let n = 0;
   for (const ch of String(t || '')) {
@@ -13306,8 +13308,8 @@ function montar(c, assin) {
   }
   function atualizaConta() {
     const n = pesoX(t.value);
-    conta.textContent = n + ' / 280';
-    conta.classList.toggle('demais', n > 280);
+    conta.textContent = n + ' / ' + LIMITE_X;
+    conta.classList.toggle('demais', n > LIMITE_X);
     encaixar();
   }
   t.oninput = atualizaConta;
@@ -13668,7 +13670,7 @@ async function publicar(id, caixa, botao) {
   const texto = (caixa.value || '').trim();
   if (!texto) { alert('escreva a legenda antes'); return; }
   const peso = pesoX(texto);
-  if (peso > 280) { alert('o texto ocupa ' + peso + ' dos 280 caracteres do X '
+  if (peso > LIMITE_X) { alert('o texto ocupa ' + peso + ' dos ' + LIMITE_X + ' caracteres do X '
     + '(o \u{1D46E}\u{1D476}\u{1D476}\u2026\u{1D473} e os emoji contam dois cada)'); return; }
   if (!confirm('Publicar no X?\n\n' + texto)) return;
   botao.disabled = true;
@@ -15152,6 +15154,12 @@ def _log_de_entrada(limite: int = 40) -> list:
                 # já está escrita na legenda.
                 item_post["lados"] = _lados_do_post(p)
                 item_post["onde"] = "/escalacao-pdf"
+            elif p.get("tipo") == "agenda":
+                # A arte da agenda, para conferir antes do ✓. Para trocar a
+                # foto ou atualizar um canal, é gerar de novo pelo botão.
+                item_post["artes"] = [r for r in (p.get("imagens") or [])
+                                      if r.startswith("arte:")]
+                item_post["onde"] = "/"
             else:
                 item_post["canais"] = (marcados.get(fid) or []) if fid is not None else []
                 item_post["canais_possiveis"] = pg.TRANSMISSOES
@@ -15250,7 +15258,7 @@ async def api_aprovacao_decidir(tipo: str, item_id: int, decisao: str = ""):
     # é para sair assim que ele decide: "postar direto já no twitter".
     if decisao == "sim":
         item = obter_post(item_id) or {}
-        if item.get("tipo") == "escalacao":
+        if item.get("tipo") in ("escalacao", "agenda"):
             r = await _publicar_post_agora(item_id)
             if r.get("erro"):
                 return JSONResponse({"erro": r["erro"]}, 409)
@@ -15262,6 +15270,20 @@ async def api_aprovacao_decidir(tipo: str, item_id: int, decisao: str = ""):
 
 
 _HOME_CSS = """
+.agenda-gerar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0 4px;
+  padding:10px 12px;border:1px solid var(--c-border);border-radius:12px}
+.agenda-rot{font-weight:700;font-size:.85rem;margin-right:4px}
+.agenda-gerar input[type=date]{background:transparent;color:var(--c-text);
+  border:1px solid var(--c-border);border-radius:8px;padding:5px 8px;font-size:.8rem}
+.agenda-foto{font-size:.78rem;border:1px solid var(--c-border);border-radius:8px;
+  padding:5px 10px;cursor:pointer}
+.agenda-foto.tem{border-color:#01f468;color:#01f468}
+.agenda-foto input{display:none}
+#agendaBotao{background:#01f468;color:#000;border:0;border-radius:8px;padding:7px 14px;
+  font-weight:700;font-size:.8rem;cursor:pointer}
+#agendaBotao:disabled{opacity:.5;cursor:default}
+.agenda-msg{flex-basis:100%;font-size:.74rem;color:var(--c-muted-3);line-height:1.5}
+.agenda-msg.erro{color:#FD5D5D}
 .artes{display:flex;gap:10px;margin:10px 0 12px;flex-wrap:wrap}
 .arte{flex:1 1 140px;max-width:220px;display:flex;flex-direction:column;gap:6px}
 .arte img{width:100%;border-radius:8px;cursor:zoom-in;border:1px solid var(--c-border);
@@ -15355,6 +15377,13 @@ __HDR__
     <small id="resumo">carregando...</small>
   </h1>
   <div class="numeros" id="numeros"></div>
+  <div class="agenda-gerar">
+    <span class="agenda-rot">🗓️ Agenda do dia</span>
+    <input type="date" id="agendaData">
+    <label class="agenda-foto">📷 foto<input type="file" id="agendaFoto" accept="image/*"></label>
+    <button id="agendaBotao">Gerar agenda</button>
+    <div class="agenda-msg" id="agendaMsg"></div>
+  </div>
   <div class="titulo-secao">
     <h2>Esperando voce</h2>
     <a href="/noticias">ver noticias</a>
@@ -15531,6 +15560,24 @@ function detalhe(i) {
     box.appendChild(p);
   }
 
+  // Post da AGENDA: a arte, para conferir antes do ✓. Clique abre grande.
+  if (i.tipo_post === 'agenda' && Array.isArray(i.artes) && i.artes.length) {
+    const galeria = document.createElement('div');
+    galeria.className = 'artes';
+    i.artes.forEach(function (ref) {
+      const c = document.createElement('div');
+      c.className = 'arte';
+      const img = document.createElement('img');
+      img.src = '/api/posts/imagem?p=' + encodeURIComponent(ref) + '&v=' + Date.now();
+      img.alt = 'agenda';
+      img.title = 'abrir em tamanho real';
+      img.onclick = function () { window.open(img.src, '_blank', 'noopener'); };
+      c.appendChild(img);
+      galeria.appendChild(c);
+    });
+    box.appendChild(galeria);
+  }
+
   // Post de ESCALACAO: as duas artes que vao junto, cada uma com o seletor
   // de quem aparece na foto. Trocar refaz so aquela arte, no servidor, e a
   // previa aqui embaixo ja mostra a nova. Clique na arte abre em tamanho real.
@@ -15652,13 +15699,14 @@ function botao(i, decisao, rotulo) {
   const b = document.createElement('button');
   b.className = 'dec ' + decisao;
   b.textContent = rotulo;
-  const publicaJa = decisao === 'sim' && i.tipo_post === 'escalacao';
+  const publicaJa = decisao === 'sim' && (i.tipo_post === 'escalacao' || i.tipo_post === 'agenda');
   b.title = publicaJa ? 'publicar agora no X'
           : (decisao === 'sim' ? 'aprovar' : 'recusar');
   b.onclick = async function () {
     // O ✓ do post de escalação PUBLICA na hora, com as duas artes. É ação
     // pública e sem volta: confirma antes, como qualquer envio.
-    if (publicaJa && !confirm('Publicar agora no X, com as duas artes?')) return;
+    if (publicaJa && !confirm(i.tipo_post === 'agenda' ? 'Publicar a agenda agora no X?'
+                              : 'Publicar agora no X, com as duas artes?')) return;
     b.disabled = true;
     try {
       const r = await fetch('/api/aprovacao/' + i.tipo + '/' + i.id
@@ -15673,6 +15721,45 @@ function botao(i, decisao, rotulo) {
   };
   return b;
 }
+
+// ── A AGENDA DO DIA ──────────────────────────────────────────────────────
+// A data começa em hoje (Brasília, que é o relógio de quem usa a tela). A
+// foto é opcional: sem ela, a agenda refeita no mesmo dia mantém a que já
+// tinha sido enviada, e a primeira do dia usa a padrão.
+(function () {
+  const dataEl = document.getElementById('agendaData');
+  const fotoEl = document.getElementById('agendaFoto');
+  const botao = document.getElementById('agendaBotao');
+  const msg = document.getElementById('agendaMsg');
+  if (!dataEl || !botao) return;
+  const hoje = new Date();
+  dataEl.value = new Date(hoje.getTime() - hoje.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 10);
+  fotoEl.onchange = function () {
+    fotoEl.parentElement.classList.toggle('tem', !!(fotoEl.files && fotoEl.files.length));
+    fotoEl.parentElement.firstChild.textContent =
+      (fotoEl.files && fotoEl.files.length) ? '📷 ' + fotoEl.files[0].name.slice(0, 18) : '📷 foto';
+  };
+  botao.onclick = async function () {
+    botao.disabled = true; msg.className = 'agenda-msg'; msg.textContent = 'montando a agenda...';
+    const fd = new FormData();
+    fd.append('data', dataEl.value);
+    if (fotoEl.files && fotoEl.files.length) fd.append('foto', fotoEl.files[0]);
+    try {
+      const r = await fetch('/api/agenda/gerar', {method: 'POST', body: fd});
+      const j = await r.json();
+      if (!r.ok || j.erro) throw new Error(j.erro || ('HTTP ' + r.status));
+      msg.textContent = '✅ agenda com ' + j.jogos + ' jogo(s) — ' +
+        (j.post === 'atualizado' ? 'post atualizado' : 'post na lista abaixo') +
+        ((j.avisos || []).length ? ' · ⚠️ ' + j.avisos.join(' · ') : '');
+      carregar();
+    } catch (e) {
+      msg.className = 'agenda-msg erro';
+      msg.textContent = 'não deu: ' + (e.message || e);
+    }
+    botao.disabled = false;
+  };
+})();
 
 carregar();
 setInterval(carregar, 60000);
@@ -15963,6 +16050,7 @@ async def clipes_page():
         # aqui, um dia mudaria um e não o outro, e o botão diria uma coisa
         # enquanto o corte fazia outra.
         .replace("__PASSO_AJUSTE__", str(ajuste("clipe_passo_ajuste")))
+        .replace("__LIMITE_X__", str(x_client.LIMITE_X))
         .replace("__HDR__", _header("/clipes"))
     )
 
@@ -17600,6 +17688,8 @@ function cartao(p){
 // 2 — emoji, árabe, e o "𝑮𝑶𝑶…𝑳", que é feito de símbolos matemáticos. Um texto
 // de 200 símbolos pode passar de 280 no X. Contar aqui igual ao servidor
 // evita descobrir isso só na hora de publicar, com o jogo andando.
+// O limite vem do servidor (x_client.LIMITE_X), o mesmo que o envio usa.
+const LIMITE_X = __LIMITE_X__;
 function pesoX(t) {
   let n = 0;
   for (const ch of String(t || '')) {
@@ -17616,8 +17706,8 @@ function contarTexto(id){
   const c = document.getElementById('c' + id);
   const link = /https?:\\/\\/|www\\./i.test(t);
   const peso = pesoX(t);
-  c.textContent = peso + '/280' + (link ? ' · ATENÇÃO: tem link, custa 13x mais e será recusado' : '');
-  c.style.color = (peso > 280 || link) ? '#FD5D5D' : '';
+  c.textContent = peso + '/' + LIMITE_X + (link ? ' · ATENÇÃO: tem link, custa 13x mais e será recusado' : '');
+  c.style.color = (peso > LIMITE_X || link) ? '#FD5D5D' : '';
 }
 
 // Manda para o servidor o que está na caixa de texto AGORA.
@@ -17874,6 +17964,7 @@ carregarAgenda().then(carregar);
 async def posts_page():
     return HTMLResponse(
         _POSTS_HTML
+        .replace("__LIMITE_X__", str(x_client.LIMITE_X))
         .replace("__HEADER_CSS__", _HEADER_CSS)
         .replace("__THEME__", _HEAD_COMUM)
         .replace("__HDR__", _header("/posts"))
@@ -18363,8 +18454,11 @@ async def api_posts_texto(post_id: int, request: Request):
     texto = (corpo.get("texto") or "").strip()
     if not texto:
         return {"erro": "texto vazio"}
-    if len(texto) > 280:
-        return {"erro": f"texto com {len(texto)} caracteres; o limite do X é 280"}
+    # Pelo PESO do X (emoji vale 2) e pelo limite da conta, os mesmos que o
+    # envio usa — aqui dizia `len(texto) > 280`, outra conta e outro limite.
+    peso = x_client.peso_no_x(texto)
+    if peso > x_client.LIMITE_X:
+        return {"erro": f"texto ocupa {peso} dos {x_client.LIMITE_X} caracteres do X"}
     if x_client.texto_tem_link(texto):
         return {"erro": "o texto tem link, que custa 13x mais no X. Remova antes de salvar."}
     return {"ok": atualizar_texto_post(post_id, texto)}
@@ -20707,6 +20801,239 @@ async def api_posts_destaque(post_id: int, request: Request):
     if not salvar_post_arte(ref[5:], png, dados):
         return JSONResponse({"erro": "não consegui guardar a arte nova"}, status_code=500)
     return {"ok": True, "destaque": cab.get("X-Destaque"), "faltou": cab.get("X-Faltou")}
+
+
+# ── A AGENDA DO DIA (26/10/26) ─────────────────────────────────────────────
+#
+#   "Conseguiríamos reproduzir isso aqui? Cria um botão de gerar agenda do
+#    dia?"
+#
+# Decidido com ele: a foto de fundo ele sobe na hora (sem foto, a padrão);
+# entram as competições do Bola Rolando, cada linha com o logo da sua; e a
+# agenda vira post na home, como o de escalação, com o ✓ publicando na hora.
+#
+# Os jogos são os do Bola Rolando (API-Football, por competição e data, no
+# horário de Brasília). Os canais são os que ele marca nos posts — a mesma
+# tabela. Os escudos, os da lista de clubes do campinho; clube de fora da
+# liga (adversário da AFC) cai no escudo da API-Football.
+
+_DIAS_DA_SEMANA = ("SEGUNDA", "TERÇA", "QUARTA", "QUINTA", "SEXTA", "SÁBADO",
+                   "DOMINGO")
+_STATUS_FORA_DA_AGENDA = {"PST", "CANC", "ABD", "AWD", "WO"}
+
+
+def _rotulo_da_data(dia) -> str:
+    """'23/10 - SEXTA'."""
+    return f"{dia:%d/%m} - {_DIAS_DA_SEMANA[dia.weekday()]}"
+
+
+def _hora_curta(quando) -> str:
+    """'10h30' ou '15h', em Brasília — o jeito da legenda."""
+    local = quando.astimezone(BRT)
+    return f"{local.hour}h" + (f"{local.minute:02d}" if local.minute else "")
+
+
+async def _jogos_da_agenda(dia) -> tuple:
+    """([jogos do dia em Brasília, em ordem de horário], avisos)."""
+    import posts_gerador as pg
+    inicio = _af_temporada_corrente()
+    jogos, avisos = [], []
+    for liga_id, nome_comp in pg.COMPETICOES.items():
+        try:
+            season = await _season_da_liga(liga_id, inicio)
+        except Exception as e:
+            avisos.append(f"{nome_comp}: {e}")
+            continue
+        dados, erro = await _af_get("fixtures", {
+            "league": liga_id, "season": season, "date": dia.isoformat(),
+            "timezone": "America/Sao_Paulo"}, ttl=900)
+        if erro:
+            avisos.append(f"{nome_comp}: {erro}")
+            continue
+        for f in (dados or {}).get("response") or []:
+            fx, times = f.get("fixture") or {}, f.get("teams") or {}
+            if ((fx.get("status") or {}).get("short") or "") in _STATUS_FORA_DA_AGENDA:
+                continue
+            try:
+                quando = datetime.fromisoformat(fx.get("date") or "")
+            except ValueError:
+                continue
+            if quando.tzinfo is None or quando.astimezone(BRT).date() != dia:
+                continue
+            jogos.append({"fixture": fx.get("id"), "liga": liga_id,
+                          "competicao": nome_comp, "quando": quando,
+                          "casa": times.get("home") or {},
+                          "fora": times.get("away") or {}})
+    jogos.sort(key=lambda j: (j["quando"], j["liga"]))
+    return jogos, avisos
+
+
+def _legenda_da_agenda(dia, jogos: list, canais: dict) -> str:
+    """O texto do post da agenda: um bloco por jogo, horário e transmissão."""
+    blocos = [f"🗓️ AGENDA | {dia:%d/%m}, {_DIAS_DA_SEMANA[dia.weekday()].lower()}"]
+    for j in jogos:
+        confronto = (f"{j.get('nome_casa') or _time_curto(j['casa'].get('name') or '')} x "
+                     f"{j.get('nome_fora') or _time_curto(j['fora'].get('name') or '')}")
+        if j["liga"] != 307:
+            confronto += f" ({j['competicao']})"
+        marcados = canais.get(j["fixture"]) if j["fixture"] in canais else None
+        if marcados is None:
+            linha_tv = "🖥️ Transmissão a confirmar"
+        elif not marcados:
+            linha_tv = "❌ Sem transmissão"
+        else:
+            linha_tv = "🖥️ " + _lista_em_portugues(
+                [_CANAL_NA_LEGENDA.get(c, c) for c in marcados])
+        blocos.append(f"⏰ {_hora_curta(j['quando'])} | {confronto}\n{linha_tv}")
+    return "\n\n".join(blocos)
+
+
+async def _montar_agenda(dia, foto: bytes | None = None) -> dict:
+    """{"png", "texto", "primeiro", "jogos", "avisos"} da agenda do dia."""
+    import asyncio
+    import agenda_arte
+    import glossario
+    jogos, avisos = await _jogos_da_agenda(dia)
+    if not jogos:
+        raise ValueError(f"nenhum jogo em {dia:%d/%m}" +
+                         (f" ({'; '.join(avisos)})" if avisos else ""))
+    try:
+        canais = transmissoes([j["fixture"] for j in jogos if j["fixture"]]) or {}
+    except Exception:
+        canais = {}
+
+    # O escudo da lista do campinho, a mesma dos chips de filtro; quem não
+    # está nela (adversário da AFC) fica com o da API-Football.
+    try:
+        lista = await api_elencos_times()
+    except Exception:
+        lista = {}
+    times_campinho = lista.get("times") or []
+    por_tm = {str(t.get("id")): t.get("escudo") for t in times_campinho if t.get("id")}
+    por_nome = {(glossary.padronizar_clube(t.get("nome") or "") or t.get("nome") or "").lower():
+                t.get("escudo") for t in times_campinho}
+
+    def _clube(time_af):
+        """(nome curto, escudo): o clube pelo glossário (id da API-Football →
+        DIM_CLUBE → id do Transfermarkt, que é o id da lista do campinho).
+        Nome casado com nome só quando o glossário ainda não conhece o clube."""
+        nome = time_af.get("name") or ""
+        try:
+            g = glossario.clube(af_id=time_af.get("id"), nome=nome) or {}
+        except Exception:
+            g = {}
+        escudo = (por_tm.get(str(g.get("tm_id") or ""))
+                  or por_nome.get((glossary.padronizar_clube(nome) or nome).lower())
+                  or g.get("escudo") or time_af.get("logo") or "")
+        return (g.get("nome_curto") or _time_curto(nome)), escudo
+
+    for j in jogos:
+        j["nome_casa"], j["escudo_casa"] = _clube(j["casa"])
+        j["nome_fora"], j["escudo_fora"] = _clube(j["fora"])
+
+    async with httpx.AsyncClient(follow_redirects=True) as client:
+        baixados = await asyncio.gather(*[
+            _baixar(client, j[f"escudo_{lado}"]) for j in jogos
+            for lado in ("casa", "fora")])
+
+    linhas = []
+    for i, j in enumerate(jogos):
+        marcados = canais.get(j["fixture"]) if j["fixture"] in canais else None
+        linhas.append({
+            "competicao": j["liga"],
+            "casa": j["nome_casa"],
+            "fora": j["nome_fora"],
+            "escudo_casa": baixados[2 * i], "escudo_fora": baixados[2 * i + 1],
+            "hora": j["quando"].astimezone(BRT).strftime("%H:%M"),
+            "canais": (None if marcados is None
+                       else [agenda_arte.nome_de_canal(c) for c in marcados])})
+        if marcados is None:
+            avisos.append(f"{linhas[-1]['casa']} x {linhas[-1]['fora']}: "
+                          "transmissão ainda não marcada nos posts")
+    png = agenda_arte.montar({"data": _rotulo_da_data(dia), "foto": foto,
+                              "jogos": linhas})
+    return {"png": png, "texto": _legenda_da_agenda(dia, jogos, canais),
+            "primeiro": jogos[0]["quando"].astimezone(timezone.utc).isoformat(),
+            "jogos": len(jogos), "avisos": avisos}
+
+
+def _foto_para_guardar(dados: bytes) -> bytes | None:
+    """A foto que ele subiu, já no tamanho da arte e em JPEG.
+
+    Guardada assim no banco, a foto de 6 MB do celular vira ~300 KB, e a
+    agenda refeita no mesmo dia (canal marcado depois) usa a mesma foto."""
+    import io
+    try:
+        from PIL import Image
+        import agenda_arte
+        img = Image.open(io.BytesIO(dados)).convert("RGB")
+        img = agenda_arte._cobrir(img.convert("RGBA"), agenda_arte.LARGURA,
+                                  agenda_arte.ALTURA).convert("RGB")
+        saida = io.BytesIO()
+        img.save(saida, "JPEG", quality=90)
+        return saida.getvalue()
+    except Exception:
+        return None
+
+
+def _post_da_chave(chave: str) -> dict | None:
+    return next((p for p in listar_posts(limite=500)
+                 if p.get("chave_unica") == chave), None)
+
+
+@app.post("/api/agenda/gerar")
+async def api_agenda_gerar(request: Request):
+    """Gera (ou refaz) a agenda do dia e deixa o post na home.
+
+    Campos: `data` (AAAA-MM-DD; sem ela, hoje em Brasília) e `foto` (opcional).
+    Refazer no mesmo dia mantém a foto que já tinha sido enviada — é o caso
+    de marcar um canal depois e querer a arte atualizada."""
+    from datetime import date
+    from database import obter_post_arte, salvar_post_arte
+    try:
+        form = await request.form()
+    except Exception:
+        form = {}
+    texto_dia = (form.get("data") or "").strip() if hasattr(form, "get") else ""
+    try:
+        dia = date.fromisoformat(texto_dia) if texto_dia else datetime.now(BRT).date()
+    except ValueError:
+        return JSONResponse({"erro": "data inválida; use AAAA-MM-DD"}, status_code=400)
+
+    chave_foto = f"agenda-foto:{dia.isoformat()}"
+    foto = None
+    arquivo = form.get("foto") if hasattr(form, "get") else None
+    if arquivo is not None and hasattr(arquivo, "read"):
+        bruto = await arquivo.read()
+        if bruto:
+            foto = _foto_para_guardar(bruto)
+            if foto is None:
+                return JSONResponse({"erro": "não consegui abrir a foto enviada"},
+                                    status_code=400)
+            salvar_post_arte(chave_foto, foto, {"tipo": "foto da agenda"})
+    if foto is None:
+        foto = (obter_post_arte(chave_foto) or {}).get("png")
+
+    try:
+        agenda = await _montar_agenda(dia, foto)
+    except ValueError as e:
+        return JSONResponse({"erro": str(e)}, status_code=404)
+
+    chave = f"agenda:{dia.isoformat()}"
+    salvar_post_arte(chave, agenda["png"], {"data": dia.isoformat()})
+    existente = _post_da_chave(chave)
+    if existente and existente.get("status") in ("pendente", "aprovado"):
+        # Refazer é pedido explícito dele: o texto acompanha a arte nova.
+        atualizar_texto_post(existente["id"], agenda["texto"])
+        estado = "atualizado"
+    else:
+        estado = enfileirar_post("agenda", chave, agenda["texto"],
+                                 [f"arte:{chave}"], agenda["primeiro"])
+    print(f"🗓️ agenda {dia.isoformat()}: {agenda['jogos']} jogo(s), post {estado}"
+          + (f" — avisos: {'; '.join(agenda['avisos'])}" if agenda["avisos"] else ""),
+          flush=True)
+    return {"ok": True, "post": estado, "jogos": agenda["jogos"],
+            "avisos": agenda["avisos"], "ref": f"arte:{chave}"}
 
 
 def escalacao_arte_iso(emoji):

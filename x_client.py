@@ -45,11 +45,15 @@ _URL_NO_TEXTO = re.compile(r"https?://|www\.", re.I)
 # Contar errado aqui não dá aviso na tela: dá HTTP 403 do X na hora de
 # publicar, com o clipe pronto e o jogo andando.
 _FAIXAS_LEVES = ((0, 4351), (8192, 8205), (8208, 8223), (8242, 8247))
-LIMITE_X = 280
+# O LIMITE É O DA CONTA (26/10/26). Sem assinatura, o X aceita 280; com
+# Premium, até 25.000 — e a conta dele tem Premium. A legenda de escalação no
+# formato dele pesa ~450: com 280 aqui, o ✓ da home recusaria todas.
+# X_LIMITE_CARACTERES no Railway volta para 280 se a assinatura cair.
+LIMITE_X = int(os.environ.get("X_LIMITE_CARACTERES", "25000") or 25000)
 
 
 def peso_no_x(texto: str) -> int:
-    """Quantos dos 280 caracteres do X este texto ocupa."""
+    """Quantos caracteres do X este texto ocupa (emoji pesa 2)."""
     total = 0
     for ch in (texto or ""):
         c = ord(ch)
