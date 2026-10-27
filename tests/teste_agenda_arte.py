@@ -147,21 +147,44 @@ ok(sobre_claro.getpixel((150, 175)) > 240,
 ok(ag.topos_das_linhas(4) == [789, 901, 1013, 1125],
    f"com 4 jogos as linhas não caíram onde caem na arte dele: {ag.topos_das_linhas(4)}")
 ok(ag.topos_das_linhas(1) == [1125], "um jogo só não ficou no lugar da última linha")
-nove = ag.topos_das_linhas(9)
-ok(nove[0] >= ag.TOPO_MINIMO and nove[-1] == 1125
-   and all(b - a >= ag.ALT_LINHA for a, b in zip(nove, nove[1:])),
-   f"com 9 jogos as linhas subiram por cima da data ou se encavalaram: {nove}")
+ok(ag.topos_das_linhas(3) == [901, 1013, 1125],
+   "com 3 jogos as linhas não caíram onde caem na arte de 19/10")
 ok(ag.topos_das_linhas(0) == [], "sem jogo nenhum, linhas apareceram")
+ok(ag.escala_do_bloco(8) == 1.0, "com 8 jogos os quadros já saíram menores que os dele")
+
+# MAIS DE 8 JOGOS (27/10/26: saíram 11, e os quadros se encavalaram). O
+# bloco diminui por igual: cada quadro continua separado do seguinte, e
+# nenhum sobe por cima da data.
+onze = [dict(JOGOS_23_10[i % 4]) for i in range(11)]
+im11 = Image.open(io.BytesIO(ag.montar({"data": "27/10 - TERÇA", "jogos": onze}))).convert("RGB")
+quadros, dentro, y0 = [], False, 0
+e11 = ag.escala_do_bloco(11)
+x11 = round((1080 - 1080 * e11) / 2 + 386 * e11)   # junto à borda esquerda da caixa do meio
+for y in range(250, 1350):
+    c = im11.getpixel((x11, y))
+    e_quadro = ((c[1] > 200 and c[0] < 60) or all(40 <= v <= 56 for v in c[:3]))
+    if e_quadro and not dentro:
+        dentro, y0 = True, y
+    elif not e_quadro and dentro:
+        dentro = False
+        quadros.append((y0, y - 1))
+ok(len(quadros) == 11,
+   f"com 11 jogos a coluna do confronto tem {len(quadros)} quadros separados, e não 11: "
+   f"{quadros} — os quadros se encavalaram")
+ok(quadros and quadros[0][0] >= 300,
+   f"com 11 jogos o primeiro quadro subiu até y={quadros and quadros[0][0]}, por cima da data")
+ok(quadros and len({b - a for a, b in quadros}) <= 2,
+   f"com 11 jogos os quadros saíram de alturas diferentes: {quadros}")
 
 # ── O ESTADO DA TRANSMISSÃO ─────────────────────────────────────────────
 uma = lambda canais: Image.open(io.BytesIO(ag.montar({"data": "X", "jogos": [  # noqa: E731
     dict(JOGOS_23_10[0], canais=canais)]}))).convert("RGB")
-nao_marcado = uma(None)
-ok(nao_marcado.getpixel((400, 1128))[:3] == (1, 244, 104),
-   "transmissão não marcada saiu cinza, como se ele tivesse decidido que não "
-   "há transmissão. Cinza é 'sem transmissão'; não marcado é verde, 'A CONFIRMAR'")
 ok(uma([]).getpixel((400, 1128))[:3] == (48, 48, 48),
    "o jogo marcado SEM transmissão não saiu cinza")
+ok(uma(None).getpixel((400, 1128))[:3] == (48, 48, 48),
+   "jogo sem canal nenhum saiu verde; na arte dele é cinza, SEM TRANSMISSÃO")
+ok(uma(["CANAL GOAT"]).getpixel((400, 1128))[:3] == (1, 244, 104),
+   "jogo com canal não saiu verde")
 ok(ag.nome_de_canal("Canal GOAT 🐐") == "CANAL GOAT" and ag.nome_de_canal("XSports") == "XSPORTS",
    "o nome do canal não saiu como na arte: em maiúsculas e sem emoji")
 ok([t for t, _ in ag._linha_de_canais(["CANAL GOAT", "XSPORTS", "BAND"])]
@@ -239,8 +262,19 @@ RESPOSTAS = {
           _fx(6, "2026-10-24T00:30:00-03:00", "NEOM", "Al Riyadh")],
     17: [_fx(7, "2026-10-23T14:00:00-03:00", "Al-Hilal Saudi FC", "Shanghai Port")],
 }
+RESPOSTAS[17].append(_fx(8, "2026-10-23T07:00:00-03:00", "Kyoto Sanga", "Newcastle Jets"))
+RESPOSTAS[307].append(_fx(9, "2026-10-23T16:00:00-03:00", "Al-Okhdood", "Al-Fateh"))
+RESPOSTAS[307].append(_fx(10, "2026-10-23T17:00:00-03:00", "Al-Taawoun", "Al-Ettifaq"))
+# O estado de cada Bola Rolando na guia Agendamentos. Kyoto x Newcastle não
+# tem post (é o jogo da AFC sem clube saudita que entrou em 27/10); Okhdood
+# x Fateh está pendente; Taawoun x Ettifaq foi cancelado.
+ESTADOS = {"bola_rolando:1": "aprovado", "bola_rolando:2": "publicado",
+           "bola_rolando:3": "aprovado", "bola_rolando:4": "aprovado",
+           "bola_rolando:7": "aprovado", "bola_rolando:9": "pendente",
+           "bola_rolando:10": "cancelado"}
+# Ittihad x Diriyah (4) foi aprovado sem canal marcado: sem transmissão.
 CANAIS = {1: ["Canal GOAT 🐐", "XSports"], 2: ["Canal GOAT 🐐", "XSports"],
-          3: [], 4: ["Canal GOAT 🐐"]}
+          3: [], 7: ["Canal GOAT 🐐"]}
 
 
 async def _af(path, params, ttl=None):
@@ -288,7 +322,7 @@ def _enfileirar(tipo, chave, texto, imagens=None, agendado_para=None):
 guard = (main._af_get, main._season_da_liga, main.api_elencos_times, main._baixar,
          main.transmissoes, main.enfileirar_post, main.listar_posts,
          main.atualizar_texto_post, database.salvar_post_arte, database.obter_post_arte,
-         main.JSONResponse, glossario.clube)
+         main.JSONResponse, glossario.clube, main.status_das_chaves)
 
 
 class _Resp:
@@ -328,23 +362,32 @@ try:
                                               if chave in ARTES else None)
     main.JSONResponse = _Resp
     glossario.clube = _clube_no_glossario
+    main.status_das_chaves = lambda chaves: {c: ESTADOS[c] for c in chaves if c in ESTADOS}
+    LINHAS = []
+    _montar_de_verdade = ag.montar
+    ag.montar = lambda dados: LINHAS.append(dados["jogos"]) or _montar_de_verdade(dados)
 
     r = asyncio.run(main._montar_agenda(date(2026, 10, 23)))
     texto = r["texto"]
-    ok(r["jogos"] == 5,
-       f"a agenda de 23/10 saiu com {r['jogos']} jogos; eram 5: os 4 da liga e o "
-       "da AFC — sem o adiado (PST) e sem o de 00:30 do dia 24")
-    ok(texto.index("10h30") < texto.index("12h30") < texto.index("14h") < texto.index("15h"),
-       "os jogos não ficaram em ordem de horário")
-    ok("Hilal x Shanghai Port (AFC Champions League Elite)" in texto,
-       f"o jogo da AFC não saiu com o nome da competição: {texto}")
-    ok("⏰ 15h | Ahli x Khaleej\n❌ Sem transmissão" in texto,
-       "o jogo marcado sem transmissão não saiu como 'Sem transmissão'")
-    ok("⏰ 10h30 | Faisaly x Nassr\n🖥️ CANAL GOAT 🐐 e XSports" in texto,
-       f"a linha do primeiro jogo saiu diferente: {texto[:200]}")
-    ok(texto.startswith("🗓️ AGENDA | 23/10, sexta"), f"o cabeçalho saiu {texto[:40]!r}")
-    ok(any("Hilal x Shanghai Port" in a or "HILAL" in a.upper() for a in r["avisos"]),
-       "o jogo sem transmissão marcada não virou aviso")
+    linhas = LINHAS[-1] if LINHAS else []
+    confrontos = [f"{l['casa']} x {l['fora']}" for l in linhas]
+    ok(confrontos == ["Faisaly x Nassr", "Ittihad x Diriyah", "Hilal x Shanghai Port",
+                      "Qadsiah x Hilal", "Ahli x Khaleej"],
+       f"a arte de 23/10 saiu com {confrontos}; eram os 5 aprovados ou publicados na "
+       "guia Agendamentos, em ordem de horário — sem o pendente, o cancelado, o "
+       "da AFC sem post (Kyoto x Newcastle), o adiado e o de 00:30 do dia 24")
+    ok(not any("Kyoto" in c for c in confrontos),
+       "jogo da AFC sem clube saudita, sem post na guia, entrou na agenda")
+    por_conf = dict(zip(confrontos, linhas))
+    ok((por_conf.get("Ittihad x Diriyah") or {}).get("canais") == [],
+       "jogo aprovado sem canal marcado não saiu como SEM TRANSMISSÃO (cinza)")
+    ok((por_conf.get("Faisaly x Nassr") or {}).get("canais") == ["CANAL GOAT", "XSPORTS"],
+       "os canais marcados não chegaram à arte")
+    ok(texto == "🗓️🇸🇦 AGENDA DO DIA - Jogos da Saudi Pro League e da Champions Asiática do dia",
+       f"a legenda não é o texto padrão dele: {texto!r}")
+    ok(main._legenda_da_agenda([{"liga": 307, "competicao": "Liga Saudita"}] * 3)
+       == "🗓️🇸🇦 AGENDA DO DIA - Jogos da Saudi Pro League do dia",
+       "dia só de liga não saiu 'Jogos da Saudi Pro League do dia'")
     ok("https://spl/hilal.webp" in pedidos and "https://af/Al-Faisaly FC.png" in pedidos,
        "os escudos não vieram da lista do campinho, com a API-Football de reserva")
     ok("https://spl/nassr.webp" in pedidos,
@@ -367,23 +410,31 @@ try:
        and len(ARTES["agenda-foto:2026-10-23"]) < len(foto.getvalue()),
        "a foto enviada não foi guardada já no tamanho da arte")
 
-    # REFAZER NO MESMO DIA: mantém a foto e atualiza o texto.
+    # REFAZER NO MESMO DIA: mantém a foto, troca a arte e o texto.
+    arte_antes = ARTES.get("agenda:2026-10-23")
     CANAIS[3] = ["Band"]
     resp2 = asyncio.run(main.api_agenda_gerar(_Pedido({"data": "2026-10-23"})))
-    ok(resp2.get("post") == "atualizado" and "Band" in TEXTOS.get(50, ""),
-       "refazer a agenda depois de marcar um canal não atualizou o texto do post")
+    ok(resp2.get("post") == "atualizado" and TEXTOS.get(50)
+       and ARTES.get("agenda:2026-10-23") != arte_antes,
+       "refazer a agenda depois de marcar um canal não atualizou o post")
     ok("agenda-foto:2026-10-23" in ARTES,
        "refazer sem foto apagou a foto que ele tinha enviado")
 
     vazio = asyncio.run(main.api_agenda_gerar(_Pedido({"data": "2026-12-25"})))
     ok(getattr(vazio, "status_code", 200) == 404, "dia sem jogo devolveu uma agenda vazia")
+    ESTADOS.clear()
+    nada = asyncio.run(main.api_agenda_gerar(_Pedido({"data": "2026-10-23"})))
+    ok(getattr(nada, "status_code", 200) == 404
+       and "Agendamentos" in str((getattr(nada, "dados", None) or {}).get("erro")),
+       "dia sem jogo aprovado na guia gerou agenda, ou o erro não diz o que fazer")
     ruim = asyncio.run(main.api_agenda_gerar(_Pedido({"data": "ontem"})))
     ok(getattr(ruim, "status_code", 200) == 400, "data inválida foi aceita")
 finally:
     (main._af_get, main._season_da_liga, main.api_elencos_times, main._baixar,
      main.transmissoes, main.enfileirar_post, main.listar_posts,
      main.atualizar_texto_post, database.salvar_post_arte, database.obter_post_arte,
-     main.JSONResponse, glossario.clube) = guard
+     main.JSONResponse, glossario.clube, main.status_das_chaves) = guard
+    ag.montar = _montar_de_verdade
 
 # ── A HOME ──────────────────────────────────────────────────────────────
 FONTE = open(os.path.join(RAIZ, "main.py"), encoding="utf-8").read()

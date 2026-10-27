@@ -20813,24 +20813,25 @@ async def api_posts_destaque(post_id: int, request: Request):
 # agenda vira post na home, como o de escalação, com o ✓ publicando na hora.
 #
 # Os jogos são os do Bola Rolando (API-Football, por competição e data, no
-# horário de Brasília). Os canais são os que ele marca nos posts — a mesma
-# tabela. Os escudos, os da lista de clubes do campinho; clube de fora da
+# horário de Brasília) — e só os que ele aprovou ou já publicou na guia
+# Agendamentos. Os canais são os que ele marca nos posts — a mesma tabela;
+# aprovado sem canal é "sem transmissão", linha cinza. Os escudos, os da lista de clubes do campinho; clube de fora da
 # liga (adversário da AFC) cai no escudo da API-Football.
 
 _DIAS_DA_SEMANA = ("SEGUNDA", "TERÇA", "QUARTA", "QUINTA", "SEXTA", "SÁBADO",
                    "DOMINGO")
 _STATUS_FORA_DA_AGENDA = {"PST", "CANC", "ABD", "AWD", "WO"}
+# O estado do post de Bola Rolando que põe o jogo na agenda.
+_STATUS_NA_AGENDA = {"aprovado", "publicado"}
+# O nome de cada competição na legenda, como ele escreve.
+_COMPETICAO_NA_LEGENDA = {307: "Saudi Pro League", 504: "Copa do Rei",
+                          826: "Supercopa Saudita", 17: "Champions Asiática",
+                          18: "Champions Asiática 2"}
 
 
 def _rotulo_da_data(dia) -> str:
     """'23/10 - SEXTA'."""
     return f"{dia:%d/%m} - {_DIAS_DA_SEMANA[dia.weekday()]}"
-
-
-def _hora_curta(quando) -> str:
-    """'10h30' ou '15h', em Brasília — o jeito da legenda."""
-    local = quando.astimezone(BRT)
-    return f"{local.hour}h" + (f"{local.minute:02d}" if local.minute else "")
 
 
 async def _jogos_da_agenda(dia) -> tuple:
@@ -20864,28 +20865,36 @@ async def _jogos_da_agenda(dia) -> tuple:
                           "competicao": nome_comp, "quando": quando,
                           "casa": times.get("home") or {},
                           "fora": times.get("away") or {}})
-    jogos.sort(key=lambda j: (j["quando"], j["liga"]))
-    return jogos, avisos
+
+    # SÓ O QUE ELE CONFIRMOU NA GUIA AGENDAMENTOS (27/10/26).
+    #
+    # "Jogo não marcado/publicado na guia agendamento, não entra na arte."
+    # A primeira versão punha tudo o que a API-Football tinha no dia: em
+    # 27/10 foram 11 jogos, quase todos da AFC sem clube saudita (Kyoto x
+    # Newcastle, Beijing x Jeonbuk…), e os quadros se espremeram. O post de
+    # Bola Rolando aprovado (sai no apito) ou já publicado é a marca de que
+    # o jogo é do canal; pendente, cancelado ou sem post fica de fora.
+    estados = status_das_chaves([pg.chave_do_jogo(j["fixture"]) for j in jogos])
+    confirmados = [j for j in jogos
+                   if estados.get(pg.chave_do_jogo(j["fixture"])) in _STATUS_NA_AGENDA]
+    confirmados.sort(key=lambda j: (j["quando"], j["liga"]))
+    return confirmados, avisos
 
 
-def _legenda_da_agenda(dia, jogos: list, canais: dict) -> str:
-    """O texto do post da agenda: um bloco por jogo, horário e transmissão."""
-    blocos = [f"🗓️ AGENDA | {dia:%d/%m}, {_DIAS_DA_SEMANA[dia.weekday()].lower()}"]
+def _legenda_da_agenda(jogos: list) -> str:
+    """O texto padrão dele (27/10/26): uma linha só, sem jogo por jogo.
+
+    "🗓️🇸🇦 AGENDA DO DIA - Jogos da Saudi Pro League do dia" — com a
+    competição (ou as competições) dos jogos que estão na arte."""
+    nomes = []
     for j in jogos:
-        confronto = (f"{j.get('nome_casa') or _time_curto(j['casa'].get('name') or '')} x "
-                     f"{j.get('nome_fora') or _time_curto(j['fora'].get('name') or '')}")
-        if j["liga"] != 307:
-            confronto += f" ({j['competicao']})"
-        marcados = canais.get(j["fixture"]) if j["fixture"] in canais else None
-        if marcados is None:
-            linha_tv = "🖥️ Transmissão a confirmar"
-        elif not marcados:
-            linha_tv = "❌ Sem transmissão"
-        else:
-            linha_tv = "🖥️ " + _lista_em_portugues(
-                [_CANAL_NA_LEGENDA.get(c, c) for c in marcados])
-        blocos.append(f"⏰ {_hora_curta(j['quando'])} | {confronto}\n{linha_tv}")
-    return "\n\n".join(blocos)
+        nome = _COMPETICAO_NA_LEGENDA.get(j["liga"]) or j.get("competicao") or ""
+        if nome and nome not in nomes:
+            nomes.append(nome)
+    if not nomes:
+        return "🗓️🇸🇦 AGENDA DO DIA"
+    competicoes = _lista_em_portugues([f"da {n}" for n in nomes])
+    return f"🗓️🇸🇦 AGENDA DO DIA - Jogos {competicoes} do dia"
 
 
 async def _montar_agenda(dia, foto: bytes | None = None) -> dict:
@@ -20895,7 +20904,8 @@ async def _montar_agenda(dia, foto: bytes | None = None) -> dict:
     import glossario
     jogos, avisos = await _jogos_da_agenda(dia)
     if not jogos:
-        raise ValueError(f"nenhum jogo em {dia:%d/%m}" +
+        raise ValueError(f"nenhum jogo aprovado ou publicado na guia Agendamentos "
+                         f"em {dia:%d/%m}" +
                          (f" ({'; '.join(avisos)})" if avisos else ""))
     try:
         canais = transmissoes([j["fixture"] for j in jogos if j["fixture"]]) or {}
@@ -20938,21 +20948,20 @@ async def _montar_agenda(dia, foto: bytes | None = None) -> dict:
 
     linhas = []
     for i, j in enumerate(jogos):
-        marcados = canais.get(j["fixture"]) if j["fixture"] in canais else None
+        # Aprovado sem canal marcado é jogo SEM transmissão: linha cinza, como
+        # na arte dele. Não existe mais "a confirmar" — o que não foi
+        # confirmado nem entrou na agenda.
+        marcados = canais.get(j["fixture"]) or []
         linhas.append({
             "competicao": j["liga"],
             "casa": j["nome_casa"],
             "fora": j["nome_fora"],
             "escudo_casa": baixados[2 * i], "escudo_fora": baixados[2 * i + 1],
             "hora": j["quando"].astimezone(BRT).strftime("%H:%M"),
-            "canais": (None if marcados is None
-                       else [agenda_arte.nome_de_canal(c) for c in marcados])})
-        if marcados is None:
-            avisos.append(f"{linhas[-1]['casa']} x {linhas[-1]['fora']}: "
-                          "transmissão ainda não marcada nos posts")
+            "canais": [agenda_arte.nome_de_canal(c) for c in marcados]})
     png = agenda_arte.montar({"data": _rotulo_da_data(dia), "foto": foto,
                               "jogos": linhas})
-    return {"png": png, "texto": _legenda_da_agenda(dia, jogos, canais),
+    return {"png": png, "texto": _legenda_da_agenda(jogos),
             "primeiro": jogos[0]["quando"].astimezone(timezone.utc).isoformat(),
             "jogos": len(jogos), "avisos": avisos}
 

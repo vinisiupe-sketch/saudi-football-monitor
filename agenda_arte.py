@@ -52,7 +52,7 @@ CAIXA_HORA = (903, 130)
 ALT_LINHA = 100
 PASSO = 112                    # 100 da linha + 12 de intervalo
 TOPO_ULTIMA = 1125             # a última linha fica sempre no mesmo lugar
-TOPO_MINIMO = 310   # a data acaba em y=291; 9 jogos (rodada final, todos juntos) ainda cabem sem encavalar
+TOPO_MINIMO = 322              # a data acaba em y=291; daqui para cima não sobe linha
 
 # Dentro da linha, medido a partir do topo dela.
 BASE_CONFRONTO = 49            # tinta de 28 a 48
@@ -222,15 +222,24 @@ def nome_de_canal(canal: str) -> str:
 
 
 def topos_das_linhas(n: int) -> list:
-    """Os topos das linhas, de cima para baixo, com a última sempre no mesmo
-    lugar. Até 8 jogos cabem no passo da arte dele; mais que isso, o passo
-    encolhe — a agenda não pode subir por cima da data."""
+    """Os topos das linhas na MEDIDA DA ARTE DELE, de cima para baixo, com a
+    última sempre em y=1125. Linha de 100 e intervalo de 12, sempre."""
     if n <= 0:
         return []
-    passo = PASSO
-    if n > 1 and TOPO_ULTIMA - (n - 1) * passo < TOPO_MINIMO:
-        passo = (TOPO_ULTIMA - TOPO_MINIMO) / (n - 1)
-    return [round(TOPO_ULTIMA - (n - 1 - i) * passo) for i in range(n)]
+    return [TOPO_ULTIMA - (n - 1 - i) * PASSO for i in range(n)]
+
+
+def escala_do_bloco(n: int) -> float:
+    """1.0 até 8 jogos. Mais que isso, o bloco inteiro diminui POR IGUAL
+    (quadros, intervalos, textos e escudos) para caber entre a data e o pé.
+
+    A primeira versão apertava só o intervalo, e com 11 jogos (27/10/26) os
+    quadros se encavalaram: 100 px de quadro num passo de 81."""
+    if n <= 0:
+        return 1.0
+    altura = n * PASSO - (PASSO - ALT_LINHA)
+    cabe = TOPO_ULTIMA + ALT_LINHA - TOPO_MINIMO
+    return min(1.0, cabe / altura)
 
 
 def montar(dados: dict) -> bytes:
@@ -241,8 +250,9 @@ def montar(dados: dict) -> bytes:
                         "escudo_casa": bytes, "escudo_fora": bytes,
                         "hora": "10:30", "canais": ["CANAL GOAT", "XSPORTS"]}]}
 
-    `canais`: lista com nomes = linha verde; [] = SEM TRANSMISSÃO, linha
-    cinza; None = ainda não marcado, linha verde com A CONFIRMAR.
+    `canais`: lista com nomes = linha verde; vazia (ou None) = SEM
+    TRANSMISSÃO, linha cinza. Jogo não confirmado na guia Agendamentos nem
+    chega aqui (27/10/26).
     """
     from PIL import Image, ImageDraw
 
@@ -273,14 +283,43 @@ def montar(dados: dict) -> bytes:
 
     # ── AS LINHAS ────────────────────────────────────────────────────────
     jogos = list(dados.get("jogos") or [])
+    # As linhas vão para uma camada própria, na medida exata da arte dele.
+    # Até 8 jogos a camada é colada como está; com mais, ela é reduzida por
+    # igual e encostada no pé, centrada.
+    escala = escala_do_bloco(len(jogos))
+    topos = topos_das_linhas(len(jogos))
+    desloc = max(0, -topos[0]) if topos else 0   # muitos jogos: topo acima de 0
+    camada = Image.new("RGBA", (LARGURA, ALTURA + desloc), (0, 0, 0, 0))
+    _desenhar_linhas(camada, jogos, desloc)
+    if escala >= 1.0:
+        base.alpha_composite(camada)
+    else:
+        fundo_bloco = TOPO_ULTIMA + ALT_LINHA
+        bloco = camada.crop((0, topos[0] + desloc, LARGURA, fundo_bloco + desloc))
+        bloco = bloco.resize((round(LARGURA * escala),
+                              round(bloco.height * escala)), _lanczos())
+        base.alpha_composite(bloco, ((LARGURA - bloco.width) // 2,
+                                     fundo_bloco - bloco.height))
+
+    saida = io.BytesIO()
+    base.convert("RGB").save(saida, "PNG")
+    return saida.getvalue()
+
+
+def _desenhar_linhas(base, jogos: list, desloc: int = 0) -> None:
+    """As linhas dos jogos, na medida da arte dele, `desloc` px abaixo do
+    lugar normal (com muitos jogos o topo de cima ficaria acima de y=0)."""
+    from PIL import ImageDraw
+    d = ImageDraw.Draw(base)
     f_conf = _fonte(FONTE_FORTE, CONFRONTO[0])
     f_hora = _fonte(FONTE_FORTE, HORA[0])
     f_can_forte = _fonte(FONTE_FORTE, CANAIS[0])
     f_can_leve = _fonte(FONTE_LEVE, CANAIS[0])
 
     for topo, jogo in zip(topos_das_linhas(len(jogos)), jogos):
+        topo += desloc
         canais = jogo.get("canais")
-        sem = canais is not None and len(canais) == 0
+        sem = not canais
         fundo = CINZA if sem else VERDE
         tinta = APAGADO if sem else PRETO
         for x, larg in (CAIXA_LOGO, CAIXA_ESCUDOS, CAIXA_CONFRONTO, CAIXA_HORA):
@@ -306,9 +345,7 @@ def montar(dados: dict) -> bytes:
                            CENTRO_TEXTO_X, topo + BASE_CONFRONTO, tinta,
                            limite=CAIXA_CONFRONTO[1] - 40)
 
-        if canais is None:
-            pedacos = [("A CONFIRMAR", f_can_leve)]
-        elif sem:
+        if sem:
             pedacos = [("SEM TRANSMISSÃO", f_can_leve)]
         else:
             pedacos = [(t, f_can_forte if forte else f_can_leve)
@@ -320,7 +357,3 @@ def montar(dados: dict) -> bytes:
         _escrever_centrado(base, [(jogo.get("hora") or "", f_hora)], HORA[1],
                            CAIXA_HORA[0] + CAIXA_HORA[1] / 2,
                            topo + BASE_HORA, tinta)
-
-    saida = io.BytesIO()
-    base.convert("RGB").save(saida, "PNG")
-    return saida.getvalue()
