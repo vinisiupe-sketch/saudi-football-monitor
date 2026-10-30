@@ -89,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-09-08a"
+VERSAO = "2026-10-30a"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
