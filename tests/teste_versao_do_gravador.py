@@ -27,6 +27,7 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # versão → impressão digital do gravador.py daquela versão.
 REGISTRO = {
     "2026-10-30a": "8376fc9bf86750e0956de0512de28bffed64236be7fe26cc13b1e35dec8a5525",
+    "2026-10-30b": "9f9e65ed2af32bdfd8dd73aac53709b049608c60de84a4ae806ea2258e16650c",
 }
 
 falhas = []

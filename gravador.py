@@ -89,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-10-30a"
+VERSAO = "2026-10-30b"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
@@ -687,9 +687,14 @@ class Gravador:
         return [], motivo[:300]
 
     def comecar_pedaco(self, jogo: Jogo) -> bool:
-        fluxos = self._urls_do_fluxo(jogo.url)
+        # A função devolve (endereços, motivo) desde 16/10 — e esta linha
+        # continuava lendo só a lista. A tupla inteira ia parar no comando do
+        # ffmpeg e o gravador caía com "expected str ... not list" ao começar
+        # a gravar (30/10/26, na primeira vez que esta versão rodou na máquina).
+        fluxos, motivo = self._urls_do_fluxo(jogo.url)
         if not fluxos:
-            diz(f"    [{jogo.nome()[:30]}] não consegui o fluxo. Ainda está no ar?")
+            diz(f"    [{jogo.nome()[:30]}] não consegui o fluxo: "
+                f"{motivo or 'o yt-dlp não devolveu endereço nenhum'}")
             return False
         os.makedirs(GRAVACOES, exist_ok=True)
         agora = datetime.now(timezone.utc)
