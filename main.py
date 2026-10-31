@@ -10332,7 +10332,7 @@ CHAVE_GRAVADOR = "clipe_gravador"
 # Sem isso, um gravador antigo rodando na memória entrega clipes com defeitos
 # já corrigidos, e nada na tela denuncia. Aconteceu: três horas de clipes com
 # o áudio adiantado depois de o defeito estar consertado no arquivo.
-VERSAO_GRAVADOR = "2026-10-30b"
+VERSAO_GRAVADOR = "2026-10-31a"
 
 
 def _gravador_estado() -> dict:

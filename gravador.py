@@ -89,7 +89,7 @@ ESPERA_MAX_SEG = 90             # até quando espero o fim da janela ser gravado
 # janela do gravador continuava rodando o código carregado na memória desde
 # antes. Editar arquivo não muda processo que já está de pé, e não havia nada
 # na tela que denunciasse isso.
-VERSAO = "2026-10-30b"
+VERSAO = "2026-10-31a"
 
 
 # Os ajustes que o app manda. Ficam aqui os PADRÕES, usados enquanto a
@@ -105,7 +105,16 @@ AJUSTES = {
     "gravador_horas_gravacao": 12,
     "gravador_placar_ativo": "ligado",
     "gravador_atraso_placar_seg": 8,
+    # O vigia da gravação travada (31/10/26) — ver vigiar_gravacoes().
+    "gravador_parado_seg": 45,
+    "gravador_atraso_max_seg": 90,
 }
+
+# De quanto em quanto tempo o vigia mede o atraso com o ffprobe (que lê o
+# arquivo inteiro), e quanto um pedaço novo tem de idade antes da primeira
+# medida — no começo, o tempo de conectar já aparece como "atraso".
+VIGIA_MEDIDA_SEG = 60
+VIGIA_CARENCIA_SEG = 120
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -438,6 +447,11 @@ class Gravacao:
         self.caminho, self.inicio, self.processo = caminho, inicio, processo
         self.fim: datetime | None = None
         self.conferida = False       # já medi a distância entre som e imagem?
+        # Para o vigia: o tamanho do arquivo da última olhada, quando ele
+        # cresceu pela última vez, e quando medi o atraso pela última vez.
+        self.tamanho = -1
+        self.cresceu_em = time.time()
+        self.medido_em = 0.0
 
     def vivo(self) -> bool:
         return self.processo is not None and self.processo.poll() is None
@@ -763,7 +777,9 @@ class Gravador:
                         "então o corte já sai casado.")
 
     def cuidar_das_gravacoes(self) -> None:
-        """Se o ffmpeg de algum jogo morreu, fecha o pedaço e começa outro."""
+        """Se o ffmpeg de algum jogo morreu — ou travou —, fecha o pedaço e
+        começa outro."""
+        self.vigiar_gravacoes()
         for jogo in self.jogos.values():
             if jogo.gravando():
                 continue
@@ -776,6 +792,72 @@ class Gravador:
                         "Recomeçando em outro arquivo.")
                     diz("    !! o trecho até religar está perdido.")
             self.comecar_pedaco(jogo)
+
+    def vigiar_gravacoes(self) -> None:
+        """Encerra o ffmpeg que está VIVO MAS NÃO GRAVA.
+
+        O DEFEITO (31/10/26)
+            Al Hilal x Al Fateh: três clipes seguidos com "a gravação está
+            382s / 412s / 437s atrás do relógio". O atraso crescia junto com o
+            relógio — o arquivo tinha parado. O ffmpeg continuava de pé
+            (provavelmente esperando uma das duas entradas, som ou imagem, que
+            deixou de chegar), e o gravador só recomeçava a gravação quando o
+            processo MORRIA. Vivo e parado, ninguém percebia, e todo clipe
+            daquele jogo caía no mesmo buraco até o fim — enquanto o outro
+            jogo da tarde ia bem. É o mesmo "261 bytes" de setembro e outubro:
+            antes o corte saía vazio, agora a guarda diz o motivo.
+
+        DOIS SINAIS, os dois medidos no arquivo:
+          • o arquivo não cresce há `gravador_parado_seg` — travou de vez;
+          • o vídeo do arquivo está mais de `gravador_atraso_max_seg` atrás do
+            relógio — ainda pinga, mas não acompanha o ao vivo.
+        Em qualquer um, mato o ffmpeg; o laço de baixo vê o pedaço morto e
+        abre outro, que entra na ponta ao vivo. O trecho travado está perdido
+        de qualquer jeito; o que importa é o PRÓXIMO gol sair.
+        """
+        agora = time.time()
+        for jogo in self.jogos.values():
+            if not jogo.gravando():
+                continue
+            pedaco = jogo.pedacos[-1]
+            try:
+                tamanho = os.path.getsize(pedaco.caminho)
+            except OSError:
+                tamanho = 0
+            if tamanho > pedaco.tamanho:
+                pedaco.tamanho, pedaco.cresceu_em = tamanho, agora
+            motivo = ""
+            parado = agora - pedaco.cresceu_em
+            if parado >= float(AJUSTES.get("gravador_parado_seg", 45)):
+                motivo = f"o arquivo não cresce há {parado:.0f}s"
+            else:
+                idade = (datetime.now(timezone.utc) - pedaco.inicio).total_seconds()
+                if (idade >= VIGIA_CARENCIA_SEG
+                        and agora - pedaco.medido_em >= VIGIA_MEDIDA_SEG):
+                    pedaco.medido_em = agora
+                    real = self._gravado_de_verdade(pedaco.caminho)
+                    if real is not None:
+                        atraso = idade - real
+                        if atraso > float(AJUSTES.get("gravador_atraso_max_seg", 90)):
+                            motivo = (f"o vídeo do arquivo está {atraso:.0f}s atrás "
+                                      "do relógio")
+            if not motivo:
+                continue
+            diz("")
+            diz(f"    !! [{jogo.nome()[:30]}] a gravação travou: {motivo}. "
+                "Recomeçando na ponta ao vivo.", erro=True)
+            try:
+                pedaco.processo.terminate()
+                pedaco.processo.wait(timeout=10)
+            except Exception:
+                try:
+                    pedaco.processo.kill()
+                except Exception:
+                    pass
+            # Fecho o pedaço AQUI, com a hora de agora: assim o laço de
+            # cuidar_das_gravacoes não repete o aviso de "a gravação caiu", e
+            # é ele que abre o arquivo novo — uma tentativa só por volta.
+            pedaco.fim = datetime.now(timezone.utc)
 
     def parar_jogo(self, jogo: Jogo) -> None:
         for p in jogo.pedacos:

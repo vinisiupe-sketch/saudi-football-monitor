@@ -28,6 +28,7 @@ RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REGISTRO = {
     "2026-10-30a": "8376fc9bf86750e0956de0512de28bffed64236be7fe26cc13b1e35dec8a5525",
     "2026-10-30b": "9f9e65ed2af32bdfd8dd73aac53709b049608c60de84a4ae806ea2258e16650c",
+    "2026-10-31a": "aefb2570f887a2bfcc0bd3628987e2e4b891ec8542941e09e32527ba33a79be6",
 }
 
 falhas = []
