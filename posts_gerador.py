@@ -118,7 +118,10 @@ COMPETICOES = {
 
 # Opções de transmissão que o canal usa. A ordem aqui é a ordem no post.
 TRANSMISSOES = ["Canal GOAT 🐐", "Band", "BandSports", "XSports",
-                "Sportv", "Sportv 2", "Sportv 3", "Sportv 4"]
+                "Sportv", "Sportv 2", "Sportv 3", "Sportv 4",
+                # 03/11/26, a pedido. "ESPN" está contido em "ESPN 2": como no
+                # Sportv, a leitura casa pelo nome inteiro (canais_da_linha).
+                "ESPN", "ESPN 2", "ESPN 3", "ESPN 4", "Disney+"]
 
 
 def linha_transmissao(canais: list[str] | None) -> str:

@@ -60,9 +60,10 @@ def testar():
              ["Band"])
 
     # ------------------------------------------------ canal inventado
-    # Nome que não está na lista é ignorado, não vira canal novo.
+    # Nome que não está na lista é ignorado, não vira canal novo. (Até
+    # 03/11/26 o exemplo era a ESPN — que passou a ser opção.)
     conferir("canal fora da lista",
-             pg.canais_da_linha(_post("🖥️ Band e ESPN")), ["Band"])
+             pg.canais_da_linha(_post("🖥️ Band e Canal Inventado")), ["Band"])
 
     # ------------------------------------------------ chave do jogo
     conferir("chave ida e volta", pg.jogo_da_chave(pg.chave_do_jogo(12345)), 12345)
@@ -77,6 +78,15 @@ def testar():
     fora_de_ordem = pg.linha_transmissao(["Sportv", "Band"])
     conferir("ordem canônica", pg.canais_da_linha(_post(fora_de_ordem)),
              ["Band", "Sportv"])
+
+    # ESPN E DISNEY+ (03/11/26). "ESPN" está dentro de "ESPN 2", como o
+    # Sportv no 2: marcar um não pode acender o outro.
+    for canais in (["ESPN"], ["ESPN 2"], ["ESPN 3"], ["ESPN 4"], ["Disney+"],
+                   ["Canal GOAT 🐐", "ESPN", "Disney+"]):
+        conferir(f"opção {canais}", pg.canais_da_linha(_post(pg.linha_transmissao(canais))),
+                 canais)
+    import agenda_arte
+    conferir("Disney+ na arte da agenda", agenda_arte.nome_de_canal("Disney+"), "DISNEY+")
 
     if falhas:
         for f in falhas:

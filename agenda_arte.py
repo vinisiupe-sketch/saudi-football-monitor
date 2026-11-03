@@ -216,8 +216,10 @@ def _linha_de_canais(canais):
 
 
 def nome_de_canal(canal: str) -> str:
-    """'Canal GOAT 🐐' → 'CANAL GOAT': sem emoji, em maiúsculas."""
-    limpo = "".join(c for c in (canal or "") if c.isalnum() or c in " -")
+    """'Canal GOAT 🐐' → 'CANAL GOAT': sem emoji, em maiúsculas.
+
+    O '+' fica: sem ele o Disney+ sairia "DISNEY" na arte (03/11/26)."""
+    limpo = "".join(c for c in (canal or "") if c.isalnum() or c in " -+")
     return " ".join(limpo.split()).upper()
 
 
